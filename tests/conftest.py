@@ -14,7 +14,9 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db.models import Base
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -41,6 +43,23 @@ def db_engine() -> Iterator[Engine]:
 
     yield engine
     engine.dispose()
+
+
+@pytest.fixture
+def committing_db(db_engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Sessions on independent connections that really commit.
+
+    Needed for concurrency tests: ``SELECT ... FOR UPDATE SKIP LOCKED`` only has
+    observable behaviour across separate connections, so the rollback-wrapped
+    ``db`` fixture cannot exercise it. Tables are truncated afterwards.
+    """
+    factory = sessionmaker(bind=db_engine, expire_on_commit=False, future=True)
+    yield factory
+    with db_engine.begin() as conn:
+        tables = ", ".join(
+            f'"{name}"' for name in Base.metadata.tables if name != "alembic_version"
+        )
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
