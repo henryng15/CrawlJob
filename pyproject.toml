@@ -84,7 +84,9 @@ known-first-party = ["app", "browser", "tests"]
 # These files deliberately contain smart quotes and dashes: the point is to
 # normalise them, which requires writing them down.
 "app/services/sponsorship.py" = ["RUF001"]
+"app/services/hooks.py" = ["RUF001"]
 "tests/unit/test_sponsorship.py" = ["RUF001"]
+"tests/unit/test_gmail_and_hooks.py" = ["RUF001"]
 
 # ---------------------------------------------------------------- mypy
 
