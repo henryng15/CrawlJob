@@ -81,6 +81,10 @@ known-first-party = ["app"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106"]  # hardcoded test credentials are fine in fixtures
+# These files deliberately contain smart quotes and dashes: the point is to
+# normalise them, which requires writing them down.
+"app/services/sponsorship.py" = ["RUF001"]
+"tests/unit/test_sponsorship.py" = ["RUF001"]
 
 # ---------------------------------------------------------------- mypy
 
