@@ -1,0 +1,44 @@
+# 21. Configuration
+
+Example `.env.example`:
+
+```dotenv
+APP_ENV=production
+APP_TIMEZONE=America/New_York
+APP_BASE_URL=https://internship-ops.example-tailnet.ts.net
+APP_SECRET_KEY=
+APP_ENCRYPTION_KEY=
+
+DATABASE_URL=postgresql+psycopg://internship_ops:password@postgres:5432/internship_ops
+
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=
+LLM_CLASSIFICATION_MODEL=claude-haiku-4-5
+LLM_WRITING_MODEL=claude-sonnet-4-6
+LLM_MONTHLY_BUDGET_USD=15
+
+GMAIL_CREDENTIALS_PATH=/app/secrets/gmail_client.json
+GMAIL_TOKEN_PATH=/app/secrets/gmail_token.enc
+GMAIL_DRAFT_ONLY=true
+
+MAX_PREPARED_APPLICATIONS_PER_DAY=10
+MAX_BROWSER_WORKERS=2
+MAX_LIVE_SESSIONS=2
+LIVE_SESSION_TTL_HOURS=8
+
+OUTREACH_INITIAL_DAILY_LIMIT=3
+OUTREACH_MAX_DAILY_LIMIT=5
+OUTREACH_DELAY_BUSINESS_DAYS=2
+OUTREACH_MAX_PER_COMPANY_30D=2
+OUTREACH_MAX_FOLLOWUPS=1
+
+PUBLIC_JOB_SCRAPING_ENABLED=false
+LINKEDIN_AUTOMATION_ENABLED=false
+AUTO_SUBMIT_ENABLED=false
+AUTO_SEND_EMAIL_ENABLED=false
+CAPTCHA_BYPASS_ENABLED=false
+```
+
+The final four flags must be hard-failed if set to true in production.
+
+---

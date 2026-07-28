@@ -1,0 +1,109 @@
+[project]
+name = "internship-ops"
+version = "0.1.0"
+description = "Private human-in-the-loop SWE internship application and recruiter outreach system"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.20",
+    "itsdangerous>=2.2",
+    "argon2-cffi>=23.1",
+    "httpx>=0.28",
+    "structlog>=24.4",
+    "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.40"]
+browser = ["playwright>=1.49"]
+resume = ["weasyprint>=63"]
+gmail = [
+    "google-api-python-client>=2.150",
+    "google-auth-oauthlib>=1.2",
+]
+recruiters = ["openpyxl>=3.1"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-python-dateutil>=2.9",
+]
+
+[project.scripts]
+internship-ops = "app.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# ---------------------------------------------------------------- ruff
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "B",         # bugbear
+    "UP",        # pyupgrade
+    "SIM",       # simplify
+    "RUF",       # ruff-specific
+    "ASYNC",     # async correctness
+    "S",         # bandit (security)
+]
+ignore = [
+    "S101",  # assert: the spec mandates asserts as safety guards (§29)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]  # hardcoded test credentials are fine in fixtures
+
+# ---------------------------------------------------------------- mypy
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------- pytest
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "db: requires a live PostgreSQL database",
+    "browser: requires a running browser slot",
+    "network: performs outbound network calls",
+]
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/db/migrations/*"]

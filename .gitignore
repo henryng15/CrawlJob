@@ -1,0 +1,46 @@
+# ---- secrets: never commit (AGENTS.md hard rule) --------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+**/gmail_client.json
+**/gmail_token*
+**/oci_api_key*
+
+# ---- terraform ------------------------------------------------------------
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+tfplan
+
+# ---- runtime data ---------------------------------------------------------
+/data/
+artifacts/
+browser-profiles/
+browser-sessions/
+backups/
+logs/
+*.log
+
+# ---- python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- editors / os ---------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
