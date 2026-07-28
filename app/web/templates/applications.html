@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Applications{% endblock %}
+{% block content %}
+<h1>Applications</h1>
+{{ m.apps_table(rows, "No applications yet.") }}
+{% endblock %}

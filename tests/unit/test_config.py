@@ -26,6 +26,8 @@ PROD: dict[str, Any] = {
     "app_base_url": "https://internship-ops.example.ts.net",
     "app_secret_key": "a-real-secret",
     "app_encryption_key": "a-real-key",
+    "admin_password_hash": "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaGhhc2g",
+    "session_cookie_secure": True,
 }
 
 
@@ -136,6 +138,21 @@ class TestProductionHardening:
     def test_anthropic_provider_with_key_is_valid(self):
         s = build(**{**PROD, "llm_provider": "anthropic", "anthropic_api_key": "sk-ant-x"})
         assert s.llm_provider == "anthropic"
+
+    def test_production_requires_an_admin_password(self):
+        """An instance with no password would be open to anyone on the tailnet."""
+        with pytest.raises(ValidationError, match="admin_password_hash"):
+            build(**{**PROD, "admin_password_hash": ""})
+
+    def test_production_requires_a_secure_cookie(self):
+        """Production is HTTPS-only; a cookie without Secure can leak over any
+        plaintext path an attacker manages to force."""
+        with pytest.raises(ValidationError, match="session_cookie_secure"):
+            build(**{**PROD, "session_cookie_secure": False})
+
+    def test_development_needs_neither(self):
+        """Requiring a password hash locally would make first run impossible."""
+        assert build(app_env="development").admin_password_hash == ""
 
     def test_secrets_are_not_leaked_by_repr(self):
         """Secrets must not reach logs or error reports (§23.5)."""

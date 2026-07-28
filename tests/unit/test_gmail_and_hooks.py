@@ -85,11 +85,33 @@ class TestContentRules:
             ("subject", '<img src="x" width="1" height="1">', "tracking pixel"),
             ("subject", '<div style="display:none">hi</div>', "hidden content"),
             ("subject", "See https://acme.com?utm_source=cold", "campaign tracking"),
+            ("Hi {{first_name}}", "body", "unrendered placeholder"),
+            ("subject", "Hi <<name>>, I applied", "unrendered placeholder"),
+            ("subject", "Hi [[company]], I applied", "unrendered placeholder"),
+            ("subject", "{% if x %}hello{% endif %}", "unrendered placeholder"),
         ],
     )
     def test_violations_are_reported(self, subject, body, fragment):
         problems = validate_content(subject, body)
         assert any(fragment in p for p in problems), problems
+
+    def test_the_placeholder_check_names_what_it_found(self):
+        """The user has to fix it; "invalid" would not tell them where."""
+        problems = validate_content("Hi {{first_name}}", "body")
+        assert "'{{first_name}}'" in problems[0]
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "I loved your team's work on {ledger}, a single brace is prose.",
+            "Salary expectations: $70k-$80k [negotiable]",
+            "Your talk << my expectations, honestly.",
+        ],
+    )
+    def test_ordinary_punctuation_is_not_a_placeholder(self, body):
+        """A false positive here blocks a legitimate email, so the pattern must
+        require the doubled delimiters a template engine actually emits."""
+        assert validate_content("Following up", body) == []
 
     def test_a_draft_with_a_tracking_pixel_is_refused(self):
         """§8.3: no tracking pixel. A personal email that phones home is not one."""

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Jobs{% endblock %}
+{% block content %}
+<h1>Jobs</h1>
+<form method="get" class="panel" style="display:flex; gap:.75rem; align-items:end">
+  <label style="flex:1">Status
+    <select name="status" onchange="this.form.submit()">
+      <option value="">any</option>
+      {% for s in statuses %}
+        <option value="{{ s }}" {{ 'selected' if s == selected_status }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label style="flex:2">Search
+    <input name="q" value="{{ query or '' }}" placeholder="title or company">
+  </label>
+  <button class="primary">Filter</button>
+</form>
+{{ m.jobs_table(rows, "No jobs match.") }}
+{% endblock %}

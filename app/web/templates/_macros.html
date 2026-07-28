@@ -1,0 +1,72 @@
+{# Shared table fragments. Imported rather than defined inline so the ordering
+   rules for macros inside an {% extends %} child never come up. #}
+
+{% macro sponsorship_tag(classification) %}
+  {% if classification %}
+    {% if "NO_SPONSORSHIP" in classification %}{% set kind = "bad" %}
+    {% elif "AMBIGUOUS" in classification or "CITIZEN" in classification
+            or "CLEARANCE" in classification %}{% set kind = "warn" %}
+    {% else %}{% set kind = "good" %}{% endif %}
+    <span class="tag {{ kind }}">{{ classification }}</span>
+  {% else %}<span class="muted">—</span>{% endif %}
+{% endmacro %}
+
+{% macro jobs_table(rows, empty) %}
+  {% if rows %}
+    <div class="panel table-wrap"><table>
+      <tr><th>Company</th><th>Role</th><th>Location</th><th>Score</th><th>Sponsorship</th><th>Status</th><th></th></tr>
+      {% for j in rows %}
+      <tr>
+        <td>{{ j.company }}</td>
+        <td>{{ j.title }}</td>
+        <td>{{ j.location or "—" }}</td>
+        <td>{{ "%.0f" % j.score if j.score is not none else "—" }}</td>
+        <td>{{ sponsorship_tag(j.sponsorship) }}</td>
+        <td><span class="tag">{{ j.status }}</span></td>
+        <td><a href="/jobs/{{ j.id }}">Review</a></td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="empty">{{ empty }}</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro apps_table(rows, empty) %}
+  {% if rows %}
+    <div class="panel table-wrap"><table>
+      <tr><th>Company</th><th>Role</th><th>Status</th><th>Manual fields</th><th></th></tr>
+      {% for a in rows %}
+      <tr>
+        <td>{{ a.company }}</td>
+        <td>{{ a.job_title }}</td>
+        <td><span class="tag {{ 'warn' if a.needs_a_person else '' }}">{{ a.status }}</span></td>
+        <td>{{ a.unresolved_fields or "—" }}</td>
+        <td><a href="/applications/{{ a.id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="empty">{{ empty }}</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro outreach_table(rows, empty) %}
+  {% if rows %}
+    <div class="panel table-wrap"><table>
+      <tr><th>Due</th><th>Company</th><th>Role</th><th>Recruiter</th><th>Status</th><th></th></tr>
+      {% for o in rows %}
+      <tr>
+        <td>{{ o.due_at.strftime("%d %b %H:%M") }}</td>
+        <td>{{ o.company }}</td>
+        <td>{{ o.job_title }}</td>
+        <td>{{ o.recruiter_name or "—" }}</td>
+        <td><span class="tag">{{ o.status }}</span></td>
+        <td><a href="/outreach/{{ o.id }}">Review</a></td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="empty">{{ empty }}</p>
+  {% endif %}
+{% endmacro %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ v.job.title }} — application{% endblock %}
+{% block content %}
+<h1>{{ v.job.title }}</h1>
+<p class="muted">
+  {{ v.company.canonical_name }} ·
+  <a href="/jobs/{{ v.job.id }}">job</a> ·
+  <a href="{{ v.application.application_url }}" rel="noreferrer">application form</a>
+</p>
+
+<div class="banner-danger" style="border-color: var(--warn); color: var(--warn)">
+  This system never presses Submit. Everything below was prepared for you to check
+  and send yourself.
+</div>
+
+{% if v.sponsorship and v.sponsorship.recommended_action != "PROCEED" %}
+  <div class="banner-danger">
+    <strong>{{ v.sponsorship.classification }}</strong> —
+    recommended action {{ v.sponsorship.recommended_action }}.
+    {% for e in v.sponsorship.evidence %}<blockquote class="evidence">“{{ e.quote }}”</blockquote>{% endfor %}
+  </div>
+{% endif %}
+
+<div class="grid">
+  <div class="panel">
+    <h2 style="margin-top:0">Status</h2>
+    <dl class="facts">
+      <dt>State</dt><dd><span class="tag">{{ v.application.status }}</span></dd>
+      <dt>Fields</dt>
+      <dd>{{ v.completion[0] }} / {{ v.completion[1] }} answered
+        {% if v.blocked %}<span class="tag bad">required field empty</span>{% endif %}</dd>
+      <dt>Browser slot</dt>
+      <dd>{{ v.slot.slot_name ~ " (" ~ v.slot.status ~ ")" if v.slot else "not allocated" }}</dd>
+      <dt>Ready at</dt>
+      <dd>{{ v.application.ready_for_review_at.strftime("%d %b %H:%M") if v.application.ready_for_review_at else "—" }}</dd>
+    </dl>
+    {% if live_review_url %}
+      <p><a class="button" href="{{ live_review_url }}" rel="noreferrer">Open live browser (noVNC)</a></p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Resume</h2>
+    {% if v.resume %}
+      <dl class="facts">
+        <dt>Kind</dt><dd>{{ v.resume.kind }}</dd>
+        <dt>Status</dt><dd>{{ v.resume.status }}</dd>
+        <dt>Checksum</dt><dd><code>{{ v.resume.sha256[:16] }}…</code></dd>
+      </dl>
+      <p><a class="button" href="/resumes/{{ v.resume.id }}">Review provenance</a>
+         <a class="button" href="/resumes/{{ v.resume.id }}/download">Download PDF</a></p>
+    {% else %}
+      <p class="empty">No tailored resume attached.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if v.manual_fields %}
+  <h2>Manual fields — {{ v.manual_fields | length }} need you</h2>
+  <div class="panel">
+    <p class="muted">
+      These are questions no stored fact can answer, or that policy says only you
+      may answer. Nothing here was guessed.
+    </p>
+    <form method="post" action="/applications/{{ v.application.id }}/answers">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <table>
+        {% for f in v.manual_fields %}
+        <tr>
+          <td style="width:45%">
+            {{ f.question_text }}
+            {% if f.required %}<span class="tag bad">required</span>{% endif %}
+            <br><span class="muted">{{ f.semantic_key or "unmapped" }} · {{ f.source_type }}</span>
+          </td>
+          <td><input name="field:{{ f.id }}" value="{{ (f.answer_json or {}).get('value', '') }}"></td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p><button class="primary">Save answers</button></p>
+    </form>
+  </div>
+{% endif %}
+
+<h2>All stored answers</h2>
+<div class="panel table-wrap"><table>
+  <tr><th>Page</th><th>Question</th><th>Answer</th><th>Source</th><th>Cited facts</th></tr>
+  {% for f in v.fields %}
+  <tr>
+    <td>{{ f.page_index }}</td>
+    <td>{{ f.question_text }}<br><span class="muted">{{ f.semantic_key or "unmapped" }}</span></td>
+    <td>
+      {% if f.semantic_key in redacted_keys %}
+        <span class="muted">stored, not displayed</span>
+      {% else %}
+        {{ (f.answer_json or {}).get("value", "—") }}
+      {% endif %}
+    </td>
+    <td>
+      <span class="tag {{ 'good' if f.source_type == 'LOCKED_FACT'
+                          else ('warn' if f.source_type in ('AI_DRAFT', 'MANUAL_REQUIRED', 'UNRESOLVED') else '') }}">
+        {{ f.source_type }}</span>
+      {% if f.user_overridden %}<span class="tag good">yours</span>{% endif %}
+    </td>
+    <td class="muted">{{ f.source_fact_ids | join(", ") or "—" }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+
+<h2>Decision</h2>
+<div class="panel">
+  <form method="post" action="/applications/{{ v.application.id }}/submitted" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+    <button {{ 'disabled' if not can_mark_submitted }}>I submitted this</button>
+  </form>
+  <form method="post" action="/applications/{{ v.application.id }}/skip" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+    <button class="danger">Skip this application</button>
+  </form>
+  <p class="muted">
+    "I submitted this" records your own action. It does not press anything on the
+    employer's form.
+  </p>
+</div>
+{% endblock %}

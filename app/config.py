@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     app_secret_key: SecretStr = SecretStr("dev-only-not-for-production")
     app_encryption_key: SecretStr = SecretStr("dev-only-not-for-production")
 
+    # ---- web session (§23.2) ----------------------------------------------
+    admin_username: str = "admin"
+    #: Argon2 hash, never a password. Generate with:
+    #:     uv run internship-ops hash-password
+    admin_password_hash: str = ""
+    #: Idle timeout, not absolute: the cookie is re-signed on every request, so
+    #: an active session survives and an abandoned one does not (§23.2).
+    session_idle_timeout_minutes: int = Field(default=60, ge=5, le=1440)
+    session_cookie_secure: bool = False
+
     # ---- storage ----------------------------------------------------------
     database_url: PostgresDsn = PostgresDsn(
         "postgresql+psycopg://internship_ops:internship_ops@localhost:5432/internship_ops"
@@ -122,6 +132,15 @@ class Settings(BaseSettings):
                 "Production app_base_url must be HTTPS via Tailscale Serve, "
                 f"got {self.app_base_url!r}"
             )
+        if not self.admin_password_hash:
+            raise ValueError(
+                "Production requires admin_password_hash. Generate one with: "
+                "uv run internship-ops hash-password"
+            )
+        if not self.session_cookie_secure:
+            # Production is HTTPS-only via Tailscale Serve, so a cookie without
+            # Secure would be sent over any plaintext path an attacker can force.
+            raise ValueError("Production requires session_cookie_secure=true")
         return self
 
     @property

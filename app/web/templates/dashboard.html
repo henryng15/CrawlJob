@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>
+  Dashboard
+  {% if d.needs_attention %}<span class="count-badge">{{ d.needs_attention }} waiting on you</span>{% endif %}
+</h1>
+
+<div class="grid">
+  <div class="panel">
+    <h2 style="margin-top:0">Daily limits</h2>
+    <dl class="facts">
+      <dt>Applications prepared</dt>
+      <dd>
+        {{ d.limits.prepared_today }} / {{ d.limits.prepared_cap }}
+        {% if d.limits.prepared_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
+      </dd>
+      <dt>Drafts created</dt>
+      <dd>
+        {{ d.limits.drafts_today }} / {{ d.limits.drafts_cap }}
+        {% if d.limits.drafts_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Queue</h2>
+    <dl class="facts">
+      {% for name, count in d.queue_health.items() %}
+        <dt>{{ name }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+    {% if d.queue_health.get('dead') %}
+      <p class="tag bad">{{ d.queue_health['dead'] }} task(s) buried — see the worker log</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Browser slots</h2>
+    {% if d.slots %}
+      <dl class="facts">
+        {% for slot in d.slots %}
+          <dt>{{ slot.slot_name }}</dt>
+          <dd>
+            {{ slot.status }}
+            {% if slot.stale(now=now) %}<span class="tag bad">no heartbeat</span>{% endif %}
+          </dd>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="empty">No live sessions.</p>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Submissions awaiting confirmation</h2>
+{{ m.apps_table(d.awaiting_confirmation, "Nothing awaiting confirmation.") }}
+
+<h2>Applications waiting on you</h2>
+{{ m.apps_table(d.applications | selectattr("needs_a_person") | list,
+                "No application needs you right now.") }}
+
+<h2>Replay queue</h2>
+{{ m.apps_table(d.replay_queue, "Replay queue is empty.") }}
+
+<h2>Email drafts ready</h2>
+{{ m.outreach_table(d.drafts_ready, "No drafts ready.") }}
+{% if d.drafts_ready %}
+  <p class="muted">Reviewing opens the draft in Gmail. This system never sends.</p>
+{% endif %}
+
+<h2>Outreach due</h2>
+{{ m.outreach_table(d.outreach_due, "Nothing due.") }}
+
+<h2>Selected, not yet applied</h2>
+{{ m.jobs_table(d.selected, "Nothing selected.") }}
+
+<h2>Discovered today ({{ d.discovered_today | length }})</h2>
+{{ m.jobs_table(d.discovered_today, "Nothing discovered today.") }}
+{% endblock %}

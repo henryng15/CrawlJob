@@ -288,13 +288,20 @@ def parse_rows(rows: Iterable[tuple[int, dict[str, str]]]) -> list[ImportRow]:
     return parsed
 
 
-def preview_import(session: Session, text: str) -> ImportReport:
+#: Either CSV text, or rows already parsed by :func:`parse_xlsx`. Accepting both
+#: keeps the spreadsheet format out of the validation and merge logic, which does
+#: not care where a row came from.
+Source = str | Iterable[tuple[int, dict[str, str]]]
+
+
+def preview_import(session: Session, source: Source) -> ImportReport:
     """Parse and validate without writing anything (§7.12).
 
     No email is sent, and no row is stored. The user sees exactly what would
     happen before it does.
     """
-    report = ImportReport(rows=parse_rows(parse_csv(text)))
+    rows = parse_csv(source) if isinstance(source, str) else source
+    report = ImportReport(rows=parse_rows(rows))
 
     emails = [r.parsed.email for r in report.valid if r.parsed is not None]
     if emails:
@@ -316,9 +323,9 @@ def preview_import(session: Session, text: str) -> ImportReport:
     return report
 
 
-def commit_import(session: Session, text: str) -> ImportReport:
+def commit_import(session: Session, source: Source) -> ImportReport:
     """Write valid rows, merging by email rather than duplicating."""
-    report = preview_import(session, text)
+    report = preview_import(session, source)
 
     for item in report.valid:
         assert item.parsed is not None

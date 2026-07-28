@@ -52,6 +52,11 @@ _FORBIDDEN_BODY = (
     (re.compile(r"\b(utm_source|utm_campaign|mc_eid)\b", re.I), "campaign tracking parameter"),
 )
 
+#: An unrendered merge token. "Hi {{first_name}}" arriving in a recruiter's inbox
+#: says the message was mass-produced, which is the one impression §8.3 exists to
+#: avoid — and it is trivially detectable before the draft is written.
+_PLACEHOLDER = re.compile(r"\{\{\s*\w+\s*\}\}|\{%.*?%\}|<<\s*\w+\s*>>|\[\[\s*\w+\s*\]\]")
+
 
 class MessageState(StrEnum):
     DRAFT = "DRAFT"
@@ -88,6 +93,11 @@ def validate_content(subject: str, body: str) -> list[str]:
     for pattern, label in _FORBIDDEN_BODY:
         if pattern.search(body):
             problems.append(f"body contains a {label}")
+
+    for where, text in (("subject", subject), ("body", body)):
+        found = _PLACEHOLDER.search(text)
+        if found:
+            problems.append(f"{where} contains an unrendered placeholder {found.group(0)!r}")
 
     return problems
 

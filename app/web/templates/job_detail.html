@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ v.job.title }} — {{ v.company.canonical_name }}{% endblock %}
+{% block content %}
+<h1>{{ v.job.title }}</h1>
+<p class="muted">
+  {{ v.company.canonical_name }} · {{ v.job.location_text or "location not stated" }} ·
+  discovered {{ v.job.discovered_at.strftime("%d %b %Y") }}
+  ({{ (now - v.job.discovered_at).days }} days old)
+</p>
+
+{% if v.sponsorship and v.sponsorship.recommended_action == "SKIP" %}
+  <div class="banner-danger">
+    <strong>Sponsorship: {{ v.sponsorship.classification }}.</strong>
+    {{ v.sponsorship.reasoning_summary or "" }}
+  </div>
+{% endif %}
+
+<div class="grid">
+  <div class="panel">
+    <h2 style="margin-top:0">Fit breakdown</h2>
+    {% if v.score %}
+      <p><strong style="font-size:1.6rem">{{ "%.1f" % v.score.total_score }}</strong> / 100
+        <span class="tag {{ 'bad' if v.score.hard_filter_result == 'REJECT' else 'good' }}">
+          filter: {{ v.score.hard_filter_result }}</span></p>
+      <table>
+        {% for name, value in v.components %}
+          <tr><td>{{ name.replace("_", " ") }}</td><td style="text-align:right">{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+      {% if v.score.model_name %}
+        <p class="muted">Judged by {{ v.score.model_name }} ({{ v.score.prompt_version }}).</p>
+      {% endif %}
+    {% else %}
+      <p class="empty">Not scored yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Sponsorship</h2>
+    {% if v.sponsorship %}
+      <dl class="facts">
+        <dt>Classification</dt><dd>{{ m.sponsorship_tag(v.sponsorship.classification) }}</dd>
+        <dt>Work authorisation</dt><dd>{{ v.sponsorship.work_authorization_restriction }}</dd>
+        <dt>Recommended</dt><dd>{{ v.sponsorship.recommended_action }}</dd>
+        <dt>Confidence</dt><dd>{{ "%.2f" % v.sponsorship.confidence }}</dd>
+      </dl>
+      {% for e in v.sponsorship.evidence %}
+        <blockquote class="evidence">
+          “{{ e.quote }}”
+          {% if e.source_url %}<br><a href="{{ e.source_url }}" rel="noreferrer">source</a>{% endif %}
+        </blockquote>
+      {% else %}
+        <p class="muted">No quoted evidence — the classification is therefore not restrictive.</p>
+      {% endfor %}
+    {% else %}
+      <p class="empty">Not analysed yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Source &amp; identity</h2>
+    <dl class="facts">
+      <dt>ATS</dt><dd>{{ v.job.ats_type or "unknown" }}</dd>
+      <dt>Requisition</dt><dd>{{ v.job.requisition_id or "—" }}</dd>
+      <dt>Season</dt><dd>{{ v.job.season or "—" }}</dd>
+      <dt>Posted</dt><dd>{{ v.job.posted_at.strftime("%d %b %Y") if v.job.posted_at else "—" }}</dd>
+      <dt>Status</dt><dd><span class="tag">{{ v.job.status }}</span></dd>
+      <dt>URL</dt><dd><a href="{{ v.job.canonical_url }}" rel="noreferrer">open posting</a></dd>
+    </dl>
+  </div>
+</div>
+
+{% if v.duplicates %}
+  <h2>Duplicate analysis</h2>
+  {{ m.jobs_table(v.duplicates, "") }}
+{% endif %}
+
+<h2>Decision</h2>
+<div class="panel">
+  {% if v.application %}
+    <p>An application already exists —
+      <a href="/applications/{{ v.application.id }}">{{ v.application.status }}</a>.</p>
+  {% else %}
+    <form method="post" action="/jobs/{{ v.job.id }}/select" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <button class="primary" {{ 'disabled' if not can_select }}>Select and prepare</button>
+    </form>
+    <form method="post" action="/jobs/{{ v.job.id }}/skip" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+      <button class="danger">Skip</button>
+    </form>
+    {% if not can_select %}
+      <p class="muted">{{ block_reason }}</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<h2>Job description</h2>
+<div class="panel"><pre class="jd">{{ v.job.description_text or "No description captured." }}</pre></div>
+{% endblock %}

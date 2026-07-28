@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<div class="panel" style="max-width: 24rem; margin: 4rem auto;">
+  <h1>Sign in</h1>
+  {% if error %}<p class="tag bad">{{ error }}</p>{% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <p><label>Username<input name="username" autocomplete="username" autofocus required></label></p>
+    <p><label>Password<input name="password" type="password" autocomplete="current-password" required></label></p>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+  {% if not configured %}
+    <p class="muted" style="margin-top:1rem">
+      No admin password is set, so sign-in will fail for everyone. Run
+      <code>uv run internship-ops hash-password</code> and put the result in
+      <code>ADMIN_PASSWORD_HASH</code>.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}
