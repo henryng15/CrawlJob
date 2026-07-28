@@ -495,6 +495,16 @@ class OutreachDetail:
         return source if isinstance(source, str) else None
 
     @property
+    def withheld(self) -> list[str]:
+        """Why the draft was not created, if it was not (§8.2).
+
+        A missing draft with no explanation is indistinguishable from a bug, and
+        the user would reasonably start looking for one.
+        """
+        reasons = self.hook.get("withheld")
+        return [str(r) for r in reasons] if isinstance(reasons, list) else []
+
+    @property
     def gmail_url(self) -> str | None:
         """Deep link to the draft. Opening it is the user's send button."""
         if not self.task.gmail_draft_id:

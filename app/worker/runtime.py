@@ -23,6 +23,7 @@ import os
 import signal
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from types import FrameType
@@ -35,9 +36,25 @@ from app.db.models import ScheduledTask
 from app.domain.tasks import TaskStatus, TaskType
 from app.services.queue import DEFAULT_LEASE, claim, complete, fail, reclaim_stale
 
-__all__ = ["Handler", "HandlerResult", "Worker", "registry"]
+__all__ = ["Handler", "HandlerResult", "Worker", "registry", "run_clock"]
 
 log = logging.getLogger(__name__)
+
+_run_clock: ContextVar[datetime | None] = ContextVar("run_clock", default=None)
+
+
+def run_clock() -> datetime:
+    """The moment the current task was claimed.
+
+    Handlers should use this rather than ``datetime.now()``. Outreach windows,
+    cooldowns and due dates are all decided against a clock, and a stage that
+    reads the wall clock directly cannot be tested at any moment but this one —
+    which in practice means those rules go untested.
+
+    Outside a task it falls back to the wall clock, so a handler called directly
+    still works.
+    """
+    return _run_clock.get() or utcnow()
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +165,13 @@ class Worker:
     def _execute(self, session: Session, task: ScheduledTask, *, now: datetime) -> None:
         """Run one task. ``now`` is threaded through so retry scheduling uses the
         same clock as the claim, rather than the wall clock."""
+        token = _run_clock.set(now)
+        try:
+            self._dispatch(session, task, now=now)
+        finally:
+            _run_clock.reset(token)
+
+    def _dispatch(self, session: Session, task: ScheduledTask, *, now: datetime) -> None:
         handler = self.registry.get(task.task_type)
 
         if handler is None:
@@ -176,7 +200,16 @@ class Worker:
         for task_type, dedupe_key, payload in result.follow_ups:
             from app.services.queue import enqueue
 
-            enqueue(session, task_type=task_type, dedupe_key=dedupe_key, payload=payload)
+            # run_at on the same clock as the claim: otherwise a follow-up is
+            # scheduled against the wall clock while its parent ran against a
+            # different one, and the two stages disagree about what time it is.
+            enqueue(
+                session,
+                task_type=task_type,
+                dedupe_key=dedupe_key,
+                payload=payload,
+                run_at=now,
+            )
 
         complete(session, task, now=now)
         log.info("task %s (%s) done: %s", task.id, task.task_type, result.detail)

@@ -108,7 +108,18 @@ module = ["app.db.migrations.versions.*"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["openpyxl.*"]
+# Optional extras. The modules that use them import lazily and are guarded, so a
+# base install must still typecheck without them present.
+module = [
+    "openpyxl.*",
+    "anthropic.*",
+    "cryptography.*",
+    "google.*",
+    "googleapiclient.*",
+    "google_auth_oauthlib.*",
+    "playwright.*",
+    "weasyprint.*",
+]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

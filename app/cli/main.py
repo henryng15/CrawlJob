@@ -1,0 +1,234 @@
+"""``internship-ops`` — the operator's interface (spec §20).
+
+Everything a person needs to run this by hand: start the web app, start a worker,
+hash a password, queue a discovery run, and see what the queue is doing. No
+command here submits an application or sends an email; there is no flag that
+would.
+"""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import json
+import logging
+import sys
+from collections.abc import Sequence
+from typing import Any
+
+__all__ = ["main"]
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="internship-ops", description=__doc__)
+    parser.add_argument(
+        "--log-level", default="INFO", help="DEBUG, INFO, WARNING, ERROR (default: INFO)"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    serve = sub.add_parser("serve", help="run the web application")
+    serve.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback)")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--reload", action="store_true", help="development auto-reload")
+    serve.set_defaults(run=_serve)
+
+    worker = sub.add_parser("worker", help="run a task worker")
+    worker.add_argument(
+        "--types",
+        default="",
+        help="comma-separated task types to claim; default is all registered",
+    )
+    worker.add_argument("--once", action="store_true", help="run one task and exit")
+    worker.add_argument("--max-tasks", type=int, default=None)
+    worker.set_defaults(run=_worker)
+
+    hash_password = sub.add_parser(
+        "hash-password", help="produce a value for ADMIN_PASSWORD_HASH"
+    )
+    hash_password.set_defaults(run=_hash_password)
+
+    discover = sub.add_parser("discover", help="queue a discovery run")
+    discover.add_argument("kind", choices=["greenhouse", "lever", "ashby", "github_feed"])
+    discover.add_argument("names", nargs="+", help="board ids, company slugs, or repos")
+    discover.add_argument("--now", action="store_true", help="also run it immediately")
+    discover.set_defaults(run=_discover)
+
+    status = sub.add_parser("status", help="show the queue and what is waiting on you")
+    status.set_defaults(run=_status)
+
+    migrate = sub.add_parser("migrate", help="apply database migrations")
+    migrate.add_argument("--revision", default="head")
+    migrate.set_defaults(run=_migrate)
+
+    args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    )
+    result: int = args.run(args)
+    return result
+
+
+# ------------------------------------------------------------------ serve
+
+
+def _serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    if args.host not in {"127.0.0.1", "localhost", "::1"} and settings.app_env == "production":
+        # §23.1: the app binds to loopback and Caddy publishes it. Binding wider
+        # would put it on the network with no TLS and no proxy in front.
+        print(
+            f"Refusing to bind {args.host} in production. The app must stay on "
+            "loopback behind Caddy and Tailscale Serve (§23.1).",
+            file=sys.stderr,
+        )
+        return 1
+
+    uvicorn.run(
+        "app.web.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        # Behind Caddy on loopback. Without this the app would see the proxy's
+        # address as the client's on every request.
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
+    )
+    return 0
+
+
+# ----------------------------------------------------------------- worker
+
+
+def _worker(args: argparse.Namespace) -> int:
+    from app.config import get_settings
+    from app.db.session import get_sessionmaker
+    from app.domain.tasks import TaskType
+    from app.worker.handlers import register_pipeline
+    from app.worker.runtime import Registry, Worker
+
+    settings = get_settings()
+    registry = register_pipeline(Registry(), settings=settings)
+
+    types = [TaskType(t.strip()) for t in args.types.split(",") if t.strip()] or None
+    worker = Worker(
+        session_factory=get_sessionmaker(),
+        registry=registry,
+        task_types=types,
+    )
+
+    missing = sorted(t.value for t in registry.missing())
+    if missing:
+        # Not fatal: a web-only worker legitimately lacks the browser handlers.
+        # Saying so at startup beats discovering it when a task is buried.
+        logging.getLogger(__name__).info(
+            "no handler for: %s (those tasks will be buried if this worker claims them)",
+            ", ".join(missing),
+        )
+
+    if args.once:
+        return 0 if worker.run_once() else 1
+
+    worker.install_signal_handlers()
+    worker.run_forever(max_tasks=args.max_tasks)
+    return 0
+
+
+# ---------------------------------------------------------- hash-password
+
+
+def _hash_password(args: argparse.Namespace) -> int:
+    from app.web.security import hash_password
+
+    password = getpass.getpass("New admin password: ")
+    if len(password) < 12:
+        print("Use at least 12 characters.", file=sys.stderr)
+        return 1
+    if password != getpass.getpass("Again: "):
+        print("They do not match.", file=sys.stderr)
+        return 1
+
+    print("\nPut this in your .env, and keep the password itself out of it:\n")
+    print(f"ADMIN_PASSWORD_HASH={hash_password(password)}")
+    return 0
+
+
+# --------------------------------------------------------------- discover
+
+
+def _discover(args: argparse.Namespace) -> int:
+    from app.config import get_settings
+    from app.db.session import session_scope
+    from app.domain.tasks import TaskType, idempotency_key
+    from app.services.queue import enqueue
+
+    payload: dict[str, Any] = {"kind": args.kind, "names": list(args.names)}
+    with session_scope() as session:
+        key = idempotency_key(TaskType.DISCOVER_SOURCE, args.kind, *args.names)
+        task = enqueue(
+            session,
+            task_type=TaskType.DISCOVER_SOURCE,
+            dedupe_key=key,
+            payload=payload,
+        )
+        # None means the same run is already queued. That is the idempotency key
+        # working, not a failure.
+        print(f"queued {key}" if task is not None else f"already queued: {key}")
+
+    if not args.now:
+        return 0
+
+    from app.db.session import get_sessionmaker
+    from app.worker.handlers import register_pipeline
+    from app.worker.runtime import Registry, Worker
+
+    worker = Worker(
+        session_factory=get_sessionmaker(),
+        registry=register_pipeline(Registry(), settings=get_settings()),
+        task_types=[TaskType.DISCOVER_SOURCE],
+    )
+    return 0 if worker.run_once() else 1
+
+
+# ----------------------------------------------------------------- status
+
+
+def _status(args: argparse.Namespace) -> int:
+    from app.config import get_settings
+    from app.db.session import session_scope
+    from app.web.queries import dashboard
+    from app.worker.runtime import health
+
+    settings = get_settings()
+    with session_scope() as session:
+        queue = health(session)
+        board = dashboard(session, settings)
+
+    print(json.dumps(queue, indent=2))
+    print(
+        f"\njobs discovered today: {len(board.discovered_today)}"
+        f"\nselected, not applied: {len(board.selected)}"
+        f"\nwaiting on you:        {board.needs_attention}"
+        f"\ndrafts ready:          {len(board.drafts_ready)}"
+        f"\napplications prepared: {board.limits.prepared_today}/{board.limits.prepared_cap}"
+    )
+    return 0
+
+
+# ---------------------------------------------------------------- migrate
+
+
+def _migrate(args: argparse.Namespace) -> int:
+    from alembic import command
+    from alembic.config import Config
+
+    command.upgrade(Config("alembic.ini"), args.revision)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

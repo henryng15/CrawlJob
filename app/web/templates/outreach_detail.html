@@ -62,6 +62,15 @@
   </div>
 </div>
 
+{% if v.withheld %}
+  <div class="banner-danger" style="border-color: var(--warn); color: var(--warn)">
+    <strong>No draft was created.</strong>
+    <ul style="margin:.4rem 0 0">
+      {% for reason in v.withheld %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
 <h2>Draft</h2>
 <div class="panel">
   <form method="post" action="/outreach/{{ v.task.id }}/draft">
