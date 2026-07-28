@@ -42,7 +42,9 @@ def load_credentials(token_path: Path, encryption_key: str) -> Any:
             "or the file is damaged; re-run scripts/gmail_authorize.py."
         ) from exc
 
-    return Credentials(
+    # google-auth ships no annotations for this constructor; the keyword names
+    # are the documented ones and are covered by the round-trip test.
+    credentials: Any = Credentials(  # type: ignore[no-untyped-call]
         token=None,
         refresh_token=payload["refresh_token"],
         client_id=payload["client_id"],
@@ -50,6 +52,7 @@ def load_credentials(token_path: Path, encryption_key: str) -> Any:
         token_uri=payload["token_uri"],
         scopes=payload["scopes"],
     )
+    return credentials
 
 
 @dataclass(slots=True)

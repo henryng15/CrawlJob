@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["anthropic>=0.40"]
 browser = ["playwright>=1.49"]
-resume = ["weasyprint>=63"]
+resume = ["weasyprint>=63", "pypdf>=5.1", "python-docx>=1.1"]
 gmail = [
     "google-api-python-client>=2.150",
     "google-auth-oauthlib>=1.2",
@@ -119,6 +119,8 @@ module = [
     "google_auth_oauthlib.*",
     "playwright.*",
     "weasyprint.*",
+    "docx.*",
+    "pypdf.*",
 ]
 ignore_missing_imports = true
 

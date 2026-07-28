@@ -14,6 +14,7 @@ import json
 import logging
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 __all__ = ["main"]
@@ -52,6 +53,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     discover.add_argument("names", nargs="+", help="board ids, company slugs, or repos")
     discover.add_argument("--now", action="store_true", help="also run it immediately")
     discover.set_defaults(run=_discover)
+
+    resume = sub.add_parser("import-resume", help="store your resume and derive its facts")
+    resume.add_argument("path", type=Path, help="your resume: .pdf, .docx, .md or .txt")
+    resume.add_argument(
+        "--facts",
+        type=Path,
+        default=None,
+        help="a JSON facts file you wrote yourself; skips extraction and is stored verified",
+    )
+    resume.set_defaults(run=_import_resume)
+
+    verify = sub.add_parser(
+        "verify-facts", help="confirm extracted resume facts, one at a time"
+    )
+    verify.add_argument("--all", action="store_true", help="confirm every pending fact")
+    verify.set_defaults(run=_verify_facts)
+
+    recruiters = sub.add_parser("import-recruiters", help="import a recruiter spreadsheet")
+    recruiters.add_argument("path", type=Path)
+    recruiters.add_argument("--commit", action="store_true", help="write; default is preview")
+    recruiters.set_defaults(run=_import_recruiters)
+
+    fact = sub.add_parser("set-fact", help="record a candidate fact")
+    fact.add_argument("key", help="e.g. candidate.preferred_name")
+    fact.add_argument("value", help="JSON if it parses as JSON, otherwise a string")
+    fact.set_defaults(run=_set_fact)
 
     status = sub.add_parser("status", help="show the queue and what is waiting on you")
     status.set_defaults(run=_status)
@@ -192,6 +219,109 @@ def _discover(args: argparse.Namespace) -> int:
         task_types=[TaskType.DISCOVER_SOURCE],
     )
     return 0 if worker.run_once() else 1
+
+
+# ----------------------------------------------------------------- resume
+
+
+def _import_resume(args: argparse.Namespace) -> int:
+    from app.config import get_settings
+    from app.db.session import session_scope
+    from app.services.llm.anthropic import build_provider
+    from app.services.resume_import import import_resume
+
+    settings = get_settings()
+    if not args.path.exists():
+        print(f"no such file: {args.path}", file=sys.stderr)
+        return 1
+
+    with session_scope() as session:
+        result = import_resume(
+            session,
+            args.path,
+            settings=settings,
+            provider=build_provider(settings) if args.facts is None else None,
+            facts_file=args.facts,
+        )
+        print(result.summary())
+        for fact_id in result.needs_verification:
+            print(f"  unverified: {fact_id}")
+
+    if result.needs_verification:
+        print("\nConfirm them with: internship-ops verify-facts")
+    return 0
+
+
+def _verify_facts(args: argparse.Namespace) -> int:
+    """Walk the pending facts and record the user's confirmation.
+
+    Tailoring cites only verified facts, so this is the step that decides what may
+    appear on a document the user signs their name to. Deliberately one at a time
+    unless --all: reading them is the entire point.
+    """
+    from app.db.session import session_scope
+    from app.services.candidate import Actor, get_fact, set_fact
+    from app.services.resume_import import FACT_PREFIX, unverified
+
+    with session_scope() as session:
+        pending = unverified(session)
+        if not pending:
+            print("Nothing to confirm.")
+            return 0
+
+        for fact_id in pending:
+            stored = get_fact(session, f"{FACT_PREFIX}{fact_id}")
+            if stored is None:
+                continue
+            value = stored.value if isinstance(stored.value, dict) else {}
+            print(f"\n[{fact_id}] {value.get('text', '')}")
+            print(
+                f"    organisation: {value.get('organisation') or '—'}"
+                f"    technologies: {', '.join(value.get('technologies', [])) or '—'}"
+            )
+            if not args.all and input("    correct? [y/N] ").strip().lower() != "y":
+                print("    left unverified")
+                continue
+            set_fact(session, f"{FACT_PREFIX}{fact_id}", value, actor=Actor.USER, verified=True)
+            print("    confirmed")
+
+    return 0
+
+
+def _import_recruiters(args: argparse.Namespace) -> int:
+    from app.db.session import session_scope
+    from app.services.recruiters import Source, commit_import, parse_xlsx, preview_import
+
+    if not args.path.exists():
+        print(f"no such file: {args.path}", file=sys.stderr)
+        return 1
+
+    source: Source = (
+        list(parse_xlsx(args.path))
+        if args.path.suffix.lower() == ".xlsx"
+        else args.path.read_text(encoding="utf-8")
+    )
+    with session_scope() as session:
+        report = commit_import(session, source) if args.commit else preview_import(session, source)
+        print(report.summary())
+        if not args.commit:
+            print("\nPreview only. Re-run with --commit to write.")
+    return 0
+
+
+def _set_fact(args: argparse.Namespace) -> int:
+    from app.db.session import session_scope
+    from app.services.candidate import Actor, set_fact
+
+    try:
+        value: Any = json.loads(args.value)
+    except json.JSONDecodeError:
+        value = args.value
+
+    with session_scope() as session:
+        fact = set_fact(session, args.key, value, actor=Actor.USER, verified=True)
+        print(f"{fact.fact_key} set{' (locked)' if fact.is_locked else ''}")
+    return 0
 
 
 # ----------------------------------------------------------------- status

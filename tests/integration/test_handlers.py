@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from app.db.models import (
     JobScore,
     OutreachTask,
     Recruiter,
+    ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
     SuppressionEntry,
@@ -81,8 +83,12 @@ FastAPI services alongside the platform team.
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(app_env="development", app_secret_key="handler-tests")
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        app_env="development",
+        app_secret_key="handler-tests",
+        data_dir=tmp_path / "data",
+    )
 
 
 @pytest.fixture
@@ -196,7 +202,6 @@ class TestRegistration:
             TaskType.RECONCILE_SUBMISSION,
             TaskType.ENRICH_JOB,
             TaskType.DEDUPE_JOB,
-            TaskType.TAILOR_RESUME,
             TaskType.BACKUP_DATABASE,
             TaskType.BACKUP_ARTIFACTS,
         }
@@ -409,6 +414,156 @@ class TestPrepare:
 #: Computed with the policy's own helper rather than a hand-picked date, which
 #: would land on a weekend roughly two runs in seven.
 AFTER_THE_DELAY = next_send_window(NOW + timedelta(days=9))
+
+
+class TestTailoring:
+    def _application(self, db: Session) -> Application:
+        job = make_job(db)
+        application = Application(
+            job_id=job.id,
+            application_url=job.canonical_url,
+            status=ApplicationState.MATERIALS_PREPARING,
+        )
+        db.add(application)
+        db.commit()
+        return application
+
+    def _facts(self, db: Session, *, verified: bool) -> None:
+        from app.services.candidate import Actor
+        from app.services.resume_import import ExtractedFacts, store_facts
+
+        store_facts(
+            db,
+            ExtractedFacts.model_validate(
+                {
+                    "facts": [
+                        {
+                            "id": "exp.todd.1",
+                            "text": "Built a FastAPI service at Todd Labs that cut report "
+                            "generation from 40 minutes to 6.",
+                            "organisation": "Todd Labs",
+                            "technologies": ["FastAPI", "Python"],
+                        }
+                    ]
+                }
+            ),
+            actor=Actor.USER if verified else Actor.IMPORT,
+        )
+        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
+        db.commit()
+
+    def test_unverified_facts_block_tailoring_and_say_so(self, worker: Worker, db: Session):
+        """§7.7: a tailored resume may only cite facts the user has read."""
+        application = self._application(db)
+        self._facts(db, verified=False)
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        task = tasks(db, TaskType.TAILOR_RESUME)[0]
+        assert task.status == TaskStatus.DEAD
+        assert "waiting for you to confirm" in not_none(task.last_error)
+
+    def test_no_facts_at_all_names_the_command_to_run(self, worker: Worker, db: Session):
+        application = self._application(db)
+        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
+        db.commit()
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        assert "import-resume" in not_none(tasks(db, TaskType.TAILOR_RESUME)[0].last_error)
+
+    def test_a_supported_plan_produces_a_pdf_and_attaches_it(
+        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
+    ):
+        application = self._application(db)
+        self._facts(db, verified=True)
+        provider.queue(
+            {
+                "summary": "",
+                "summary_fact_ids": [],
+                "bullets": [
+                    {
+                        "text": "Built a FastAPI service at Todd Labs.",
+                        "fact_ids": ["exp.todd.1"],
+                        "transformation": "shorten",
+                    }
+                ],
+                "section_order": [],
+            }
+        )
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.refresh(application)
+        version = not_none(
+            db.scalars(select(ResumeVersion).where(ResumeVersion.kind == "TAILORED")).first()
+        )
+        assert application.resume_version_id == version.id
+        assert Path(version.pdf_path).is_file()
+        assert version.status == "READY_FOR_REVIEW"
+
+    def test_an_unsupported_claim_blocks_and_records_the_violations(
+        self, worker: Worker, db: Session, provider: NullProvider
+    ):
+        """§7.7: block, do not quietly ship a weakened resume."""
+        application = self._application(db)
+        self._facts(db, verified=True)
+        invented = {
+            "summary": "",
+            "summary_fact_ids": [],
+            "bullets": [
+                {
+                    "text": "Scaled the platform to 4 million users at Stripe.",
+                    "fact_ids": ["exp.todd.1"],
+                    "transformation": "rewrite",
+                }
+            ],
+            "section_order": [],
+        }
+        provider.queue(invented)
+        provider.queue(invented)
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        task = tasks(db, TaskType.TAILOR_RESUME)[0]
+        assert task.status == TaskStatus.DEAD
+        assert "unsupported claims" in not_none(task.last_error)
+        assert db.scalars(select(ResumeVersion)).all() == []
+
+    def test_the_violations_are_written_where_the_review_screen_reads_them(
+        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
+    ):
+        """A user cannot judge "it was rejected" without seeing why."""
+        import json
+
+        application = self._application(db)
+        self._facts(db, verified=True)
+        invented = {
+            "summary": "",
+            "summary_fact_ids": [],
+            "bullets": [
+                {
+                    "text": "Scaled the platform to 4 million users.",
+                    "fact_ids": ["exp.todd.1"],
+                    "transformation": "rewrite",
+                }
+            ],
+            "section_order": [],
+        }
+        provider.queue(invented)
+        provider.queue(invented)
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        sidecar = settings.artifacts_dir / str(application.id) / "resume-validation.json"
+        written = json.loads(sidecar.read_text(encoding="utf-8"))
+        assert written["validation"]["passed"] is False
+        assert any(v["kind"] == "INVENTED_METRIC" for v in written["violations"])
 
 
 class TestOutreachPipeline:

@@ -34,6 +34,7 @@ from app.db.models import (
     Job,
     OutreachTask,
     Recruiter,
+    ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
     SuppressionEntry,
@@ -60,6 +61,7 @@ from app.services.outreach_policy import (
     schedule_outreach,
 )
 from app.services.recruiters import match_recruiter
+from app.services.resume import PROMPT_VERSION as RESUME_PROMPT_VERSION
 from app.services.scoring import ScoreInput, score
 from app.services.sponsorship import RecommendedAction, analyze, recommend
 from app.worker.runtime import (
@@ -361,6 +363,103 @@ def register_pipeline(
         return HandlerResult(
             detail="queued for a browser slot", follow_ups=tuple(follow_ups)
         )
+
+    @target.register(TaskType.TAILOR_RESUME)
+    def tailor_resume(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Tailor the resume, or refuse (§7.7).
+
+        Three ways this stops rather than producing something:
+
+        * no verified facts — nothing to cite, so nothing may be written;
+        * validation fails twice — an unsupported claim blocks, it does not
+          degrade into a weaker bullet;
+        * no base resume — there is nothing to tailor.
+
+        Each leaves a message naming what the user has to do.
+        """
+        import hashlib
+        import json
+
+        from app.services.resume import tailor
+        from app.services.resume_import import (
+            load_facts,
+            render_pdf,
+            to_html,
+            unverified,
+        )
+
+        now = run_clock()
+        application = _require(
+            session.get(Application, _payload_uuid(task, "application_id")), "application"
+        )
+        job = _require(session.get(Job, application.job_id), "job")
+
+        available = load_facts(session)
+        if not available:
+            waiting = unverified(session)
+            raise PermanentFailure(
+                f"{len(waiting)} resume fact(s) are waiting for you to confirm in Settings"
+                if waiting
+                else "no resume facts are stored; run: internship-ops import-resume <file>"
+            )
+
+        values = _candidate_facts(session)
+        name = str(values.get("candidate.preferred_name") or values.get("profile.name") or "")
+        if not name:
+            raise PermanentFailure(
+                "no candidate name is set; add candidate.preferred_name in Settings"
+            )
+
+        plan, result = tailor(
+            facts=available,
+            job_title=job.title,
+            job_description=job.description_text or "",
+            provider=provider_factory(config),
+        )
+
+        directory = config.artifacts_dir / str(application.id)
+        directory.mkdir(parents=True, exist_ok=True)
+        # Written whether or not validation passed: the review screen shows the
+        # violations, and a user cannot judge "it was rejected" without seeing why.
+        (directory / "resume-validation.json").write_text(
+            json.dumps(
+                {
+                    "validation": {"passed": result.passed, "summary": result.summary()},
+                    "bullets": [b.model_dump(mode="json") for b in plan.bullets],
+                    "violations": [
+                        {"kind": v.kind.value, "detail": v.detail} for v in result.violations
+                    ],
+                    "tailored_text": "\n".join(b.text for b in plan.bullets),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        if not result.passed:
+            raise PermanentFailure(
+                f"tailoring produced unsupported claims and was blocked: {result.summary()}"
+            )
+
+        pdf_path = directory / "resume.pdf"
+        render_pdf(to_html(plan.summary, plan.bullets, name=name), pdf_path)
+
+        version = ResumeVersion(
+            job_id=job.id,
+            kind="TAILORED",
+            status="READY_FOR_REVIEW",
+            source_path=str(directory / "resume-validation.json"),
+            pdf_path=str(pdf_path),
+            validation_path=str(directory / "resume-validation.json"),
+            sha256=hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
+            prompt_version=RESUME_PROMPT_VERSION,
+        )
+        session.add(version)
+        session.flush()
+        application.resume_version_id = version.id
+        application.updated_at = now
+
+        return HandlerResult(detail=f"{len(plan.bullets)} bullet(s), all supported")
 
     # ------------------------------------------------------------ outreach
 
