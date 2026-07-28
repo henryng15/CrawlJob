@@ -131,7 +131,11 @@ _ATTESTATION: tuple[Question, ...] = (
 FORMS: dict[ATSFlavour, tuple[Question, ...]] = {
     ATSFlavour.GREENHOUSE: _BASE + _EEO + _ATTESTATION,
     ATSFlavour.LEVER: _BASE + _ATTESTATION,
-    ATSFlavour.ASHBY: _BASE + (Question("salary", "What are your salary expectations?"),) + _EEO,
+    ATSFlavour.ASHBY: (
+        *_BASE,
+        Question("salary", "What are your salary expectations?"),
+        *_EEO,
+    ),
 }
 
 
