@@ -82,10 +82,16 @@ class RecruiterRow:
     linkedin_url: str | None = None
     location: str | None = None
     source: str | None = None
+    company_domain: str | None = None
 
     @property
     def email_domain(self) -> str:
-        return self.email.rsplit("@", 1)[-1]
+        """The employer's domain, preferring the column over the address.
+
+        A recruiter using a personal or agency address still belongs to the
+        company the spreadsheet names, and matching by domain has to agree.
+        """
+        return self.company_domain or self.email.rsplit("@", 1)[-1]
 
     @property
     def normalized_company(self) -> str:
@@ -142,6 +148,11 @@ class ImportReport:
 
 
 _HEADER_ALIASES: dict[str, str] = {
+    # The user's own export uses these; see ColdEmail/finals/*.csv.
+    "company_name": "raw_company",
+    "recruiter_name": "full_name",
+    "recruiter_title": "title",
+    "domain": "company_domain",
     "name": "full_name",
     "full name": "full_name",
     "full_name": "full_name",
@@ -161,8 +172,20 @@ _HEADER_ALIASES: dict[str, str] = {
     "linkedin url": "linkedin_url",
     "location": "location",
     "source": "source",
+    "source_provider": "source",
     "notes": "notes",
+    # Deliverability verdicts from an email-verification provider. A row the
+    # provider already called undeliverable must not be imported: sending to it
+    # damages the sending domain's reputation for every later email.
+    "debounce_result": "deliverability",
+    "certainty": "deliverability",
+    "confidence": "deliverability",
+    "verify_method": "deliverability",
 }
+
+#: Verdicts that mean "do not send here". Matched case-insensitively as a
+#: substring, because providers word these differently.
+_UNDELIVERABLE = ("invalid", "bounce", "undeliverable", "do not send", "unknown", "risky")
 
 
 def _canonical_headers(fieldnames: Sequence[str] | None) -> dict[str, str]:
@@ -224,6 +247,10 @@ def _validate(line: int, row: dict[str, str]) -> ImportRow:
     if not _EMAIL.match(email):
         return ImportRow(line, row, None, f"invalid email address: {email!r}")
 
+    verdict = row.get("deliverability", "").strip().lower()
+    if verdict and any(bad in verdict for bad in _UNDELIVERABLE):
+        return ImportRow(line, row, None, f"address marked undeliverable: {verdict!r}")
+
     return ImportRow(
         line,
         row,
@@ -235,6 +262,7 @@ def _validate(line: int, row: dict[str, str]) -> ImportRow:
             linkedin_url=row.get("linkedin_url") or None,
             location=row.get("location") or None,
             source=row.get("source") or None,
+            company_domain=(row.get("company_domain") or "").strip().lower() or None,
         ),
     )
 
