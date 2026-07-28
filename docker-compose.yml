@@ -1,0 +1,52 @@
+# Development stack. The production compose file (spec §19) adds web, worker,
+# browser slots and Caddy; this one runs only what the test suite needs.
+#
+# Postgres is published on 127.0.0.1 only — never 0.0.0.0. No app, browser or
+# database port may be reachable off-host (AGENTS.md).
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: internship_ops
+      POSTGRES_USER: internship_ops
+      POSTGRES_PASSWORD: internship_ops_dev
+    ports:
+      - "127.0.0.1:5442:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U internship_ops -d internship_ops"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  # Separate database for the test suite so a `pytest` run cannot destroy
+  # development data. Tmpfs-backed: fast, and gone when the container stops.
+  postgres-test:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: internship_ops_test
+      POSTGRES_USER: internship_ops
+      POSTGRES_PASSWORD: internship_ops_dev
+      PGDATA: /var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5443:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U internship_ops -d internship_ops_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+    driver: bridge
