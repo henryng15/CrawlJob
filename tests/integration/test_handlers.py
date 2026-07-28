@@ -82,7 +82,7 @@ FastAPI services alongside the platform team.
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(app_env="development", app_secret_key="handler-tests")  # noqa: S106
+    return Settings(app_env="development", app_secret_key="handler-tests")
 
 
 @pytest.fixture

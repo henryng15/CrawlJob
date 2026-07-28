@@ -1,0 +1,156 @@
+# Production stack (spec §19).
+#
+# Run with:  docker compose -f docker-compose.prod.yml up -d --build
+#
+# Two deliberate departures from the sample in §19:
+#
+# 1. **No Docker socket on the worker.** The sample mounts /var/run/docker.sock,
+#    and its own security note advises against it. The socket is root on the
+#    host; this process runs model output. Browser slots are fixed services on
+#    the internal network instead.
+#
+# 2. **Only Caddy publishes a port, and only on loopback.** Postgres, the web
+#    app, and every browser port exist on the internal Docker network alone
+#    (§23.1). Tailscale Serve provides the private HTTPS in front.
+
+name: internship-ops
+
+x-common: &common
+  restart: unless-stopped
+  networks: [internal]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *common
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_DB: internship_ops
+      POSTGRES_USER: internship_ops
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - /data/internship-ops/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U internship_ops"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    secrets: [postgres_password]
+
+  # Runs migrations once and exits. Separate from the web service so two
+  # replicas can never race to migrate the same database.
+  migrate:
+    <<: *common
+    restart: "no"
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    env_file: .env
+    command: ["internship-ops", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - /data/internship-ops/artifacts:/data/internship-ops/artifacts:ro
+      - /data/internship-ops/secrets:/data/internship-ops/secrets:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - /data/internship-ops/artifacts:/data/internship-ops/artifacts
+      - /data/internship-ops/secrets:/data/internship-ops/secrets:ro
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  browser-slot-1: &browser
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/browser-arm64.Dockerfile
+    env_file: .env
+    # Chromium maps large shared-memory segments for its renderers; the 64 MB
+    # default makes tabs die on any page with images.
+    shm_size: "1gb"
+    environment:
+      SLOT_NAME: slot-1
+      DISPLAY: ":99"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - /data/internship-ops/browser-profiles/slot-1:/home/pwuser/profile
+      - /data/internship-ops/browser-sessions/slot-1:/session
+      - /data/internship-ops/artifacts:/data/internship-ops/artifacts
+    security_opt:
+      - no-new-privileges:true
+      # Chromium's own sandbox needs user namespaces, which the default Docker
+      # seccomp profile blocks. Playwright's image ships a profile that permits
+      # exactly that and nothing more — strictly better than --no-sandbox (§23.4).
+      - seccomp:./deploy/chromium-seccomp.json
+
+  browser-slot-2:
+    <<: *browser
+    environment:
+      SLOT_NAME: slot-2
+      DISPLAY: ":99"
+    volumes:
+      - /data/internship-ops/browser-profiles/slot-2:/home/pwuser/profile
+      - /data/internship-ops/browser-sessions/slot-2:/session
+      - /data/internship-ops/artifacts:/data/internship-ops/artifacts
+
+  caddy:
+    <<: *common
+    image: caddy:2
+    depends_on: [web, browser-slot-1, browser-slot-2]
+    # Loopback only. Tailscale Serve publishes it; nothing reaches this from the
+    # public internet (§23.1).
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  postgres_password:
+    file: /data/internship-ops/secrets/postgres_password
