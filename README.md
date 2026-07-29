@@ -124,6 +124,7 @@ free-tier resources still costing $0 — the spec's §17 does not mention this.
 
 | | |
 |---|---|
+| [docs/HUONG-DAN.md](docs/HUONG-DAN.md) | **Bắt đầu ở đây.** Hướng dẫn từng bước, tiếng Việt. |
 | [AGENTS.md](AGENTS.md) | Rules for anyone (human or agent) writing code here. Read first. |
 | [docs/spec/](docs/spec/README.md) | Full specification, one file per section. |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when something is wrong. Read before debugging. |
