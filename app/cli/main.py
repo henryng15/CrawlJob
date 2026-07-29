@@ -396,11 +396,18 @@ def _status(args: argparse.Namespace) -> int:
     from app.config import get_settings
     from app.db.session import session_scope
     from app.web.queries import dashboard
-    from app.worker.runtime import health
+    from app.worker.browser_slot import register_browser_handlers
+    from app.worker.handlers import register_pipeline
+    from app.worker.runtime import Registry, health
 
     settings = get_settings()
+    # Both registries: between them they are every handler the deployment has,
+    # which is the question "what is missing" actually means.
+    everything = register_pipeline(Registry(), settings=settings)
+    register_browser_handlers(everything, settings=settings)
+
     with session_scope() as session:
-        queue = health(session)
+        queue = health(session, registry=everything)
         board = dashboard(session, settings)
 
     print(json.dumps(queue, indent=2))

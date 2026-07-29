@@ -23,9 +23,14 @@ It automates repetition — never judgment, legal truth, or irreversible actions
 | Outreach scheduling, recruiter matching, Gmail drafts | [app/worker/handlers.py](app/worker/handlers.py) |
 | Review screens for every decision | [app/web/](app/web/) |
 
-Not yet built: replay packages driven end to end, submission reconciliation from
-observed signals, and scheduled backups. Their task types are unregistered, which
-the worker states at startup and `/health/queue` reports.
+Recurring work — discovery, Gmail reconciliation, submission reconciliation,
+backups and cleanup — runs on the schedule in §16.2. Every worker may tick; the
+idempotency key carries the time bucket, so concurrent ticks collapse rather than
+double-firing.
+
+Not yet exercised against a real ATS: the browser slot fills and replays forms
+correctly on the local fake ATS, but Greenhouse and Lever in production have
+iframes, multi-page flows and SSO that no fixture reproduces.
 
 ## Getting started
 
@@ -100,6 +105,8 @@ and outreach breaks every week with an error that reads like a bug in this code.
 ## Deployment
 
 ```bash
+cd infra/terraform && terraform init && terraform apply   # builds the machine
+# then, on the instance:
 docker compose -f docker-compose.prod.yml up -d --build
 sudo tailscale serve --bg 8080
 ```
@@ -119,6 +126,8 @@ free-tier resources still costing $0 — the spec's §17 does not mention this.
 |---|---|
 | [AGENTS.md](AGENTS.md) | Rules for anyone (human or agent) writing code here. Read first. |
 | [docs/spec/](docs/spec/README.md) | Full specification, one file per section. |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when something is wrong. Read before debugging. |
+| [infra/terraform/README.md](infra/terraform/README.md) | Building the OCI machine, step by step. |
 | [docs/spec/README.md](docs/spec/README.md#known-defects-in-this-spec) | Known defects in the spec — fix before implementing the affected section. |
 
 ## Development

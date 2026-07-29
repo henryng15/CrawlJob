@@ -198,9 +198,11 @@ class TestRegistration:
         """A task type with no handler is buried on arrival, so a gap here is not
         a missing feature — it is a queue that silently discards work."""
         # ENRICH_JOB and DEDUPE_JOB happen inside discovery rather than as
-        # separate stages; REPLAY_APPLICATION needs a browser and is registered
-        # by the slot.
+        # separate stages. The two browser types are registered by the slot, and
+        # by exactly one process: two handlers for one type would mean whichever
+        # worker claimed it first decided whether the task made sense.
         assert registry.missing() == {
+            TaskType.PREPARE_APPLICATION,
             TaskType.REPLAY_APPLICATION,
             TaskType.ENRICH_JOB,
             TaskType.DEDUPE_JOB,
@@ -377,44 +379,6 @@ class TestScoring:
         assert tasks(db, TaskType.PREPARE_APPLICATION) == []
 
 
-class TestPrepare:
-    def test_it_queues_the_application_for_a_browser(self, worker: Worker, db: Session):
-        job = make_job(db)
-        application = Application(
-            job_id=job.id, application_url=job.canonical_url, status=ApplicationState.CREATED
-        )
-        db.add(application)
-        db.commit()
-
-        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
-        worker.run_once(now=NOW)
-        db.refresh(application)
-
-        assert application.status == ApplicationState.BROWSER_QUEUED
-
-    def test_it_asks_for_a_tailored_resume_when_there_is_none(
-        self, worker: Worker, db: Session
-    ):
-        job = make_job(db)
-        application = Application(
-            job_id=job.id, application_url=job.canonical_url, status=ApplicationState.CREATED
-        )
-        db.add(application)
-        db.commit()
-
-        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        assert len(tasks(db, TaskType.TAILOR_RESUME)) == 1
-
-
-#: Comfortably past the two-business-day delay and inside the send window, so the
-#: tests below are about matching and drafting rather than about the calendar.
-#: Computed with the policy's own helper rather than a hand-picked date, which
-#: would land on a weekend roughly two runs in seven.
-AFTER_THE_DELAY = next_send_window(NOW + timedelta(days=9))
-
-
 class TestTailoring:
     def _application(self, db: Session) -> Application:
         job = make_job(db)
@@ -472,6 +436,60 @@ class TestTailoring:
         worker.run_once(now=NOW)
 
         assert "import-resume" in not_none(tasks(db, TaskType.TAILOR_RESUME)[0].last_error)
+
+    def test_a_supported_plan_queues_the_form_for_a_browser(
+        self, worker: Worker, db: Session, provider: NullProvider
+    ):
+        """Tailoring owns the materials stage and hands off — one owner per type."""
+        application = self._application(db)
+        self._facts(db, verified=True)
+        provider.queue(
+            {
+                "summary": "",
+                "summary_fact_ids": [],
+                "bullets": [
+                    {
+                        "text": "Built a FastAPI service at Todd Labs.",
+                        "fact_ids": ["exp.todd.1"],
+                        "transformation": "shorten",
+                    }
+                ],
+                "section_order": [],
+            }
+        )
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.refresh(application)
+        assert application.status == ApplicationState.BROWSER_QUEUED
+        assert len(tasks(db, TaskType.PREPARE_APPLICATION)) == 1
+
+    def test_a_blocked_plan_does_not_queue_a_browser(
+        self, worker: Worker, db: Session, provider: NullProvider
+    ):
+        """No resume, no form. Filling one without materials wastes a slot."""
+        application = self._application(db)
+        self._facts(db, verified=True)
+        invented = {
+            "summary": "",
+            "summary_fact_ids": [],
+            "bullets": [
+                {
+                    "text": "Scaled the platform to 4 million users.",
+                    "fact_ids": ["exp.todd.1"],
+                    "transformation": "rewrite",
+                }
+            ],
+            "section_order": [],
+        }
+        provider.queue(invented)
+        provider.queue(invented)
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
 
     def test_a_supported_plan_produces_a_pdf_and_attaches_it(
         self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
@@ -563,6 +581,13 @@ class TestTailoring:
         written = json.loads(sidecar.read_text(encoding="utf-8"))
         assert written["validation"]["passed"] is False
         assert any(v["kind"] == "INVENTED_METRIC" for v in written["violations"])
+
+
+#: Comfortably past the two-business-day delay and inside the send window, so the
+#: tests below are about matching and drafting rather than about the calendar.
+#: Computed with the policy's own helper rather than a hand-picked date, which
+#: would land on a weekend roughly two runs in seven.
+AFTER_THE_DELAY = next_send_window(NOW + timedelta(days=9))
 
 
 class TestOutreachPipeline:

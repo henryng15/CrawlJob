@@ -102,10 +102,13 @@ M9 outreach. Defer M1, M6, M8, M10, M11.
 One milestone at a time. Do not start the next until acceptance criteria pass.
 See [docs/spec/30-milestones/](docs/spec/30-milestones/).
 
-Still unregistered, and reported as such at worker startup:
-`REPLAY_APPLICATION`, `RECONCILE_SUBMISSION`, `ENRICH_JOB`, `DEDUPE_JOB`,
-`BACKUP_DATABASE`, `BACKUP_ARTIFACTS`. An unregistered task type is buried on
-arrival rather than retried, so adding a handler is what makes a stage real.
+Still unregistered in the non-browser worker: `ENRICH_JOB` and `DEDUPE_JOB`
+(both happen inside discovery), and `REPLAY_APPLICATION` (registered by the
+browser slot). An unregistered task type is buried on arrival rather than
+retried, so adding a handler is what makes a stage real.
+
+When something is wrong, [docs/RUNBOOK.md](docs/RUNBOOK.md) before debugging —
+most of the time goes on the wrong diagnosis.
 
 ---
 

@@ -17,13 +17,22 @@ them to a role that cannot hire them.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.services.llm.base import LLMProvider, Message, Task
+from app.services.llm.base import (
+    LLMError,
+    LLMProvider,
+    Message,
+    SchemaValidationError,
+    Task,
+)
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "Classification",
@@ -392,12 +401,34 @@ def analyze(
             description,
         )
 
-    response = provider.structured_generate(
-        task=Task.SPONSORSHIP,
-        schema=SponsorshipAnalysis,
-        messages=[
-            Message(role="system", content=_SYSTEM),
-            Message(role="user", content=description),
-        ],
-    )
+    try:
+        response = provider.structured_generate(
+            task=Task.SPONSORSHIP,
+            schema=SponsorshipAnalysis,
+            messages=[
+                Message(role="system", content=_SYSTEM),
+                Message(role="user", content=description),
+            ],
+        )
+    except SchemaValidationError:
+        # A model that returned the wrong shape is misbehaving, not absent.
+        # Swallowing it here would make a broken prompt look like a missing key.
+        raise
+    except LLMError as exc:
+        # No model, no budget, or a provider that failed. The honest answer is
+        # "this pass found nothing", which is what the pre-pass already
+        # concluded — and it is a *permissive* answer, so degrading cannot turn a
+        # job the employer ruled out into one the system proceeds with.
+        log.info("sponsorship classified deterministically only: %s", exc)
+        return SponsorshipAnalysis(
+            classification=Classification.SPONSORSHIP_NOT_MENTIONED,
+            work_authorization_restriction=WorkAuthRestriction.UNKNOWN,
+            confidence=0.2,
+            reasoning_summary=(
+                "No explicit sponsorship language was found, and no model was "
+                "available to read the wording. Check the description yourself "
+                "before relying on this."
+            ),
+        )
+
     return enforce_evidence(response.value, description)

@@ -388,11 +388,13 @@ def select_job(db: Db, settings: Config, session: CurrentSession, job_id: uuid.U
     )
     db.add(application)
     db.flush()
+    # Tailoring first: it is what produces the resume the form needs, and it
+    # hands off to a browser slot when it succeeds.
     enqueue(
         db,
-        task_type=TaskType.PREPARE_APPLICATION,
-        dedupe_key=idempotency_key(TaskType.PREPARE_APPLICATION, str(application.id)),
-        payload={"application_id": str(application.id)},
+        task_type=TaskType.TAILOR_RESUME,
+        dedupe_key=idempotency_key(TaskType.TAILOR_RESUME, str(application.id)),
+        payload={"application_id": str(application.id), "job_id": str(view.job.id)},
     )
     return _redirect(f"/applications/{application.id}")
 

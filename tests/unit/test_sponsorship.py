@@ -336,3 +336,39 @@ class TestAnalyze:
         result = analyze(CITIZEN_JD, provider=provider)
         assert result.classification is Classification.SPONSORSHIP_NOT_MENTIONED
         assert result.confidence < 0.95, "lower confidence when only one half matched"
+
+
+class TestWithoutAModel:
+    """LLM_PROVIDER=null must not break the pipeline (§26.2, README)."""
+
+    def test_a_posting_the_prepass_cannot_settle_degrades_rather_than_failing(self):
+        from app.services.llm.base import NullProvider
+
+        analysis = analyze(
+            "Software Engineer Intern. Python and FastAPI work on our platform team.",
+            provider=NullProvider(),  # no queued response: any call raises
+        )
+        assert analysis.classification is Classification.SPONSORSHIP_NOT_MENTIONED
+        assert analysis.work_authorization_restriction is WorkAuthRestriction.UNKNOWN
+
+    def test_the_degraded_answer_admits_its_own_weakness(self):
+        """A user reading NOT_MENTIONED deserves to know nothing read it."""
+        from app.services.llm.base import NullProvider
+
+        analysis = analyze(
+            "Software Engineer Intern. You will write Python on the platform team.",
+            provider=NullProvider(),
+        )
+        assert analysis.confidence <= 0.3
+        assert "no model was available" in (analysis.reasoning_summary or "")
+
+    def test_degrading_never_makes_a_restrictive_posting_permissive(self):
+        """The keyword pre-pass runs first, so an explicit refusal still lands."""
+        from app.services.llm.base import NullProvider
+
+        analysis = analyze(
+            "We are unable to sponsor or take over sponsorship of an employment visa.",
+            provider=NullProvider(),
+        )
+        assert analysis.classification is Classification.SPONSORSHIP_NOT_AVAILABLE
+        assert analysis.evidence

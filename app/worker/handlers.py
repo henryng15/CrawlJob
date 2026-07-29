@@ -8,9 +8,11 @@ no state where the work happened but the follow-up was lost.
 
 Two stages are deliberately absent from this module:
 
-* **Browser work** (``PREPARE_APPLICATION`` past materials, ``REPLAY_APPLICATION``)
-  lives in the browser worker, which registers its own handlers. A web worker
-  that tried them would have no Chromium.
+* **Browser work** (``PREPARE_APPLICATION``, ``REPLAY_APPLICATION``) lives in the
+  browser worker, which registers its own handlers. A web worker that tried them
+  would have no Chromium. Exactly one process owns each task type — two handlers
+  for one type means whichever worker claims it first decides whether the task
+  makes sense.
 * **Sending anything.** ``CREATE_GMAIL_DRAFT`` writes a draft; nothing here sends
   it, and nothing here submits a form.
 """
@@ -368,38 +370,6 @@ def register_pipeline(
 
     # -------------------------------------------------------- applications
 
-    @target.register(TaskType.PREPARE_APPLICATION)
-    def prepare(session: Session, task: ScheduledTask) -> HandlerResult:
-        """Assemble materials, then hand the form itself to a browser worker.
-
-        This handler runs anywhere; the filling does not. Splitting them keeps a
-        web-only deployment able to prepare materials, and means a browser slot
-        being busy delays the form rather than the whole pipeline.
-        """
-        application = _require(
-            session.get(Application, _payload_uuid(task, "application_id")), "application"
-        )
-        job = _require(session.get(Job, application.job_id), "job")
-
-        if application.status == ApplicationState.CREATED:
-            _move(application, ApplicationState.MATERIALS_PREPARING)
-
-        follow_ups: list[tuple[TaskType, str, dict[str, Any]]] = []
-        if application.resume_version_id is None:
-            follow_ups.append(
-                (
-                    TaskType.TAILOR_RESUME,
-                    idempotency_key(TaskType.TAILOR_RESUME, str(application.id)),
-                    {"application_id": str(application.id), "job_id": str(job.id)},
-                )
-            )
-
-        _move(application, ApplicationState.MATERIALS_READY)
-        _move(application, ApplicationState.BROWSER_QUEUED)
-        return HandlerResult(
-            detail="queued for a browser slot", follow_ups=tuple(follow_ups)
-        )
-
     @target.register(TaskType.TAILOR_RESUME)
     def tailor_resume(session: Session, task: ScheduledTask) -> HandlerResult:
         """Tailor the resume, or refuse (§7.7).
@@ -495,7 +465,27 @@ def register_pipeline(
         application.resume_version_id = version.id
         application.updated_at = now
 
-        return HandlerResult(detail=f"{len(plan.bullets)} bullet(s), all supported")
+        # Materials are the last thing this worker can do; the form itself needs
+        # a browser. Walking the states here rather than in a second handler
+        # keeps one owner per task type — two handlers for PREPARE_APPLICATION,
+        # one per process, meant whichever worker claimed it first decided
+        # whether the task made sense.
+        if application.status == ApplicationState.CREATED:
+            _move(application, ApplicationState.MATERIALS_PREPARING, session=session)
+        if application.status == ApplicationState.MATERIALS_PREPARING:
+            _move(application, ApplicationState.MATERIALS_READY, session=session)
+        if application.status == ApplicationState.MATERIALS_READY:
+            _move(application, ApplicationState.BROWSER_QUEUED, session=session)
+
+        follow = (
+            TaskType.PREPARE_APPLICATION,
+            idempotency_key(TaskType.PREPARE_APPLICATION, str(application.id)),
+            {"application_id": str(application.id)},
+        )
+        return HandlerResult(
+            detail=f"{len(plan.bullets)} bullet(s), all supported; queued for a browser",
+            follow_ups=(follow,),
+        )
 
     # ------------------------------------------------------------ outreach
 

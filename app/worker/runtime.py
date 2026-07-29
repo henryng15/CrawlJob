@@ -251,18 +251,28 @@ class Worker:
         return self.processed
 
 
-def health(session: Session) -> dict[str, Any]:
-    """Queue health, for ``/health/queue`` (§25.1)."""
+def health(session: Session, *, registry: Registry | None = None) -> dict[str, Any]:
+    """Queue health, for ``/health/queue`` (§25.1).
+
+    ``handlers_missing`` is reported only when a registry is supplied. The web
+    process registers no handlers — they live in the workers — so reading the
+    module-level registry there would report every task type as missing and make
+    a healthy system look broken. Silence is the honest answer to a question this
+    process cannot answer.
+    """
     from sqlalchemy import func, select
 
     rows = session.execute(
         select(ScheduledTask.status, func.count()).group_by(ScheduledTask.status)
     ).all()
     counts: dict[str, int] = {status: total for status, total in rows}
-    return {
+    report: dict[str, Any] = {
         "pending": counts.get(TaskStatus.PENDING.value, 0),
         "running": counts.get(TaskStatus.RUNNING.value, 0),
         "dead": counts.get(TaskStatus.DEAD.value, 0),
         "succeeded": counts.get(TaskStatus.SUCCEEDED.value, 0),
-        "handlers_missing": sorted(t.value for t in registry.missing()),
+        "failed": counts.get(TaskStatus.FAILED.value, 0),
     }
+    if registry is not None:
+        report["handlers_missing"] = sorted(t.value for t in registry.missing())
+    return report

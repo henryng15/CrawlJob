@@ -35,7 +35,13 @@ from app.services.eligibility import (
     graduation_year_fits,
     seniority_of,
 )
-from app.services.llm.base import LLMProvider, Message, Task
+from app.services.llm.base import (
+    LLMError,
+    LLMProvider,
+    Message,
+    SchemaValidationError,
+    Task,
+)
 from app.services.sponsorship import (
     Classification,
     RecommendedAction,
@@ -312,28 +318,42 @@ def score(
             components[name] = 0.0
         reasons.append("fit components not scored: no provider configured")
     else:
-        response = provider.structured_generate(
-            task=Task.SCORING,
-            schema=AiJudgment,
-            messages=[
-                Message(role="system", content=_SYSTEM),
-                Message(
-                    role="user",
-                    content=(
-                        f"CANDIDATE PROFILE\n{candidate_summary}\n\n"
-                        f"JOB TITLE\n{data.normalized_title}\n\n"
-                        f"JOB DESCRIPTION\n{data.description_text or '(not available)'}"
+        try:
+            response = provider.structured_generate(
+                task=Task.SCORING,
+                schema=AiJudgment,
+                messages=[
+                    Message(role="system", content=_SYSTEM),
+                    Message(
+                        role="user",
+                        content=(
+                            f"CANDIDATE PROFILE\n{candidate_summary}\n\n"
+                            f"JOB TITLE\n{data.normalized_title}\n\n"
+                            f"JOB DESCRIPTION\n{data.description_text or '(not available)'}"
+                        ),
                     ),
-                ),
-            ],
-        )
-        model_name = response.model
-        judgment, notes = _enforce_citations(response.value)
-        for name in AI_COMPONENTS:
-            components[name] = getattr(judgment, name)
-        fact_references = list(judgment.fact_references)
-        reasons.extend(judgment.reasons)
-        reasons.extend(notes)
+                ],
+            )
+        except SchemaValidationError:
+            # Out-of-range scores mean the model is misbehaving, not missing.
+            # Zeroing them silently would hide a broken prompt behind a low score.
+            raise
+        except LLMError as exc:
+            # A job scored on its deterministic components alone is scored low,
+            # not scored wrong: the AI components contribute 50 of the 100
+            # points, so the job simply ranks below ones that were fully judged.
+            # Failing instead would stop the pipeline for every job.
+            for name in AI_COMPONENTS:
+                components[name] = 0.0
+            reasons.append(f"fit components not scored: {exc}")
+        else:
+            model_name = response.model
+            judgment, notes = _enforce_citations(response.value)
+            for name in AI_COMPONENTS:
+                components[name] = getattr(judgment, name)
+            fact_references = list(judgment.fact_references)
+            reasons.extend(judgment.reasons)
+            reasons.extend(notes)
 
     # Clamp defensively: a provider that ignores the schema bounds must not be
     # able to inflate a total past 100.

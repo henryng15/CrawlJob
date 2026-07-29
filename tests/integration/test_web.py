@@ -341,8 +341,10 @@ class TestJobReview:
         application = not_none(db.query(Application).filter_by(job_id=job.id).first())
         assert application.status == ApplicationState.CREATED
         assert job.status == JobState.SELECTED
+        # Tailoring first: it produces the resume the form needs, and hands off
+        # to a browser slot when it succeeds.
         queued = db.query(ScheduledTask).all()
-        assert [t.task_type for t in queued] == ["PREPARE_APPLICATION"]
+        assert [t.task_type for t in queued] == ["TAILOR_RESUME"]
 
     def test_the_company_cap_blocks_a_second_selection(
         self, signed_in: TestClient, db: Session, settings: Settings

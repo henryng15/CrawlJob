@@ -315,3 +315,52 @@ class TestAiJudgmentSchema:
             payload[name] = WEIGHTS[name] + 0.1
             with pytest.raises(ValidationError):
                 AiJudgment(**payload)
+
+
+class TestWithoutAModel:
+    """A provider that fails must cost the AI components, not the score."""
+
+    def _input(self):
+        return ScoreInput(
+            normalized_title="software engineer intern",
+            normalized_location="remote",
+            description_text="Python and FastAPI.",
+            season="SUMMER_2027",
+            posted_at=NOW,
+        )
+
+    def test_a_failing_provider_still_produces_a_score(self):
+        from app.services.llm.base import NullProvider
+
+        result = score(self._input(), provider=NullProvider(), now=NOW)
+        assert result.total > 0
+        assert result.hard_filter_result is not Verdict.REJECT
+
+    def test_the_ai_components_are_zero_and_the_reason_says_why(self):
+        from app.services.llm.base import NullProvider
+
+        result = score(self._input(), provider=NullProvider(), now=NOW)
+        assert all(result.components[name] == 0.0 for name in AI_COMPONENTS)
+        assert any("not scored" in reason for reason in result.reasons)
+
+    def test_it_ranks_below_a_fully_judged_job(self):
+        """Degrading must not advantage the job it happened to on."""
+        from app.services.llm.base import NullProvider
+
+        degraded = score(self._input(), provider=NullProvider(), now=NOW)
+        judged = score(
+            self._input(),
+            provider=NullProvider(
+                [
+                    {
+                        "core_swe_relevance": 18.0,
+                        "skills_overlap": 13.0,
+                        "experience_relevance": 12.0,
+                        "fact_references": ["skill.python"],
+                        "reasons": ["matches"],
+                    }
+                ]
+            ),
+            now=NOW,
+        )
+        assert degraded.total < judged.total
