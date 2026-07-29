@@ -122,6 +122,11 @@ class Worker:
     poll_interval: float = 5.0
     registry: Registry = field(default_factory=lambda: registry)
 
+    #: Called once per pass, before claiming, to enqueue recurring work. Injected
+    #: rather than imported so the loop keeps no domain knowledge, and so a worker
+    #: can be run without a scheduler.
+    on_tick: Callable[[Session, datetime], int] | None = None
+
     _stopping: bool = False
     processed: int = 0
 
@@ -146,6 +151,13 @@ class Worker:
 
         with self.session_factory() as session:
             recovered = reclaim_stale(session, lease=self.lease, now=moment)
+            if self.on_tick is not None:
+                # Every worker may tick. The scheduler's idempotency keys carry
+                # the time bucket, so concurrent ticks collapse in the queue's
+                # unique index rather than needing a lock.
+                queued = self.on_tick(session, moment)
+                if queued:
+                    log.info("scheduler queued %d task(s)", queued)
             session.commit()
             if recovered:
                 log.warning("reclaimed %d task(s) from an expired lease", recovered)

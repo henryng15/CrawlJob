@@ -21,6 +21,7 @@ from app.db.models.jobs import (
     SponsorshipAssessment,
 )
 from app.db.models.outreach import OutreachTask, Recruiter, SuppressionEntry
+from app.db.models.sources import SourceRegistry
 from app.db.models.tasks import AuditEvent, CandidateFact, ScheduledTask, TaskRun
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "Recruiter",
     "ResumeVersion",
     "ScheduledTask",
+    "SourceRegistry",
     "SponsorshipAssessment",
     "SuppressionEntry",
     "TaskRun",

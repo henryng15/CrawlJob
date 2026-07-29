@@ -20,8 +20,9 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import func, select
@@ -82,9 +83,22 @@ ProviderFactory = Callable[[Settings], LLMProvider]
 
 
 def build_provider(settings: Settings) -> LLMProvider:
-    from app.services.llm.anthropic import build_provider as _build
+    """The process-wide provider, with a budget that survives a restart.
 
-    return _build(settings)
+    Cached because the ledger's in-memory total is the hot path: rebuilding the
+    provider per task would re-read the month's spend before every classification
+    and put the database in front of every model call.
+    """
+    return _cached_provider(settings)
+
+
+@lru_cache(maxsize=1)
+def _cached_provider(settings: Settings) -> LLMProvider:
+    from app.db.session import get_sessionmaker
+    from app.services.llm.anthropic import build_provider as _build
+    from app.services.llm.ledger import load_ledger
+
+    return _build(settings, budget=load_ledger(get_sessionmaker(), settings))
 
 
 # ------------------------------------------------------------- utilities
@@ -465,7 +479,17 @@ def register_pipeline(
 
     @target.register(TaskType.SCHEDULE_OUTREACH)
     def schedule(session: Session, task: ScheduledTask) -> HandlerResult:
-        """Create the outreach task, due two business days after submission (§8.1)."""
+        """Create the outreach task, due two business days after submission (§8.1).
+
+        With no ``application_id`` this is the periodic scan from §16.2: it finds
+        submitted applications that have no outreach yet and fans out one task
+        each. The scan exists because an application can become submitted without
+        anything enqueuing outreach — a reconciliation, a restore, a row the user
+        fixed by hand.
+        """
+        if "application_id" not in (task.payload or {}):
+            return _scan_for_outreach(session)
+
         application = _require(
             session.get(Application, _payload_uuid(task, "application_id")), "application"
         )
@@ -709,6 +733,83 @@ def register_pipeline(
 
         return HandlerResult(detail=f"{changed} of {len(pending)} changed")
 
+    @target.register(TaskType.RECONCILE_SUBMISSION)
+    def reconcile_submission(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Decide what happened to applications waiting on confirmation (§7.10).
+
+        The browser slot records what it *observed*; this decides what it *means*,
+        so the judgement lives in one testable place rather than inside a page
+        interaction. Ambiguity resolves to SUBMISSION_UNCERTAIN, never to
+        SUBMITTED — a wrongly confirmed submission produces a recruiter email
+        about an application that does not exist.
+        """
+        from app.ats.submission import detect
+
+        now = run_clock()
+        waiting = session.scalars(
+            select(Application).where(
+                Application.status == ApplicationState.SUBMISSION_PENDING_CONFIRMATION
+            )
+        ).all()
+
+        confirmed = uncertain = 0
+        for application in waiting:
+            data = application.confirmation_data or {}
+            verdict = detect(_observation_from(data))
+
+            if verdict.submitted:
+                _move(application, ApplicationState.SUBMITTED)
+                application.submitted_at = now
+                application.submission_detection_method = verdict.method.value
+                application.submission_confidence = verdict.confidence
+                confirmed += 1
+                continue
+
+            waited = now - (application.updated_at or now)
+            if waited >= CONFIRMATION_GRACE:
+                # Long enough that no further observation is coming. Asking the
+                # user beats guessing.
+                _move(application, ApplicationState.SUBMISSION_UNCERTAIN)
+                uncertain += 1
+
+        follow_ups = tuple(
+            (
+                TaskType.SCHEDULE_OUTREACH,
+                idempotency_key(TaskType.SCHEDULE_OUTREACH, str(a.id)),
+                {"application_id": str(a.id)},
+            )
+            for a in waiting
+            if a.status == ApplicationState.SUBMITTED
+        )
+        return HandlerResult(
+            detail=f"{confirmed} confirmed, {uncertain} left for you, {len(waiting)} examined",
+            follow_ups=follow_ups,
+        )
+
+    # ------------------------------------------------------------- backups
+
+    @target.register(TaskType.BACKUP_DATABASE)
+    def backup_database(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Encrypted ``pg_dump`` to the data volume (§24.1).
+
+        Encrypted with the application key, because a backup is a copy of every
+        locked fact the user owns — their address, their citizenship, their
+        demographic answers — and an unencrypted one on disk is the same data
+        with the protections removed.
+        """
+        from app.services.backup import backup_database as run
+
+        result = run(config, now=run_clock())
+        return HandlerResult(detail=result.summary())
+
+    @target.register(TaskType.BACKUP_ARTIFACTS)
+    def backup_artifacts(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Archive resumes and screenshots (§24.2)."""
+        from app.services.backup import backup_artifacts as run
+
+        result = run(config, now=run_clock())
+        return HandlerResult(detail=result.summary())
+
     # ------------------------------------------------------- housekeeping
 
     @target.register(TaskType.CLEANUP_EXPIRED_SESSION)
@@ -731,7 +832,16 @@ def register_pipeline(
             # an abandoned live review does not hold a slot for ever.
             with_suppressed_invalid_transition(slot, BrowserSlotState.CLEANING)
 
-        return HandlerResult(detail=f"closed {len(expired)} expired session(s)")
+        from app.services.backup import expire_artifacts
+
+        # §23.6 is a promise the settings screen displays. Displaying it while
+        # deleting nothing would make it a false one.
+        deleted = expire_artifacts(config, now=now)
+        total = sum(deleted.values())
+
+        return HandlerResult(
+            detail=f"closed {len(expired)} expired session(s), deleted {total} expired artifact(s)"
+        )
 
     return target
 
@@ -746,6 +856,60 @@ def with_suppressed_invalid_transition(obj: Any, target: Any) -> None:
         obj.status = assert_transition(type(target)(obj.status), target)
     except InvalidTransition:
         log.debug("slot %s left in %s during cleanup", getattr(obj, "id", "?"), obj.status)
+
+
+#: How long an application may sit awaiting confirmation before the user is asked.
+#: Long enough that a slow page is not mistaken for a lost one, short enough that
+#: outreach for a real submission is not delayed by a day.
+CONFIRMATION_GRACE = timedelta(hours=2)
+
+
+def _observation_from(data: dict[str, Any]) -> Any:
+    """Rebuild the slot's observation from what it stored.
+
+    Deliberately tolerant: a slot that recorded fewer fields than a later version
+    expects yields a *weaker* observation, and a weaker observation cannot produce
+    a false confirmation — the defaults all point at "no evidence".
+    """
+    from app.ats.submission import Observation
+
+    return Observation(
+        url_before=str(data.get("url_before", "")),
+        url_after=str(data.get("url_after", "")),
+        text_after=str(data.get("text_after", "")),
+        title_before=str(data.get("title_before", "")),
+        title_after=str(data.get("title_after", "")),
+        submit_button_present_before=bool(data.get("submit_button_present_before", True)),
+        submit_button_present_after=bool(data.get("submit_button_present_after", True)),
+        form_present_before=bool(data.get("form_present_before", True)),
+        form_present_after=bool(data.get("form_present_after", True)),
+        network=tuple((str(u), int(s)) for u, s in data.get("network", ())),
+        errors_visible=bool(data.get("errors_visible", False)),
+    )
+
+
+def _scan_for_outreach(session: Session) -> HandlerResult:
+    """Find submitted applications with no outreach task yet (§16.2)."""
+    orphaned = session.scalars(
+        select(Application.id)
+        .outerjoin(OutreachTask, OutreachTask.application_id == Application.id)
+        .where(Application.status == ApplicationState.SUBMITTED)
+        .where(OutreachTask.id.is_(None))
+        .limit(50)
+    ).all()
+
+    follow_ups = tuple(
+        (
+            TaskType.SCHEDULE_OUTREACH,
+            idempotency_key(TaskType.SCHEDULE_OUTREACH, str(application_id)),
+            {"application_id": str(application_id)},
+        )
+        for application_id in orphaned
+    )
+    return HandlerResult(
+        detail=f"{len(orphaned)} application(s) need outreach scheduling",
+        follow_ups=follow_ups,
+    )
 
 
 def _summarise(report: Any) -> str:

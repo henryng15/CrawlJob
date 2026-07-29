@@ -29,11 +29,13 @@ RUN uv sync --frozen --no-dev --extra llm --extra gmail --extra recruiters --ext
 
 FROM python:3.13-slim-bookworm AS runtime
 
-# WeasyPrint renders the tailored resume; these are its runtime libraries.
+# WeasyPrint renders the tailored resume; postgresql-client provides pg_dump for
+# the nightly backup. Without the latter the backup task fails every night with a
+# message that reads like a bug rather than a missing package.
 RUN apt-get update \
  && apt-get install --no-install-recommends -y \
       libcairo2 libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 \
-      libffi8 shared-mime-info fonts-dejavu-core \
+      libffi8 shared-mime-info fonts-dejavu-core postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 app \

@@ -28,12 +28,40 @@
 	# Live review. The slot serves noVNC on 6080 in every container — each has its
 	# own network namespace, so the per-slot port numbers in the §15.1 table are
 	# unnecessary and the §15.2 example already assumes 6080.
+	#
+	# The token check runs at the app, not here. §15.3 is explicit that Caddy alone
+	# is not enough, and forward_auth is what makes that true rather than aspirational:
+	# every request under /review — the page, each asset, the WebSocket upgrade —
+	# is checked, so there is no path that reaches a browser slot unverified.
+	#
+	# The order matters. The grant endpoint must be matched before the wildcard,
+	# or the request that *establishes* the grant would itself be refused for not
+	# having one.
+	handle /review/*/ {
+		reverse_proxy web:8000
+	}
+
 	handle_path /review/slot-1/* {
+		forward_auth web:8000 {
+			uri /internal/review-auth
+			copy_headers X-Forwarded-Uri
+		}
 		reverse_proxy browser-slot-1:6080
 	}
 
 	handle_path /review/slot-2/* {
+		forward_auth web:8000 {
+			uri /internal/review-auth
+			copy_headers X-Forwarded-Uri
+		}
 		reverse_proxy browser-slot-2:6080
+	}
+
+	# forward_auth is the only caller. Reaching it from outside would prove
+	# nothing — it validates a cookie the client already holds — but there is no
+	# reason to publish it.
+	handle /internal/* {
+		respond 404
 	}
 
 	# Health endpoints are unauthenticated by design and carry no job, company or

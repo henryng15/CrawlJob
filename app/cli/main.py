@@ -40,6 +40,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="comma-separated task types to claim; default is all registered",
     )
     worker.add_argument("--once", action="store_true", help="run one task and exit")
+    worker.add_argument(
+        "--no-scheduler",
+        action="store_true",
+        help="do not enqueue recurring work from this worker",
+    )
     worker.add_argument("--max-tasks", type=int, default=None)
     worker.set_defaults(run=_worker)
 
@@ -74,6 +79,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     recruiters.add_argument("path", type=Path)
     recruiters.add_argument("--commit", action="store_true", help="write; default is preview")
     recruiters.set_defaults(run=_import_recruiters)
+
+    source = sub.add_parser("add-source", help="watch a job board")
+    source.add_argument("kind", choices=["greenhouse", "lever", "ashby", "github_feed"])
+    source.add_argument("identifier", help="board id, company slug, or owner/repo")
+    source.add_argument("--label", default=None, help="what to call it on screen")
+    source.set_defaults(run=_add_source)
+
+    sources = sub.add_parser("sources", help="list watched job boards")
+    sources.set_defaults(run=_list_sources)
 
     fact = sub.add_parser("set-fact", help="record a candidate fact")
     fact.add_argument("key", help="e.g. candidate.preferred_name")
@@ -141,11 +155,16 @@ def _worker(args: argparse.Namespace) -> int:
     settings = get_settings()
     registry = register_pipeline(Registry(), settings=settings)
 
+    from app.worker.scheduler import tick
+
     types = [TaskType(t.strip()) for t in args.types.split(",") if t.strip()] or None
     worker = Worker(
         session_factory=get_sessionmaker(),
         registry=registry,
         task_types=types,
+        # Every worker may tick: the scheduler's keys carry the time bucket, so
+        # concurrent ticks collapse in the queue rather than double-firing.
+        on_tick=None if args.no_scheduler else (lambda s, now: tick(s, settings, now=now)),
     )
 
     missing = sorted(t.value for t in registry.missing())
@@ -306,6 +325,52 @@ def _import_recruiters(args: argparse.Namespace) -> int:
         print(report.summary())
         if not args.commit:
             print("\nPreview only. Re-run with --commit to write.")
+    return 0
+
+
+def _add_source(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from app.db.models import SourceRegistry
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        existing = session.scalars(
+            select(SourceRegistry)
+            .where(SourceRegistry.kind == args.kind)
+            .where(SourceRegistry.identifier == args.identifier)
+        ).first()
+        if existing is not None:
+            existing.enabled = True
+            existing.label = args.label or existing.label
+            print(f"{args.kind}:{args.identifier} already watched; re-enabled")
+            return 0
+
+        session.add(
+            SourceRegistry(
+                kind=args.kind, identifier=args.identifier, label=args.label, enabled=True
+            )
+        )
+        print(f"watching {args.kind}:{args.identifier} — discovery runs daily at 07:00")
+    return 0
+
+
+def _list_sources(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from app.db.models import SourceRegistry
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        rows = session.scalars(select(SourceRegistry).order_by(SourceRegistry.kind)).all()
+        if not rows:
+            print("No sources. Add one:  internship-ops add-source greenhouse stripe")
+            return 0
+        for row in rows:
+            state = "on " if row.enabled else "off"
+            last = row.last_fetched_at.strftime("%d %b %H:%M") if row.last_fetched_at else "never"
+            note = f"  !! {row.last_error}" if row.consecutive_failures else ""
+            print(f"[{state}] {row.kind:<12} {row.identifier:<28} last: {last}{note}")
     return 0
 
 

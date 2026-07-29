@@ -8,9 +8,11 @@ draft" — record what the *user* did and write to a Gmail draft respectively.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -18,6 +20,7 @@ from starlette.responses import RedirectResponse
 
 from app.db.models import (
     Application,
+    BrowserSession,
     Job,
     OutreachTask,
     Recruiter,
@@ -26,6 +29,7 @@ from app.db.models import (
 )
 from app.domain.states import (
     ApplicationState,
+    BrowserSlotState,
     InvalidTransition,
     JobState,
     OutreachState,
@@ -34,9 +38,11 @@ from app.domain.states import (
 from app.domain.tasks import TaskType, idempotency_key
 from app.services.candidate import Sensitivity, default_sensitivity, list_facts
 from app.services.gmail import SCOPES
+from app.services.llm.ledger import spent_this_month
 from app.services.queue import enqueue
 from app.web import queries
 from app.web.deps import Config, CurrentSession, Db, require_csrf
+from app.web.review_token import DEFAULT_TTL, issue_token, review_cookie_name, verify_token
 from app.web.templating import render
 
 __all__ = ["router"]
@@ -69,6 +75,11 @@ RETENTION: tuple[tuple[str, str], ...] = (
     ("Logs", "30 days"),
     ("Suppression list", "indefinite — an opt-out that expires is not an opt-out"),
 )
+
+
+#: Slot names are ours, not user input, but the auth endpoint reads one out of a
+#: header that a misconfigured proxy could let a client set.
+_SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
 
 
 def _redirect(to: str) -> RedirectResponse:
@@ -249,7 +260,7 @@ def application_detail(
         {
             "v": view,
             "redacted_keys": REDACTED_KEYS,
-            "live_review_url": _live_review_url(view, settings),
+            "live_review_url": _live_review_url(db, view, settings),
             # Offered from the states where a person could plausibly have just
             # pressed Submit on the employer's site (§7.10).
             "can_mark_submitted": view.application.status
@@ -263,10 +274,132 @@ def application_detail(
     )
 
 
-def _live_review_url(view: queries.ApplicationDetail, settings: Config) -> str | None:
-    if view.slot is None or view.slot.status != "LIVE_REVIEW":
+def _live_review_url(
+    db: Db, view: queries.ApplicationDetail, settings: Config
+) -> str | None:
+    """Mint a fresh, application-scoped review link (§15.3).
+
+    Minted on each page view rather than stored, so a link copied out of the
+    browser's history stops working within half an hour, and closing the page
+    does not leave a working key behind.
+    """
+    slot = view.slot
+    if slot is None or slot.status not in {
+        BrowserSlotState.LIVE_REVIEW,
+        BrowserSlotState.MANUAL_LOGIN,
+    }:
         return None
-    return f"{settings.app_base_url.rstrip('/')}/slots/{view.slot.slot_name}/vnc"
+
+    token, digest = issue_token(
+        application_id=view.application.id, slot_name=slot.slot_name, settings=settings
+    )
+    # Replacing the stored hash revokes every earlier link for this slot. That is
+    # deliberate: only the tab you just opened should work.
+    slot.review_token_hash = digest
+    db.flush()
+
+    return f"/review/{slot.slot_name}/?token={quote(token)}"
+
+
+@router.get("/review/{slot_name}/")
+def live_review(
+    db: Db,
+    settings: Config,
+    session: CurrentSession,
+    slot_name: str,
+    token: str = "",
+) -> Response:
+    """Validate a review token, then hand off to the slot's noVNC page.
+
+    Caddy routes ``/review/slot-1/*`` straight to the container, so this endpoint
+    is what makes the route safe: it is the only thing that checks the token, and
+    §15.3 is explicit that Caddy alone is not enough.
+    """
+    slot = db.scalars(
+        select(BrowserSession)
+        .where(BrowserSession.slot_name == slot_name)
+        .where(BrowserSession.ended_at.is_(None))
+    ).first()
+    if slot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such live session")
+
+    grant = verify_token(
+        token,
+        slot_name=slot_name,
+        stored_hash=slot.review_token_hash,
+        settings=settings,
+    )
+    if grant is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "That review link has expired or is not valid for this slot. "
+            "Open the application again to get a fresh one.",
+        )
+    if slot.application_id != grant.application_id:
+        # The slot moved on to another application since the link was minted.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This slot is now working on a different application"
+        )
+
+    # The noVNC page then loads a dozen assets and opens a WebSocket, none of
+    # which will carry the query string. A path-scoped cookie is what carries the
+    # grant across them, and Caddy's forward_auth re-checks it on every one — see
+    # the note in deploy/Caddyfile about why a redirect alone is not enough.
+    response = _redirect(f"/review/{slot_name}/vnc.html?autoconnect=1&resize=scale")
+    response.set_cookie(
+        review_cookie_name(slot_name),
+        token,
+        httponly=True,
+        samesite="strict",
+        secure=settings.session_cookie_secure,
+        max_age=int(DEFAULT_TTL.total_seconds()),
+        path=f"/review/{slot_name}/",
+    )
+    return response
+
+
+@router.get("/internal/review-auth")
+def review_auth(db: Db, settings: Config, request: Request) -> Response:
+    """Called by Caddy before every ``/review/...`` request (§15.3).
+
+    Caddy routes; it does not authenticate. This is the check, and it runs on the
+    noVNC page, on each asset, and on the WebSocket upgrade — so there is no
+    request under ``/review/`` that reaches a browser slot unchecked.
+
+    Returns 204 to allow and 403 to refuse; Caddy turns the latter into a denial.
+    """
+    slot_name = _slot_from_uri(request.headers.get("X-Forwarded-Uri", ""))
+    if slot_name is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a review path")
+
+    slot = db.scalars(
+        select(BrowserSession)
+        .where(BrowserSession.slot_name == slot_name)
+        .where(BrowserSession.ended_at.is_(None))
+    ).first()
+    grant = verify_token(
+        request.cookies.get(review_cookie_name(slot_name)),
+        slot_name=slot_name,
+        stored_hash=slot.review_token_hash if slot else None,
+        settings=settings,
+    )
+    if grant is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No valid review grant")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _slot_from_uri(uri: str) -> str | None:
+    """``/review/slot-1/vnc.html`` -> ``slot-1``.
+
+    Rejects anything that is not exactly a slot segment, so a traversal attempt
+    cannot name a slot it was not granted.
+    """
+    parts = [p for p in uri.split("?")[0].split("/") if p]
+    if len(parts) < 2 or parts[0] != "review":
+        return None
+    candidate = parts[1]
+    return candidate if _SLOT_NAME.fullmatch(candidate) else None
 
 
 @router.post("/applications/{application_id}/answers", dependencies=[CSRF])
@@ -581,7 +714,7 @@ def settings_page(
             "gmail_scopes": [s.rsplit("/", 1)[-1] for s in SCOPES],
             "recruiter_count": db.scalar(select(func.count()).select_from(Recruiter)) or 0,
             "retention": RETENTION,
-            "spent": 0.0,
+            "spent": spent_this_month(db, settings),
             "import_report": import_report,
         },
         session=session,

@@ -197,15 +197,14 @@ class TestRegistration:
     def test_every_non_browser_task_type_has_a_handler(self, registry: Registry):
         """A task type with no handler is buried on arrival, so a gap here is not
         a missing feature — it is a queue that silently discards work."""
-        browser_and_backup = {
+        # ENRICH_JOB and DEDUPE_JOB happen inside discovery rather than as
+        # separate stages; REPLAY_APPLICATION needs a browser and is registered
+        # by the slot.
+        assert registry.missing() == {
             TaskType.REPLAY_APPLICATION,
-            TaskType.RECONCILE_SUBMISSION,
             TaskType.ENRICH_JOB,
             TaskType.DEDUPE_JOB,
-            TaskType.BACKUP_DATABASE,
-            TaskType.BACKUP_ARTIFACTS,
         }
-        assert registry.missing() == browser_and_backup
 
     def test_registering_twice_is_refused(self, settings: Settings, provider: NullProvider):
         target = Registry()
