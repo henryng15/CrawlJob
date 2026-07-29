@@ -72,7 +72,6 @@ EOF
 #!/usr/bin/env bash
 echo "FORMATTED $*" >> "$SPY"
 EOF
-  for stub in mkdir mount mountpoint install chmod grep; do :; done
   cat > "$bin/mountpoint" <<'EOF'
 #!/usr/bin/env bash
 exit 0

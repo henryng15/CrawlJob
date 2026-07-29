@@ -20,12 +20,9 @@ packages:
   - fail2ban
   - postgresql-client
 
-users:
-  - name: ${app_user}
-    groups: [docker]
-    shell: /bin/bash
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
-    lock_passwd: true
+# No extra user. The image ships `ubuntu` with the operator's SSH key already
+# authorised, and a second account would only mean deploy.sh writing as one user
+# into directories owned by another.
 
 write_files:
   - path: /usr/local/sbin/mount-data-volume.sh
@@ -131,7 +128,10 @@ runcmd:
   - curl -fsSL https://tailscale.com/install.sh | sh
   - |
     if [ -n "${tailscale_auth_key}" ]; then
-      tailscale up --ssh --accept-dns=false --authkey='${tailscale_auth_key}'
+      # --hostname explicitly: deploy.sh addresses the box by MagicDNS name, and
+      # letting it default to whatever the OS decided is a way to be unreachable.
+      tailscale up --ssh --accept-dns=false --hostname=internshipops \
+        --authkey='${tailscale_auth_key}'
     fi
 
   - /usr/local/sbin/mount-data-volume.sh

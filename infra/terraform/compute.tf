@@ -35,7 +35,8 @@ resource "oci_core_instance" "app" {
   metadata = {
     ssh_authorized_keys = trimspace(file(pathexpand(var.ssh_public_key_path)))
     user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tftpl", {
-      app_user           = "internshipops"
+      # The image's own account, already holding the operator's SSH key.
+      app_user           = "ubuntu"
       tailscale_auth_key = var.tailscale_auth_key
     }))
   }
