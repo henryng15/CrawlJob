@@ -79,6 +79,50 @@
   </table></div>
 </div>
 
+<h2>Job boards to watch</h2>
+<div class="panel">
+  <p class="muted">Discovery runs once a day at 07:00 Eastern, one task per board.</p>
+  {% if sources %}
+    <div class="table-wrap"><table>
+      <tr><th></th><th>Kind</th><th>Identifier</th><th>Last fetched</th><th></th></tr>
+      {% for src in sources %}
+      <tr>
+        <td><span class="tag {{ 'good' if src.enabled else '' }}">{{ "on" if src.enabled else "paused" }}</span></td>
+        <td>{{ src.kind }}</td>
+        <td>{{ src.label or src.identifier }}
+          {% if src.consecutive_failures %}
+            <br><span class="tag bad">{{ src.consecutive_failures }} failure(s): {{ src.last_error }}</span>
+          {% endif %}
+        </td>
+        <td>{{ src.last_fetched_at.strftime("%d %b %H:%M") if src.last_fetched_at else "never" }}</td>
+        <td>
+          <form method="post" action="/settings/sources/{{ src.id }}/toggle" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+            <button>{{ "Pause" if src.enabled else "Resume" }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <p class="empty">No boards yet. Nothing will be discovered until you add one.</p>
+  {% endif %}
+
+  <form method="post" action="/settings/sources" style="display:flex; gap:.6rem; align-items:end; margin-top:1rem">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+    <label>Kind
+      <select name="kind">
+        {% for kind in source_kinds %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}
+      </select>
+    </label>
+    <label style="flex:2">Identifier
+      <input name="identifier" placeholder="stripe, or SimplifyJobs/Summer2027-Internships" required>
+    </label>
+    <label style="flex:1">Label <input name="label" placeholder="optional"></label>
+    <button class="primary">Watch</button>
+  </form>
+</div>
+
 <h2>Recruiter import</h2>
 <div class="panel">
   <form method="post" action="/settings/recruiters" enctype="multipart/form-data">

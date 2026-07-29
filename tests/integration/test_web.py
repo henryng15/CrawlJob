@@ -668,3 +668,113 @@ class TestSecurityHeaders:
         body = signed_in.get(f"/jobs/{job.id}").text
         assert "<script>alert" not in body
         assert "&lt;script&gt;" in body
+
+
+class TestSetup:
+    """The page that tells you why the dashboard is empty (§22.6)."""
+
+    def test_a_fresh_install_lists_what_is_missing(self, signed_in: TestClient):
+        body = signed_in.get("/setup").text
+        assert "Watch a job board" in body
+        assert "Import your resume" in body
+        assert body.count("needed") >= 2
+
+    def test_adding_a_board_marks_the_step_done(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        response = signed_in.post(
+            "/settings/sources",
+            data={
+                "csrf_token": csrf(signed_in, settings),
+                "kind": "greenhouse",
+                "identifier": "stripe",
+            },
+        )
+        assert response.status_code == 303
+        assert "stripe" in signed_in.get("/settings").text
+
+    def test_an_unknown_source_kind_is_refused(
+        self, signed_in: TestClient, settings: Settings
+    ):
+        response = signed_in.post(
+            "/settings/sources",
+            data={
+                "csrf_token": csrf(signed_in, settings),
+                "kind": "workday",
+                "identifier": "acme",
+            },
+        )
+        assert response.status_code == 400
+
+    def test_a_board_can_be_paused_rather_than_deleted(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        """Losing the row loses the failure history that explains why it broke."""
+        from app.db.models import SourceRegistry
+
+        signed_in.post(
+            "/settings/sources",
+            data={
+                "csrf_token": csrf(signed_in, settings),
+                "kind": "lever",
+                "identifier": "figma",
+            },
+        )
+        source = not_none(db.query(SourceRegistry).filter_by(identifier="figma").first())
+        signed_in.post(
+            f"/settings/sources/{source.id}/toggle",
+            data={"csrf_token": csrf(signed_in, settings)},
+        )
+        db.refresh(source)
+        assert source.enabled is False
+
+    def test_saving_the_profile_stores_locked_facts(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        from app.services.candidate import get_fact
+
+        response = signed_in.post(
+            "/setup/profile",
+            data={
+                "csrf_token": csrf(signed_in, settings),
+                "preferred_name": "Hoan",
+                "graduation_date": "2028-05-15",
+                "needs_sponsorship": "on",
+            },
+        )
+        assert response.status_code == 303
+
+        name = not_none(get_fact(db, "candidate.preferred_name"))
+        assert name.value == "Hoan"
+        sponsorship = not_none(
+            get_fact(db, "work_authorization.requires_future_sponsorship")
+        )
+        assert sponsorship.value is True
+        assert sponsorship.is_locked, "work authorization is locked by policy"
+        assert sponsorship.is_verified, "the user set it, so it counts as confirmed"
+
+    def test_an_unchecked_box_records_false_rather_than_nothing(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        """A missing checkbox is an answer, and the wrong one to drop."""
+        from app.services.candidate import get_fact
+
+        signed_in.post(
+            "/setup/profile",
+            data={"csrf_token": csrf(signed_in, settings), "preferred_name": "Hoan"},
+        )
+        fact = not_none(get_fact(db, "work_authorization.requires_future_sponsorship"))
+        assert fact.value is False
+
+    def test_a_malformed_graduation_date_is_refused(
+        self, signed_in: TestClient, settings: Settings
+    ):
+        response = signed_in.post(
+            "/setup/profile",
+            data={
+                "csrf_token": csrf(signed_in, settings),
+                "preferred_name": "Hoan",
+                "graduation_date": "next summer",
+            },
+        )
+        assert response.status_code == 400

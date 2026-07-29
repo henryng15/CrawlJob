@@ -18,4 +18,19 @@
   <button class="primary">Filter</button>
 </form>
 {{ m.jobs_table(rows, "No jobs match.") }}
+
+<h2>Add one by URL</h2>
+<div class="panel">
+  <p class="muted">
+    For a role somebody forwarded you. It goes through the same deduplication,
+    sponsorship check and scoring as a discovered one.
+  </p>
+  <form method="post" action="/jobs/import" style="display:flex; gap:.6rem; align-items:end">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+    <label style="flex:1">Posting URL
+      <input name="url" type="url" placeholder="https://boards.greenhouse.io/acme/jobs/1234567" required>
+    </label>
+    <button class="primary">Add</button>
+  </form>
+</div>
 {% endblock %}

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -26,8 +27,10 @@ from app.db.models import (
     OutreachTask,
     Recruiter,
     ResumeVersion,
+    SourceRegistry,
     SuppressionEntry,
 )
+from app.db.models.sources import KINDS
 from app.domain.states import (
     ApplicationState,
     BrowserSlotState,
@@ -117,6 +120,155 @@ def _move[T: Any](
             actor_id=actor,
             **context,
         )
+
+
+# ----------------------------------------------------------------- setup
+
+
+@dataclass(frozen=True, slots=True)
+class SetupStep:
+    title: str
+    detail: str
+    done: bool
+    summary: str = ""
+    command: str = ""
+    link: str = ""
+    link_text: str = ""
+    optional: bool = False
+
+
+@router.get("/setup")
+def setup(request: Request, db: Db, settings: Config, session: CurrentSession) -> Response:
+    """What is still missing before the system can do anything (§22.6).
+
+    A dashboard that is empty because nothing was discovered looks identical to
+    one that is empty because no board is being watched. This page is the
+    difference.
+    """
+    from app.services.resume_import import load_facts, unverified
+
+    values = {f.key: f.value for f in list_facts(db)}
+    sources = db.scalars(select(SourceRegistry).where(SourceRegistry.enabled.is_(True))).all()
+    verified_facts = load_facts(db)
+    pending_facts = unverified(db)
+    recruiters = int(db.scalar(select(func.count()).select_from(Recruiter)) or 0)
+
+    steps = [
+        SetupStep(
+            title="Watch a job board",
+            detail="Nothing is discovered until at least one board is enabled.",
+            done=bool(sources),
+            summary=f"{len(sources)} board(s) enabled.",
+            link="/settings",
+            link_text="Add one in Settings",
+        ),
+        SetupStep(
+            title="Import your resume",
+            detail=(
+                "Tailoring can only rearrange things that are already true, so it "
+                "needs your resume broken into facts it can cite."
+            ),
+            done=bool(verified_facts),
+            summary=(
+                f"{len(verified_facts)} verified fact(s)"
+                + (f", {len(pending_facts)} still to confirm" if pending_facts else "")
+            ),
+            command="uv run internship-ops import-resume ~/resume.pdf",
+        ),
+        SetupStep(
+            title="Confirm the extracted facts",
+            detail=(
+                "A model read your PDF and can have misread a date or a percentage. "
+                "Tailoring cites only facts you have confirmed."
+            ),
+            done=not pending_facts,
+            summary=f"{len(pending_facts)} awaiting confirmation." if pending_facts else "",
+            command="uv run internship-ops verify-facts",
+        ),
+        SetupStep(
+            title="Import recruiters",
+            detail="Outreach needs somebody to write to. Without this it stops and asks.",
+            done=recruiters > 0,
+            summary=f"{recruiters} recruiter(s) stored.",
+            link="/settings",
+            link_text="Upload in Settings",
+            optional=True,
+        ),
+        SetupStep(
+            title="Connect Gmail",
+            detail=(
+                "Drafts are written into your mailbox. Until this is done they are "
+                "kept in memory and disappear when the worker restarts."
+            ),
+            done=bool(settings.gmail_token_path and settings.gmail_token_path.exists()),
+            command=(
+                "uv run python scripts/gmail_authorize.py "
+                "--client-secrets ~/client_secret.json"
+            ),
+            optional=True,
+        ),
+    ]
+
+    return render(
+        request,
+        "setup.html",
+        {
+            "steps": steps,
+            "ready": all(s.done for s in steps if not s.optional),
+            "preferred_name": values.get("candidate.preferred_name", ""),
+            "graduation_date": values.get("education.graduation_date", ""),
+            "needs_sponsorship": bool(
+                values.get("work_authorization.requires_future_sponsorship", True)
+            ),
+        },
+        session=session,
+    )
+
+
+@router.post("/setup/profile", dependencies=[CSRF])
+def save_profile(
+    db: Db,
+    session: CurrentSession,
+    preferred_name: Annotated[str, Form()],
+    graduation_date: Annotated[str, Form()] = "",
+    needs_sponsorship: Annotated[str, Form()] = "",
+) -> Response:
+    """Record the handful of facts everything else depends on.
+
+    Written as USER, which is what makes them usable: a sponsorship answer no
+    person confirmed is not one this system will put on a form (§2.2).
+    """
+    from app.services.candidate import Actor, set_fact
+
+    set_fact(
+        db,
+        "candidate.preferred_name",
+        preferred_name.strip(),
+        actor=Actor.USER,
+        verified=True,
+    )
+    if graduation_date.strip():
+        try:
+            date.fromisoformat(graduation_date.strip())
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Graduation date must be YYYY-MM-DD"
+            ) from exc
+        set_fact(
+            db,
+            "education.graduation_date",
+            graduation_date.strip(),
+            actor=Actor.USER,
+            verified=True,
+        )
+    set_fact(
+        db,
+        "work_authorization.requires_future_sponsorship",
+        bool(needs_sponsorship),
+        actor=Actor.USER,
+        verified=True,
+    )
+    return _redirect("/setup")
 
 
 # ------------------------------------------------------------- dashboard
@@ -749,6 +901,10 @@ def settings_page(
             "gmail_scopes": [s.rsplit("/", 1)[-1] for s in SCOPES],
             "recruiter_count": db.scalar(select(func.count()).select_from(Recruiter)) or 0,
             "retention": RETENTION,
+            "sources": db.scalars(
+                select(SourceRegistry).order_by(SourceRegistry.kind, SourceRegistry.identifier)
+            ).all(),
+            "source_kinds": KINDS,
             "spent": spent_this_month(db, settings),
             "import_report": import_report,
         },
@@ -760,6 +916,80 @@ def _display(key: str, value: Any) -> str:
     if default_sensitivity(key) is Sensitivity.RESTRICTED:
         return "stored, not displayed"
     return str(value)
+
+
+@router.post("/settings/sources", dependencies=[CSRF])
+def add_source(
+    db: Db,
+    session: CurrentSession,
+    kind: Annotated[str, Form()],
+    identifier: Annotated[str, Form()],
+    label: Annotated[str, Form()] = "",
+) -> Response:
+    """Watch a job board. Discovery picks it up on the next daily run."""
+    from app.db.models.sources import KINDS
+
+    if kind not in KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown source kind {kind!r}")
+    if not identifier.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "An identifier is required")
+
+    existing = db.scalars(
+        select(SourceRegistry)
+        .where(SourceRegistry.kind == kind)
+        .where(SourceRegistry.identifier == identifier.strip())
+    ).first()
+    if existing is not None:
+        existing.enabled = True
+        existing.label = label.strip() or existing.label
+    else:
+        db.add(
+            SourceRegistry(
+                kind=kind, identifier=identifier.strip(), label=label.strip() or None
+            )
+        )
+    return _redirect("/settings")
+
+
+@router.post("/settings/sources/{source_id}/toggle", dependencies=[CSRF])
+def toggle_source(db: Db, session: CurrentSession, source_id: uuid.UUID) -> Response:
+    """Pause or resume a board.
+
+    Disabled rather than deleted: a board that broke last week is usually one you
+    want back, and losing the row loses the failure history that explains why.
+    """
+    source = db.get(SourceRegistry, source_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such source")
+    source.enabled = not source.enabled
+    return _redirect("/settings")
+
+
+@router.post("/jobs/import", dependencies=[CSRF])
+def import_job_url(
+    db: Db, settings: Config, session: CurrentSession, url: Annotated[str, Form()]
+) -> Response:
+    """Add one posting by URL (§7.2's manual import).
+
+    For the role a friend forwards you, which no feed carries. It goes through
+    exactly the same deduplication and assessment as a discovered one — a job
+    added by hand is not a job exempt from the rules.
+    """
+    from app.services.discovery.manual import import_url
+
+    try:
+        job, verdict = import_url(db, url.strip(), now=datetime.now(UTC))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    if verdict.is_new:
+        enqueue(
+            db,
+            task_type=TaskType.ANALYZE_SPONSORSHIP,
+            dedupe_key=idempotency_key(TaskType.ANALYZE_SPONSORSHIP, str(job.id)),
+            payload={"job_id": str(job.id)},
+        )
+    return _redirect(f"/jobs/{job.id}")
 
 
 @router.post("/settings/recruiters", dependencies=[CSRF])
