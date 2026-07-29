@@ -12,6 +12,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -89,6 +90,31 @@ _SLOT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,30}")
 
 def _redirect(to: str) -> RedirectResponse:
     return RedirectResponse(to, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _readable(path: Path | None) -> bool:
+    """Whether *path* is there **and** this process can read it.
+
+    Existence is the wrong question. The Gmail token is delivered by one account
+    and read by another, and when the ownership is wrong the file sits there
+    plainly visible while every draft fails with PermissionError — so a screen
+    that only stats it reports success at precisely the moment the feature is
+    broken. That happened in production, and the green tick is what made it hard
+    to find. Web and worker run as the same uid, so "I can read this" is a
+    truthful answer on the worker's behalf too.
+
+    Reading also subsumes the older failure this replaced: a secrets directory
+    the container may not list raises PermissionError from ``exists()`` itself,
+    which returned 500 for the whole page. Being shut out is an answer — no.
+    """
+    if path is None:
+        return False
+    try:
+        with path.open("rb") as handle:
+            handle.read(1)
+    except OSError:
+        return False
+    return True
 
 
 def _move[T: Any](
@@ -200,7 +226,7 @@ def setup(request: Request, db: Db, settings: Config, session: CurrentSession) -
                 "Drafts are written into your mailbox. Until this is done they are "
                 "kept in memory and disappear when the worker restarts."
             ),
-            done=bool(settings.gmail_token_path and settings.gmail_token_path.exists()),
+            done=_readable(settings.gmail_token_path),
             command=(
                 "uv run python scripts/gmail_authorize.py "
                 "--client-secrets ~/client_secret.json"
@@ -281,6 +307,18 @@ def dashboard(request: Request, db: Db, settings: Config, session: CurrentSessio
         request,
         "dashboard.html",
         {"d": queries.dashboard(db, settings, now=now), "now": now},
+        session=session,
+    )
+
+
+@router.get("/today")
+def today(request: Request, db: Db, settings: Config, session: CurrentSession) -> Response:
+    """Today Run: the quota, what came of it, and whether the machinery is alive."""
+    now = datetime.now(UTC)
+    return render(
+        request,
+        "today.html",
+        {"t": queries.today_run(db, settings, now=now), "now": now},
         session=session,
     )
 
@@ -418,11 +456,28 @@ def skip_job(db: Db, session: CurrentSession, job_id: uuid.UUID) -> Response:
 
 
 @router.get("/applications")
-def applications(request: Request, db: Db, session: CurrentSession) -> Response:
+def applications(
+    request: Request, db: Db, session: CurrentSession, status: str | None = None
+) -> Response:
+    """All Applications: the whole history, nothing filtered out by default.
+
+    Submitted, never submitted, failed, expired, restored — all of it. This is
+    the screen that has to be complete, because it is the only record the user
+    has of what the system did on their behalf, and it is the only place a
+    restore is offered from (§7.9).
+    """
+    rows = queries._application_rows(db)
+    if status:
+        rows = [row for row in rows if row.status == status]
     return render(
         request,
         "applications.html",
-        {"rows": queries._application_rows(db)},
+        {
+            "rows": rows,
+            "now": datetime.now(UTC),
+            "active_filter": status,
+            "counts": queries.status_counts(db),
+        },
         session=session,
     )
 
@@ -644,6 +699,40 @@ def mark_submitted(db: Db, session: CurrentSession, application_id: uuid.UUID) -
         db,
         task_type=TaskType.SCHEDULE_OUTREACH,
         dedupe_key=idempotency_key(TaskType.SCHEDULE_OUTREACH, str(application.id)),
+        payload={"application_id": str(application.id)},
+    )
+    return _redirect(f"/applications/{application_id}")
+
+
+@router.post("/applications/{application_id}/restore", dependencies=[CSRF])
+def restore_application(db: Db, session: CurrentSession, application_id: uuid.UUID) -> Response:
+    """Ask for an expired application back (§7.9).
+
+    Queues the work rather than doing it: restoring needs a browser slot, and
+    this request must return whether or not one is free. The checks that decide
+    whether it *can* come back run in the handler, so a restore refused for a
+    closed posting is recorded on the row like any other outcome, instead of
+    being a flash message the user loses on the next page load.
+    """
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such application")
+    if application.status != ApplicationState.EXPIRED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Only an expired application can be restored; this one is {application.status}",
+        )
+
+    enqueue(
+        db,
+        task_type=TaskType.RESTORE_APPLICATION,
+        # The attempt count is in the key so a restore refused this morning can
+        # be asked for again this afternoon, once whatever blocked it has moved.
+        dedupe_key=idempotency_key(
+            TaskType.RESTORE_APPLICATION,
+            str(application.id),
+            datetime.now(UTC).isoformat(timespec="seconds"),
+        ),
         payload={"application_id": str(application.id)},
     )
     return _redirect(f"/applications/{application_id}")

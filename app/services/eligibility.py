@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 
+from app.services.filters import classify_us
+
 __all__ = [
     "EligibilityResult",
     "EligibilityRules",
@@ -87,8 +89,12 @@ _GRADUATE_REQUIRED = re.compile(
     re.IGNORECASE,
 )
 
+# "remote" is deliberately absent. ``normalize_location`` folds every remote
+# posting to the bare string "remote" — "Remote (EMEA)" included — so treating it
+# as a US hint accepted roles on other continents. The country survives only in
+# the raw location text, which is why ``evaluate`` prefers it when it has it.
 _US_HINTS = re.compile(
-    r"\b(us|usa|u s a|united states|remote)\b|"
+    r"\b(us|usa|u s a|united states)\b|"
     r"\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|"
     r"ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|"
     r"wv|wi|wy|dc)\b"
@@ -151,8 +157,14 @@ def is_internship_title(normalized_title: str) -> bool:
     return seniority_of(normalized_title) is Seniority.INTERN
 
 
-def _looks_us(normalized_location: str) -> bool | None:
-    """True, False, or None when the location says nothing useful."""
+def _looks_us(normalized_location: str, location_text: str | None = None) -> bool | None:
+    """True, False, or None when the location says nothing useful.
+
+    Prefers the raw text whenever the caller has it, because normalization
+    destroys the one fact this question turns on (see ``_US_HINTS``).
+    """
+    if location_text and location_text.strip():
+        return classify_us(location_text)
     if not normalized_location.strip():
         return None
     if _NON_US.search(normalized_location):
@@ -166,6 +178,7 @@ def evaluate(
     *,
     normalized_title: str,
     normalized_location: str = "",
+    location_text: str | None = None,
     description_text: str | None = None,
     season: str | None = None,
     posted_at: datetime | None = None,
@@ -178,6 +191,8 @@ def evaluate(
     Args:
         normalized_title: output of ``normalize_title``.
         normalized_location: output of ``normalize_location``.
+        location_text: the location as the board wrote it. Preferred over the
+            normalized form for the US check, which normalization cannot answer.
         description_text: plain-text job description, when already fetched.
         season: e.g. ``"SUMMER_2027"``.
         posted_at: when the employer published the role.
@@ -207,7 +222,7 @@ def evaluate(
         reasons.append("title does not match a targeted engineering function")
 
     if rules.require_us:
-        us = _looks_us(normalized_location)
+        us = _looks_us(normalized_location, location_text)
         if us is False:
             reasons.append("location is outside the United States")
         elif us is None:

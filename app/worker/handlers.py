@@ -56,6 +56,7 @@ from app.domain.tasks import TaskType, idempotency_key
 from app.services import audit
 from app.services import candidate as facts
 from app.services.eligibility import Verdict
+from app.services.filters import screen
 from app.services.hooks import Hook, HookType, SourceDocument, compose_email, generate_hook
 from app.services.llm.base import LLMError, LLMProvider
 from app.services.outreach_policy import (
@@ -211,23 +212,60 @@ def register_pipeline(
 
         # Analyse only jobs that have neither an assessment nor a score. A feed
         # that republishes 200 unchanged rows must not re-spend the budget.
+        #
+        # Deduplication has already happened during ingest: an exact duplicate
+        # never became a row of its own, and a probable one carries
+        # DUPLICATE_PROBABLE and so is not selected here. That is the first of
+        # the four pre-spend filters; the other three run just below.
         pending = session.scalars(
-            select(Job.id)
+            select(Job)
             .outerjoin(SponsorshipAssessment, SponsorshipAssessment.job_id == Job.id)
             .where(SponsorshipAssessment.id.is_(None))
             .where(Job.status.in_([JobState.DISCOVERED, JobState.ENRICHED]))
             .limit(200)
         ).all()
-        for job_id in pending:
+
+        rules = config.screen_rules
+        moment = run_clock()
+        screened_out = 0
+        for job in pending:
+            verdict = screen(
+                normalized_title=job.normalized_title,
+                # The raw text, not the normalized form: normalization folds
+                # every remote posting to the bare word "remote", discarding the
+                # country this check exists to read.
+                location_text=job.location_text,
+                posted_at=job.posted_at,
+                discovered_at=job.discovered_at,
+                now=moment,
+                rules=rules,
+            )
+            if not verdict.passed:
+                # Rejected before a model is called and before the job can take
+                # one of the day's prepared-application slots. The row stays,
+                # with its reason, so the user can see what was turned away.
+                if job.status == JobState.DISCOVERED:
+                    _move(job, JobState.ENRICHED)
+                _move(
+                    job,
+                    JobState.ELIGIBILITY_REJECTED,
+                    session=session,
+                    reason=verdict.reason,
+                    stage="pre_spend_screen",
+                )
+                screened_out += 1
+                continue
             follow_ups.append(
                 (
                     TaskType.ANALYZE_SPONSORSHIP,
-                    idempotency_key(TaskType.ANALYZE_SPONSORSHIP, str(job_id)),
-                    {"job_id": str(job_id)},
+                    idempotency_key(TaskType.ANALYZE_SPONSORSHIP, str(job.id)),
+                    {"job_id": str(job.id)},
                 )
             )
 
         detail = "; ".join(_summarise(r) for r in reports) if reports else "nothing fetched"
+        if screened_out:
+            detail += f"; {screened_out} screened out before spend"
         return HandlerResult(detail=detail, follow_ups=tuple(follow_ups))
 
     # --------------------------------------------------------- sponsorship
@@ -324,6 +362,7 @@ def register_pipeline(
             ScoreInput(
                 normalized_title=job.normalized_title,
                 normalized_location=job.normalized_location or "",
+                location_text=job.location_text,
                 description_text=job.description_text,
                 season=job.season,
                 posted_at=job.posted_at,
@@ -868,7 +907,89 @@ def register_pipeline(
             detail=f"closed {len(expired)} expired session(s), deleted {total} expired artifact(s)"
         )
 
+    @target.register(TaskType.EXPIRE_PREPARED_APPLICATIONS)
+    def expire_prepared(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Retire prepared applications the user did not act on (§7.9).
+
+        Outside the pipeline gate on purpose: a paused instance prepares nothing
+        new, but yesterday's queue must still stop claiming to be today's.
+        """
+        from app.services.expiry import expire_due
+
+        expired = expire_due(session, now=run_clock(), actor_id="scheduler")
+        if not expired:
+            return HandlerResult(detail="nothing due")
+        return HandlerResult(detail=f"expired {len(expired)} prepared application(s)")
+
+    @target.register(TaskType.RESTORE_APPLICATION)
+    def restore_application(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Check an expired application can come back, then hand it to a replay.
+
+        Everything expensive — the browser slot, the form comparison, the upload —
+        belongs to the replay handler, which already does exactly this job for a
+        session that died. All this stage does is refuse the restores that cannot
+        work, before one of the two slots is spent finding out.
+        """
+        from app.services.restore import (
+            check_restorable,
+            previous_human_state,
+            replay_package_path,
+        )
+
+        application = _require(
+            session.get(Application, _payload_uuid(task, "application_id")), "application"
+        )
+        # Cleared first: a reason left from a previous attempt would otherwise
+        # still be on screen next to a restore that has since succeeded.
+        application.restore_blocked_reason = None
+
+        check = check_restorable(
+            session,
+            application,
+            has_replay_package=replay_package_path(config, application.id) is not None,
+        )
+        if not check:
+            _block_restore(session, application, check.reason)
+            return HandlerResult(detail=f"restore blocked: {check.reason}")
+
+        target_state = previous_human_state(session, application)
+        _move(
+            application,
+            ApplicationState.READY_FOR_REPLAY,
+            session=session,
+            reason="restore requested",
+            restore_target=target_state.value,
+        )
+        # Deliberately not touching ready_for_review_at: that column is what the
+        # daily quota counts, and restoring work the user already had must not
+        # cost them one of the day's thirty slots (§16.3).
+        follow = (
+            TaskType.REPLAY_APPLICATION,
+            idempotency_key(
+                TaskType.REPLAY_APPLICATION, str(application.id), "restore", str(task.id)
+            ),
+            {
+                "application_id": str(application.id),
+                "restore": True,
+                "restore_target": target_state.value,
+            },
+        )
+        return HandlerResult(detail=f"restoring to {target_state.value}", follow_ups=(follow,))
+
     return target
+
+
+def _block_restore(session: Session, application: Application, reason: str) -> None:
+    """Record a refused restore on the row and in the audit trail."""
+    was = str(application.status)
+    application.restore_blocked_reason = reason
+    _move(
+        application,
+        ApplicationState.RESTORE_BLOCKED,
+        session=session,
+        reason=reason,
+        was_before_block=was,
+    )
 
 
 def with_suppressed_invalid_transition(obj: Any, target: Any) -> None:

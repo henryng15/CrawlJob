@@ -118,6 +118,14 @@ class ApplicationState(StrEnum):
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
     WITHDRAWN = "WITHDRAWN"
+    #: Prepared, offered to the user, and not acted on within the TTL (§7.9).
+    #: Not a delete and not terminal: the resume, the answers, the screenshots
+    #: and the audit trail all survive, and the row can be restored.
+    EXPIRED = "EXPIRED"
+    #: A restore was asked for and refused, with a reason on the row. The posting
+    #: closed, another application already covers the job, or the form changed
+    #: too much for the stored answers to be trusted into it.
+    RESTORE_BLOCKED = "RESTORE_BLOCKED"
 
 
 #: States the machine cannot leave on its own — a person must act. Every path to
@@ -132,6 +140,12 @@ HUMAN_GATED_APPLICATION_STATES: Final[frozenset[ApplicationState]] = frozenset(
 )
 
 _ABANDON = frozenset({ApplicationState.SKIPPED, ApplicationState.WITHDRAWN})
+
+#: Expiry is offered from exactly the states where the application is waiting on
+#: a person — the same set as ``HUMAN_GATED_APPLICATION_STATES``, and not by
+#: coincidence: a TTL measures how long the user has had the chance to act, so
+#: anything the *machine* still owns must never age out from under it.
+_EXPIRE = frozenset({ApplicationState.EXPIRED})
 
 APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState]]] = {
     ApplicationState.CREATED: frozenset({ApplicationState.MATERIALS_PREPARING}) | _ABANDON,
@@ -157,11 +171,13 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
     ApplicationState.MANUAL_LOGIN_REQUIRED: frozenset(
         {ApplicationState.BROWSER_FILLING, ApplicationState.FAILED}
     )
-    | _ABANDON,
+    | _ABANDON
+    | _EXPIRE,
     ApplicationState.MANUAL_FIELD_REQUIRED: frozenset(
         {ApplicationState.READY_FOR_REVIEW, ApplicationState.FAILED}
     )
-    | _ABANDON,
+    | _ABANDON
+    | _EXPIRE,
     ApplicationState.READY_FOR_REVIEW: frozenset(
         {
             ApplicationState.LIVE_REVIEW_READY,
@@ -169,7 +185,8 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
             ApplicationState.SUBMISSION_PENDING_CONFIRMATION,
         }
     )
-    | _ABANDON,
+    | _ABANDON
+    | _EXPIRE,
     ApplicationState.READY_FOR_REPLAY: frozenset(
         {ApplicationState.REPLAYING, ApplicationState.FAILED}
     )
@@ -179,6 +196,14 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
             ApplicationState.LIVE_REVIEW_READY,
             ApplicationState.MANUAL_FIELD_REQUIRED,
             ApplicationState.FAILED,
+            # A restore reproduces the work the user already had, so it returns
+            # them to the state they were in when it expired — which for a
+            # prepared application is the review queue, not a live window.
+            ApplicationState.READY_FOR_REVIEW,
+            ApplicationState.MANUAL_LOGIN_REQUIRED,
+            # The form changed under a restore. Blocking is the only safe answer:
+            # the whole premise was reproducing stored answers exactly.
+            ApplicationState.RESTORE_BLOCKED,
         }
     )
     | _ABANDON,
@@ -188,7 +213,8 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
             ApplicationState.READY_FOR_REPLAY,
         }
     )
-    | _ABANDON,
+    | _ABANDON
+    | _EXPIRE,
     ApplicationState.SUBMISSION_PENDING_CONFIRMATION: frozenset(
         {ApplicationState.SUBMITTED, ApplicationState.SUBMISSION_UNCERTAIN}
     ),
@@ -200,6 +226,20 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
     ApplicationState.FAILED: frozenset({ApplicationState.BROWSER_QUEUED}) | _ABANDON,
     ApplicationState.SKIPPED: frozenset(),
     ApplicationState.WITHDRAWN: frozenset(),
+    # Restoring goes through a replay: the browser reopens the form and puts the
+    # stored answers back, so the row passes through READY_FOR_REPLAY rather than
+    # jumping straight to a review state it has not actually reached. Either way
+    # it lands human-gated, so a restored application still cannot reach
+    # SUBMITTED without a person. Abandoning outright is the other way out.
+    ApplicationState.EXPIRED: frozenset(
+        {ApplicationState.READY_FOR_REPLAY, ApplicationState.RESTORE_BLOCKED}
+    )
+    | _ABANDON,
+    # Blocked is not a punishment. A block is usually about something *else* —
+    # the job closed, or another application claimed it — and those change. Going
+    # back to EXPIRED returns the row to the restorable pool rather than
+    # inventing a second restore path for the retry.
+    ApplicationState.RESTORE_BLOCKED: frozenset({ApplicationState.EXPIRED}) | _ABANDON,
 }
 
 

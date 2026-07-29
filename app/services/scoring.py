@@ -97,6 +97,9 @@ class ScoreInput:
 
     normalized_title: str
     normalized_location: str = ""
+    #: The location as the board wrote it. Carried alongside the normalized form
+    #: because only the raw text can distinguish Remote-US from Remote-EMEA.
+    location_text: str | None = None
     description_text: str | None = None
     season: str | None = None
     posted_at: datetime | None = None
@@ -277,6 +280,7 @@ def score(
     eligibility: EligibilityResult = evaluate(
         normalized_title=data.normalized_title,
         normalized_location=data.normalized_location,
+        location_text=data.location_text,
         description_text=data.description_text,
         season=data.season,
         posted_at=data.posted_at,

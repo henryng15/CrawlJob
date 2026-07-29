@@ -235,6 +235,23 @@ from app.web.security import hash_password
 print(hash_password('$ADMIN_PASSWORD'))" 2>/dev/null)" ||
     die "could not hash the admin password locally. Is 'uv sync' done?"
 
+  # An argon2 hash is $argon2id$v=19$m=...$...: a '$' at every field boundary,
+  # and on the way to the container it passes two separate things that each
+  # read '$' as a variable reference.
+  #
+  #   1. The ENVFILE heredoc below is deliberately unquoted, so that
+  #      $DB_PASSWORD is read on the instance. Under `set -u` an unescaped hash
+  #      aborts the step outright: "argon2id: unbound variable".
+  #   2. Docker Compose interpolates the project .env file. A hash escaped only
+  #      for (1) survives to disk intact and then arrives in the container with
+  #      every field deleted — 97 characters become 63, and the only symptom is
+  #      that the correct password is rejected at /login. Nothing logs a cause.
+  #
+  # So each '$' is written as '$$': the heredoc turns '\$\$' into '$$', and
+  # Compose turns '$$' back into '$'. The .env on disk holds '$$' by design.
+  # Read the value with `docker compose exec web printenv`, not with grep.
+  local password_hash_escaped="${password_hash//\$/\\\$\\\$}"
+
   local db_password
   db_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
 
@@ -242,7 +259,12 @@ print(hash_password('$ADMIN_PASSWORD'))" 2>/dev/null)" ||
   # instance, in a Docker secret. It never needs to leave the machine.
   remote "bash -s" <<EOF
 set -euo pipefail
-sudo install -d -o $REMOTE_USER -g $REMOTE_USER -m 0700 /data/internship-ops/secrets
+# 0711, not 0700. The web container runs as uid 10001 and mounts this
+# directory read-only for one purpose: asking whether the Gmail token is
+# there yet, so /setup can tick a box. Traverse-only grants exactly that —
+# stat a known filename — while listing stays denied and the files inside
+# stay 0600. At 0700 the stat raises PermissionError and /setup returns 500.
+sudo install -d -o $REMOTE_USER -g $REMOTE_USER -m 0711 /data/internship-ops/secrets
 if [ ! -s /data/internship-ops/secrets/postgres_password ]; then
   printf '%s' '$db_password' > /data/internship-ops/secrets/postgres_password
   chmod 600 /data/internship-ops/secrets/postgres_password
@@ -258,7 +280,7 @@ APP_SECRET_KEY=$APP_SECRET_KEY
 APP_ENCRYPTION_KEY=$APP_ENCRYPTION_KEY
 
 ADMIN_USERNAME=$ADMIN_USERNAME
-ADMIN_PASSWORD_HASH=$password_hash
+ADMIN_PASSWORD_HASH=$password_hash_escaped
 SESSION_COOKIE_SECURE=true
 SESSION_IDLE_TIMEOUT_MINUTES=60
 
@@ -273,10 +295,15 @@ LLM_MONTHLY_BUDGET_USD=15
 
 GMAIL_TOKEN_PATH=/data/internship-ops/secrets/gmail_token.enc
 
-MAX_PREPARED_APPLICATIONS_PER_DAY=10
+PIPELINE_ENABLED=false
+BASE_RESUME_STATUS=MISSING
+ORCHESTRATION_TIMES=08:00,14:00
+
+MAX_PREPARED_APPLICATIONS_PER_DAY=30
 MAX_BROWSER_WORKERS=2
 MAX_LIVE_SESSIONS=2
 LIVE_SESSION_TTL_HOURS=8
+PREPARED_APPLICATION_TTL_HOURS=24
 
 OUTREACH_INITIAL_DAILY_LIMIT=3
 OUTREACH_MAX_DAILY_LIMIT=5
@@ -286,7 +313,12 @@ OUTREACH_MAX_FOLLOWUPS=1
 
 MINIMUM_FIT_SCORE=72
 MAX_ROLE_AGE_DAYS=21
+MAX_ROLE_AGE_HOURS=24
 MAX_ACTIVE_APPLICATIONS_PER_COMPANY=2
+# Empty means "use the list shipped in app/services/filters.py", which is the
+# sixteen role variants. Set these only to override it.
+ROLE_TITLE_VARIANTS=
+ROLE_REJECT_TERMS=
 
 PUBLIC_JOB_SCRAPING_ENABLED=false
 
@@ -316,7 +348,30 @@ EOF
   step "Publishing over Tailscale"
   # Serve, never Funnel. Funnel would put this on the public internet, which is
   # the one thing §23.1 forbids.
-  remote "sudo tailscale serve --bg 8080" >/dev/null
+  #
+  # When Serve has not been enabled for the tailnet, `tailscale serve` prints a
+  # URL and then blocks until somebody visits it — forever, with no further
+  # output. Run unattended that is indistinguishable from a hang, so bound it
+  # and print the URL rather than waiting behind it.
+  local serve_out
+  if ! serve_out="$(remote "sudo timeout 30 tailscale serve --bg 8080 </dev/null 2>&1")"; then
+    local enable_url
+    enable_url="$(grep -o 'https://login.tailscale.com/[^ ]*' <<<"$serve_out" || true)"
+    if [[ -n "$enable_url" ]]; then
+      cat >&2 <<EOT
+
+Serve is not enabled for your tailnet. Everything else is deployed and healthy;
+this is the last switch, and only you can flip it. Open this, approve, then run
+this script again:
+
+  $enable_url
+
+EOT
+      exit 1
+    fi
+    die "tailscale serve failed:
+$serve_out"
+  fi
   info "https on the tailnet only; Funnel is off"
 }
 

@@ -120,10 +120,35 @@ class TestRejectedRoles:
 class TestLocation:
     @pytest.mark.parametrize(
         "location",
-        ["San Francisco, CA", "New York, NY", "Austin, Texas", "Remote", "Seattle, WA, USA"],
+        ["San Francisco, CA", "New York, NY", "Austin, Texas", "Seattle, WA, USA"],
     )
     def test_us_locations_pass(self, location):
         assert check("Software Engineer Intern", location).passed
+
+    def test_a_bare_remote_is_asked_about_rather_than_assumed_to_be_us(self):
+        """It used to pass, and that was wrong.
+
+        ``normalize_location`` folds every remote posting to the bare string
+        "remote", so "Remote (EMEA)" arrived here indistinguishable from
+        "Remote - US". Treating that as a US hint accepted roles on other
+        continents. Unknown is now unknown, and the caller decides.
+        """
+        result = check("Software Engineer Intern", "Remote")
+        assert result.verdict is Verdict.REVIEW
+        assert any("could not be classified" in w for w in result.warnings)
+
+    @pytest.mark.parametrize(
+        "location_text", ["Remote - US", "Remote (USA)", "Remote, United States"]
+    )
+    def test_remote_us_passes_when_the_raw_text_is_supplied(self, location_text):
+        """The country survives only in the text the board wrote."""
+        assert check("Software Engineer Intern", "Remote", location_text=location_text).passed
+
+    @pytest.mark.parametrize("location_text", ["Remote (EU)", "Remote - EMEA", "Remote, Canada"])
+    def test_remote_abroad_is_rejected_when_the_raw_text_is_supplied(self, location_text):
+        result = check("Software Engineer Intern", "Remote", location_text=location_text)
+        assert result.rejected
+        assert any("outside the United States" in r for r in result.reasons)
 
     @pytest.mark.parametrize(
         "location",

@@ -43,6 +43,8 @@ from app.domain.states import (
 from app.domain.tasks import TaskType
 from app.safety import assert_safe_to_review
 from app.services import candidate as facts
+from app.services.expiry import set_deadline
+from app.services.restore import replay_package_path
 from app.worker.runtime import (
     HandlerResult,
     PermanentFailure,
@@ -197,6 +199,7 @@ def register_browser_handlers(
             application.status = assert_transition(
                 ApplicationState(application.status), ApplicationState.MANUAL_LOGIN_REQUIRED
             )
+            set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
             slot.status = assert_transition(
                 BrowserSlotState(slot.status), BrowserSlotState.MANUAL_LOGIN
             )
@@ -206,6 +209,7 @@ def register_browser_handlers(
             application.status = assert_transition(
                 ApplicationState(application.status), ApplicationState.MANUAL_FIELD_REQUIRED
             )
+            set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
             slot.status = assert_transition(
                 BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
             )
@@ -217,6 +221,7 @@ def register_browser_handlers(
             ApplicationState(application.status), ApplicationState.READY_FOR_REVIEW
         )
         application.ready_for_review_at = now
+        set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
         slot.status = assert_transition(
             BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
         )
@@ -238,11 +243,21 @@ def register_browser_handlers(
         same form. A changed page stops the replay rather than typing stored
         answers into moved boxes, because a form that looks plausible and is
         wrong is the hardest error for a reviewer to catch.
+
+        A *restore* is the same operation with two differences, both carried in
+        the payload. It ends in the state the application expired from rather
+        than always in a live review; and a changed form blocks it outright
+        instead of asking the user to finish by hand, because reproducing the
+        stored answers exactly was the entire point (§7.9).
         """
         from app.ats.driver import extract_form, fill_form
         from app.ats.replay import ReplayPackage, check_replayable
 
         now = run_clock()
+        payload = task.payload or {}
+        is_restore = bool(payload.get("restore"))
+        restore_target = _restore_target(payload)
+
         raw = (task.payload or {}).get("application_id")
         if not isinstance(raw, str):
             raise PermanentFailure("task payload has no application_id")
@@ -253,7 +268,7 @@ def register_browser_handlers(
         if application.status != ApplicationState.READY_FOR_REPLAY:
             raise PermanentFailure(f"expected READY_FOR_REPLAY, found {application.status}")
 
-        stored_path = _find_replay_package(config, application.id)
+        stored_path = replay_package_path(config, application.id)
         if stored_path is None:
             raise PermanentFailure(
                 "no replay package was stored for this application; it must be filled again"
@@ -278,6 +293,21 @@ def register_browser_handlers(
             current = extract_form(page)
             check = check_replayable(package, current)
             if not check.can_replay:
+                if is_restore:
+                    # A restore promises the work comes back exactly as it was.
+                    # It cannot keep that promise against a changed form, so it
+                    # says so instead of half-keeping it.
+                    reason = f"the form changed since this was prepared ({check.reason})"
+                    application.restore_blocked_reason = reason
+                    application.status = assert_transition(
+                        ApplicationState(application.status),
+                        ApplicationState.RESTORE_BLOCKED,
+                    )
+                    slot.status = assert_transition(
+                        BrowserSlotState(slot.status), BrowserSlotState.CLEANING
+                    )
+                    return HandlerResult(detail=f"restore blocked: {reason}")
+
                 application.status = assert_transition(
                     ApplicationState(application.status),
                     ApplicationState.MANUAL_FIELD_REQUIRED,
@@ -300,11 +330,20 @@ def register_browser_handlers(
             _screenshot(page, config, application.id, "pre-submit")
             application.confirmation_data = _snapshot(page, current)
 
-        application.status = assert_transition(
-            ApplicationState(application.status), ApplicationState.LIVE_REVIEW_READY
-        )
+        landing = restore_target if is_restore else ApplicationState.LIVE_REVIEW_READY
+        application.status = assert_transition(ApplicationState(application.status), landing)
+        if is_restore:
+            application.restore_blocked_reason = None
+            application.restored_at = now
+        set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
+        # A restore that lands back in the review queue is not holding a window
+        # open, and there are only two slots. Releasing it is the difference
+        # between restoring thirty applications over a morning and restoring two.
         slot.status = assert_transition(
-            BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
+            BrowserSlotState(slot.status),
+            BrowserSlotState.CLEANING
+            if landing is ApplicationState.READY_FOR_REVIEW
+            else BrowserSlotState.LIVE_REVIEW,
         )
         assert_safe_to_review(
             has_clicked_submit=False,
@@ -316,9 +355,20 @@ def register_browser_handlers(
     return target
 
 
-def _find_replay_package(settings: Settings, application_id: uuid.UUID) -> Path | None:
-    path = settings.artifacts_dir / str(application_id) / "replay.json"
-    return path if path.is_file() else None
+def _restore_target(payload: dict[str, Any]) -> ApplicationState:
+    """Where a restore should land, from the task payload.
+
+    Anything unrecognised or not human-gated falls back to the review queue.
+    A payload is data from another process; it decides where a half-filled form
+    is handed to a person, so it is validated rather than trusted.
+    """
+    from app.services.restore import RESTORE_TARGET_DEFAULT
+
+    try:
+        state = ApplicationState(str(payload.get("restore_target")))
+    except ValueError:
+        return RESTORE_TARGET_DEFAULT
+    return state if state in HUMAN_GATED_APPLICATION_STATES else RESTORE_TARGET_DEFAULT
 
 
 def _answers_from(package: Any, current: list[Any]) -> list[Any]:

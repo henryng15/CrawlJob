@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Today{% endblock %}
+{% block content %}
+<h1>
+  Today &mdash; {{ t.day.strftime("%A %d %B") }}
+  {% if t.needs_attention %}<span class="count-badge">{{ t.needs_attention }} waiting on you</span>{% endif %}
+</h1>
+<p class="muted">Runs at {{ t.runs | join(" and ") }}. Prepared applications wait for you, then lapse.</p>
+
+<div class="grid">
+  <div class="panel">
+    <h2 style="margin-top:0">Today's quota</h2>
+    <dl class="facts">
+      <dt>Applications prepared</dt>
+      <dd>
+        {{ t.limits.prepared_today }} / {{ t.limits.prepared_cap }}
+        {% if t.limits.prepared_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
+      </dd>
+      <dt>Email drafts</dt>
+      <dd>
+        {{ t.limits.drafts_today }} / {{ t.limits.drafts_cap }}
+        {% if t.limits.drafts_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
+      </dd>
+      {% if t.expired_today %}
+        <dt>Lapsed today</dt>
+        <dd><span class="tag warn">{{ t.expired_today | length }}</span></dd>
+      {% endif %}
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Where today's went</h2>
+    {% if t.status_counts %}
+      <dl class="facts">
+        {% for status, count in t.status_counts %}
+          <dt>{{ status }}</dt><dd>{{ count }}</dd>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="empty">Nothing prepared yet today.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Live browser slots</h2>
+    <p class="muted">{{ t.live_sessions }} of {{ t.live_session_cap }} in use</p>
+    {% if t.slots %}
+      <dl class="facts">
+        {% for slot in t.slots %}
+          <dt>{{ slot.slot_name }}</dt>
+          <dd>
+            {{ slot.status }}
+            {% if slot.stale(now=now) %}<span class="tag bad">no heartbeat</span>{% endif %}
+          </dd>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p class="empty">No live sessions.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-top:0">Workers</h2>
+    <dl class="facts">
+      {% for name, count in t.queue_health.items() %}
+        <dt>{{ name }}</dt><dd>{{ count }}</dd>
+      {% endfor %}
+    </dl>
+    {% if t.queue_health.get('dead') %}
+      <p class="tag bad">{{ t.queue_health['dead'] }} task(s) buried &mdash; see the worker log</p>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Waiting on you</h2>
+{{ m.apps_table(t.waiting, "Nothing needs you right now.", now=now) }}
+
+<h2>Prepared today ({{ t.prepared_today | length }})</h2>
+{{ m.apps_table(t.prepared_today, "Nothing prepared yet today.", now=now) }}
+
+<p class="muted">
+  Anything not acted on lapses and moves to
+  <a href="/applications?status=EXPIRED">All Applications</a>, where it can be restored.
+  Nothing is ever deleted.
+</p>
+{% endblock %}

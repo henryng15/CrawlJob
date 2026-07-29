@@ -30,6 +30,13 @@ _CLOSED_STATES = (
     ApplicationState.SKIPPED,
     ApplicationState.WITHDRAWN,
     ApplicationState.FAILED,
+    # An expired application has been let go, so it must not keep the job locked
+    # against a fresh attempt. Restoring one therefore has to check that nothing
+    # else has since claimed the job.
+    ApplicationState.EXPIRED,
+    # Blocked for the same reason: often the block *is* "something else already
+    # covers this job", so counting it as active would be circular.
+    ApplicationState.RESTORE_BLOCKED,
 )
 
 
@@ -81,6 +88,13 @@ class Application(UUIDMixin, TimestampMixin, Base):
             ),
         ),
         Index("ix_applications_status_ready", "status", "ready_for_review_at"),
+        # Partial: only rows that are actually waiting carry a deadline, and the
+        # sweep runs every quarter hour forever.
+        Index(
+            "ix_applications_expires_at",
+            "expires_at",
+            postgresql_where=text("expires_at IS NOT NULL"),
+        ),
         Index("ix_applications_outreach_due", "outreach_due_at"),
     )
 
@@ -97,6 +111,21 @@ class Application(UUIDMixin, TimestampMixin, Base):
     browser_slot_id: Mapped[str | None] = mapped_column(Text)
 
     ready_for_review_at: Mapped[datetime | None] = mapped_column()
+    #: When this application stops waiting for the user (§7.9). Stamped on the
+    #: way into a state that waits for a person, and cleared on the way out, so
+    #: the sweep is one indexed comparison rather than a rule reimplemented in
+    #: SQL. NULL means "not waiting", which is why the sweep can never expire
+    #: work the machine still owns.
+    expires_at: Mapped[datetime | None] = mapped_column()
+    #: Why a restore was refused, in the user's words. Set with the transition to
+    #: RESTORE_BLOCKED and cleared when a restore is attempted again, so the row
+    #: never shows a stale explanation for a block that has since lifted.
+    restore_blocked_reason: Mapped[str | None] = mapped_column(Text)
+    #: When a restore last succeeded. The row is otherwise indistinguishable from
+    #: one that was never expired, and "this came back from the dead" is
+    #: something the user should be able to see on the list.
+    restored_at: Mapped[datetime | None] = mapped_column()
+
     submitted_at: Mapped[datetime | None] = mapped_column()
     #: How the submission was established: an observed signal, or the user
     #: pressing "Mark Submitted" (§7.10).

@@ -190,6 +190,15 @@ def tasks(session: Session, task_type: TaskType) -> list[ScheduledTask]:
     )
 
 
+class _Empty:
+    """A discovery adapter that fetches nothing, for screening tests."""
+
+    source_name = "empty"
+
+    def fetch(self) -> list[object]:
+        return []
+
+
 # ------------------------------------------------------------------ tests
 
 
@@ -213,6 +222,136 @@ class TestRegistration:
         register_pipeline(target, settings=settings, provider_factory=lambda _: provider)
         with pytest.raises(ValueError, match="already has a handler"):
             register_pipeline(target, settings=settings, provider_factory=lambda _: provider)
+
+
+class TestPreSpendScreen:
+    """The gate between discovery and the first euro (§7.3).
+
+    Everything downstream of ``DISCOVER_SOURCE`` costs something: sponsorship
+    analysis and scoring both call a model, and a job that survives them can take
+    one of the day's thirty prepared-application slots. So these tests assert on
+    the fan-out, not on a return value — a job that is screened out must produce
+    no ``ANALYZE_SPONSORSHIP`` task at all.
+    """
+
+    @pytest.fixture
+    def no_feed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A source that fetches nothing.
+
+        Isolates the screen from the adapters: the jobs under test are already in
+        the database, and the ``pending`` query picks them up regardless of what
+        this run fetched.
+        """
+        monkeypatch.setattr("app.worker.sources.adapters_for", lambda *a, **k: [_Empty()])
+
+    def _run(self, worker: Worker, db: Session) -> list[ScheduledTask]:
+        queue(db, TaskType.DISCOVER_SOURCE, kind="greenhouse", name="acme")
+        drain(worker)
+        return tasks(db, TaskType.ANALYZE_SPONSORSHIP)
+
+    def test_a_fresh_targeted_us_job_reaches_sponsorship_analysis(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        job = make_job(db, posted_at=NOW - timedelta(hours=2), location_text="Austin, TX")
+        assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
+
+    def test_a_posting_older_than_the_window_never_reaches_a_model(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        job = make_job(db, posted_at=NOW - timedelta(hours=30), location_text="Austin, TX")
+        assert self._run(worker, db) == []
+        db.refresh(job)
+        assert job.status == JobState.ELIGIBILITY_REJECTED
+
+    def test_a_stale_posting_seen_today_is_still_stale(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        """``max(posted_at, discovered_at)`` would have let this one through."""
+        make_job(
+            db,
+            posted_at=NOW - timedelta(days=90),
+            discovered_at=NOW,
+            location_text="Austin, TX",
+        )
+        assert self._run(worker, db) == []
+
+    def test_a_posting_with_no_posted_at_falls_back_to_when_it_was_seen(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        job = make_job(db, posted_at=None, discovered_at=NOW, location_text="Austin, TX")
+        assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
+
+    def test_an_untargeted_title_never_reaches_a_model(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        make_job(
+            db,
+            title="Marketing Intern",
+            normalized_title="marketing intern",
+            posted_at=NOW - timedelta(hours=2),
+            location_text="Austin, TX",
+        )
+        assert self._run(worker, db) == []
+
+    def test_a_remote_role_in_europe_never_reaches_a_model(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        """The case normalization cannot see: both fold to "remote"."""
+        make_job(
+            db,
+            posted_at=NOW - timedelta(hours=2),
+            location_text="Remote (EU)",
+            normalized_location="remote",
+        )
+        assert self._run(worker, db) == []
+
+    def test_a_remote_us_role_does_reach_a_model(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        job = make_job(
+            db,
+            posted_at=NOW - timedelta(hours=2),
+            location_text="Remote - US",
+            normalized_location="remote",
+        )
+        assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
+
+    def test_a_screened_out_job_is_kept_with_its_reason(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        """Rejection is a state change and an audit entry, never a delete."""
+        from app.db.models import AuditEvent
+
+        job = make_job(db, posted_at=NOW - timedelta(hours=30), location_text="Austin, TX")
+        self._run(worker, db)
+
+        db.refresh(job)
+        assert job.status == JobState.ELIGIBILITY_REJECTED
+        entries = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == job.id)).all()
+        reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
+        assert any("older than 24h" in r for r in reasons), reasons
+        assert any(
+            e.event_metadata.get("stage") == "pre_spend_screen" for e in entries
+        ), "the audit trail must say which gate turned it away"
+
+    def test_a_probable_duplicate_is_never_screened_or_spent_on(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        """Deduplication is the first filter, and it runs during ingest.
+
+        A probable duplicate waits for the user's decision (§7.4), so it must not
+        be fanned out — and equally must not be rejected by the screen, which
+        would settle a question that is the user's to settle.
+        """
+        job = make_job(
+            db,
+            status=JobState.DUPLICATE_PROBABLE,
+            posted_at=NOW - timedelta(hours=2),
+            location_text="Austin, TX",
+        )
+        assert self._run(worker, db) == []
+        db.refresh(job)
+        assert job.status == JobState.DUPLICATE_PROBABLE
 
 
 class TestSponsorship:

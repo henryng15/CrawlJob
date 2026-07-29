@@ -38,10 +38,12 @@ __all__ = [
     "Dashboard",
     "JobRow",
     "OutreachRow",
+    "TodayRun",
     "application_detail",
     "dashboard",
     "job_detail",
     "outreach_detail",
+    "today_run",
 ]
 
 
@@ -74,6 +76,9 @@ class ApplicationRow:
     application_url: str
     updated_at: datetime
     unresolved_fields: int = 0
+    expires_at: datetime | None = None
+    restore_blocked_reason: str | None = None
+    restored_at: datetime | None = None
 
     @property
     def needs_a_person(self) -> bool:
@@ -84,6 +89,21 @@ class ApplicationRow:
             ApplicationState.MANUAL_FIELD_REQUIRED,
             ApplicationState.SUBMISSION_UNCERTAIN,
         }
+
+    @property
+    def restorable(self) -> bool:
+        """Only expired applications, and only from the All Applications screen."""
+        return self.status == ApplicationState.EXPIRED
+
+    @property
+    def was_restored(self) -> bool:
+        return self.restored_at is not None
+
+    def hours_left(self, *, now: datetime) -> float | None:
+        """Hours until this stops waiting, or ``None`` when it is not waiting."""
+        if self.expires_at is None:
+            return None
+        return max(0.0, (self.expires_at - now).total_seconds() / 3600)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +177,44 @@ class Dashboard:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class TodayRun:
+    """§22.1's "what is happening today", separated from the whole history.
+
+    The dashboard used to be both, and the two answer different questions. This
+    one answers "how is today's run going" — the quota, what came out of it, and
+    whether the machinery doing it is alive. Anything older than today belongs on
+    All Applications, where it does not compete for attention with work that is
+    still actionable.
+    """
+
+    day: date
+    runs: tuple[str, ...] = ()
+    limits: Limits = Limits(0, 0, 0, 0)
+    waiting: list[ApplicationRow] = field(default_factory=list)
+    prepared_today: list[ApplicationRow] = field(default_factory=list)
+    expired_today: list[ApplicationRow] = field(default_factory=list)
+    slots: list[SlotRow] = field(default_factory=list)
+    queue_health: dict[str, int] = field(default_factory=dict)
+    live_session_cap: int = 2
+
+    @property
+    def status_counts(self) -> list[tuple[str, int]]:
+        """Today's prepared applications, grouped by where they got to."""
+        counts: dict[str, int] = {}
+        for row in self.prepared_today:
+            counts[row.status] = counts.get(row.status, 0) + 1
+        return sorted(counts.items())
+
+    @property
+    def live_sessions(self) -> int:
+        return len([s for s in self.slots if s.application_id is not None])
+
+    @property
+    def needs_attention(self) -> int:
+        return len(self.waiting)
+
+
 # ------------------------------------------------------------- selectors
 
 
@@ -196,7 +254,11 @@ def _to_job_rows(session: Session, stmt: Select[Any]) -> list[JobRow]:
     ]
 
 
-def _application_rows(session: Session, *statuses: ApplicationState) -> list[ApplicationRow]:
+def _application_rows(
+    session: Session,
+    *statuses: ApplicationState,
+    exclude: tuple[ApplicationState, ...] = (),
+) -> list[ApplicationRow]:
     unresolved = (
         select(
             ApplicationField.application_id.label("application_id"),
@@ -216,6 +278,9 @@ def _application_rows(session: Session, *statuses: ApplicationState) -> list[App
             Application.application_url,
             Application.updated_at,
             func.coalesce(unresolved.c.n, 0),
+            Application.expires_at,
+            Application.restore_blocked_reason,
+            Application.restored_at,
         )
         .join(Job, Application.job_id == Job.id)
         .join(Company, Job.company_id == Company.id)
@@ -224,6 +289,8 @@ def _application_rows(session: Session, *statuses: ApplicationState) -> list[App
     )
     if statuses:
         stmt = stmt.where(Application.status.in_([s.value for s in statuses]))
+    if exclude:
+        stmt = stmt.where(Application.status.not_in([s.value for s in exclude]))
     return [
         ApplicationRow(
             id=row[0],
@@ -233,6 +300,9 @@ def _application_rows(session: Session, *statuses: ApplicationState) -> list[App
             application_url=row[4],
             updated_at=row[5],
             unresolved_fields=row[6],
+            expires_at=row[7],
+            restore_blocked_reason=row[8],
+            restored_at=row[9],
         )
         for row in session.execute(stmt).all()
     ]
@@ -303,7 +373,11 @@ def dashboard(session: Session, settings: Settings, *, now: datetime | None = No
             .where(Job.status == JobState.SELECTED)
             .order_by(JobScore.total_score.desc()),
         ),
-        applications=_application_rows(session),
+        # Expired applications leave this list and only this list (§7.9). They
+        # are still in the database, still in the audit trail and still
+        # restorable — but the dashboard answers "what is waiting for me", and
+        # something the user has already let lapse is not an answer to that.
+        applications=_application_rows(session, exclude=(ApplicationState.EXPIRED,)),
         awaiting_confirmation=_application_rows(
             session,
             ApplicationState.SUBMISSION_PENDING_CONFIRMATION,
@@ -312,31 +386,96 @@ def dashboard(session: Session, settings: Settings, *, now: datetime | None = No
         replay_queue=_application_rows(
             session, ApplicationState.READY_FOR_REPLAY, ApplicationState.REPLAYING
         ),
-        slots=[
-            SlotRow(
-                slot_name=row[0],
-                status=row[1],
-                application_id=row[2],
-                heartbeat_at=row[3],
-                expires_at=row[4],
-            )
-            for row in session.execute(
-                select(
-                    BrowserSession.slot_name,
-                    BrowserSession.status,
-                    BrowserSession.application_id,
-                    BrowserSession.heartbeat_at,
-                    BrowserSession.expires_at,
-                )
-                .where(BrowserSession.ended_at.is_(None))
-                .order_by(BrowserSession.slot_name)
-            ).all()
-        ],
+        slots=_slot_rows(session),
         outreach_due=_outreach_rows(session, OutreachState.SCHEDULED, OutreachState.FOLLOWUP_DUE),
         drafts_ready=_outreach_rows(session, OutreachState.READY_FOR_REVIEW),
         queue_health=_queue_health(session),
         limits=_limits(session, settings, since=local_midnight),
     )
+
+
+def _slot_rows(session: Session) -> list[SlotRow]:
+    """The open browser sessions, one per slot."""
+    return [
+        SlotRow(
+            slot_name=row[0],
+            status=row[1],
+            application_id=row[2],
+            heartbeat_at=row[3],
+            expires_at=row[4],
+        )
+        for row in session.execute(
+            select(
+                BrowserSession.slot_name,
+                BrowserSession.status,
+                BrowserSession.application_id,
+                BrowserSession.heartbeat_at,
+                BrowserSession.expires_at,
+            )
+            .where(BrowserSession.ended_at.is_(None))
+            .order_by(BrowserSession.slot_name)
+        ).all()
+    ]
+
+
+def today_run(session: Session, settings: Settings, *, now: datetime | None = None) -> TodayRun:
+    """Assemble the Today Run screen.
+
+    "Today" is the user's day, not UTC's: at 21:00 Eastern the UTC date has
+    already rolled over, and a screen that empties itself every evening looks
+    exactly like data loss.
+    """
+    moment = now or datetime.now(UTC)
+    local_midnight = datetime.combine(
+        moment.astimezone(settings.timezone).date(),
+        datetime.min.time(),
+        tzinfo=settings.timezone,
+    ).astimezone(UTC)
+
+    # Prepared today, whatever became of them since — including the ones that
+    # have already expired, because "30 prepared, 6 submitted, 24 lapsed" is the
+    # honest summary of a day and hiding the last number would flatter it.
+    prepared_today = _prepared_since(session, local_midnight)
+
+    return TodayRun(
+        day=moment.astimezone(settings.timezone).date(),
+        runs=tuple(f"{t:%H:%M}" for t in settings.orchestration_times),
+        limits=_limits(session, settings, since=local_midnight),
+        waiting=[
+            row
+            for row in _application_rows(session, exclude=(ApplicationState.EXPIRED,))
+            if row.needs_a_person
+        ],
+        prepared_today=prepared_today,
+        expired_today=[
+            row for row in prepared_today if row.status == ApplicationState.EXPIRED
+        ],
+        slots=_slot_rows(session),
+        queue_health=_queue_health(session),
+        live_session_cap=settings.max_live_sessions,
+    )
+
+
+def status_counts(session: Session) -> list[tuple[str, int]]:
+    """Every application status and how many rows hold it, for the filter bar."""
+    rows = session.execute(
+        select(Application.status, func.count()).group_by(Application.status)
+    ).all()
+    return sorted((str(status), int(total)) for status, total in rows)
+
+
+def _prepared_since(session: Session, since: datetime) -> list[ApplicationRow]:
+    """Applications that became reviewable on or after ``since``.
+
+    Keyed on ``ready_for_review_at`` because that is the same column the daily
+    quota counts — so this list and the "27 / 30" above it can never disagree.
+    """
+    ids = set(
+        session.scalars(
+            select(Application.id).where(Application.ready_for_review_at >= since)
+        ).all()
+    )
+    return [row for row in _application_rows(session) if row.id in ids]
 
 
 def _queue_health(session: Session) -> dict[str, int]:

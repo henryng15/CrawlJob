@@ -1,7 +1,30 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Applications{% endblock %}
+{% block title %}All applications{% endblock %}
 {% block content %}
-<h1>Applications</h1>
-{{ m.apps_table(rows, "No applications yet.") }}
+<h1>All applications</h1>
+<p class="muted">
+  Everything, whatever became of it &mdash; submitted, never submitted, failed,
+  lapsed, restored. Nothing is ever deleted from this list.
+</p>
+
+{% if counts %}
+  <p>
+    <a href="/applications"{% if not active_filter %} class="tag"{% endif %}>All ({{ rows | length if not active_filter else counts | sum(attribute=1) }})</a>
+    {% for status, count in counts %}
+      &middot;
+      <a href="/applications?status={{ status }}"{% if active_filter == status %} class="tag"{% endif %}>{{ status }} ({{ count }})</a>
+    {% endfor %}
+  </p>
+{% endif %}
+
+{{ m.apps_table(rows,
+                "No applications yet." if not active_filter else "None with that status.",
+                now=now, csrf=session.csrf_token) }}
+
+<p class="muted">
+  Restoring reopens the form, puts the saved answers back and re-uploads the same
+  resume. It does not use one of today&rsquo;s slots and never creates a second
+  application. It never submits.
+</p>
 {% endblock %}

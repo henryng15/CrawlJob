@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -123,6 +124,18 @@ def csrf(client: TestClient, settings: Settings) -> str:
     return session.csrf_token
 
 
+def _gmail_step(body: str) -> str:
+    """The status word the setup screen prints against "Connect Gmail"."""
+    import re
+
+    marker = body.index("Connect Gmail")
+    after = re.sub(r"<[^>]+>", " ", body[marker : marker + 600])
+    for word in after.split():
+        if word in {"done", "needed", "optional"}:
+            return word
+    raise AssertionError("no status found next to the Gmail step")
+
+
 # ----------------------------------------------------------------- fixtures
 
 
@@ -164,7 +177,7 @@ def make_application(db: Session, job: Job, status: ApplicationState) -> Applica
 
 class TestLoginWall:
     @pytest.mark.parametrize(
-        "path", ["/", "/jobs", "/applications", "/outreach", "/settings"]
+        "path", ["/", "/today", "/jobs", "/applications", "/outreach", "/settings"]
     )
     def test_every_screen_redirects_when_signed_out(self, client: TestClient, path: str):
         response = client.get(path)
@@ -270,6 +283,138 @@ class TestDashboard:
     def test_the_badge_counts_what_is_waiting(self, signed_in: TestClient, db: Session):
         make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
         assert "waiting on you" in signed_in.get("/").text
+
+
+class TestTodayRun:
+    """§22.1: today's run, separated from the whole history."""
+
+    def test_it_renders_with_an_empty_database(self, signed_in: TestClient):
+        response = signed_in.get("/today")
+        assert response.status_code == 200
+
+    def test_it_shows_the_daily_quota_and_the_run_times(
+        self, signed_in: TestClient, settings: Settings
+    ):
+        body = signed_in.get("/today").text
+        assert f"/ {settings.max_prepared_applications_per_day}" in body
+        assert "08:00" in body and "14:00" in body
+
+    def test_it_shows_the_live_slot_cap(self, signed_in: TestClient, settings: Settings):
+        assert f"of {settings.max_live_sessions}" in signed_in.get("/today").text
+
+    def test_an_application_waiting_on_a_person_is_surfaced(
+        self, signed_in: TestClient, db: Session
+    ):
+        make_application(db, make_job(db, title="Needs You"), ApplicationState.READY_FOR_REVIEW)
+        assert "Needs You" in signed_in.get("/today").text
+
+    def test_an_expired_application_is_not_in_the_waiting_list(
+        self, signed_in: TestClient, db: Session
+    ):
+        """It lapsed. Today's screen is for what is still actionable."""
+        application = make_application(
+            db, make_job(db, title="Lapsed Role"), ApplicationState.READY_FOR_REVIEW
+        )
+        application.status = ApplicationState.EXPIRED
+        db.flush()
+        body = signed_in.get("/today").text
+        assert "Lapsed Role" not in body.split("Waiting on you")[1].split("Prepared today")[0]
+
+
+class TestAllApplications:
+    """§7.9: the complete record, and the only place a restore is offered."""
+
+    def test_it_lists_every_state_including_the_closed_ones(
+        self, signed_in: TestClient, db: Session
+    ):
+        for title, status in [
+            ("Was Submitted", ApplicationState.SUBMITTED),
+            ("Was Skipped", ApplicationState.SKIPPED),
+            ("Did Fail", ApplicationState.FAILED),
+            ("Has Lapsed", ApplicationState.EXPIRED),
+            ("Still Waiting", ApplicationState.READY_FOR_REVIEW),
+        ]:
+            make_application(db, make_job(db, title=title), status)
+        body = signed_in.get("/applications").text
+        for title in ("Was Submitted", "Was Skipped", "Did Fail", "Has Lapsed", "Still Waiting"):
+            assert title in body, f"{title} is missing from the complete record"
+
+    def test_an_expired_application_offers_restore(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.EXPIRED)
+        body = signed_in.get("/applications").text
+        assert f"/applications/{application.id}/restore" in body
+
+    def test_a_live_application_does_not_offer_restore(
+        self, signed_in: TestClient, db: Session
+    ):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        body = signed_in.get("/applications").text
+        assert f"/applications/{application.id}/restore" not in body
+
+    def test_restore_is_not_offered_on_today(self, signed_in: TestClient, db: Session):
+        """The requirement is specific: restoring happens from All Applications."""
+        make_application(db, make_job(db), ApplicationState.EXPIRED)
+        assert "/restore" not in signed_in.get("/today").text
+
+    def test_a_blocked_restore_shows_its_reason(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.EXPIRED)
+        application.status = ApplicationState.RESTORE_BLOCKED
+        application.restore_blocked_reason = "the posting has closed"
+        db.flush()
+        assert "the posting has closed" in signed_in.get("/applications").text
+
+    def test_a_restored_application_is_marked_as_such(
+        self, signed_in: TestClient, db: Session
+    ):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        application.restored_at = datetime.now(UTC)
+        db.flush()
+        assert "restored" in signed_in.get("/applications").text
+
+    def test_it_can_be_filtered_by_status(self, signed_in: TestClient, db: Session):
+        make_application(db, make_job(db, title="Lapsed One"), ApplicationState.EXPIRED)
+        make_application(db, make_job(db, title="Live One"), ApplicationState.READY_FOR_REVIEW)
+        body = signed_in.get("/applications?status=EXPIRED").text
+        assert "Lapsed One" in body
+        assert "Live One" not in body
+
+
+class TestRestoreRoute:
+    def test_restoring_queues_the_work_rather_than_doing_it(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        """A browser slot may be busy; the page has to return either way."""
+        application = make_application(db, make_job(db), ApplicationState.EXPIRED)
+        response = signed_in.post(
+            f"/applications/{application.id}/restore",
+            data={"csrf_token": csrf(signed_in, settings)},
+        )
+        assert response.status_code == 303
+        db.refresh(application)
+        assert application.status == ApplicationState.EXPIRED
+
+        queued = db.query(ScheduledTask).filter_by(task_type="RESTORE_APPLICATION").all()
+        assert len(queued) == 1
+        assert queued[0].payload["application_id"] == str(application.id)
+
+    def test_restoring_something_that_did_not_expire_is_refused(
+        self, signed_in: TestClient, db: Session, settings: Settings
+    ):
+        application = make_application(db, make_job(db), ApplicationState.SUBMITTED)
+        response = signed_in.post(
+            f"/applications/{application.id}/restore",
+            data={"csrf_token": csrf(signed_in, settings)},
+        )
+        assert response.status_code == 409
+        assert db.query(ScheduledTask).filter_by(task_type="RESTORE_APPLICATION").count() == 0
+
+    def test_restoring_without_a_csrf_token_is_refused(
+        self, signed_in: TestClient, db: Session
+    ):
+        application = make_application(db, make_job(db), ApplicationState.EXPIRED)
+        response = signed_in.post(f"/applications/{application.id}/restore", data={})
+        assert response.status_code == 403
+        assert db.query(ScheduledTask).filter_by(task_type="RESTORE_APPLICATION").count() == 0
 
 
 class TestJobReview:
@@ -680,6 +825,58 @@ class TestSetup:
         assert "Watch a job board" in body
         assert "Import your resume" in body
         assert body.count("needed") >= 2
+
+    def test_an_unreadable_gmail_token_directory_is_not_a_crash(
+        self, signed_in: TestClient, settings: Settings, tmp_path: Path
+    ):
+        """In production the secrets directory belongs to another user.
+
+        The web container mounts it only to ask whether the token has arrived.
+        ``Path.exists()`` re-raises PermissionError rather than answering, and
+        this whole page returned 500 on the instance because of it. Being shut
+        out of the directory is an answer — no — not an error.
+        """
+        secrets_dir = tmp_path / "secrets"
+        secrets_dir.mkdir(mode=0o700)
+        previous = settings.gmail_token_path
+        # Settings is frozen, which is the point of it everywhere but here.
+        object.__setattr__(settings, "gmail_token_path", secrets_dir / "gmail_token.enc")
+        secrets_dir.chmod(0o000)
+        try:
+            response = signed_in.get("/setup")
+        finally:
+            secrets_dir.chmod(0o700)
+            object.__setattr__(settings, "gmail_token_path", previous)
+
+        assert response.status_code == 200
+        assert "Connect Gmail" in response.text
+
+    def test_a_gmail_token_the_worker_cannot_read_is_not_done(
+        self, signed_in: TestClient, settings: Settings, tmp_path: Path
+    ):
+        """The exact shape of the production failure.
+
+        push-gmail.sh installed the token owned by the account that delivered it
+        rather than the uid the containers run as. The file was there, so the
+        screen ticked the box, while the worker got PermissionError on every
+        draft. A tick that survives an unusable credential is worse than no tick
+        at all — it sends you looking anywhere but here.
+        """
+        token = tmp_path / "gmail_token.enc"
+        token.write_bytes(b"encrypted")
+        object.__setattr__(settings, "gmail_token_path", token)
+
+        assert "Connect Gmail" in signed_in.get("/setup").text
+        readable = _gmail_step(signed_in.get("/setup").text)
+
+        token.chmod(0o000)
+        try:
+            unreadable = _gmail_step(signed_in.get("/setup").text)
+        finally:
+            token.chmod(0o600)
+
+        assert readable == "done"
+        assert unreadable != "done"
 
     def test_adding_a_board_marks_the_step_done(
         self, signed_in: TestClient, db: Session, settings: Settings

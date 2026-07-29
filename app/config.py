@@ -11,6 +11,7 @@ docs/spec/README.md#known-defects-in-this-spec.
 
 from __future__ import annotations
 
+from datetime import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -20,8 +21,45 @@ from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_valid
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.safety import SafetySettings, load_safety_settings
+from app.services.filters import DEFAULT_REJECT_TERMS, DEFAULT_ROLE_TITLES, ScreenRules
 
 __all__ = ["Settings", "get_settings"]
+
+
+def _parse_terms(raw: str) -> tuple[str, ...]:
+    """Parse a comma-separated override list, lowercased and de-duplicated.
+
+    Order is preserved so a reader of ``.env`` sees the list they wrote. Empty
+    entries are dropped rather than becoming a term that matches everything.
+    """
+    seen: dict[str, None] = {}
+    for piece in raw.split(","):
+        if term := " ".join(piece.lower().split()):
+            seen[term] = None
+    return tuple(seen)
+
+
+def _parse_times(raw: str) -> tuple[time, ...]:
+    """Parse ``"08:00,14:00"`` into sorted, de-duplicated times.
+
+    Raises rather than falling back to a default: a typo here silently changes
+    when — or whether — the day's work happens, and a system that quietly runs
+    at the wrong hour is worse than one that refuses to start.
+    """
+    parsed: set[time] = set()
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            parsed.add(time.fromisoformat(piece))
+        except ValueError:
+            raise ValueError(
+                f"Invalid orchestration time {piece!r}; expected 24-hour HH:MM"
+            ) from None
+    if not parsed:
+        raise ValueError("orchestration_times must list at least one HH:MM time")
+    return tuple(sorted(parsed))
 
 
 class Settings(BaseSettings):
@@ -69,8 +107,34 @@ class Settings(BaseSettings):
     gmail_token_path: Path | None = None
     gmail_draft_only: Literal[True] = True
 
+    # ---- pipeline gates ---------------------------------------------------
+    #: The master switch, and it defaults to off. Discovery, tailoring, browser
+    #: preparation and outreach all refuse to run while this is false, so a
+    #: freshly deployed instance prepares nothing until it is turned on
+    #: deliberately. Backups, cleanup and expiry keep running regardless —
+    #: pausing the pipeline must not stop the jobs that protect existing data.
+    pipeline_enabled: bool = False
+    #: A declaration that the base resume is ready to tailor from. It is checked
+    #: *alongside* the database, never instead of it: a flag can be set by
+    #: someone who has not looked, and today's lesson is that a screen agreeing
+    #: with a flag is what makes a broken thing hard to find.
+    base_resume_status: Literal["MISSING", "READY"] = "MISSING"
+
+    # ---- orchestration ----------------------------------------------------
+    #: Local wall-clock times, comma-separated. Each is a separate run with its
+    #: own idempotency key; the daily quota is shared across all of them.
+    orchestration_times_raw: str = Field(
+        default="08:00,14:00", validation_alias="ORCHESTRATION_TIMES"
+    )
+
     # ---- capacity (§9.3, §15.4) -------------------------------------------
-    max_prepared_applications_per_day: int = Field(default=10, ge=1, le=50)
+    #: Applications prepared per calendar day in the business timezone, across
+    #: every orchestration run, not per run.
+    max_prepared_applications_per_day: int = Field(default=30, ge=1, le=100)
+    #: How long a prepared application waits for you before it expires. Expiry
+    #: is a state change, never a delete: the resume, answers, screenshots and
+    #: audit trail all survive so it can be restored later.
+    prepared_application_ttl_hours: int = Field(default=24, ge=1, le=168)
     max_browser_workers: int = Field(default=2, ge=1, le=4)
     max_live_sessions: int = Field(default=2, ge=1, le=4)
     live_session_ttl_hours: int = Field(default=8, ge=1, le=24)
@@ -85,10 +149,27 @@ class Settings(BaseSettings):
     # ---- selection (§16.3) ------------------------------------------------
     minimum_fit_score: float = Field(default=72.0, ge=0, le=100)
     max_role_age_days: int = Field(default=21, ge=1)
+    #: Freshness window. Measured against ``posted_at`` when the board gives one,
+    #: and against ``first_seen_at`` only when it does not — never the later of
+    #: the two, which would let a months-old posting look new on the day we
+    #: happened to notice it.
+    max_role_age_hours: int = Field(default=24, ge=1)
     max_active_applications_per_company: int = Field(default=2, ge=1)
+    #: Role variants to apply for, comma-separated, written in normalized form
+    #: (see ``DEFAULT_ROLE_TITLES``). Empty keeps the shipped list.
+    role_title_variants_raw: str = Field(default="", validation_alias="ROLE_TITLE_VARIANTS")
+    #: Terms that disqualify a title even when it matched a variant above.
+    #: Empty keeps the shipped list.
+    role_reject_terms_raw: str = Field(default="", validation_alias="ROLE_REJECT_TERMS")
 
     # ---- opt-in sources ---------------------------------------------------
     public_job_scraping_enabled: bool = False
+
+    @field_validator("orchestration_times_raw")
+    @classmethod
+    def _orchestration_times_parse(cls, v: str) -> str:
+        _parse_times(v)  # raises on a typo, at startup rather than at 08:00
+        return v
 
     @field_validator("app_timezone")
     @classmethod
@@ -147,6 +228,25 @@ class Settings(BaseSettings):
     def timezone(self) -> ZoneInfo:
         """Business-logic timezone. Database timestamps stay UTC (§16.1)."""
         return ZoneInfo(self.app_timezone)
+
+    @property
+    def orchestration_times(self) -> tuple[time, ...]:
+        """The configured run times, sorted and de-duplicated."""
+        return _parse_times(self.orchestration_times_raw)
+
+    @property
+    def screen_rules(self) -> ScreenRules:
+        """The pre-spend screening policy (§7.3).
+
+        Built here rather than in the handler so the whole policy has one origin,
+        and an operator who overrides the role list in ``.env`` changes what is
+        screened everywhere at once.
+        """
+        return ScreenRules(
+            max_role_age_hours=self.max_role_age_hours,
+            role_titles=_parse_terms(self.role_title_variants_raw) or DEFAULT_ROLE_TITLES,
+            reject_terms=_parse_terms(self.role_reject_terms_raw) or DEFAULT_REJECT_TERMS,
+        )
 
     @property
     def artifacts_dir(self) -> Path:
