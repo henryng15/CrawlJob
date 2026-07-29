@@ -76,6 +76,21 @@ uv run ruff format . && uv run ruff check . && uv run mypy app && uv run pytest 
 
 ---
 
+## Where things are
+
+| | |
+|---|---|
+| `app/domain/` | State machines, normalization, task vocabulary. No I/O. |
+| `app/services/` | One module per pipeline stage. Pure functions where possible. |
+| `app/worker/handlers.py` | The pipeline: each stage enqueues the next. |
+| `app/worker/browser_slot.py` | The only code that drives a browser. |
+| `app/web/` | Review screens. `queries.py` holds the read models. |
+| `app/cli/main.py` | Everything an operator does by hand. |
+
+Handlers read the clock with `run_clock()`, never `datetime.now()`. Send windows,
+cooldowns and due dates all turn on time, and a stage that reads the wall clock
+cannot be tested at any moment but the present one.
+
 ## Build order
 
 Milestone 0 (ARM64 browser spike) is blocking — nothing proceeds until Chromium
@@ -86,6 +101,11 @@ M9 outreach. Defer M1, M6, M8, M10, M11.
 
 One milestone at a time. Do not start the next until acceptance criteria pass.
 See [docs/spec/30-milestones/](docs/spec/30-milestones/).
+
+Still unregistered, and reported as such at worker startup:
+`REPLAY_APPLICATION`, `RECONCILE_SUBMISSION`, `ENRICH_JOB`, `DEDUPE_JOB`,
+`BACKUP_DATABASE`, `BACKUP_ARTIFACTS`. An unregistered task type is buried on
+arrival rather than retried, so adding a handler is what makes a stage real.
 
 ---
 

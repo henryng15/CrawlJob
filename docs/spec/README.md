@@ -145,3 +145,15 @@ Fix these before implementing the affected section.
 | [12 — Data Model](12-data-model.md) | `applications.job_id` is `NOT NULL UNIQUE`, which permanently blocks re-applying to the same job in a later season. |
 | [12 — Data Model](12-data-model.md) | `uq_job_fingerprint` as a partial unique index raises on INSERT instead of deduplicating. Needs explicit upsert handling. |
 | [17 — OCI Infrastructure](17-oci-infrastructure.md) | Does not mention that upgrading the tenancy to Pay-As-You-Go (free-tier resources still cost $0) substantially improves the odds of getting A1 capacity. |
+
+### How each was resolved
+
+| Where | Resolution |
+|---|---|
+| §18.6 Gmail "Testing" | [scripts/gmail_authorize.py](../../scripts/gmail_authorize.py) states it in its docstring and again in its output. |
+| §15.1 vs §15.2 ports | 6080 in every slot. Each container has its own network namespace, so per-slot numbers buy nothing. |
+| §19 docker.sock | Not mounted. Browser slots are fixed services on the internal network. |
+| §21 model ID | `claude-sonnet-5`, and model IDs are configuration rather than constants. |
+| §12 `applications.job_id UNIQUE` | Replaced by a partial unique index excluding SKIPPED, WITHDRAWN and FAILED, so re-applying after an abandoned attempt works and G5 still holds. |
+| §12 `uq_job_fingerprint` | Non-unique index. A fingerprint collision is only *probable* duplication and must reach a human, so the row is inserted and linked via `duplicate_of_id`. |
+| §17 A1 capacity | Noted in the deployment section of the root README. |
