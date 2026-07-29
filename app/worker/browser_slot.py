@@ -13,6 +13,7 @@ the user.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -167,10 +168,29 @@ def register_browser_handlers(
                 resume_path=Path(resume.pdf_path) if resume else None,
             )
             _screenshot(page, config, application.id, "pre-submit")
+            # Captured while the page is open. Reconstructing "what the form
+            # looked like before the user acted" afterwards is impossible, and it
+            # is exactly what submission detection compares against (§7.10).
+            application.confirmation_data = _snapshot(page, specs)
+            storage_state = _save_storage_state(page, config, application.id)
 
         # Recorded before the state changes, so the review screen has something
         # to show even if the transition below is refused.
         _record_fields(session, application, specs, answers)
+
+        # A replay package, so a slot that dies mid-review does not cost the whole
+        # form (§7.11). Written now rather than on failure: after the crash there
+        # is no page left to read.
+        slot.replay_package_path = _save_replay_package(
+            config,
+            application=application,
+            specs=specs,
+            answers=answers,
+            now=now,
+            storage_state_path=storage_state,
+            resume_path=str(resume.pdf_path) if resume else None,
+        )
+        slot.storage_state_path = storage_state
 
         if report.captcha_detected:
             # Never attempted, never outsourced, never worked around.
@@ -209,7 +229,198 @@ def register_browser_handlers(
         )
         return HandlerResult(detail=f"{len(report.filled)} field(s) filled; ready for you")
 
+    @target.register(TaskType.REPLAY_APPLICATION)
+    def replay(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Rebuild a lost session from its stored package (§7.11).
+
+        A slot dies, or a review sits past its TTL, and the twenty minutes of
+        filling are gone. Replay puts them back — but only if the form is the
+        same form. A changed page stops the replay rather than typing stored
+        answers into moved boxes, because a form that looks plausible and is
+        wrong is the hardest error for a reviewer to catch.
+        """
+        from app.ats.driver import extract_form, fill_form
+        from app.ats.replay import ReplayPackage, check_replayable
+
+        now = run_clock()
+        raw = (task.payload or {}).get("application_id")
+        if not isinstance(raw, str):
+            raise PermanentFailure("task payload has no application_id")
+
+        application = session.get(Application, uuid.UUID(raw))
+        if application is None:
+            raise PermanentFailure("application no longer exists")
+        if application.status != ApplicationState.READY_FOR_REPLAY:
+            raise PermanentFailure(f"expected READY_FOR_REPLAY, found {application.status}")
+
+        stored_path = _find_replay_package(config, application.id)
+        if stored_path is None:
+            raise PermanentFailure(
+                "no replay package was stored for this application; it must be filled again"
+            )
+        package = ReplayPackage.from_json(json.loads(stored_path.read_text(encoding="utf-8")))
+
+        slot = _slot_row(session, now=now)
+        slot.status = assert_transition(
+            BrowserSlotState(slot.status), BrowserSlotState.ALLOCATING
+        )
+        slot.application_id = application.id
+        slot.expires_at = now + timedelta(hours=config.live_session_ttl_hours)
+        application.browser_slot_id = SLOT_NAME
+        application.status = assert_transition(
+            ApplicationState(application.status), ApplicationState.REPLAYING
+        )
+        slot.status = assert_transition(BrowserSlotState(slot.status), BrowserSlotState.REPLAYING)
+
+        with _page(
+            config, application.application_url, storage_state=package.storage_state_path
+        ) as page:
+            current = extract_form(page)
+            check = check_replayable(package, current)
+            if not check.can_replay:
+                application.status = assert_transition(
+                    ApplicationState(application.status),
+                    ApplicationState.MANUAL_FIELD_REQUIRED,
+                )
+                slot.status = assert_transition(
+                    BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
+                )
+                return HandlerResult(
+                    detail=f"the form changed ({check.reason}); left for you to complete"
+                )
+
+            report = fill_form(
+                page,
+                current,
+                _answers_from(package, current),
+                resume_path=(
+                    Path(package.resume_artifact_path) if package.resume_artifact_path else None
+                ),
+            )
+            _screenshot(page, config, application.id, "pre-submit")
+            application.confirmation_data = _snapshot(page, current)
+
+        application.status = assert_transition(
+            ApplicationState(application.status), ApplicationState.LIVE_REVIEW_READY
+        )
+        slot.status = assert_transition(
+            BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
+        )
+        assert_safe_to_review(
+            has_clicked_submit=False,
+            application_status=str(application.status),
+            allowed_pre_submit_states=PRE_SUBMIT_STATES,
+        )
+        return HandlerResult(detail=f"replayed {len(report.filled)} field(s)")
+
     return target
+
+
+def _find_replay_package(settings: Settings, application_id: uuid.UUID) -> Path | None:
+    path = settings.artifacts_dir / str(application_id) / "replay.json"
+    return path if path.is_file() else None
+
+
+def _answers_from(package: Any, current: list[Any]) -> list[Any]:
+    """Line the stored answers up with the form as it is now.
+
+    Matched by question text rather than by position: ``check_replayable`` has
+    already confirmed the question *set* is the same, but nothing guarantees the
+    order, and matching by index would silently transpose two answers.
+    """
+    from app.ats.fields import Answer, SourceType
+
+    by_label = {
+        f.label.strip().lower(): f for f in [*package.fields, *package.manual_fields]
+    }
+    answers: list[Any] = []
+    for spec in current:
+        stored = by_label.get(spec.question_text.strip().lower())
+        if stored is None:
+            answers.append(Answer(None, None, SourceType.UNRESOLVED))
+            continue
+        answers.append(
+            Answer(stored.semantic_key, stored.value, SourceType(stored.source_type))
+        )
+    return answers
+
+
+def _snapshot(page: Any, specs: list[Any]) -> dict[str, Any]:
+    """What the form looked like before the user touched it (§7.10).
+
+    Only the "before" half. The "after" half is written when the user comes back
+    and reconciliation compares them; a snapshot taken by this worker after its
+    own fill would compare the page to itself.
+    """
+    try:
+        return {
+            "url_before": page.url,
+            "title_before": page.title(),
+            "form_present_before": page.query_selector("form") is not None,
+            "submit_button_present_before": _has_submit(page),
+            "field_count_before": len(specs),
+        }
+    except Exception:  # pragma: no cover - depends on the page
+        log.warning("could not snapshot the form", exc_info=True)
+        return {}
+
+
+def _has_submit(page: Any) -> bool:
+    return any(
+        page.query_selector(selector) is not None
+        for selector in ("button[type=submit]", "input[type=submit]")
+    )
+
+
+def _save_storage_state(page: Any, settings: Settings, application_id: uuid.UUID) -> str | None:
+    """Persist cookies and local storage so a replay does not re-do a login.
+
+    §23.6 deletes this seven days after submission; until then it is the only
+    thing that makes a manual SSO login worth doing once.
+    """
+    try:
+        directory = settings.data_dir / "browser-sessions" / SLOT_NAME
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{application_id}.json"
+        page.context.storage_state(path=str(path))
+        path.chmod(0o600)  # session cookies are credentials
+        return str(path)
+    except Exception:  # pragma: no cover - depends on the page
+        log.warning("could not save storage state", exc_info=True)
+        return None
+
+
+def _save_replay_package(
+    settings: Settings,
+    *,
+    application: Application,
+    specs: list[Any],
+    answers: list[Any],
+    now: datetime,
+    storage_state_path: str | None,
+    resume_path: str | None,
+) -> str | None:
+    from app.ats.replay import build_package
+
+    try:
+        package = build_package(
+            application_id=str(application.id),
+            application_url=application.application_url,
+            ats_type=str(application.ats_type or "unknown"),
+            specs=specs,
+            answers=answers,
+            created_at=now,
+            storage_state_path=storage_state_path,
+            resume_artifact_path=resume_path,
+        )
+        directory = settings.artifacts_dir / str(application.id)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "replay.json"
+        path.write_text(json.dumps(package.to_json(), indent=2), encoding="utf-8")
+        return str(path)
+    except Exception:  # pragma: no cover - best effort
+        log.warning("could not write the replay package", exc_info=True)
+        return None
 
 
 def _record_fields(
@@ -242,17 +453,24 @@ def _record_fields(
         )
 
 
-def _page(settings: Settings, url: str) -> Any:
-    """Open ``url`` in a fresh context. A context manager so the page always closes."""
+def _page(settings: Settings, url: str, *, storage_state: str | None = None) -> Any:
+    """Open ``url`` in a fresh context. A context manager so the page always closes.
+
+    ``storage_state`` restores cookies from an earlier session, which is what
+    makes a replay skip a manual SSO login rather than asking for it again.
+    """
     from contextlib import contextmanager
 
     @contextmanager
     def opened() -> Any:
         from playwright.sync_api import sync_playwright
 
+        state = storage_state if storage_state and Path(storage_state).is_file() else None
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=False)
-            context = browser.new_context(viewport={"width": 1400, "height": 860})
+            context = browser.new_context(
+                viewport={"width": 1400, "height": 860}, storage_state=state
+            )
             page = context.new_page()
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=45_000)

@@ -51,6 +51,7 @@ from app.domain.states import (
     assert_transition,
 )
 from app.domain.tasks import TaskType, idempotency_key
+from app.services import audit
 from app.services import candidate as facts
 from app.services.eligibility import Verdict
 from app.services.hooks import Hook, HookType, SourceDocument, compose_email, generate_hook
@@ -125,16 +126,32 @@ def _require[T](value: T | None, what: str) -> T:
     return value
 
 
-def _move(obj: Any, target: StrEnum) -> None:
+def _move(
+    obj: Any, target: StrEnum, *, session: Session | None = None, **context: Any
+) -> None:
     """Transition, treating an illegal move as permanent.
 
     A state machine refusal means the row moved on since the task was queued —
     usually because a person acted. Retrying would fight the user.
+
+    Pass ``session`` to record the change in the audit log. It commits with the
+    transition, so the log cannot claim something the transaction rolled back.
     """
+    was = str(obj.status)
     try:
         obj.status = assert_transition(type(target)(obj.status), target)
     except InvalidTransition as exc:
         raise PermanentFailure(str(exc)) from exc
+
+    if session is not None:
+        audit.transition(
+            session,
+            obj,
+            entity_type=type(obj).__name__.lower(),
+            was=was,
+            now=str(target),
+            **context,
+        )
 
 
 def _candidate_facts(session: Session) -> dict[str, Any]:
@@ -268,7 +285,12 @@ def register_pipeline(
 
         if action is RecommendedAction.SKIP:
             # No score, no application, no spend. The employer already answered.
-            _move(job, JobState.ELIGIBILITY_REJECTED)
+            _move(
+                job,
+                JobState.ELIGIBILITY_REJECTED,
+                session=session,
+                reason=analysis.classification.value,
+            )
             return HandlerResult(detail=f"{analysis.classification.value}: skipped")
 
         follow = (
@@ -674,7 +696,13 @@ def register_pipeline(
         outreach.gmail_message_id = record.message_id
         outreach.gmail_thread_id = record.thread_id
         recruiter.last_contacted_at = run_clock()
-        _move(outreach, OutreachState.READY_FOR_REVIEW)
+        _move(
+            outreach,
+            OutreachState.READY_FOR_REVIEW,
+            session=session,
+            recruiter_email=recruiter.email,
+            draft_id=record.draft_id,
+        )
 
         return HandlerResult(detail=f"draft {record.draft_id} ready for your review")
 
@@ -758,7 +786,14 @@ def register_pipeline(
             verdict = detect(_observation_from(data))
 
             if verdict.submitted:
-                _move(application, ApplicationState.SUBMITTED)
+                _move(
+                    application,
+                    ApplicationState.SUBMITTED,
+                    session=session,
+                    method=verdict.method.value,
+                    confidence=verdict.confidence,
+                    signals=[s.name for s in verdict.signals],
+                )
                 application.submitted_at = now
                 application.submission_detection_method = verdict.method.value
                 application.submission_confidence = verdict.confidence

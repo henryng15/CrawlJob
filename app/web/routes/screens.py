@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
 from app.db.models import (
@@ -36,6 +37,7 @@ from app.domain.states import (
     assert_transition,
 )
 from app.domain.tasks import TaskType, idempotency_key
+from app.services import audit
 from app.services.candidate import Sensitivity, default_sensitivity, list_facts
 from app.services.gmail import SCOPES
 from app.services.llm.ledger import spent_this_month
@@ -86,16 +88,35 @@ def _redirect(to: str) -> RedirectResponse:
     return RedirectResponse(to, status_code=status.HTTP_303_SEE_OTHER)
 
 
-def _move[T: Any](obj: Any, target: T) -> None:
+def _move[T: Any](
+    obj: Any, target: T, *, db: Session | None = None, actor: str | None = None, **context: Any
+) -> None:
     """Apply a state transition, turning a refusal into a 400.
 
     A rejected transition is a stale page — the user pressed a button that was
     valid when it rendered — not a server fault.
+
+    Anything the user does here is audited as USER, which is the whole point:
+    months later the log has to be able to say that a person marked this
+    submitted, not that the machine decided it had been.
     """
+    was = str(obj.status)
     try:
         obj.status = assert_transition(type(target)(obj.status), target)
     except InvalidTransition as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    if db is not None:
+        audit.transition(
+            db,
+            obj,
+            entity_type=type(obj).__name__.lower(),
+            was=was,
+            now=str(target),
+            actor_type=audit.Actor.USER,
+            actor_id=actor,
+            **context,
+        )
 
 
 # ------------------------------------------------------------- dashboard
@@ -206,7 +227,7 @@ def select_job(db: Db, settings: Config, session: CurrentSession, job_id: uuid.U
     if not can_select:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
 
-    _move(view.job, JobState.SELECTED)
+    _move(view.job, JobState.SELECTED, db=db, actor=session.username)
     application = Application(
         job_id=view.job.id,
         application_url=view.job.canonical_url,
@@ -229,7 +250,13 @@ def skip_job(db: Db, session: CurrentSession, job_id: uuid.UUID) -> Response:
     job = db.get(Job, job_id)
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such job")
-    _move(job, JobState.ARCHIVED)
+    # Via CLOSED, because the job machine has no DISCOVERED -> ARCHIVED edge: the
+    # direct route exists only for jobs the pipeline already finished with. A
+    # user's "not interested" is a legitimate exit from any state, and closing
+    # first is how the machine spells that.
+    if JobState(job.status) not in {JobState.CLOSED, JobState.ARCHIVED}:
+        _move(job, JobState.CLOSED, db=db, actor=session.username, reason="skipped by you")
+    _move(job, JobState.ARCHIVED, db=db, actor=session.username)
     return _redirect("/jobs")
 
 
@@ -426,7 +453,8 @@ async def save_answers(
         field.manual_required = False
 
     if not view.manual_fields and view.application.status == ApplicationState.MANUAL_FIELD_REQUIRED:
-        _move(view.application, ApplicationState.READY_FOR_REVIEW)
+        _move(view.application, ApplicationState.READY_FOR_REVIEW, db=db,
+              actor=session.username)
         view.application.ready_for_review_at = datetime.now(UTC)
     return _redirect(f"/applications/{application_id}")
 
@@ -445,8 +473,15 @@ def mark_submitted(db: Db, session: CurrentSession, application_id: uuid.UUID) -
 
     now = datetime.now(UTC)
     if application.status != ApplicationState.SUBMISSION_PENDING_CONFIRMATION:
-        _move(application, ApplicationState.SUBMISSION_PENDING_CONFIRMATION)
-    _move(application, ApplicationState.SUBMITTED)
+        _move(application, ApplicationState.SUBMISSION_PENDING_CONFIRMATION, db=db,
+              actor=session.username)
+    _move(
+        application,
+        ApplicationState.SUBMITTED,
+        db=db,
+        actor=session.username,
+        method="USER_CONFIRMED",
+    )
     application.submitted_at = now
     application.submission_detection_method = "USER_CONFIRMED"
     application.submission_confidence = 1.0
@@ -465,7 +500,7 @@ def skip_application(db: Db, session: CurrentSession, application_id: uuid.UUID)
     application = db.get(Application, application_id)
     if application is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such application")
-    _move(application, ApplicationState.SKIPPED)
+    _move(application, ApplicationState.SKIPPED, db=db, actor=session.username)
     return _redirect("/applications")
 
 
@@ -579,7 +614,7 @@ def suppress(db: Db, session: CurrentSession, task_id: uuid.UUID) -> Response:
                 source="web",
             )
         )
-    _move(view.task, OutreachState.SUPPRESSED)
+    _move(view.task, OutreachState.SUPPRESSED, db=db, actor=session.username)
     return _redirect("/outreach")
 
 
@@ -588,7 +623,7 @@ def skip_outreach(db: Db, session: CurrentSession, task_id: uuid.UUID) -> Respon
     task = db.get(OutreachTask, task_id)
     if task is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such outreach task")
-    _move(task, OutreachState.CLOSED)
+    _move(task, OutreachState.CLOSED, db=db, actor=session.username)
     return _redirect("/outreach")
 
 

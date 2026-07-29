@@ -112,6 +112,46 @@ class ReplayPackage:
             "manual_fields": [encode(f) for f in self.manual_fields],
         }
 
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> ReplayPackage:
+        """Rebuild a package written by :meth:`to_json`.
+
+        A package that will not parse is refused rather than partially loaded:
+        replaying half a form is worse than replaying none of it, because the
+        result looks complete.
+        """
+
+        def decode(item: dict[str, Any]) -> ReplayField:
+            return ReplayField(
+                semantic_key=item.get("semantic_key"),
+                label=str(item["label"]),
+                field_type=str(item["field_type"]),
+                value=item.get("value"),
+                source_type=SourceType(item["source_type"]),
+                required=bool(item.get("required", False)),
+                locators=tuple(
+                    LocatorStrategy(
+                        strategy=Strategy[loc["strategy"]],
+                        value=str(loc["value"]),
+                        role=loc.get("role"),
+                    )
+                    for loc in item.get("locators", [])
+                ),
+                page_index=int(item.get("page_index", 0)),
+            )
+
+        return cls(
+            application_id=str(data["application_id"]),
+            application_url=str(data["application_url"]),
+            ats_type=str(data["ats_type"]),
+            page_fingerprint=str(data["page_fingerprint"]),
+            created_at=datetime.fromisoformat(str(data["created_at"])),
+            storage_state_path=data.get("storage_state_path"),
+            resume_artifact_path=data.get("resume_artifact_path"),
+            fields=[decode(f) for f in data.get("fields", [])],
+            manual_fields=[decode(f) for f in data.get("manual_fields", [])],
+        )
+
 
 def build_locators(spec: FieldSpec) -> tuple[LocatorStrategy, ...]:
     """Derive every locator available for a field, most durable first."""
