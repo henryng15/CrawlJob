@@ -44,3 +44,10 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# ---- terraform ------------------------------------------------------------
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.*
+infra/terraform/terraform.tfvars
+infra/terraform/*.tfplan
