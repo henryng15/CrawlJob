@@ -16,16 +16,25 @@ cap.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import AuditEvent
-from app.services.llm.base import BudgetLedger
+from app.services.llm.base import BudgetLedger, Usage
 
-__all__ = ["EVENT_TYPE", "load_ledger", "month_of", "spent_this_month"]
+__all__ = [
+    "EVENT_TYPE",
+    "MonthlyUsage",
+    "load_ledger",
+    "month_of",
+    "spent_this_month",
+    "usage_this_month",
+]
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +94,7 @@ def load_ledger(
         month=month_of(moment, settings),
     )
 
-    def record(amount_usd: float, running_total: float) -> None:
+    def record(amount_usd: float, running_total: float, usage: Usage | None = None) -> None:
         if amount_usd <= 0:
             return
         try:
@@ -98,6 +107,7 @@ def load_ledger(
                         event_metadata={
                             "cost_usd": amount_usd,
                             "running_total_usd": running_total,
+                            **_usage_metadata(usage),
                         },
                     )
                 )
@@ -109,3 +119,99 @@ def load_ledger(
 
     ledger.on_charge = record
     return ledger
+
+
+def _usage_metadata(usage: Usage | None) -> dict[str, Any]:
+    """The per-call detail, or nothing.
+
+    Deliberately no prompt, no response and no schema name: this row sits in the
+    audit log next to everything else, and the prompts carry the user's
+    employment history (§23.5).
+    """
+    if usage is None:
+        return {}
+    return {
+        "model": usage.model,
+        "task": usage.task.value,
+        "batch": usage.batch,
+        "input_tokens": usage.tokens.input_tokens,
+        "output_tokens": usage.tokens.output_tokens,
+        "cache_read_tokens": usage.tokens.cache_read_tokens,
+        "cache_write_tokens": usage.tokens.cache_write_tokens,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyUsage:
+    """What the month has actually cost, and on what."""
+
+    spent_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    by_task: dict[str, float] = field(default_factory=dict)
+    by_model: dict[str, float] = field(default_factory=dict)
+    calls: int = 0
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Fraction of input tokens served from cache.
+
+        Reported, never relied on. Caching is best-effort (§26.2) — the cap check
+        before a batch assumes no cache at all, so a rate of zero costs money but
+        cannot break the budget.
+        """
+        total = self.input_tokens + self.cache_read_tokens
+        return self.cache_read_tokens / total if total else 0.0
+
+
+def usage_this_month(
+    session: Session, settings: Settings, *, now: datetime | None = None
+) -> MonthlyUsage:
+    """Aggregate the month's charges from the audit log.
+
+    Read from the log rather than a running counter so the answer survives a
+    restart and cannot drift from the record of what happened.
+    """
+    from app.db.base import utcnow
+
+    start_local = month_of(now or utcnow(), settings)
+    start = datetime(
+        start_local.year, start_local.month, start_local.day, tzinfo=settings.timezone
+    )
+
+    rows = session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.event_type == EVENT_TYPE)
+        .where(AuditEvent.created_at >= start)
+    ).all()
+
+    spent = 0.0
+    tokens = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
+    by_task: dict[str, float] = {}
+    by_model: dict[str, float] = {}
+
+    for row in rows:
+        data = row.event_metadata or {}
+        cost = float(data.get("cost_usd", 0.0) or 0.0)
+        spent += cost
+        for key in tokens:
+            tokens[key] += int(data.get(key, 0) or 0)
+        if task := data.get("task"):
+            by_task[str(task)] = by_task.get(str(task), 0.0) + cost
+        if model := data.get("model"):
+            by_model[str(model)] = by_model.get(str(model), 0.0) + cost
+
+    return MonthlyUsage(
+        spent_usd=spent,
+        by_task=by_task,
+        by_model=by_model,
+        calls=len(rows),
+        **tokens,
+    )

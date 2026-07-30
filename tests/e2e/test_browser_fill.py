@@ -38,10 +38,14 @@ FACTS = {
     "candidate.github": "https://github.com/Vicientt",
     "candidate.linkedin": "https://linkedin.com/in/example",
     "education.school": "Kenyon College",
-    "auth.work_authorized": True,
-    "auth.requires_sponsorship": True,
+    # Work-authorization answers come from the locked candidate fact, never from
+    # a semantic key the resolver invented (§7.8).
+    "work_authorization.is_authorized": True,
+    "work_authorization.requires_future_sponsorship": True,
 }
-LOCKED = frozenset({"auth.work_authorized", "auth.requires_sponsorship"})
+LOCKED = frozenset(
+    {"work_authorization.is_authorized", "work_authorization.requires_future_sponsorship"}
+)
 
 
 def _free_port() -> int:
@@ -123,10 +127,29 @@ class TestMilestoneZero:
         prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
         assert page.eval_on_selector("#resume", "el => el.files.length") == 1
 
+    def test_the_report_names_the_file_that_reached_the_form(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        """The only place this fact can be established.
+
+        "We built a PDF" and "the employer has the PDF" are different claims, and
+        the database records the second one from here — so it has to come back with
+        a real browser having really set a real file input.
+        """
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        assert report.resume_uploaded == resume
+        assert page.eval_on_selector("#resume", "el => el.files.length") == 1
+
     def test_no_resume_means_no_upload_rather_than_an_error(self, page: Page, ats_url: str):
         _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", None)
         assert not report.errors
         assert page.eval_on_selector("#resume", "el => el.files.length") == 0
+
+    def test_no_resume_is_reported_as_nothing_uploaded(self, page: Page, ats_url: str):
+        """So nothing downstream can record an upload that did not happen."""
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", None)
+        assert report.resume_uploaded is None
+        assert "no resume attached" in report.summary()
 
 
 class TestExtraction:
@@ -168,12 +191,24 @@ class TestFillRespectsPolicy:
         assert page.input_value("#first_name") == "Hoan"
         assert page.input_value("#email") == "nguyen15@kenyon.edu"
 
-    def test_a_locked_fact_fills_the_sponsorship_dropdown(
+    def test_a_locked_fact_fills_the_work_authorization_dropdown(
         self, page: Page, ats_url: str, resume: Path
     ):
         """The one permitted source for a legally sensitive answer (§7.8)."""
         prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
-        assert page.input_value("#sponsorship") == "Yes"
+        assert page.input_value("#work_auth") == "Yes"
+
+    def test_the_sponsorship_dropdown_is_left_for_the_user(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        """Known, locked, and still not typed in.
+
+        The user asked for sponsorship questions to stay blank so they can read
+        each employer's phrasing themselves.
+        """
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        assert page.input_value("#sponsorship") == ""
+        assert "Will you now or in the future require sponsorship?" in report.skipped_manual
 
     def test_the_eeo_block_is_left_untouched(self, page: Page, ats_url: str, resume: Path):
         """§7.8: the system may prefill a locked EEO preference, never infer one.

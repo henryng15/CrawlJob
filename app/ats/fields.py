@@ -74,6 +74,7 @@ class SourceType(StrEnum):
 MANUAL_ONLY_KEYS: frozenset[str] = frozenset(
     {
         "auth.work_authorized",
+        "auth.work_authorized_without_sponsorship",
         "auth.requires_sponsorship",
         "auth.citizenship",
         "auth.export_control",
@@ -278,6 +279,13 @@ def resolve(
         ai_answers: model-drafted free text, keyed by semantic key. Ignored for
             anything in :data:`MANUAL_ONLY_KEYS`.
     """
+    # Work authorization is settled before anything else, including pattern
+    # matching. A combined "authorized to work *without sponsorship*" question
+    # matches the sponsorship pattern, and answering it from the sponsorship fact
+    # inverts what is being claimed — see app.services.work_authorization.
+    if (authorization := _work_authorization(spec, facts, locked_keys)) is not None:
+        return authorization
+
     key = classify(spec)
 
     if key is None:
@@ -325,6 +333,57 @@ def resolve(
         SourceType.MANUAL_REQUIRED,
         note="recognised, but no profile fact covers it",
     )
+
+
+def _work_authorization(
+    spec: FieldSpec, facts: dict[str, Any], locked_keys: frozenset[str]
+) -> Answer | None:
+    """Answer a work-authorization question, or ``None`` if it is not one.
+
+    Kept separate from the pattern table because the decision is not "which key
+    is this" but "can this be answered at all", and the two questions have
+    different answers for the same text.
+    """
+    from app.services.work_authorization import Category, decide
+
+    decision = decide(
+        spec.question_text, spec.name, facts=facts, locked_keys=locked_keys
+    )
+    if decision.category is Category.UNRELATED:
+        return None
+
+    key = _AUTH_KEY_BY_CATEGORY[decision.category]
+
+    if decision.answered:
+        return Answer(
+            key,
+            decision.value,
+            SourceType.LOCKED_FACT,
+            fact_ids=(decision.fact_key,) if decision.fact_key else (),
+            note=decision.reason,
+        )
+    return Answer(key, None, SourceType.MANUAL_REQUIRED, note=decision.reason)
+
+
+#: The semantic key recorded against each kind of question. A combined question
+#: gets its own key rather than being filed under one of its halves, so the
+#: review screen can say what actually happened.
+_AUTH_KEY_BY_CATEGORY: dict[Any, str] = {}
+
+
+def _init_auth_keys() -> None:
+    from app.services.work_authorization import Category
+
+    _AUTH_KEY_BY_CATEGORY.update(
+        {
+            Category.AUTHORIZATION: "auth.work_authorized",
+            Category.SPONSORSHIP: "auth.requires_sponsorship",
+            Category.COMBINED: "auth.work_authorized_without_sponsorship",
+        }
+    )
+
+
+_init_auth_keys()
 
 
 def unresolved_fields(answers: list[Answer]) -> list[Answer]:

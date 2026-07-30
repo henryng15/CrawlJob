@@ -61,7 +61,21 @@ which. The common ones:
 | `no candidate name is set` | Nothing to sign an email with | Set it on **/setup** |
 | `no recruiter is assigned` | Nobody matched for that company | Pick one on the outreach page |
 | `tailoring produced unsupported claims` | A bullet cited a fact that does not support it | Open the resume review page; the violations are listed |
+| `no base resume is configured` | `BASE_RESUME_TEX` is unset or points at nothing | `internship-ops check-base-resume`, then fix the path |
 | `a CAPTCHA is present` | Working as designed | Open the live review link and finish it yourself |
+
+### Every application says "base resume used"
+
+Not a dead task — the pipeline is working and every resume is going out
+untailored. Almost always a LaTeX package missing from the worker image, which
+fails per build rather than at startup.
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm worker internship-ops check-base-resume
+```
+
+If that passes, the fallback is real: open **/resumes**, read `compile.log` on
+attempt 1, and the reason is in the last twenty lines.
 
 To retry a dead task after fixing the cause, re-queue the work rather than
 resetting the row — the idempotency key means a second enqueue is free.

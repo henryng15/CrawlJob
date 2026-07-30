@@ -180,6 +180,12 @@ def register_browser_handlers(
         # to show even if the transition below is refused.
         _record_fields(session, application, specs, answers)
 
+        # Only now, and only if the file input took it. Marking the resume
+        # uploaded at build time would make /resumes claim every prepared
+        # application had sent its PDF, including the ones whose slot died before
+        # the form was even reached.
+        _mark_resume_uploaded(session, application, report, now=now)
+
         # A replay package, so a slot that dies mid-review does not cost the whole
         # form (§7.11). Written now rather than on failure: after the crash there
         # is no page left to read.
@@ -330,6 +336,11 @@ def register_browser_handlers(
             _screenshot(page, config, application.id, "pre-submit")
             application.confirmation_data = _snapshot(page, current)
 
+        # A replay re-attaches the same stored file, so it re-establishes the same
+        # fact. Recorded again because a replay may follow a failed first pass,
+        # where nothing was attached and nothing was marked.
+        _mark_resume_uploaded(session, application, report, now=now)
+
         landing = restore_target if is_restore else ApplicationState.LIVE_REVIEW_READY
         application.status = assert_transition(ApplicationState(application.status), landing)
         if is_restore:
@@ -471,6 +482,35 @@ def _save_replay_package(
     except Exception:  # pragma: no cover - best effort
         log.warning("could not write the replay package", exc_info=True)
         return None
+
+
+def _mark_resume_uploaded(
+    session: Session, application: Application, report: Any, *, now: datetime
+) -> None:
+    """Record which resume version reached the form, if one did.
+
+    Records nothing when the browser did not confirm the file is on the input.
+    That is not an error worth failing the task over — plenty of forms ask for the
+    resume on a later page, and the application is going to a human anyway — but it
+    must not be recorded as an upload, because the Resume Versions screen is where
+    the user checks what the employer has.
+    """
+    from app.services.resume_artifacts import mark_uploaded
+
+    uploaded = getattr(report, "resume_uploaded", None)
+    if uploaded is None:
+        # Only when there was something to attach and it did not stick. A form with
+        # no resume field at all is ordinary and says nothing worth logging.
+        reason = getattr(report, "resume_unconfirmed", "")
+        if reason:
+            log.warning(
+                "application %s: resume not confirmed on the form (%s); "
+                "left as selected, not uploaded",
+                application.id,
+                reason,
+            )
+        return
+    mark_uploaded(session, application=application, path=Path(uploaded), now=now)
 
 
 def _record_fields(

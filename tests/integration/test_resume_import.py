@@ -23,7 +23,6 @@ from app.services.resume_import import (
     load_facts,
     propose_facts,
     store_facts,
-    to_html,
     unverified,
 )
 
@@ -105,12 +104,20 @@ class TestExtraction:
         with pytest.raises(ValueError, match="no extractable text"):
             extract_text(empty)
 
+    @pytest.mark.latex
     def test_a_real_pdf_round_trips(self, tmp_path: Path):
-        from app.services.resume_import import render_pdf
+        """Built with the same compiler the tailoring path uses."""
+        from app.services.latex import compile_pdf, engine_available
 
-        html = to_html("Builds Python services.", [], name="Hoan Nguyen")
-        pdf = render_pdf(html, tmp_path / "out.pdf")
-        assert "Hoan Nguyen" in extract_text(pdf)
+        if engine_available() is None:  # pragma: no cover - depends on the machine
+            pytest.skip("no LaTeX engine installed")
+
+        result = compile_pdf(
+            r"\documentclass{article}\begin{document}Hoan Nguyen\end{document}",
+            work_dir=tmp_path / "round-trip",
+        )
+        assert result.ok and result.pdf_path is not None
+        assert "Hoan Nguyen" in extract_text(result.pdf_path)
 
 
 class TestProposal:
@@ -236,16 +243,3 @@ class TestImport:
         assert len(unverified(db)) == 2
 
 
-class TestHtml:
-    def test_a_bullet_is_escaped(self):
-        """Resume text is user data; it is not markup."""
-
-        class _B:
-            text = "Built <script>alert(1)</script> services"
-
-        html = to_html("", [_B()], name="Hoan")
-        assert "<script>alert" not in html
-        assert "&lt;script&gt;" in html
-
-    def test_the_name_appears(self):
-        assert "Hoan Nguyen" in to_html("", [], name="Hoan Nguyen")

@@ -1573,7 +1573,16 @@ Do not assume an upstream Docker image is multi-architecture. Prefer a custom Do
 
 ## 11.5 PDF resume rendering
 
-Recommended:
+> **Superseded by [ADR 0001](adr/0001-latex-resume-rendering.md).** The
+> production path is the user's own LaTeX source compiled with `pdflatex`, not an
+> HTML template. WeasyPrint was implemented, then removed: rendering extracted
+> facts through a generic template produces a correct document that is not the
+> user's resume, which contradicts §7.7's requirement to preserve their template,
+> layout, fonts, section order and spacing. Every requirement listed below is
+> still met — see the ADR for the point-by-point mapping. Do not reintroduce an
+> HTML renderer for application tailoring.
+
+Originally recommended:
 
 ```text
 Structured YAML/JSON facts

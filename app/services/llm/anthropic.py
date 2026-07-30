@@ -22,6 +22,7 @@ from app.services.llm.base import (
     LLMProvider,
     Message,
     ModelPricing,
+    TokenCounts,
 )
 
 __all__ = ["DEFAULT_PRICING", "AnthropicProvider", "build_provider"]
@@ -83,7 +84,7 @@ class AnthropicProvider(LLMProvider):
         schema: type[T],
         messages: list[Message],
         max_tokens: int,
-    ) -> tuple[Any, int, int]:
+    ) -> tuple[Any, ...]:
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         turns = [
             {"role": m.role, "content": m.content} for m in messages if m.role != "system"
@@ -108,10 +109,24 @@ class AnthropicProvider(LLMProvider):
 
         for block in response.content:
             if getattr(block, "type", None) == "tool_use" and block.name == _TOOL_NAME:
+                usage = response.usage
                 return (
                     block.input,
-                    response.usage.input_tokens,
-                    response.usage.output_tokens,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    # Best-effort: absent on older responses and on models that do
+                    # not cache. Recorded so the saving can be observed; nothing
+                    # in the budget assumes a hit.
+                    TokenCounts(
+                        input_tokens=usage.input_tokens,
+                        output_tokens=usage.output_tokens,
+                        cache_read_tokens=int(
+                            getattr(usage, "cache_read_input_tokens", 0) or 0
+                        ),
+                        cache_write_tokens=int(
+                            getattr(usage, "cache_creation_input_tokens", 0) or 0
+                        ),
+                    ),
                 )
 
         raise LLMError(
@@ -131,14 +146,33 @@ def build_provider(settings: Any, *, budget: BudgetLedger | None = None) -> LLMP
 
     ledger = budget or BudgetLedger(monthly_cap_usd=settings.llm_monthly_budget_usd)
 
-    if settings.llm_provider != "anthropic":
+    if settings.llm_provider not in {"anthropic", "routed"}:
         return NullProvider(budget=ledger)
     if settings.anthropic_api_key is None:
-        raise LLMError("llm_provider=anthropic but ANTHROPIC_API_KEY is not set")
+        raise LLMError(f"llm_provider={settings.llm_provider} but ANTHROPIC_API_KEY is not set")
 
-    return AnthropicProvider(
+    anthropic = AnthropicProvider(
         api_key=settings.anthropic_api_key.get_secret_value(),
         classification_model=settings.llm_classification_model,
         writing_model=settings.llm_writing_model,
+        budget=ledger,
+    )
+    if settings.llm_provider == "anthropic":
+        return anthropic
+
+    # Routed: classification to Groq, writing to Anthropic, one shared cap.
+    from app.services.llm.groq import GroqProvider
+    from app.services.llm.router import RoutingProvider
+
+    if settings.groq_api_key is None:
+        raise LLMError("llm_provider=routed but GROQ_API_KEY is not set")
+
+    return RoutingProvider(
+        classification=GroqProvider(
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.groq_model,
+            budget=ledger,
+        ),
+        writing=anthropic,
         budget=ledger,
     )

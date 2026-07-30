@@ -38,11 +38,13 @@ __all__ = [
     "Dashboard",
     "JobRow",
     "OutreachRow",
+    "ResumeGroup",
     "TodayRun",
     "application_detail",
     "dashboard",
     "job_detail",
     "outreach_detail",
+    "resume_groups",
     "today_run",
 ]
 
@@ -178,6 +180,47 @@ class Dashboard:
 
 
 @dataclass(frozen=True, slots=True)
+class BudgetRow:
+    """This month's model spend and what it has bought (§26.2).
+
+    Shown because a cap the user cannot see is a cap they will be surprised by.
+    The breakdown by task is what makes the number actionable — "$11 on resume
+    plans" suggests something different from "$11 on sponsorship checks".
+    """
+
+    spent_usd: float = 0.0
+    cap_usd: float = 15.0
+    state: str = "OK"
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    by_task: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def fraction(self) -> float:
+        return self.spent_usd / self.cap_usd if self.cap_usd > 0 else 1.0
+
+    @property
+    def remaining_usd(self) -> float:
+        return max(0.0, self.cap_usd - self.spent_usd)
+
+    @property
+    def percent(self) -> int:
+        return min(100, int(self.fraction * 100))
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Best-effort, and reported as such: nothing depends on it."""
+        total = self.input_tokens + self.cache_read_tokens
+        return self.cache_read_tokens / total if total else 0.0
+
+    @property
+    def tasks_by_spend(self) -> list[tuple[str, float]]:
+        return sorted(self.by_task.items(), key=lambda pair: -pair[1])
+
+
+@dataclass(frozen=True, slots=True)
 class TodayRun:
     """§22.1's "what is happening today", separated from the whole history.
 
@@ -197,6 +240,7 @@ class TodayRun:
     slots: list[SlotRow] = field(default_factory=list)
     queue_health: dict[str, int] = field(default_factory=dict)
     live_session_cap: int = 2
+    budget: BudgetRow = field(default_factory=lambda: BudgetRow())
 
     @property
     def status_counts(self) -> list[tuple[str, int]]:
@@ -394,6 +438,74 @@ def dashboard(session: Session, settings: Settings, *, now: datetime | None = No
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ResumeGroup:
+    """Every resume version built for one application (§7.7)."""
+
+    application_id: uuid.UUID
+    company: str
+    job_title: str
+    versions: list[ResumeVersion] = field(default_factory=list)
+
+    @property
+    def selected(self) -> ResumeVersion | None:
+        """The version the build chose. May never have reached an employer."""
+        return next((v for v in self.versions if v.is_selected), None)
+
+    @property
+    def uploaded(self) -> ResumeVersion | None:
+        """The version a browser actually attached to the form."""
+        return next((v for v in self.versions if v.is_uploaded), None)
+
+    @property
+    def awaiting_upload(self) -> bool:
+        """Chosen, but not yet sent anywhere.
+
+        Normal for an application still queued for a browser, and the signal worth
+        looking at for one that has been through a slot already.
+        """
+        return self.selected is not None and self.uploaded is None
+
+    @property
+    def attempts(self) -> int:
+        return len([v for v in self.versions if v.kind == "TAILORED"])
+
+    @property
+    def fell_back(self) -> bool:
+        chosen = self.selected
+        return chosen is not None and chosen.kind == "BASE"
+
+
+def resume_groups(session: Session, *, limit: int = 200) -> list[ResumeGroup]:
+    """Resume versions, grouped by the application they were built for.
+
+    Ordered newest application first, and attempts in build order within each —
+    so the page reads as a history rather than as a list of files.
+    """
+    rows = session.execute(
+        select(ResumeVersion, Job.title, Company.canonical_name)
+        .join(Application, ResumeVersion.application_id == Application.id)
+        .join(Job, Application.job_id == Job.id)
+        .join(Company, Job.company_id == Company.id)
+        .order_by(ResumeVersion.created_at.desc(), ResumeVersion.attempt)
+        .limit(limit)
+    ).all()
+
+    groups: dict[uuid.UUID, ResumeGroup] = {}
+    for version, title, company in rows:
+        group = groups.get(version.application_id)
+        if group is None:
+            group = ResumeGroup(
+                application_id=version.application_id, company=company, job_title=title
+            )
+            groups[version.application_id] = group
+        group.versions.append(version)
+
+    for group in groups.values():
+        group.versions.sort(key=lambda v: (v.kind != "BASE", v.attempt))
+    return list(groups.values())
+
+
 def _slot_rows(session: Session) -> list[SlotRow]:
     """The open browser sessions, one per slot."""
     return [
@@ -453,6 +565,32 @@ def today_run(session: Session, settings: Settings, *, now: datetime | None = No
         slots=_slot_rows(session),
         queue_health=_queue_health(session),
         live_session_cap=settings.max_live_sessions,
+        budget=_budget_row(session, settings, now=moment),
+    )
+
+
+def _budget_row(session: Session, settings: Settings, *, now: datetime) -> BudgetRow:
+    """The month's spend, read from the audit log rather than a counter.
+
+    Reading the log means the figure survives a restart and cannot drift from the
+    record of what actually happened.
+    """
+    from app.services.llm.base import BudgetLedger
+    from app.services.llm.ledger import usage_this_month
+
+    usage = usage_this_month(session, settings, now=now)
+    ledger = BudgetLedger(
+        monthly_cap_usd=settings.llm_monthly_budget_usd, spent_usd=usage.spent_usd
+    )
+    return BudgetRow(
+        spent_usd=usage.spent_usd,
+        cap_usd=settings.llm_monthly_budget_usd,
+        state=ledger.state.value,
+        calls=usage.calls,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        by_task=usage.by_task,
     )
 
 

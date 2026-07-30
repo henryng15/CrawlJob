@@ -69,6 +69,9 @@ services:
     volumes:
       - /data/internship-ops/artifacts:/data/internship-ops/artifacts:ro
       - /data/internship-ops/secrets:/data/internship-ops/secrets:ro
+      # Read-only, so the Resume Versions page can show the base resume beside
+      # the tailored ones.
+      - /data/internship-ops/resume:/data/internship-ops/resume:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -89,6 +92,11 @@ services:
     volumes:
       - /data/internship-ops/artifacts:/data/internship-ops/artifacts
       - /data/internship-ops/secrets:/data/internship-ops/secrets:ro
+      # The canonical resume, mounted read-only. "Never overwrite the canonical
+      # files" is enforced by the kernel here rather than by the code being
+      # careful — the tailoring path only ever reads it, but this makes writing
+      # it impossible even from a bug.
+      - /data/internship-ops/resume:/data/internship-ops/resume:ro
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 

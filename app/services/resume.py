@@ -16,6 +16,15 @@ validator checks the citation actually supports the text:
 §7.7's allowed changes are all reorderings and rewordings of things already true.
 Its forbidden ones — new employers, new projects, new metrics, inflated ownership,
 fabricated scale — are exactly what the checks above catch.
+
+**A plan addresses bullets by id, never by resemblance.** The model is shown the
+resume's own bullets with their stable ids (``work-experience.todd.2``) and
+answers with one operation per id: keep it, rewrite it, or drop it. So the
+question "where does this sentence go" has a single answer given by the model,
+and there is no step that guesses. Matching by wording — which is what this
+replaced — could put an IpserLabs achievement under Todd whenever the two
+happened to share vocabulary, and produce a resume that was true line by line
+and wrong about who did what where.
 """
 
 from __future__ import annotations
@@ -29,18 +38,28 @@ from pydantic import BaseModel, Field
 from app.services.llm.base import LLMProvider, Message, Task
 
 __all__ = [
+    "PROMPT_VERSION",
+    "SYSTEM_PROMPT",
+    "Action",
     "Bullet",
+    "BulletOp",
+    "Claims",
     "ResumeFact",
     "TailoringPlan",
     "Transformation",
+    "ValidationResult",
     "Violation",
     "ViolationKind",
+    "claims_in",
     "tailor",
     "validate_bullet",
     "validate_plan",
 ]
 
-PROMPT_VERSION = "resume/v1"
+#: v2 changed the contract: the model now receives the resume's bullet ids and
+#: answers with operations against them, instead of returning free-standing
+#: bullets that something else had to find a home for.
+PROMPT_VERSION = "resume/v2"
 
 
 class Transformation(StrEnum):
@@ -51,6 +70,18 @@ class Transformation(StrEnum):
     SHORTEN = "shorten"
     REWRITE = "rewrite"
     MERGE = "merge"
+
+
+class Action(StrEnum):
+    """What a plan asks for one existing bullet.
+
+    There is deliberately no "add". Every sentence on the resume is one the user
+    wrote and verified; a plan selects and rewords, it does not extend.
+    """
+
+    KEEP = "keep"
+    REWRITE = "rewrite"
+    DROP = "drop"
 
 
 class ViolationKind(StrEnum):
@@ -90,14 +121,55 @@ class Bullet(BaseModel):
         return frozenset(_NUMBERS.findall(self.text))
 
 
+class BulletOp(BaseModel):
+    """One operation against one existing resume bullet.
+
+    ``bullet_id`` is the only thing that decides *where* a rewrite lands. The
+    echoed ``section`` and ``entry`` are cross-checks: a model that names Todd's
+    bullet id while describing IpserLabs work will usually give itself away in one
+    of the three, and any disagreement rejects the operation rather than
+    resolving it.
+    """
+
+    bullet_id: str = Field(min_length=1)
+    action: Action = Action.KEEP
+    #: The new wording. Required for ``rewrite``, ignored otherwise.
+    text: str = ""
+    #: The facts the new wording rests on. Checked for provenance, and checked to
+    #: belong to the same employer or project as the bullet being rewritten.
+    fact_ids: list[str] = Field(default_factory=list)
+    #: What the model believes this id refers to. Optional; verified if given.
+    section: str = ""
+    entry: str = ""
+    transformation: Transformation = Transformation.REWRITE
+
+
 class TailoringPlan(BaseModel):
-    """The model's proposed resume for one job."""
+    """The model's proposed resume for one job, as operations on existing bullets."""
 
     summary: str = ""
     summary_fact_ids: list[str] = Field(default_factory=list)
-    bullets: list[Bullet] = Field(default_factory=list)
+    operations: list[BulletOp] = Field(default_factory=list)
     #: Which sections to include and in what order. Reordering is always allowed.
     section_order: list[str] = Field(default_factory=list)
+
+    @property
+    def rewrites(self) -> list[BulletOp]:
+        return [op for op in self.operations if op.action is Action.REWRITE]
+
+    @property
+    def bullets(self) -> list[Bullet]:
+        """The new wording this plan proposes, for provenance validation.
+
+        Only rewrites carry text, so only rewrites can make a claim. A keep
+        repeats a sentence the user already verified and a drop makes no claim at
+        all, which is why neither needs checking.
+        """
+        return [
+            Bullet(text=op.text, fact_ids=op.fact_ids, transformation=op.transformation)
+            for op in self.rewrites
+            if len(op.text) >= 4
+        ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +345,56 @@ _KNOWN_TECHNOLOGIES = frozenset(
 )  # fmt: skip
 
 
+@dataclass(frozen=True, slots=True)
+class Claims:
+    """The checkable assertions in a piece of text.
+
+    The same three categories the provenance validator polices, pulled out so
+    other code can ask "does this sentence claim anything the one it replaces did
+    not" without reimplementing the definitions and drifting from them.
+    """
+
+    numbers: frozenset[str]
+    technologies: frozenset[str]
+    organisations: frozenset[str]
+
+    def beyond(self, other: Claims) -> Claims:
+        """What this text asserts that ``other`` does not."""
+        return Claims(
+            numbers=self.numbers - other.numbers,
+            technologies=self.technologies - other.technologies,
+            organisations=self.organisations - other.organisations,
+        )
+
+    @property
+    def empty(self) -> bool:
+        return not (self.numbers or self.technologies or self.organisations)
+
+    def summary(self) -> str:
+        parts = [
+            f"figures {', '.join(sorted(self.numbers))}" if self.numbers else "",
+            f"technologies {', '.join(sorted(self.technologies))}"
+            if self.technologies
+            else "",
+            f"names {', '.join(sorted(self.organisations))}" if self.organisations else "",
+        ]
+        return "; ".join(part for part in parts if part)
+
+
+def claims_in(text: str) -> Claims:
+    """Every figure, technology and proper name a sentence asserts."""
+    words = _tokens(text)
+    return Claims(
+        numbers=frozenset(_NUMBERS.findall(text)),
+        technologies=frozenset(word for word in words if word in _KNOWN_TECHNOLOGIES),
+        organisations=frozenset(
+            noun.lower()
+            for noun in _proper_nouns(text)
+            if noun.lower() not in _KNOWN_TECHNOLOGIES
+        ),
+    )
+
+
 def validate_plan(plan: TailoringPlan, facts: dict[str, ResumeFact]) -> ValidationResult:
     """Validate every bullet and the summary.
 
@@ -300,19 +422,44 @@ def validate_plan(plan: TailoringPlan, facts: dict[str, ResumeFact]) -> Validati
     return result
 
 
-_SYSTEM = """\
-You select and reword a candidate's existing resume material for one job.
+SYSTEM_PROMPT = """\
+You tailor a candidate's existing resume for one job by editing its bullets in
+place.
 
-You may: reorder bullets, choose which experiences to include, shorten wording,
-and emphasise the technologies the job asks for when the candidate has used them.
+You are given RESUME BULLETS: every editable line of the resume, each with a
+bullet_id, the section it is in, and the employer or project it belongs to. You
+are also given CANDIDATE FACTS with their own ids.
 
-You may not: add an employer, project, metric, technology or date the facts do not
-contain; change a job title; or describe the candidate as leading something the
-facts describe them as contributing to.
+Return one operation per bullet you want to change, each naming an existing
+bullet_id:
 
-Every bullet must list the fact ids it came from. If you cannot express something
-without a fact to support it, leave it out.
+  keep    — leave the line exactly as written.
+  rewrite — replace its wording. Supply text, and fact_ids for what it rests on.
+  drop    — remove the line, because it says nothing about this job.
+
+Rules:
+- bullet_id must be one you were given. Never invent one, and never use the same
+  id twice.
+- A rewrite must describe the same work as the bullet it replaces, at the same
+  employer or project. Echo the section and entry you believe the id refers to.
+- Every fact you cite must belong to that same employer or project. Do not
+  describe one employer's work under another's heading.
+- Do not add an employer, project, metric, technology or date the facts do not
+  contain. Do not change a job title. Do not say the candidate led something the
+  facts describe them as contributing to.
+- If you cannot express something with a fact that supports it, leave the bullet
+  as it is.
+
+A bullet you say nothing about is kept unchanged.
 """
+
+
+def bullet_inventory(bullets: list[dict[str, str]]) -> str:
+    """The addressable bullet list, as the prompt shows it."""
+    return "\n".join(
+        f"[{item['bullet_id']}] ({item['section']} / {item['entry']}) {item['text']}"
+        for item in bullets
+    )
 
 
 def tailor(
@@ -321,9 +468,16 @@ def tailor(
     job_title: str,
     job_description: str,
     provider: LLMProvider,
+    bullets: list[dict[str, str]] | None = None,
     max_attempts: int = 2,
 ) -> tuple[TailoringPlan, ValidationResult]:
     """Produce a validated tailoring plan.
+
+    Args:
+        bullets: the resume's own bullets, from
+            :meth:`app.services.resume_tex.TexResume.inventory`. Without them the
+            model has no ids to address, so it can only return operations that
+            will be rejected — the caller is expected to pass them.
 
     A plan that fails validation is retried once with the violations fed back,
     since models correct a specific, named problem reliably. If it fails again the
@@ -332,10 +486,11 @@ def tailor(
     """
     corpus = "\n".join(f"[{fact.id}] {fact.text}" for fact in facts.values())
     messages = [
-        Message(role="system", content=_SYSTEM),
+        Message(role="system", content=SYSTEM_PROMPT),
         Message(
             role="user",
             content=(
+                f"RESUME BULLETS\n{bullet_inventory(bullets or [])}\n\n"
                 f"CANDIDATE FACTS\n{corpus}\n\n"
                 f"JOB TITLE\n{job_title}\n\nJOB DESCRIPTION\n{job_description}"
             ),

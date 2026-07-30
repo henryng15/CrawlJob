@@ -31,12 +31,16 @@ __all__ = ["PIPELINE_TASKS", "GateResult", "check_gate", "is_pipeline_task"]
 #: Task types that move an application towards a recruiter and therefore wait
 #: for the gate.
 #:
-#: Three kinds of work are deliberately *not* here. Backups, cleanup and expiry
+#: Four kinds of work are deliberately *not* here. Backups, cleanup and expiry
 #: protect data that already exists — pausing must never become a way to lose
-#: it. Restore is something you asked for by hand. And reconciliation only
-#: observes: if you submitted a prepared application yourself and then paused
-#: the system, the record of that submission must still be picked up. Pausing
-#: stops new work, not the truth about work already done.
+#: it. Restore is something you asked for by hand. Reconciliation only observes:
+#: if you submitted a prepared application yourself and then paused the system,
+#: the record of that submission must still be picked up.
+#:
+#: And polling a tailoring batch collects results that have *already been paid
+#: for*. Submitting is gated, because that is where the money goes; gating the
+#: poll as well would mean pausing after a submit threw the money away.
+#: Pausing stops new work, not the truth about work already done.
 PIPELINE_TASKS: frozenset[TaskType] = frozenset(
     {
         TaskType.DISCOVER_SOURCE,
@@ -45,6 +49,7 @@ PIPELINE_TASKS: frozenset[TaskType] = frozenset(
         TaskType.ANALYZE_SPONSORSHIP,
         TaskType.SCORE_JOB,
         TaskType.TAILOR_RESUME,
+        TaskType.SUBMIT_TAILORING_BATCH,
         TaskType.PREPARE_APPLICATION,
         TaskType.SCHEDULE_OUTREACH,
         TaskType.MATCH_RECRUITER,
@@ -82,11 +87,16 @@ def check_gate(session: Session, settings: Settings) -> GateResult:
         )
 
     # The declaration above says a resume is ready; this asks the database
-    # whether one exists. Both have to agree. Specifically a BASE resume: a
-    # TAILORED row is an output of the pipeline, not something to tailor from,
-    # and counting one would let the gate open on its own past work.
+    # whether one exists. Both have to agree. Specifically a BASE resume that
+    # belongs to no application: a TAILORED row is an output of the pipeline, and
+    # so — since §7.7's fallback — is a BASE row with an ``application_id``, which
+    # records "this application used the base resume unchanged". Counting either
+    # would let the gate open on the pipeline's own past work.
     base = session.scalars(
-        select(ResumeVersion).where(ResumeVersion.kind == "BASE").limit(1)
+        select(ResumeVersion)
+        .where(ResumeVersion.kind == "BASE")
+        .where(ResumeVersion.application_id.is_(None))
+        .limit(1)
     ).first()
     if base is None:
         return GateResult(

@@ -27,6 +27,7 @@ from app.db.models import (
     JobScore,
     OutreachTask,
     Recruiter,
+    ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
 )
@@ -750,6 +751,172 @@ class TestOutreachReview:
             },
         )
         assert response.status_code == 400
+
+
+class TestResumeVersions:
+    """§7.7: the screen that answers "why is this the PDF that went out"."""
+
+    def _version(self, db: Session, application, **kw) -> ResumeVersion:
+        from app.db.models import ResumeVersion as RV
+
+        defaults: dict = {
+            "application_id": application.id,
+            "job_id": application.job_id,
+            "kind": "TAILORED",
+            "status": "READY_FOR_REVIEW",
+            "attempt": 1,
+            "source_path": "/artifacts/r.tex",
+            "pdf_path": "/artifacts/r.pdf",
+            "sha256": "a" * 64,
+            "tex_sha256": "b" * 64,
+            "page_count": 1,
+            "model_name": "claude-sonnet-5",
+            "prompt_version": "resume/v1",
+            "facts_used": ["f1"],
+            # Selected by the build. Uploading is a separate fact set by the
+            # browser, so a version is not "uploaded" just because it exists.
+            "is_selected": True,
+        }
+        version = RV(**{**defaults, **kw})
+        db.add(version)
+        db.flush()
+        return version
+
+    def test_the_page_renders_with_nothing_built(self, signed_in: TestClient):
+        response = signed_in.get("/resumes")
+        assert response.status_code == 200
+        assert "Resume versions" in response.text
+
+    def test_versions_are_grouped_under_their_application(
+        self, signed_in: TestClient, db: Session
+    ):
+        application = make_application(
+            db, make_job(db, title="Backend Intern"), ApplicationState.READY_FOR_REVIEW
+        )
+        self._version(db, application)
+        body = signed_in.get("/resumes").text
+        assert "Backend Intern" in body
+
+    def test_every_attempt_is_listed_including_the_failures(
+        self, signed_in: TestClient, db: Session
+    ):
+        """The attempts that did not qualify are the answer to "why that one"."""
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        self._version(db, application, attempt=1, page_count=2, status="REJECTED",
+                      is_selected=False)
+        self._version(db, application, attempt=2, page_count=2, status="REJECTED",
+                      is_selected=False)
+        self._version(db, application, attempt=3, page_count=1, is_selected=True)
+
+        body = signed_in.get("/resumes").text
+        assert body.count("#1") >= 1
+        assert body.count("#2") >= 1
+        assert body.count("#3") >= 1
+
+    def test_a_version_that_was_only_selected_is_not_called_uploaded(
+        self, signed_in: TestClient, db: Session
+    ):
+        """The distinction the screen exists to show.
+
+        A prepared application whose browser slot died has a perfectly good PDF
+        that no employer has seen. Calling that "uploaded" would describe the
+        failure as finished.
+        """
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        self._version(db, application)
+        body = signed_in.get("/resumes").text
+        assert ">selected<" in body
+        assert "not yet attached to the form" in body
+
+    def test_a_version_the_browser_attached_is_marked_uploaded(
+        self, signed_in: TestClient, db: Session
+    ):
+        from datetime import UTC, datetime
+
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        self._version(
+            db, application, is_uploaded=True, uploaded_at=datetime.now(UTC)
+        )
+        assert ">uploaded<" in signed_in.get("/resumes").text
+
+    def test_a_fallback_shows_its_reason(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        self._version(
+            db,
+            application,
+            kind="BASE",
+            attempt=0,
+            fallback_reason="3 attempts did not produce a one-page PDF",
+        )
+        body = signed_in.get("/resumes").text
+        assert "did not produce a one-page PDF" in body
+        assert "used the base resume" in body
+
+    def test_page_count_model_and_hashes_are_shown(
+        self, signed_in: TestClient, db: Session
+    ):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        version = self._version(db, application)
+        body = signed_in.get("/resumes").text
+
+        assert "claude-sonnet-5" in body
+        assert "resume/v1" in body
+        assert version.sha256[:12] in body
+        assert version.tex_sha256[:12] in body
+        assert "1 fact(s) cited" in body
+
+    def test_a_two_page_attempt_is_flagged(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        self._version(db, application, page_count=2, is_selected=False)
+        assert 'class="tag bad">2<' in signed_in.get("/resumes").text
+
+    def test_there_is_an_inline_preview(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        version = self._version(db, application)
+        assert f"/resumes/{version.id}/view" in signed_in.get("/resumes").text
+
+    def test_open_and_download_are_both_offered(self, signed_in: TestClient, db: Session):
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        version = self._version(db, application)
+        body = signed_in.get("/resumes").text
+        assert f"/resumes/{version.id}/view" in body
+        assert f"/resumes/{version.id}/download" in body
+        assert f"/resumes/{version.id}/source" in body
+
+
+class TestResumeArtifactAccess:
+    def test_an_artifact_outside_the_root_is_refused(
+        self, signed_in: TestClient, db: Session
+    ):
+        """A database row is not a capability.
+
+        The path comes from the database; confining it to the artifacts
+        directory means a bad or tampered row cannot read /etc/passwd.
+        """
+        from app.db.models import ResumeVersion as RV
+
+        application = make_application(db, make_job(db), ApplicationState.READY_FOR_REVIEW)
+        version = RV(
+            application_id=application.id,
+            job_id=application.job_id,
+            kind="TAILORED",
+            status="READY_FOR_REVIEW",
+            source_path="/etc/passwd",
+            pdf_path="/etc/passwd",
+            log_path="/etc/passwd",
+            sha256="c" * 64,
+        )
+        db.add(version)
+        db.flush()
+
+        for suffix in ("view", "download", "source", "log"):
+            assert signed_in.get(f"/resumes/{version.id}/{suffix}").status_code == 404
+
+    def test_the_base_resume_is_offered_when_configured(self, signed_in: TestClient):
+        """Configured or not, the page must render rather than error."""
+        response = signed_in.get("/resumes")
+        assert response.status_code == 200
+        assert "Base resume" in response.text
 
 
 class TestSettings:

@@ -12,7 +12,9 @@ import pytest
 
 from app.services.llm.base import NullProvider, Task
 from app.services.resume import (
+    Action,
     Bullet,
+    BulletOp,
     ResumeFact,
     TailoringPlan,
     Transformation,
@@ -49,6 +51,37 @@ FACTS = {
 
 def bullet(text: str, *fact_ids: str) -> Bullet:
     return Bullet(text=text, fact_ids=list(fact_ids), transformation=Transformation.REWRITE)
+
+
+def plan_of(*bullets: Bullet, **kw) -> TailoringPlan:
+    """A plan expressed as rewrites, one per bullet.
+
+    Ids are synthetic here: this file tests provenance validation, which cares
+    about what a bullet claims rather than where it goes. Placement is
+    ``tests/unit/test_resume_edits.py``.
+    """
+    return TailoringPlan(
+        operations=[
+            BulletOp(
+                bullet_id=f"work-experience.todd.{index}",
+                action=Action.REWRITE,
+                text=item.text,
+                fact_ids=item.fact_ids,
+                transformation=item.transformation,
+            )
+            for index, item in enumerate(bullets, start=1)
+        ],
+        **kw,
+    )
+
+
+def rewrite(bullet_id: str, text: str, *fact_ids: str) -> dict[str, Any]:
+    return {
+        "bullet_id": bullet_id,
+        "action": "rewrite",
+        "text": text,
+        "fact_ids": list(fact_ids),
+    }
 
 
 def kinds(violations) -> set[ViolationKind]:
@@ -191,11 +224,9 @@ class TestForbiddenChanges:
 
 class TestPlanValidation:
     def test_a_clean_plan_passes(self):
-        plan = TailoringPlan(
-            bullets=[
-                bullet("Built a FastAPI service at Todd Labs.", "exp.todd.1"),
-                bullet("Led ThesisLedger, used by 30 students.", "proj.ledger"),
-            ]
+        plan = plan_of(
+            bullet("Built a FastAPI service at Todd Labs.", "exp.todd.1"),
+            bullet("Led ThesisLedger, used by 30 students.", "proj.ledger"),
         )
         result = validate_plan(plan, FACTS)
         assert result.passed
@@ -206,11 +237,9 @@ class TestPlanValidation:
 
         The user cannot be asked to spot which of eight lines was invented.
         """
-        plan = TailoringPlan(
-            bullets=[
-                bullet("Built a FastAPI service at Todd Labs.", "exp.todd.1"),
-                bullet("Scaled the platform to 4 million users.", "exp.todd.1"),
-            ]
+        plan = plan_of(
+            bullet("Built a FastAPI service at Todd Labs.", "exp.todd.1"),
+            bullet("Scaled the platform to 4 million users.", "exp.todd.1"),
         )
         result = validate_plan(plan, FACTS)
         assert not result.passed
@@ -225,7 +254,7 @@ class TestPlanValidation:
         assert not result.passed
 
     def test_an_empty_summary_is_not_validated(self):
-        plan = TailoringPlan(bullets=[bullet("Built a FastAPI service.", "exp.todd.1")])
+        plan = plan_of(bullet("Built a FastAPI service.", "exp.todd.1"))
         assert validate_plan(plan, FACTS).passed
 
     def test_a_summary_grounded_in_facts_passes(self):
@@ -236,7 +265,7 @@ class TestPlanValidation:
         assert validate_plan(plan, FACTS).passed
 
     def test_the_summary_names_the_violation_kinds(self):
-        plan = TailoringPlan(bullets=[bullet("Scaled to 4 million users.", "exp.todd.1")])
+        plan = plan_of(bullet("Scaled to 4 million users.", "exp.todd.1"))
         assert "INVENTED_METRIC" in validate_plan(plan, FACTS).summary()
 
 
@@ -244,12 +273,12 @@ class TestTailor:
     CLEAN: ClassVar[dict[str, Any]] = {
         "summary": "",
         "summary_fact_ids": [],
-        "bullets": [
-            {
-                "text": "Built a FastAPI service at Todd Labs.",
-                "fact_ids": ["exp.todd.1"],
-                "transformation": "shorten",
-            }
+        "operations": [
+            rewrite(
+                "work-experience.todd.1",
+                "Built a FastAPI service at Todd Labs.",
+                "exp.todd.1",
+            )
         ],
         "section_order": ["experience", "projects"],
     }
@@ -257,12 +286,12 @@ class TestTailor:
     DIRTY: ClassVar[dict[str, Any]] = {
         "summary": "",
         "summary_fact_ids": [],
-        "bullets": [
-            {
-                "text": "Scaled the platform to 4 million users at Stripe.",
-                "fact_ids": ["exp.todd.1"],
-                "transformation": "rewrite",
-            }
+        "operations": [
+            rewrite(
+                "work-experience.todd.1",
+                "Scaled the platform to 4 million users at Stripe.",
+                "exp.todd.1",
+            )
         ],
         "section_order": [],
     }
@@ -299,6 +328,7 @@ class TestTailor:
         retry_messages = provider.calls[1][2]
         assert any("INVENTED_METRIC" in m.content for m in retry_messages)
 
+
     def test_a_plan_that_fails_twice_is_returned_as_a_failure(self):
         """§7.7: block, do not quietly ship a weakened resume."""
         provider = NullProvider([self.DIRTY, self.DIRTY])
@@ -313,6 +343,77 @@ class TestTailor:
         for fact_id in FACTS:
             assert f"[{fact_id}]" in prompt
 
+
+class TestTheModelIsGivenTheBulletIds:
+    """It can only address bullets it was shown.
+
+    A model with no inventory can only guess at ids, and every guess is refused —
+    so this is not a nicety, it is the difference between tailoring working and
+    every application going out unchanged.
+    """
+
+    INVENTORY: ClassVar[list[dict[str, str]]] = [
+        {
+            "bullet_id": "work-experience.todd-labs.1",
+            "section": "Work Experience",
+            "entry": "Todd Labs",
+            "text": "Built a FastAPI service",
+        },
+        {
+            "bullet_id": "projects.thesisledger.1",
+            "section": "Projects",
+            "entry": "ThesisLedger",
+            "text": "A DuckDB-backed research tool",
+        },
+    ]
+
+    def prompt_of(self, provider: NullProvider) -> str:
+        return "\n".join(m.content for m in provider.calls[0][2])
+
+    def test_every_id_reaches_the_prompt(self):
+        provider = NullProvider([TestTailor.CLEAN])
+        tailor(
+            facts=FACTS,
+            job_title="T",
+            job_description="D",
+            provider=provider,
+            bullets=self.INVENTORY,
+        )
+        body = self.prompt_of(provider)
+        for item in self.INVENTORY:
+            assert item["bullet_id"] in body
+
+    def test_each_id_arrives_with_its_section_and_entry(self):
+        """So the model can echo them back as a cross-check."""
+        provider = NullProvider([TestTailor.CLEAN])
+        tailor(
+            facts=FACTS,
+            job_title="T",
+            job_description="D",
+            provider=provider,
+            bullets=self.INVENTORY,
+        )
+        body = self.prompt_of(provider)
+        assert "(Work Experience / Todd Labs)" in body
+        assert "(Projects / ThesisLedger)" in body
+
+    def test_the_instructions_forbid_inventing_an_id(self):
+        from app.services.resume import SYSTEM_PROMPT
+
+        assert "must be one you were given" in SYSTEM_PROMPT
+        assert "never use the same" in SYSTEM_PROMPT
+
+    def test_the_instructions_forbid_citing_another_employers_facts(self):
+        from app.services.resume import SYSTEM_PROMPT
+
+        assert "same employer or project" in SYSTEM_PROMPT
+
+    def test_the_prompt_version_records_the_new_contract(self):
+        """A plan produced under v1 has no bullet ids at all, so a stored artifact
+        has to say which contract it came from."""
+        from app.services.resume import PROMPT_VERSION
+
+        assert PROMPT_VERSION == "resume/v2"
 
 class TestBulletSchema:
     def test_an_empty_bullet_is_rejected(self):

@@ -246,6 +246,9 @@ def setup(request: Request, db: Db, settings: Config, session: CurrentSession) -
             "needs_sponsorship": bool(
                 values.get("work_authorization.requires_future_sponsorship", True)
             ),
+            # Defaults to unticked: an authorization claim must be something the
+            # user asserted, never something a blank form asserted for them.
+            "work_authorized": bool(values.get("work_authorization.is_authorized", False)),
         },
         session=session,
     )
@@ -258,6 +261,7 @@ def save_profile(
     preferred_name: Annotated[str, Form()],
     graduation_date: Annotated[str, Form()] = "",
     needs_sponsorship: Annotated[str, Form()] = "",
+    work_authorized: Annotated[str, Form()] = "",
 ) -> Response:
     """Record the handful of facts everything else depends on.
 
@@ -291,6 +295,17 @@ def save_profile(
         db,
         "work_authorization.requires_future_sponsorship",
         bool(needs_sponsorship),
+        actor=Actor.USER,
+        verified=True,
+    )
+    # The only fact that fills a work-authorization question on a form. Stored
+    # under the ``work_authorization`` prefix, which is always locked, so §7.8's
+    # "locked fact or a human" is enforced by the fact store rather than by
+    # remembering to pass a flag here.
+    set_fact(
+        db,
+        "work_authorization.is_authorized",
+        bool(work_authorized),
         actor=Actor.USER,
         verified=True,
     )
@@ -871,6 +886,123 @@ def skip_outreach(db: Db, session: CurrentSession, task_id: uuid.UUID) -> Respon
 
 
 # --------------------------------------------------------------- resumes
+
+
+@router.get("/resumes")
+def resume_versions(
+    request: Request, db: Db, settings: Config, session: CurrentSession
+) -> Response:
+    """Every resume version, grouped by the application it was built for (§7.7).
+
+    The screen exists to answer one question — why is *this* the PDF that went to
+    the employer — so it shows the attempts that did not qualify alongside the
+    one that did.
+    """
+    return render(
+        request,
+        "resume_versions.html",
+        {
+            "groups": queries.resume_groups(db),
+            "base_tex": settings.base_resume_tex,
+            "base_pdf": settings.base_resume_pdf,
+        },
+        session=session,
+    )
+
+
+@router.get("/resumes/base/view")
+def view_base_resume(settings: Config, session: CurrentSession) -> Response:
+    """The canonical PDF, served inline and read-only.
+
+    Served from its configured location rather than a copy, so what the user
+    previews here is the file the fallback path would actually use.
+    """
+    return _pdf_response(_base_pdf(settings), inline=True)
+
+
+@router.get("/resumes/base/download")
+def download_base_resume(settings: Config, session: CurrentSession) -> Response:
+    return _pdf_response(_base_pdf(settings), inline=False)
+
+
+def _base_pdf(settings: Config) -> Path:
+    if settings.base_resume_pdf is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "No base resume is configured (BASE_RESUME_PDF)"
+        )
+    return Path(settings.base_resume_pdf)
+
+
+def _pdf_response(path: Path, *, inline: bool) -> Response:
+    from starlette.responses import FileResponse
+
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact missing")
+    if inline:
+        # Content-Disposition inline, so the browser renders it in the iframe
+        # rather than downloading it. FileResponse's ``filename`` would force an
+        # attachment, which is the opposite of a preview.
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{path.name}"'},
+        )
+    return FileResponse(path, media_type="application/pdf", filename=path.name)
+
+
+@router.get("/resumes/{resume_id}/view")
+def view_resume(
+    db: Db, settings: Config, session: CurrentSession, resume_id: uuid.UUID
+) -> Response:
+    """One attempt's PDF, inline, for the preview pane."""
+    return _pdf_response(_artifact(db, settings, resume_id, "pdf"), inline=True)
+
+
+@router.get("/resumes/{resume_id}/source")
+def view_resume_source(
+    db: Db, settings: Config, session: CurrentSession, resume_id: uuid.UUID
+) -> Response:
+    """The tailored ``.tex``, as plain text."""
+    from starlette.responses import PlainTextResponse
+
+    path = _artifact(db, settings, resume_id, "tex")
+    return PlainTextResponse(path.read_text(encoding="utf-8", errors="replace"))
+
+
+@router.get("/resumes/{resume_id}/log")
+def view_resume_log(
+    db: Db, settings: Config, session: CurrentSession, resume_id: uuid.UUID
+) -> Response:
+    """The compilation log. The only thing that says why a build failed."""
+    from starlette.responses import PlainTextResponse
+
+    path = _artifact(db, settings, resume_id, "log")
+    return PlainTextResponse(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _artifact(db: Session, settings: Config, resume_id: uuid.UUID, which: str) -> Path:
+    """Resolve one artifact of a resume version, confined to the artifacts root.
+
+    The path comes from the database, but a database row is not a capability:
+    confining it means a bad or tampered row cannot read arbitrary files.
+    """
+    resume = db.get(ResumeVersion, resume_id)
+    if resume is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such resume")
+
+    raw = {
+        "pdf": resume.pdf_path,
+        "tex": resume.source_path,
+        "log": resume.log_path,
+    }.get(which)
+    if not raw:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No {which} for this version")
+
+    path = Path(raw).resolve()
+    root = settings.artifacts_dir.resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact missing")
+    return path
 
 
 @router.get("/resumes/{resume_id}")

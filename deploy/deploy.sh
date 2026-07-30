@@ -223,11 +223,23 @@ write_env() {
   source "$SECRETS"
   set +a
 
-  local anthropic_key=""
+  local anthropic_key="" groq_key=""
   if [[ -f "$REPO_ROOT/.env" ]]; then
     anthropic_key="$(grep -E '^ANTHROPIC_API_KEY=.' "$REPO_ROOT/.env" | cut -d= -f2- || true)"
+    groq_key="$(grep -E '^GROQ_API_KEY=.' "$REPO_ROOT/.env" | cut -d= -f2- || true)"
   fi
   [[ -n "$anthropic_key" ]] && info "carrying over ANTHROPIC_API_KEY from your local .env"
+  [[ -n "$groq_key" ]] && info "carrying over GROQ_API_KEY from your local .env"
+
+  # Routed needs both keys. With only one, fall back rather than writing a
+  # config that refuses to start — a deploy that boots paused is recoverable,
+  # one that crash-loops on settings validation is not.
+  local llm_provider=null
+  if [[ -n "$anthropic_key" && -n "$groq_key" ]]; then
+    llm_provider=routed
+  elif [[ -n "$anthropic_key" ]]; then
+    llm_provider=anthropic
+  fi
 
   local password_hash
   password_hash="$(cd "$REPO_ROOT" && uv run python -c "
@@ -287,11 +299,14 @@ SESSION_IDLE_TIMEOUT_MINUTES=60
 DATABASE_URL=postgresql+psycopg://internship_ops:\$DB_PASSWORD@postgres:5432/internship_ops
 DATA_DIR=/data/internship-ops
 
-LLM_PROVIDER=$([ -n "$anthropic_key" ] && echo anthropic || echo null)
+LLM_PROVIDER=$llm_provider
 ANTHROPIC_API_KEY=$anthropic_key
+GROQ_API_KEY=$groq_key
 LLM_CLASSIFICATION_MODEL=claude-haiku-4-5-20251001
 LLM_WRITING_MODEL=claude-sonnet-5
+GROQ_MODEL=llama-3.3-70b-versatile
 LLM_MONTHLY_BUDGET_USD=15
+LLM_BATCH_TIMEOUT_HOURS=24
 
 GMAIL_TOKEN_PATH=/data/internship-ops/secrets/gmail_token.enc
 

@@ -69,6 +69,38 @@ class ResumeVersion(UUIDMixin, CreatedAtMixin, Base):
     prompt_version: Mapped[str | None] = mapped_column(Text)
     model_name: Mapped[str | None] = mapped_column(Text)
 
+    # ---- build record (§7.7) ----------------------------------------------
+    #: Which application this was built for. ``job_id`` alone cannot group the
+    #: attempts, because a job may be applied to more than once.
+    application_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id")
+    )
+    #: 0 for the base resume, 1..3 for tailoring attempts. Every attempt is
+    #: stored, including the ones that came out at two pages — the point of the
+    #: record is to be able to see why the chosen one was chosen.
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: What the compiler produced. The one-page rule is enforced on this.
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    #: Checksum of the ``.tex``, alongside ``sha256`` for the PDF.
+    tex_sha256: Mapped[str | None] = mapped_column(Text)
+    log_path: Mapped[str | None] = mapped_column(Text)
+    manifest_path: Mapped[str | None] = mapped_column(Text)
+    #: Why the base resume was used instead of a tailored one. Empty when a
+    #: tailored build succeeded.
+    fallback_reason: Mapped[str | None] = mapped_column(Text)
+    #: The version the build chose to send. Set when the PDF is produced, so at
+    #: most one row per application carries it. Being selected says nothing about
+    #: whether an employer ever received it.
+    is_selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: The version a browser actually attached to the employer's form. Set only
+    #: after Playwright reports the file input accepted it — never at build time.
+    #: An application whose slot died holds a selected version and no uploaded
+    #: one, and that difference is the whole reason these are two columns.
+    is_uploaded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    uploaded_at: Mapped[datetime | None] = mapped_column()
+    #: Ids of the verified facts the tailoring cited.
+    facts_used: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+
 
 class Application(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "applications"
@@ -125,6 +157,12 @@ class Application(UUIDMixin, TimestampMixin, Base):
     #: one that was never expired, and "this came back from the dead" is
     #: something the user should be able to see on the list.
     restored_at: Mapped[datetime | None] = mapped_column()
+    #: SHA-256 of the base resume this application's tailoring was planned
+    #: against. Pinned when the bullet inventory is read, checked before the plan
+    #: is applied. The ids in a plan only mean anything relative to one version of
+    #: the resume, so a plan and a resume that disagree is not something to
+    #: reconcile — it is a plan to throw away (§7.7).
+    base_tex_sha256: Mapped[str | None] = mapped_column(Text)
 
     submitted_at: Mapped[datetime | None] = mapped_column()
     #: How the submission was established: an observed signal, or the user

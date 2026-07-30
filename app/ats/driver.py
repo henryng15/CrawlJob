@@ -16,6 +16,7 @@ of the suite, does not require a browser to be installed.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -26,7 +27,16 @@ from app.ats.replay import LocatorStrategy, Strategy, build_locators
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from playwright.sync_api import Locator, Page
 
-__all__ = ["CAPTCHA_MARKERS", "FillReport", "detect_captcha", "extract_form", "fill_form"]
+log = logging.getLogger(__name__)
+
+__all__ = [
+    "CAPTCHA_MARKERS",
+    "FillReport",
+    "attached_filenames",
+    "detect_captcha",
+    "extract_form",
+    "fill_form",
+]
 
 #: Selectors that mean a human must take over. The system never attempts these
 #: (AGENTS.md: no CAPTCHA bypass, ever).
@@ -71,6 +81,16 @@ class FillReport:
     not_found: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     captcha_detected: bool = False
+    #: The resume file the browser **confirmed** is attached to a file input.
+    #: ``None`` means no resume reached the form: the field was absent, setting it
+    #: raised, or reading the input back afterwards did not show the file. It is
+    #: recorded here rather than assumed by the caller, because "we produced a PDF"
+    #: and "the employer has the PDF" are different claims and only the browser
+    #: knows the second one.
+    resume_uploaded: Path | None = None
+    #: Why the attachment was not confirmed, when it was not. Empty on success and
+    #: when there was no resume to attach in the first place.
+    resume_unconfirmed: str = ""
 
     @property
     def needs_human(self) -> bool:
@@ -81,7 +101,49 @@ class FillReport:
             f"{len(self.filled)} filled, {len(self.skipped_manual)} left for the user, "
             f"{len(self.not_found)} not located"
             + (", CAPTCHA present" if self.captcha_detected else "")
+            + ("" if self.resume_uploaded else ", no resume attached")
         )
+
+
+def attached_filenames(target: Any) -> list[str] | None:
+    """The filenames the browser reports on a file input.
+
+    ``None`` means the question could not be asked — an element that does not
+    support evaluation, or a browser that errored. That is deliberately different
+    from ``[]``, which is the browser stating that nothing is attached: one is
+    ignorance, the other is a fact, and only the second is evidence.
+    """
+    try:
+        names = target.evaluate(
+            "el => el.files ? Array.from(el.files).map(f => f.name) : null"
+        )
+    except Exception as exc:  # pragma: no cover - depends on the page
+        log.warning("could not read back the file input: %s", type(exc).__name__)
+        return None
+    if names is None:
+        return None
+    if not isinstance(names, list):  # pragma: no cover - defensive
+        return None
+    return [str(name) for name in names]
+
+
+def _confirm_attachment(target: Any, resume_path: Path) -> str:
+    """Check the expected file is on the input. Returns why not, or "" if it is.
+
+    ``set_input_files`` returning is not proof: the element may have been replaced
+    by the page's own JavaScript, an upload widget may reject the type, or the
+    handler may clear the field. Reading the input back turns "we called the API"
+    into "the browser says the file is there", which is the claim the database
+    records.
+    """
+    names = attached_filenames(target)
+    if names is None:
+        return "the browser could not confirm the attachment"
+    if not names:
+        return "the file input is empty after setting it"
+    if resume_path.name not in names:
+        return f"the input holds {', '.join(names)} rather than {resume_path.name}"
+    return ""
 
 
 def detect_captcha(page: SupportsQuery) -> bool:
@@ -228,9 +290,23 @@ def fill_form(
         try:
             _apply(target, spec, answer, resume_path)
             report.filled.append(label)
+            if is_resume_upload and resume_path is not None:
+                # Set, then read back. ``set_input_files`` returning says the call
+                # was made; only the input's own file list says the employer's form
+                # is actually holding the document. Anything short of the expected
+                # filename leaves the version selected-but-not-uploaded.
+                reason = _confirm_attachment(target, resume_path)
+                if reason:
+                    report.resume_unconfirmed = reason
+                    report.errors.append(f"{label}: {reason}")
+                    report.not_found.append(label)
+                else:
+                    report.resume_uploaded = resume_path
         except Exception as exc:
             report.errors.append(f"{label}: {type(exc).__name__}: {exc}")
             report.not_found.append(label)
+            if is_resume_upload:
+                report.resume_unconfirmed = f"{type(exc).__name__} while attaching it"
 
     return report
 

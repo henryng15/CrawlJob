@@ -63,12 +63,34 @@ class TestBudgetCheck:
                 book.check(task)
 
     def test_restricted_defers_optional_work(self):
-        """At 90% the user's queue still moves; regeneration waits."""
+        """At 90% the user's queue still moves; optional writing waits."""
         book = ledger(spent=9.5)
         book.check(Task.SPONSORSHIP)
         book.check(Task.SCORING)
         with pytest.raises(BudgetExceeded, match="deferred"):
-            book.check(Task.RESUME_PLAN)
+            book.check(Task.EMAIL_BODY)
+
+    def test_restricted_rations_tailoring_rather_than_stopping_it(self):
+        """§26.2's 90% tier is "tailor only the top-scoring", not "stop".
+
+        A user at 91% of their cap still wants their best few applications
+        written, so RESUME_PLAN passes the check and the *caller* narrows how
+        many it does.
+        """
+        book = ledger(spent=9.5)
+        book.check(Task.RESUME_PLAN)  # allowed
+        assert book.tailoring_limit(30) == book.restricted_tailoring_limit
+
+    def test_the_ladder_narrows_in_three_steps(self):
+        assert ledger(spent=0.0).tailoring_limit(30) == 30, "OK: the whole quota"
+        assert ledger(spent=7.5).tailoring_limit(30) == 30, "WARNING: still the whole quota"
+        assert ledger(spent=9.5).tailoring_limit(30) == 5, "RESTRICTED: the best few"
+        assert ledger(spent=10.0).tailoring_limit(30) == 0, "EXHAUSTED: none"
+
+    def test_the_limit_never_exceeds_what_the_caller_asked_for(self):
+        """A cap of three applications a day stays three at every tier."""
+        for spent in (0.0, 7.5, 9.5):
+            assert ledger(spent=spent).tailoring_limit(3) <= 3
 
     def test_charging_moves_the_state(self):
         book = ledger()
@@ -78,10 +100,33 @@ class TestBudgetCheck:
 
     def test_charge_notifies_the_caller_for_persistence(self):
         seen: list[tuple[float, float]] = []
-        book = BudgetLedger(monthly_cap_usd=10.0, on_charge=lambda a, t: seen.append((a, t)))
+        book = BudgetLedger(
+            monthly_cap_usd=10.0, on_charge=lambda a, t, u=None: seen.append((a, t))
+        )
         book.charge(1.5)
         book.charge(2.5)
         assert seen == [(1.5, 1.5), (2.5, 4.0)]
+
+    def test_the_charge_carries_its_detail(self):
+        """"$4.20 this month" is not an answer to "on what?"."""
+        from app.services.llm.base import TokenCounts, Usage
+
+        seen: list[Usage | None] = []
+        book = BudgetLedger(
+            monthly_cap_usd=10.0, on_charge=lambda a, t, u=None: seen.append(u)
+        )
+        book.charge(
+            1.0,
+            Usage(
+                model="claude-sonnet-5",
+                task=Task.RESUME_PLAN,
+                tokens=TokenCounts(input_tokens=100, output_tokens=50),
+                cost_usd=1.0,
+            ),
+        )
+        assert seen[0] is not None
+        assert seen[0].task is Task.RESUME_PLAN
+        assert seen[0].tokens.input_tokens == 100
 
 
 class TestModelPricing:

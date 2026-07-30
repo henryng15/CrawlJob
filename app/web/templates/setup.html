@@ -36,12 +36,25 @@
     <p><label>Graduation date
       <input name="graduation_date" type="date" value="{{ graduation_date }}"></label></p>
     <p>
+      <label><input type="checkbox" name="work_authorized" style="width:auto"
+        {{ 'checked' if work_authorized }}> I am legally authorized to work in the United States</label>
+    </p>
+    <p class="muted">
+      The only fact that fills a work-authorization question on a form, and only
+      when a question asks about authorization <em>alone</em>.
+    </p>
+    <p>
       <label><input type="checkbox" name="needs_sponsorship" style="width:auto"
         {{ 'checked' if needs_sponsorship }}> I will need visa sponsorship in the future</label>
     </p>
     <p class="muted">
-      This is a fact about you, not a preference. It is stored locked, and it is
-      what the system answers sponsorship questions with — truthfully, always.
+      Recorded, but never typed into a form. Sponsorship questions are left blank
+      for you, and so is any question that asks about authorization and
+      sponsorship together — one Yes/No cannot answer both truthfully.
+    </p>
+    <p class="muted">
+      Both are facts about you, not preferences. Both are stored locked; no model
+      may write either.
     </p>
     <button class="primary">Save</button>
   </form>

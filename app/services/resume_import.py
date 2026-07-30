@@ -17,11 +17,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -275,42 +273,3 @@ def import_resume(
     )
 
 
-_WHITESPACE = re.compile(r"[ \t]+")
-
-
-def to_html(summary: str, bullets: list[Any], *, name: str) -> str:
-    """Render a tailoring plan as the HTML that becomes the PDF.
-
-    Plain and typographically boring on purpose: an ATS parser reads this before
-    a person does, and multi-column layouts are what those parsers mangle.
-    """
-    lines = "".join(f"<li>{_escape(b.text)}</li>" for b in bullets)
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        "<style>"
-        "@page { size: Letter; margin: 0.6in; }"
-        "body { font: 10.5pt/1.4 'DejaVu Sans', sans-serif; color: #111; }"
-        "h1 { font-size: 16pt; margin: 0 0 .2em; }"
-        "p.summary { margin: 0 0 1em; }"
-        "ul { margin: 0; padding-left: 1.1em; }"
-        "li { margin-bottom: .35em; }"
-        "</style></head><body>"
-        f"<h1>{_escape(name)}</h1>"
-        + (f"<p class='summary'>{_escape(summary)}</p>" if summary else "")
-        + f"<ul>{lines}</ul></body></html>"
-    )
-
-
-def _escape(text: str) -> str:
-    from html import escape
-
-    return escape(_WHITESPACE.sub(" ", text).strip())
-
-
-def render_pdf(html: str, out_path: Path) -> Path:
-    """Write the PDF. WeasyPrint is imported lazily; it is a heavy dependency."""
-    from weasyprint import HTML
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    HTML(string=html).write_pdf(str(out_path))
-    return out_path

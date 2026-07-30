@@ -12,6 +12,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
+from app.db.migration_url import resolve_url
 from app.db.models import Base  # registers every table on the metadata
 
 config = context.config
@@ -19,11 +20,20 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# An explicitly supplied URL wins — the test suite points this at its own
-# database. Without the guard, a caller's URL is silently replaced by the
-# development one and migrations run against the wrong server.
-if not config.get_main_option("sqlalchemy.url", None):
-    config.set_main_option("sqlalchemy.url", str(get_settings().database_url))
+# Which database this run touches. ``-x sqlalchemy.url=...`` wins, then whatever
+# the config already carries (how the test suite points a run at its own
+# database), then the application's configured one — which is read lazily, so an
+# explicit target makes the development database unreachable rather than merely
+# outranked. See :mod:`app.db.migration_url` for why that distinction earns a
+# module of its own.
+config.set_main_option(
+    "sqlalchemy.url",
+    resolve_url(
+        x_arguments=context.get_x_argument(as_dictionary=True),
+        configured=config.get_main_option("sqlalchemy.url", None),
+        default=lambda: str(get_settings().database_url),
+    ),
+)
 
 target_metadata = Base.metadata
 

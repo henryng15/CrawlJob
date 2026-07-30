@@ -97,6 +97,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     status = sub.add_parser("status", help="show the queue and what is waiting on you")
     status.set_defaults(run=_status)
 
+    base_resume = sub.add_parser(
+        "check-base-resume", help="compile the canonical resume and check it is one page"
+    )
+    base_resume.set_defaults(run=_check_base_resume)
+
     migrate = sub.add_parser("migrate", help="apply database migrations")
     migrate.add_argument("--revision", default="head")
     migrate.set_defaults(run=_migrate)
@@ -418,6 +423,85 @@ def _status(args: argparse.Namespace) -> int:
         f"\ndrafts ready:          {len(board.drafts_ready)}"
         f"\napplications prepared: {board.limits.prepared_today}/{board.limits.prepared_cap}"
     )
+    return 0
+
+
+# ------------------------------------------------------------ base resume
+
+
+def _check_base_resume(args: argparse.Namespace) -> int:
+    """Compile the canonical resume here, where the pipeline will compile it.
+
+    A resume that builds on a laptop and not in the container does not fail
+    loudly — every application silently falls back to the untailored base, which
+    looks like the system working. This is the check that catches it before a
+    hundred applications go out that way.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from app.config import get_settings
+    from app.services.latex import compile_pdf, engine_available, page_count
+    from app.services.resume_tex import parse
+    from app.services.tailoring import base_resume_source
+
+    settings = get_settings()
+
+    engine = engine_available()
+    if engine is None:
+        print("No LaTeX engine is installed in this image.", file=sys.stderr)
+        return 1
+    print(f"engine:      {engine}")
+
+    source = base_resume_source(settings)
+    if source is None:
+        print(
+            f"No base resume at BASE_RESUME_TEX={settings.base_resume_tex}.",
+            file=sys.stderr,
+        )
+        return 1
+    base_tex, base_pdf = source.tex, source.pdf
+    print(f"source:      {settings.base_resume_tex}")
+    # The fingerprint every plan made from this file is pinned to. Printing it
+    # makes "the base resume changed after this plan was made" a message the user
+    # can act on rather than a hash they have never seen before.
+    print(f"fingerprint: {source.sha256[:16]}")
+
+    bullets = parse(base_tex).bullets
+    print(f"bullets:     {len(bullets)} editable")
+    if not bullets:
+        print(
+            "\nNo \\resumeItem bullets were found, so tailoring has nothing it "
+            "may change and every application would use this file unchanged.",
+            file=sys.stderr,
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory() as work:
+        result = compile_pdf(base_tex, work_dir=Path(work) / "check")
+        if not result.ok:
+            print(f"\nIt did not compile: {result.error}", file=sys.stderr)
+            print(result.log_text[-2000:], file=sys.stderr)
+            return 1
+        print(f"compiles to: {result.pages} page(s)")
+        if result.pages != 1:
+            print(
+                "\nThe base resume itself is longer than one page. Tailoring can "
+                "only remove content, so no application will ever fit.",
+                file=sys.stderr,
+            )
+            return 1
+
+    if base_pdf is None:
+        print(
+            f"\nNo compiled PDF at BASE_RESUME_PDF={settings.base_resume_pdf}. "
+            "A build that runs out of attempts would have nothing to fall back to.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"fallback:    {base_pdf} ({page_count(base_pdf)} page(s))")
+
+    print("\nReady. Set BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0
 
 

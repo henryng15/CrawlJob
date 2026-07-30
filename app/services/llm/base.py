@@ -37,6 +37,8 @@ __all__ = [
     "NullProvider",
     "SchemaValidationError",
     "Task",
+    "TokenCounts",
+    "Usage",
 ]
 
 
@@ -94,12 +96,47 @@ class ModelPricing:
 
 
 @dataclass(frozen=True, slots=True)
+class TokenCounts:
+    """What one call consumed.
+
+    Cache figures are best-effort (§26.2): providers that do not report them
+    leave the fields at zero, and nothing in the budget depends on a cache hit
+    ever happening. They are recorded so the saving can be *observed* rather than
+    assumed.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    #: Input tokens served from a prompt cache, billed at a fraction of the rate.
+    cache_read_tokens: int = 0
+    #: Input tokens written into the cache, billed at slightly above the rate.
+    cache_write_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class Usage:
+    """A single charge, in enough detail to answer "where did the money go".
+
+    Recorded per call so the monthly total can be broken down by task and model
+    rather than being one opaque number.
+    """
+
+    model: str
+    task: Task
+    tokens: TokenCounts
+    cost_usd: float
+    #: True when this came from the Batch API, which bills at half rate.
+    batch: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class LLMResponse[T: BaseModel]:
     value: T
     model: str
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    tokens: TokenCounts = TokenCounts()
 
 
 class BudgetState(StrEnum):
@@ -132,6 +169,15 @@ class BudgetLedger:
             {Task.SPONSORSHIP, Task.SCORING, Task.JD_EXTRACTION, Task.VALIDATION}
         )
     )
+    #: Permitted at RESTRICTED but *rationed* — the caller narrows how much work
+    #: it does rather than being refused outright. §26.2's 90% tier is "tailor
+    #: only the top-scoring roles", not "stop tailoring": a user at 91% of their
+    #: cap still wants their three best applications written.
+    rationed_tasks: frozenset[Task] = field(
+        default_factory=lambda: frozenset({Task.RESUME_PLAN})
+    )
+    #: How many applications may still be tailored at RESTRICTED.
+    restricted_tailoring_limit: int = 5
 
     @property
     def fraction_used(self) -> float:
@@ -158,16 +204,51 @@ class BudgetLedger:
                 f"Monthly LLM budget of ${self.monthly_cap_usd:.2f} is spent "
                 f"(${self.spent_usd:.2f}). Raise the cap or wait for the next month."
             )
-        if state is BudgetState.RESTRICTED and task not in self.essential_tasks:
+        if (
+            state is BudgetState.RESTRICTED
+            and task not in self.essential_tasks
+            and task not in self.rationed_tasks
+        ):
             raise BudgetExceeded(
                 f"At {self.fraction_used:.0%} of the monthly budget, only essential "
                 f"tasks run. {task.value} was deferred."
             )
 
-    def charge(self, amount_usd: float) -> None:
+    def tailoring_limit(self, default: int) -> int:
+        """How many applications may be tailored right now.
+
+        The whole degradation ladder in one function, so the tiers cannot be
+        re-implemented differently in two places:
+
+        * **OK / WARNING** — the caller's own limit. 70% is a warning on the
+          dashboard, not a change in behaviour.
+        * **RESTRICTED** — a handful, and the caller is expected to pick the
+          highest-scoring ones. Spending the last tenth of the budget on the ten
+          best roles is worth more than spreading it over thirty.
+        * **EXHAUSTED** — none. Everything downstream still runs deterministically;
+          it just runs without a model.
+        """
+        state = self.state
+        if state is BudgetState.EXHAUSTED:
+            return 0
+        if state is BudgetState.RESTRICTED:
+            return min(default, self.restricted_tailoring_limit)
+        return default
+
+    @property
+    def remaining_usd(self) -> float:
+        return max(0.0, self.monthly_cap_usd - self.spent_usd)
+
+    def charge(self, amount_usd: float, usage: Usage | None = None) -> None:
+        """Record a charge, and hand the detail to whatever persists it.
+
+        ``usage`` is optional so a caller that only knows the amount can still
+        charge — but every provider in this codebase supplies it, because
+        "$4.20 this month" is not an answer to "on what?".
+        """
         self.spent_usd += amount_usd
         if self.on_charge is not None:
-            self.on_charge(amount_usd, self.spent_usd)
+            self.on_charge(amount_usd, self.spent_usd, usage)
 
 
 class SupportsStructuredGenerate(Protocol):
@@ -218,13 +299,22 @@ class LLMProvider(ABC):
         self.budget.check(task)
         model = self.model_for(task)
 
-        raw, input_tokens, output_tokens = self._generate(
+        raw, input_tokens, output_tokens, *rest = self._generate(
             model=model, schema=schema, messages=messages, max_tokens=max_tokens
+        )
+        # A provider that reports cache figures returns them as a fourth element.
+        # Optional so the three-tuple contract older providers use still holds.
+        tokens: TokenCounts = (
+            rest[0]
+            if rest and isinstance(rest[0], TokenCounts)
+            else TokenCounts(input_tokens=input_tokens, output_tokens=output_tokens)
         )
 
         pricing = self.pricing.get(model)
         cost = pricing.cost(input_tokens, output_tokens) if pricing else 0.0
-        self.budget.charge(cost)
+        self.budget.charge(
+            cost, Usage(model=model, task=task, tokens=tokens, cost_usd=cost)
+        )
 
         try:
             value = schema.model_validate(raw)
@@ -239,6 +329,7 @@ class LLMProvider(ABC):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=cost,
+            tokens=tokens,
         )
 
     @abstractmethod
@@ -249,8 +340,13 @@ class LLMProvider(ABC):
         schema: type[T],
         messages: list[Message],
         max_tokens: int,
-    ) -> tuple[Any, int, int]:
-        """Return ``(raw_payload, input_tokens, output_tokens)``."""
+    ) -> tuple[Any, ...]:
+        """Return ``(raw_payload, input_tokens, output_tokens)``.
+
+        A provider that knows its cache figures may append a fourth element, a
+        :class:`TokenCounts`. Optional because not every provider reports them,
+        and a cache is a saving rather than a requirement.
+        """
 
 
 class NullProvider(LLMProvider):
@@ -288,7 +384,7 @@ class NullProvider(LLMProvider):
         schema: type[T],
         messages: list[Message],
         max_tokens: int,
-    ) -> tuple[Any, int, int]:
+    ) -> tuple[Any, ...]:
         if not self.responses:
             raise LLMError(
                 f"NullProvider has no queued response for {schema.__name__}. "

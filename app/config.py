@@ -96,11 +96,30 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data/internship-ops")
 
     # ---- llm --------------------------------------------------------------
-    llm_provider: Literal["anthropic", "null"] = "null"
+    #: "routed" sends the high-volume structured tasks to Groq and keeps
+    #: Anthropic for resume writing, which is where quality actually shows.
+    llm_provider: Literal["anthropic", "routed", "null"] = "null"
     anthropic_api_key: SecretStr | None = None
+    groq_api_key: SecretStr | None = None
     llm_classification_model: str = "claude-haiku-4-5-20251001"
     llm_writing_model: str = "claude-sonnet-5"
+    groq_model: str = "llama-3.3-70b-versatile"
     llm_monthly_budget_usd: float = Field(default=15.0, gt=0)
+    #: Batch tailoring waits for Anthropic to finish the whole batch. Beyond this
+    #: the batch is abandoned rather than polled forever — a stuck batch must not
+    #: hold the day's applications hostage.
+    llm_batch_timeout_hours: int = Field(default=24, ge=1, le=48)
+
+    # ---- base resume (§7.7) -----------------------------------------------
+    #: The canonical LaTeX source and its compiled PDF. **Read-only.** Every
+    #: tailored build is written into the application's artifact directory; these
+    #: two files are never modified, and are what a failed build falls back to.
+    base_resume_tex: Path | None = None
+    base_resume_pdf: Path | None = None
+    #: Attempts per application before falling back. §7.7 caps it at three: each
+    #: is a full LaTeX build, and a fourth costs more than the base resume it
+    #: would eventually fall back to anyway.
+    resume_max_attempts: int = Field(default=3, ge=1, le=5)
 
     # ---- gmail ------------------------------------------------------------
     gmail_credentials_path: Path | None = None
@@ -206,8 +225,10 @@ class Settings(BaseSettings):
         ]
         if placeholders:
             raise ValueError(f"Production requires real values for: {', '.join(placeholders)}")
-        if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
-            raise ValueError("llm_provider=anthropic requires anthropic_api_key")
+        if self.llm_provider in {"anthropic", "routed"} and self.anthropic_api_key is None:
+            raise ValueError(f"llm_provider={self.llm_provider} requires anthropic_api_key")
+        if self.llm_provider == "routed" and self.groq_api_key is None:
+            raise ValueError("llm_provider=routed requires groq_api_key")
         if not self.app_base_url.startswith("https://"):
             raise ValueError(
                 "Production app_base_url must be HTTPS via Tailscale Serve, "

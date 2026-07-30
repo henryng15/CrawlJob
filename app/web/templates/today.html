@@ -61,6 +61,38 @@
   </div>
 
   <div class="panel">
+    <h2 style="margin-top:0">Model budget</h2>
+    <dl class="facts">
+      <dt>This month</dt>
+      <dd>
+        ${{ "%.2f" % t.budget.spent_usd }} / ${{ "%.2f" % t.budget.cap_usd }}
+        ({{ t.budget.percent }}%)
+        {% if t.budget.state == 'WARNING' %}<span class="tag warn">warning</span>
+        {% elif t.budget.state == 'RESTRICTED' %}<span class="tag warn">top-scoring only</span>
+        {% elif t.budget.state == 'EXHAUSTED' %}<span class="tag bad">spent</span>{% endif %}
+      </dd>
+      <dt>Left</dt><dd>${{ "%.2f" % t.budget.remaining_usd }}</dd>
+      <dt>Calls</dt><dd>{{ t.budget.calls }}</dd>
+      {% if t.budget.cache_read_tokens %}
+        <dt>Cache hits</dt>
+        <dd>{{ "%.0f" % (t.budget.cache_hit_rate * 100) }}% of input tokens</dd>
+      {% endif %}
+    </dl>
+    {% if t.budget.tasks_by_spend %}
+      <p class="muted">
+        {% for task, amount in t.budget.tasks_by_spend %}
+          {{ task }} ${{ "%.2f" % amount }}{% if not loop.last %} &middot; {% endif %}
+        {% endfor %}
+      </p>
+    {% endif %}
+    {% if t.budget.state == 'RESTRICTED' %}
+      <p class="muted">Only the highest-scoring roles are being tailored.</p>
+    {% elif t.budget.state == 'EXHAUSTED' %}
+      <p class="muted">Nothing is being tailored. Everything else still runs.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
     <h2 style="margin-top:0">Workers</h2>
     <dl class="facts">
       {% for name, count in t.queue_health.items() %}

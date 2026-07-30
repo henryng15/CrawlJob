@@ -232,4 +232,7 @@ class TestTimestamps:
         company = make_company(db)
         db.refresh(company)
         assert company.created_at.tzinfo is not None
-        assert abs((company.created_at - NOW).total_seconds()) < 60
+        # Against the clock now, not the module-level NOW captured at import: the
+        # window is meant to catch a wrong default, not to measure how long the
+        # rest of the suite took to reach this test.
+        assert abs((company.created_at - datetime.now(UTC)).total_seconds()) < 60

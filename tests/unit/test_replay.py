@@ -21,17 +21,19 @@ NOW = datetime(2026, 7, 28, tzinfo=UTC)
 FACTS = {
     "candidate.first_name": "Hoan",
     "candidate.email": "nguyen15@kenyon.edu",
-    "auth.requires_sponsorship": True,
+    "work_authorization.is_authorized": True,
 }
-LOCKED = frozenset({"auth.requires_sponsorship"})
+# Authorization rather than sponsorship: sponsorship is never auto-filled, so it
+# would be the wrong field to demonstrate "a locked fact reaches the package".
+LOCKED = frozenset({"work_authorization.is_authorized"})
 
 FORM = [
     FieldSpec("First Name", FieldType.TEXT, name="first_name", required=True),
     FieldSpec("Email", FieldType.EMAIL, name="email", required=True),
     FieldSpec(
-        "Will you now or in the future require sponsorship?",
+        "Are you legally authorized to work in the United States?",
         FieldType.SELECT,
-        name="sponsorship",
+        name="work_authorized",
         required=True,
         options=("Yes", "No"),
     ),
@@ -91,7 +93,7 @@ class TestPackageAssembly:
         manual = {f.semantic_key for f in pkg.manual_fields}
 
         assert "candidate.first_name" in fillable
-        assert "auth.requires_sponsorship" in fillable, "locked facts are fillable"
+        assert "auth.work_authorized" in fillable, "locked facts are fillable"
         assert "eeo.gender" in manual
         assert None in manual, "the unrecognised question needs a human"
 
@@ -102,8 +104,8 @@ class TestPackageAssembly:
 
     def test_source_type_survives_into_the_package(self):
         pkg = package()
-        sponsorship = next(f for f in pkg.fields if f.semantic_key == "auth.requires_sponsorship")
-        assert sponsorship.source_type is SourceType.LOCKED_FACT
+        authorized = next(f for f in pkg.fields if f.semantic_key == "auth.work_authorized")
+        assert authorized.source_type is SourceType.LOCKED_FACT
 
     def test_mismatched_specs_and_answers_are_rejected(self):
         with pytest.raises(ValueError, match="parallel"):

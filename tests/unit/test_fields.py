@@ -120,15 +120,30 @@ class TestManualOnlyQuestions:
         assert answer.value is None
 
     def test_a_locked_fact_does_satisfy_one(self):
-        """This is the only path: the user set it deliberately (§7.8)."""
+        """This is the only path: the user set it deliberately (§7.8).
+
+        Shown with EEO rather than sponsorship, which is now never auto-filled at
+        all — see ``tests/unit/test_work_authorization.py``.
+        """
+        answer = resolve(ask("Gender"), facts=FACTS, locked_keys=LOCKED)
+        assert answer.source_type is SourceType.LOCKED_FACT
+        assert answer.value == "Decline to self-identify"
+        assert answer.fact_ids == ("eeo.gender",)
+
+    def test_sponsorship_is_left_blank_even_with_a_locked_fact(self):
+        """§7.8 permits a locked fact here; the user asked for blank anyway.
+
+        They want to read each employer's phrasing themselves, because the
+        wording varies enough that one stored boolean does not safely answer all
+        of them.
+        """
         answer = resolve(
             ask("Will you now or in the future require sponsorship?"),
-            facts=FACTS,
-            locked_keys=LOCKED,
+            facts={"work_authorization.requires_future_sponsorship": True},
+            locked_keys=frozenset({"work_authorization.requires_future_sponsorship"}),
         )
-        assert answer.source_type is SourceType.LOCKED_FACT
-        assert answer.value is True
-        assert answer.fact_ids == ("auth.requires_sponsorship",)
+        assert answer.source_type is SourceType.MANUAL_REQUIRED
+        assert answer.value is None
 
     def test_eeo_is_never_inferred_only_prefilled_from_a_locked_preference(self):
         """§7.8: the system may prefill a locked EEO answer, never infer one."""
@@ -145,6 +160,9 @@ def _question_for(key: str) -> str:
     return {
         "auth.work_authorized": "Are you legally authorized to work in the US?",
         "auth.requires_sponsorship": "Will you now or in the future require sponsorship?",
+        "auth.work_authorized_without_sponsorship": (
+            "Are you legally authorized to work in the US without sponsorship?"
+        ),
         "auth.citizenship": "Are you a US citizen?",
         "auth.export_control": "Are you subject to export control regulations?",
         "auth.security_clearance": "Do you hold a security clearance?",
@@ -217,9 +235,9 @@ class TestFillability:
     def test_a_false_value_is_still_fillable(self):
         """A "No" answer must not be mistaken for a missing one."""
         answer = resolve(
-            ask("Will you now or in the future require sponsorship?"),
-            facts={"auth.requires_sponsorship": False},
-            locked_keys=frozenset({"auth.requires_sponsorship"}),
+            ask("Are you legally authorized to work in the US?"),
+            facts={"work_authorization.is_authorized": False},
+            locked_keys=frozenset({"work_authorization.is_authorized"}),
         )
         assert answer.value is False
         assert answer.is_fillable

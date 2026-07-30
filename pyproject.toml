@@ -24,7 +24,10 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["anthropic>=0.40"]
 browser = ["playwright>=1.49"]
-resume = ["weasyprint>=63", "pypdf>=5.1", "python-docx>=1.1"]
+# pypdf counts the pages of a compiled resume; python-docx reads a .docx the user
+# imports facts from. Rendering is LaTeX, which is a system package rather than a
+# Python one — see docker/worker.Dockerfile.
+resume = ["pypdf>=5.1", "python-docx>=1.1"]
 gmail = [
     "google-api-python-client>=2.150",
     "google-auth-oauthlib>=1.2",
@@ -85,6 +88,8 @@ known-first-party = ["app", "browser", "tests"]
 # normalise them, which requires writing them down.
 "app/services/sponsorship.py" = ["RUF001"]
 "app/services/hooks.py" = ["RUF001"]
+# Splits an entry heading on either dash the resume template uses.
+"app/services/resume_tex.py" = ["RUF001"]
 "tests/unit/test_sponsorship.py" = ["RUF001"]
 "tests/unit/test_gmail_and_hooks.py" = ["RUF001"]
 
@@ -118,7 +123,6 @@ module = [
     "googleapiclient.*",
     "google_auth_oauthlib.*",
     "playwright.*",
-    "weasyprint.*",
     "docx.*",
     "pypdf.*",
 ]
@@ -133,6 +137,7 @@ markers = [
     "db: requires a live PostgreSQL database",
     "browser: requires a running browser slot",
     "network: performs outbound network calls",
+    "latex: compiles real LaTeX and needs a TeX installation",
 ]
 filterwarnings = [
     "error::DeprecationWarning",

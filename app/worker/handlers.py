@@ -33,11 +33,12 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db.models import (
     Application,
+    BatchState,
     Company,
     Job,
+    LLMBatch,
     OutreachTask,
     Recruiter,
-    ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
     SuppressionEntry,
@@ -58,7 +59,7 @@ from app.services import candidate as facts
 from app.services.eligibility import Verdict
 from app.services.filters import screen
 from app.services.hooks import Hook, HookType, SourceDocument, compose_email, generate_hook
-from app.services.llm.base import LLMError, LLMProvider
+from app.services.llm.base import LLMError, LLMProvider, Task, TokenCounts, Usage
 from app.services.outreach_policy import (
     OutreachContext,
     OutreachLimits,
@@ -66,7 +67,6 @@ from app.services.outreach_policy import (
     schedule_outreach,
 )
 from app.services.recruiters import match_recruiter
-from app.services.resume import PROMPT_VERSION as RESUME_PROMPT_VERSION
 from app.services.scoring import ScoreInput, score
 from app.services.sponsorship import RecommendedAction, analyze, recommend
 from app.worker.runtime import (
@@ -421,17 +421,15 @@ def register_pipeline(
         * no base resume — there is nothing to tailor.
 
         Each leaves a message naming what the user has to do.
-        """
-        import hashlib
-        import json
 
+        The model call happens here; everything after it — validation, the LaTeX
+        build, the artifacts, the rows — is :func:`tailoring.apply_plan`, the
+        same function the batch path calls. There is one way an application gets
+        a resume, and this is not a second one.
+        """
+        from app.services import tailoring
         from app.services.resume import tailor
-        from app.services.resume_import import (
-            load_facts,
-            render_pdf,
-            to_html,
-            unverified,
-        )
+        from app.services.resume_import import load_facts, unverified
 
         now = run_clock()
         application = _require(
@@ -448,61 +446,39 @@ def register_pipeline(
                 else "no resume facts are stored; run: internship-ops import-resume <file>"
             )
 
-        values = _candidate_facts(session)
-        name = str(values.get("candidate.preferred_name") or values.get("profile.name") or "")
-        if not name:
+        source = tailoring.base_resume_source(config)
+        if source is None:
             raise PermanentFailure(
-                "no candidate name is set; add candidate.preferred_name in Settings"
+                "no base resume is configured; set BASE_RESUME_TEX to your .tex file"
             )
 
-        plan, result = tailor(
+        # The model is asked to edit *these* bullets, by id, and the version they
+        # came from is pinned before the call. The window is small here — one
+        # handler, two reads of the same file — but it is not zero, and a plan
+        # applied to a resume it was not planned against is exactly the failure the
+        # pin exists to stop.
+        application.base_tex_sha256 = source.sha256
+        plan, _ = tailor(
             facts=available,
             job_title=job.title,
             job_description=job.description_text or "",
             provider=provider_factory(config),
+            bullets=source.inventory(),
         )
 
-        directory = config.artifacts_dir / str(application.id)
-        directory.mkdir(parents=True, exist_ok=True)
-        # Written whether or not validation passed: the review screen shows the
-        # violations, and a user cannot judge "it was rejected" without seeing why.
-        (directory / "resume-validation.json").write_text(
-            json.dumps(
-                {
-                    "validation": {"passed": result.passed, "summary": result.summary()},
-                    "bullets": [b.model_dump(mode="json") for b in plan.bullets],
-                    "violations": [
-                        {"kind": v.kind.value, "detail": v.detail} for v in result.violations
-                    ],
-                    "tailored_text": "\n".join(b.text for b in plan.bullets),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+        output = tailoring.apply_plan(
+            session,
+            config,
+            application=application,
+            job=job,
+            plan=plan,
+            facts=available,
+            now=now,
+            model=config.llm_writing_model,
+            pinned_sha256=source.sha256,
         )
-
-        if not result.passed:
-            raise PermanentFailure(
-                f"tailoring produced unsupported claims and was blocked: {result.summary()}"
-            )
-
-        pdf_path = directory / "resume.pdf"
-        render_pdf(to_html(plan.summary, plan.bullets, name=name), pdf_path)
-
-        version = ResumeVersion(
-            job_id=job.id,
-            kind="TAILORED",
-            status="READY_FOR_REVIEW",
-            source_path=str(directory / "resume-validation.json"),
-            pdf_path=str(pdf_path),
-            validation_path=str(directory / "resume-validation.json"),
-            sha256=hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
-            prompt_version=RESUME_PROMPT_VERSION,
-        )
-        session.add(version)
-        session.flush()
-        application.resume_version_id = version.id
-        application.updated_at = now
+        if not output.ok:
+            raise PermanentFailure(output.blocked_reason or "the resume could not be built")
 
         # Materials are the last thing this worker can do; the form itself needs
         # a browser. Walking the states here rather than in a second handler
@@ -522,9 +498,276 @@ def register_pipeline(
             {"application_id": str(application.id)},
         )
         return HandlerResult(
-            detail=f"{len(plan.bullets)} bullet(s), all supported; queued for a browser",
+            detail=f"{output.detail()}; queued for a browser",
             follow_ups=(follow,),
         )
+
+    # ------------------------------------------------------ batch tailoring
+
+    @target.register(TaskType.SUBMIT_TAILORING_BATCH)
+    def submit_tailoring_batch(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Send the day's tailoring to the Batch API at half price (§7.7, §26.2).
+
+        Idempotent by way of a stored row: if this dedupe key already has a batch,
+        that batch is adopted and nothing is submitted again. The window this
+        closes is real — the API accepts the batch, the worker is killed before
+        the transaction commits, the task is retried, and without the row the
+        user pays twice.
+        """
+        from app.services import tailoring
+        from app.services.llm.batch import check_affordable
+        from app.services.llm.batch_client import AnthropicBatchClient
+        from app.services.resume import SYSTEM_PROMPT, TailoringPlan
+        from app.services.resume_import import load_facts
+
+        now = run_clock()
+        dedupe_key = str((task.payload or {}).get("dedupe_key") or task.dedupe_key)
+
+        existing = session.scalars(
+            select(LLMBatch).where(LLMBatch.dedupe_key == dedupe_key)
+        ).first()
+        if existing is not None:
+            return HandlerResult(
+                detail=f"batch {existing.provider_batch_id or existing.id} already submitted",
+                follow_ups=_poll_follow_up(existing, task),
+            )
+
+        provider = provider_factory(config)
+        # §26.2's ladder, applied before anything is selected: OK and WARNING
+        # tailor the day's whole quota, RESTRICTED tailors only the best few,
+        # EXHAUSTED tailors nothing and the pipeline continues without a model.
+        limit = provider.budget.tailoring_limit(config.max_prepared_applications_per_day)
+        if limit <= 0:
+            return HandlerResult(
+                detail=(
+                    f"budget {provider.budget.state.value.lower()} "
+                    f"(${provider.budget.spent_usd:.2f} of "
+                    f"${provider.budget.monthly_cap_usd:.2f}); nothing tailored"
+                )
+            )
+
+        applications = _applications_awaiting_tailoring(session, task, limit=limit)
+        if not applications:
+            return HandlerResult(detail="nothing to tailor")
+
+        facts = load_facts(session)
+        if not facts:
+            raise PermanentFailure(
+                "no resume facts are stored; run: internship-ops import-resume <file>"
+            )
+
+        source = tailoring.base_resume_source(config)
+        if source is None:
+            raise PermanentFailure(
+                "no base resume is configured; set BASE_RESUME_TEX to your .tex file"
+            )
+        # Every request in the batch names the same bullets, because they are all
+        # edits to the same resume. Parsed once, and pinned: results come back up
+        # to a day later, by which time the canonical resume may have been edited.
+        inventory = source.inventory()
+
+        requests = []
+        pinned: list[Application] = []
+        for application in applications:
+            job = session.get(Job, application.job_id)
+            if job is None:
+                continue
+            requests.append(
+                tailoring.batch_request_for(application, job, facts, bullets=inventory)
+            )
+            pinned.append(application)
+        if not requests:
+            return HandlerResult(detail="nothing to tailor")
+
+        pricing = provider.pricing.get(config.llm_writing_model)
+        # Before a single token is sent. A batch cannot be un-submitted, so a cap
+        # checked afterwards is a cap that has already been broken.
+        estimate = check_affordable(provider.budget, requests, pricing)
+
+        batch = LLMBatch(
+            dedupe_key=dedupe_key,
+            model=config.llm_writing_model,
+            custom_ids=[item.custom_id for item in requests],
+            estimated_cost_usd=estimate,
+            submitted_at=now,
+            base_tex_sha256=source.sha256,
+        )
+        session.add(batch)
+        # On the applications as well as the batch. The batch's pin is what the
+        # poll checks; the application's survives the batch being abandoned, so a
+        # later run can still tell what this application was last planned against.
+        for application in pinned:
+            application.base_tex_sha256 = source.sha256
+        # Flushed before the network call so the unique index rejects a second
+        # worker racing for the same key rather than both of them submitting.
+        session.flush()
+
+        if config.anthropic_api_key is None:
+            raise PermanentFailure("batch tailoring needs ANTHROPIC_API_KEY")
+        client = AnthropicBatchClient(api_key=config.anthropic_api_key.get_secret_value())
+        batch.provider_batch_id = client.submit(
+            requests,
+            model=config.llm_writing_model,
+            schema=TailoringPlan.model_json_schema(),
+            system=tailoring.shared_system_blocks(SYSTEM_PROMPT),
+        )
+
+        audit.record(
+            session,
+            event_type="LLM_BATCH_SUBMITTED",
+            entity_type="llm_batch",
+            entity_id=batch.id,
+            actor_type="WORKER",
+            requests=len(requests),
+            estimated_cost_usd=estimate,
+            model=config.llm_writing_model,
+        )
+        return HandlerResult(
+            detail=f"submitted {len(requests)} for tailoring (~${estimate:.2f})",
+            follow_ups=_poll_follow_up(batch, task),
+        )
+
+    @target.register(TaskType.POLL_TAILORING_BATCH)
+    def poll_tailoring_batch(session: Session, task: ScheduledTask) -> HandlerResult:
+        """Collect a finished batch, or ask again later (§7.7).
+
+        Outside the pipeline gate: this collects results that have already been
+        paid for, so pausing after a submit must not throw the money away.
+        """
+        from app.services import tailoring
+        from app.services.llm.batch import BatchRequest, is_stale, match_results
+        from app.services.llm.batch_client import AnthropicBatchClient
+        from app.services.resume import TailoringPlan
+        from app.services.resume_import import load_facts
+
+        now = run_clock()
+        batch = _require(
+            session.get(LLMBatch, _payload_uuid(task, "batch_id")), "batch"
+        )
+        if batch.state in {BatchState.APPLIED, BatchState.ABANDONED}:
+            return HandlerResult(detail=f"batch already {batch.state.lower()}")
+        if batch.provider_batch_id is None:
+            raise PermanentFailure("batch row has no provider id; it was never submitted")
+
+        if config.anthropic_api_key is None:
+            raise PermanentFailure("batch tailoring needs ANTHROPIC_API_KEY")
+        client = AnthropicBatchClient(api_key=config.anthropic_api_key.get_secret_value())
+
+        status = client.status(batch.provider_batch_id)
+        if not status.finished:
+            if is_stale(
+                batch.submitted_at or now,
+                now=now,
+                timeout_hours=config.llm_batch_timeout_hours,
+            ):
+                # Abandoning is a decision the user can see. Polling forever is
+                # not, and the applications waiting on it never get prepared.
+                batch.state = BatchState.ABANDONED
+                batch.completed_at = now
+                client.cancel(batch.provider_batch_id)
+                return HandlerResult(
+                    detail=f"batch abandoned after {config.llm_batch_timeout_hours}h"
+                )
+            return HandlerResult(
+                detail=f"batch is {status.processing_status}",
+                follow_ups=_poll_follow_up(batch, task),
+            )
+
+        outcome = client.results(batch.provider_batch_id)
+        requests = [
+            BatchRequest(custom_id=cid, messages=[])
+            for cid in (batch.custom_ids or [])
+        ]
+        # By key. Never by position — the API finishes requests in whatever order
+        # it likes, and zipping would hand one applicant another's resume.
+        matched, missing = match_results(requests, outcome)
+
+        facts = load_facts(session)
+
+        applied = 0
+        blocked: dict[str, str] = {}
+        follow_ups: list[tuple[TaskType, str, dict[str, Any]]] = []
+        for custom_id, payload in matched.items():
+            application = session.get(Application, uuid.UUID(custom_id))
+            if application is None:
+                blocked[custom_id] = "the application no longer exists"
+                continue
+            job = session.get(Job, application.job_id)
+            if job is None:
+                blocked[custom_id] = "the job no longer exists"
+                continue
+            try:
+                plan = TailoringPlan.model_validate(payload)
+            except Exception:
+                blocked[custom_id] = "the model returned a plan that does not parse"
+                continue
+
+            output = tailoring.apply_plan(
+                session,
+                config,
+                application=application,
+                job=job,
+                plan=plan,
+                facts=facts,
+                now=now,
+                model=batch.model,
+                # The resume this batch's bullet ids were read from. Up to a day
+                # may have passed; if the canonical file has been edited since,
+                # these ids no longer address the sentences the model was shown,
+                # and the plan is refused rather than applied to whatever is there
+                # now.
+                pinned_sha256=batch.base_tex_sha256,
+            )
+            if not output.ok:
+                blocked[custom_id] = output.blocked_reason or "blocked"
+                continue
+            applied += 1
+            follow_ups.extend(_queue_for_browser(session, application))
+
+        batch.state = BatchState.APPLIED
+        batch.completed_at = now
+        batch.input_tokens = outcome.input_tokens
+        batch.output_tokens = outcome.output_tokens
+        provider = provider_factory(config)
+        pricing = provider.pricing.get(batch.model)
+        batch.actual_cost_usd = outcome.cost(pricing)
+        # Charged from the usage that came back, not from the estimate: the cap
+        # must track what was billed. Recorded with its detail so the month can
+        # be broken down by task rather than being one opaque number.
+        provider.budget.charge(
+            batch.actual_cost_usd or 0.0,
+            Usage(
+                model=batch.model,
+                task=Task.RESUME_PLAN,
+                tokens=TokenCounts(
+                    input_tokens=outcome.input_tokens,
+                    output_tokens=outcome.output_tokens,
+                ),
+                cost_usd=batch.actual_cost_usd or 0.0,
+                batch=True,
+            ),
+        )
+        batch.failures = {
+            **{cid: reason for cid, reason in blocked.items()},
+            **{cid: "no result returned" for cid in missing},
+            **{cid: reason for cid, reason in outcome.errors.items()},
+        }
+
+        audit.record(
+            session,
+            event_type="LLM_BATCH_APPLIED",
+            entity_type="llm_batch",
+            entity_id=batch.id,
+            actor_type="WORKER",
+            applied=applied,
+            failed=len(batch.failures),
+            actual_cost_usd=batch.actual_cost_usd,
+            estimated_cost_usd=batch.estimated_cost_usd,
+        )
+        detail = f"tailored {applied}"
+        if batch.failures:
+            detail += f", {len(batch.failures)} did not"
+        return HandlerResult(detail=detail, follow_ups=tuple(follow_ups))
 
     # ------------------------------------------------------------ outreach
 
@@ -977,6 +1220,86 @@ def register_pipeline(
         return HandlerResult(detail=f"restoring to {target_state.value}", follow_ups=(follow,))
 
     return target
+
+
+def _poll_follow_up(
+    batch: LLMBatch, source: ScheduledTask
+) -> tuple[tuple[TaskType, str, dict[str, Any]], ...]:
+    """The next poll for ``batch``, keyed by the task that asked for it.
+
+    The source task's id is what makes successive polls distinct. A wall-clock
+    bucket does not: two polls inside one bucket produce the same key, the second
+    is deduped against the first, and the chain stops — leaving a paid-for batch
+    that is never collected.
+
+    Keying on the source id also keeps a *retry* idempotent, which is the other
+    half of the requirement: re-running one poll enqueues one successor, not two.
+    """
+    return (
+        (
+            TaskType.POLL_TAILORING_BATCH,
+            idempotency_key(TaskType.POLL_TAILORING_BATCH, str(batch.id), str(source.id)),
+            {"batch_id": str(batch.id)},
+        ),
+    )
+
+
+def _applications_awaiting_tailoring(
+    session: Session, task: ScheduledTask, *, limit: int
+) -> list[Application]:
+    """The applications this batch should tailor for, best first.
+
+    An explicit list in the payload wins, so an operator can re-run one — but it
+    is still trimmed to ``limit``, because the budget does not care who asked.
+
+    Ordered by fit score descending, which is what makes the RESTRICTED tier
+    meaningful: when only five may be tailored, they should be the five best
+    roles rather than the five that happened to be discovered first.
+    """
+    if limit <= 0:
+        return []
+
+    raw = (task.payload or {}).get("application_ids")
+    if isinstance(raw, list) and raw:
+        found = [session.get(Application, uuid.UUID(str(r))) for r in raw]
+        return [a for a in found if a is not None][:limit]
+
+    return list(
+        session.scalars(
+            select(Application)
+            .join(Job, Application.job_id == Job.id)
+            .outerjoin(JobScoreRow, JobScoreRow.job_id == Job.id)
+            .where(Application.resume_version_id.is_(None))
+            .where(
+                Application.status.in_(
+                    [ApplicationState.CREATED, ApplicationState.MATERIALS_PREPARING]
+                )
+            )
+            # NULLS LAST: an unscored application is not a zero-scoring one, but
+            # it is not evidence of a good role either, so it queues behind.
+            .order_by(JobScoreRow.total_score.desc().nullslast())
+            .limit(limit)
+        ).all()
+    )
+
+
+def _queue_for_browser(
+    session: Session, application: Application
+) -> list[tuple[TaskType, str, dict[str, Any]]]:
+    """Walk a tailored application to BROWSER_QUEUED and queue the fill."""
+    if application.status == ApplicationState.CREATED:
+        _move(application, ApplicationState.MATERIALS_PREPARING, session=session)
+    if application.status == ApplicationState.MATERIALS_PREPARING:
+        _move(application, ApplicationState.MATERIALS_READY, session=session)
+    if application.status == ApplicationState.MATERIALS_READY:
+        _move(application, ApplicationState.BROWSER_QUEUED, session=session)
+    return [
+        (
+            TaskType.PREPARE_APPLICATION,
+            idempotency_key(TaskType.PREPARE_APPLICATION, str(application.id)),
+            {"application_id": str(application.id)},
+        )
+    ]
 
 
 def _block_restore(session: Session, application: Application, reason: str) -> None:

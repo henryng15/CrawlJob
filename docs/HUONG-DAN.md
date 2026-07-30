@@ -189,6 +189,29 @@ Gõ `y` nếu đúng, Enter nếu sai.
 
 **Tại sao phải ngồi xác nhận:** máy đọc PDF hay nhầm số liệu và ngày tháng. Mỗi CV nó viết sau này đều trích dẫn những ý này. Một ý bạn không đọc là một câu bạn phải tự bào chữa khi phỏng vấn.
 
+### Rồi đưa nốt file LaTeX gốc lên
+
+Việc trên nạp **nội dung**. Việc này nạp **cái CV** — đúng file `.tex` bạn đã trau chuốt, vì mọi CV hệ thống viết đều là bản sao của nó với vài dòng được thay chữ.
+
+```bash
+./deploy/push-base-resume.sh ~/VSCode/Resume/resume_dsswede/hoanng_resume.tex
+```
+
+Nó copy cả `.tex` lẫn `.pdf` lên máy chủ, rồi **biên dịch thử ngay trong container** và báo:
+
+```
+engine:      pdflatex
+source:      /data/internship-ops/resume/hoanng_resume.tex
+bullets:     18 editable
+compiles to: 1 page(s)
+```
+
+Bước biên dịch thử này quan trọng hơn vẻ ngoài của nó. Nếu máy chủ thiếu một gói LaTeX, **không có gì báo lỗi cả** — chỉ là mọi đơn ứng tuyển đều lặng lẽ dùng CV gốc chưa tinh chỉnh, trông y hệt như hệ thống đang chạy tốt. Thà biết ngay bây giờ.
+
+Xong rồi sửa `.env` trên máy chủ trỏ vào hai file đó và đặt `BASE_RESUME_STATUS=READY` (lệnh in sẵn dòng cần copy).
+
+Thư mục đó gắn vào container ở chế độ **chỉ đọc**. Hai file gốc của bạn không thể bị ghi đè, kể cả nếu code có bug.
+
 Xong rồi mở trang web (cái URL ở Việc 5), đăng nhập, vào mục **Setup** để xem còn thiếu gì.
 
 ---

@@ -31,6 +31,11 @@ class TaskType(StrEnum):
     CLEANUP_EXPIRED_SESSION = "CLEANUP_EXPIRED_SESSION"
     EXPIRE_PREPARED_APPLICATIONS = "EXPIRE_PREPARED_APPLICATIONS"
     RESTORE_APPLICATION = "RESTORE_APPLICATION"
+    #: Tailoring is split in two because a batch takes minutes to hours. One task
+    #: submits and ends; another polls. A single task that waited would hold a
+    #: worker lease for the whole run and be redone from scratch on every retry.
+    SUBMIT_TAILORING_BATCH = "SUBMIT_TAILORING_BATCH"
+    POLL_TAILORING_BATCH = "POLL_TAILORING_BATCH"
 
 
 class TaskStatus(StrEnum):

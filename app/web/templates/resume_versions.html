@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Resume versions{% endblock %}
+{% block content %}
+<h1>Resume versions</h1>
+<p class="muted">
+  Every attempt, kept. The point of this page is not what was sent but why
+  <em>that</em> was sent &mdash; so the builds that came out at two pages are
+  here too.
+</p>
+<p class="muted">
+  <span class="tag good">uploaded</span> means a browser attached the file to the
+  employer&rsquo;s form. <span class="tag">selected</span> means the build chose it
+  and nothing has sent it yet.
+</p>
+
+<div class="panel">
+  <h2 style="margin-top:0">Base resume</h2>
+  {% if base_pdf %}
+    <p class="muted">
+      Never modified. Every tailored build is written into the application&rsquo;s own
+      folder, and a build that cannot produce one page falls back to this file.
+    </p>
+    <dl class="facts">
+      <dt>Source</dt><dd><code>{{ base_tex }}</code></dd>
+      <dt>PDF</dt><dd><code>{{ base_pdf }}</code></dd>
+    </dl>
+    <p>
+      <a href="/resumes/base/view" target="_blank" rel="noopener">Open</a> &middot;
+      <a href="/resumes/base/download">Download</a>
+    </p>
+    <details>
+      <summary>Preview</summary>
+      <iframe src="/resumes/base/view" title="Base resume"
+              style="width:100%;height:70vh;border:1px solid #ccc;margin-top:.5rem"></iframe>
+    </details>
+  {% else %}
+    <p class="empty">
+      No base resume is configured. Set <code>BASE_RESUME_TEX</code> and
+      <code>BASE_RESUME_PDF</code>.
+    </p>
+  {% endif %}
+</div>
+
+{% for group in groups %}
+  <h2>
+    {{ group.company }} &mdash; {{ group.job_title }}
+    {% if group.fell_back %}<span class="tag warn">used the base resume</span>{% endif %}
+  </h2>
+  <p class="muted">
+    {{ group.attempts }} tailoring attempt(s) &middot;
+    {% if group.awaiting_upload %}
+      not yet attached to the form &middot;
+    {% endif %}
+    <a href="/applications/{{ group.application_id }}">open the application</a>
+  </p>
+
+  <div class="panel table-wrap"><table>
+    <tr>
+      <th>Attempt</th><th>Pages</th><th>Changes</th><th>Model</th>
+      <th>Checksums</th><th></th>
+    </tr>
+    {% for v in group.versions %}
+    <tr>
+      <td>
+        {% if v.kind == "BASE" %}<strong>Base</strong>{% else %}#{{ v.attempt }}{% endif %}
+        {% if v.is_uploaded %}<span class="tag good">uploaded</span>
+        {% elif v.is_selected %}<span class="tag">selected</span>{% endif %}
+        {% if v.uploaded_at %}<div class="muted">sent {{ v.uploaded_at.strftime("%Y-%m-%d %H:%M") }}</div>{% endif %}
+        {% if v.fallback_reason %}<div class="muted">{{ v.fallback_reason }}</div>{% endif %}
+      </td>
+      <td>
+        {% if v.page_count == 1 %}{{ v.page_count }}
+        {% elif v.page_count %}<span class="tag bad">{{ v.page_count }}</span>
+        {% else %}<span class="tag bad">did not compile</span>{% endif %}
+      </td>
+      <td>
+        {% if v.facts_used %}<div class="muted">{{ v.facts_used | length }} fact(s) cited</div>{% endif %}
+        {% if v.manifest_path %}
+          <a href="/resumes/{{ v.id }}">what changed</a>
+        {% else %}<span class="muted">unchanged</span>{% endif %}
+      </td>
+      <td>
+        {{ v.model_name or "&mdash;" | safe }}
+        {% if v.prompt_version %}<div class="muted">{{ v.prompt_version }}</div>{% endif %}
+      </td>
+      <td class="muted" style="font-family:monospace;font-size:.75rem">
+        {% if v.sha256 %}pdf {{ v.sha256[:12] }}<br>{% endif %}
+        {% if v.tex_sha256 %}tex {{ v.tex_sha256[:12] }}{% endif %}
+      </td>
+      <td>
+        {% if v.sha256 %}
+          <a href="/resumes/{{ v.id }}/view" target="_blank" rel="noopener">Open</a> &middot;
+          <a href="/resumes/{{ v.id }}/download">Download</a> &middot;
+        {% endif %}
+        <a href="/resumes/{{ v.id }}/source">.tex</a>
+        {% if v.log_path %} &middot; <a href="/resumes/{{ v.id }}/log">log</a>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+
+  {% set shown = group.uploaded or group.selected %}
+  {% if shown and shown.sha256 %}
+    <details open>
+      <summary>
+        {% if group.uploaded %}Preview the version that was uploaded
+        {% else %}Preview the version that will be uploaded{% endif %}
+      </summary>
+      <iframe src="/resumes/{{ shown.id }}/view" title="Chosen resume"
+              style="width:100%;height:70vh;border:1px solid #ccc;margin-top:.5rem"></iframe>
+    </details>
+  {% endif %}
+{% else %}
+  <p class="empty">No resumes have been built yet.</p>
+{% endfor %}
+{% endblock %}

@@ -85,7 +85,7 @@ write_files:
       mountpoint -q /data || mount /data
 
       install -d -o ${app_user} -g ${app_user} -m 0755 /data/internship-ops
-      for dir in artifacts backups browser-profiles browser-sessions postgres; do
+      for dir in artifacts backups browser-profiles browser-sessions postgres resume; do
         install -d -o ${app_user} -g ${app_user} -m 0755 "/data/internship-ops/$dir"
       done
       # 0700: secrets, and the backups that contain everything the secrets protect.

@@ -282,6 +282,64 @@ class TestPipelineGate:
         tick(db, settings, now=at_local(settings, hour=15))
         assert queued(db, TaskType.DISCOVER_SOURCE) == []
 
+    def test_a_fallback_row_does_not_count_as_a_base_either(
+        self, db: Session, settings: Settings
+    ):
+        """The circularity §7.7's fallback introduced.
+
+        When a tailored build cannot reach one page, it records a ``BASE`` row
+        meaning "this application used the base resume unchanged". That row is
+        the pipeline's own output, and it looks exactly like an imported resume
+        apart from carrying an ``application_id``. Counting it would let a single
+        past fallback open the gate for ever afterwards, with no resume imported
+        at all.
+        """
+        from app.db.models import Application, Company, Job
+        from app.domain.states import ApplicationState, JobState
+
+        company = Company(canonical_name="Acme", normalized_name="acme", domain="acme.com")
+        db.add(company)
+        db.flush()
+        job = Job(
+            company_id=company.id,
+            canonical_url="https://boards.greenhouse.io/acme/jobs/1",
+            canonical_url_hash="f" * 64,
+            title="SWE Intern",
+            normalized_title="swe intern",
+            dedupe_fingerprint="fp-fallback",
+            discovered_at=at_local(settings, hour=9),
+            status=JobState.SCORED,
+        )
+        db.add(job)
+        db.flush()
+        application = Application(
+            job_id=job.id,
+            application_url="https://boards.greenhouse.io/acme/jobs/1",
+            status=ApplicationState.CREATED,
+        )
+        db.add(application)
+        db.flush()
+
+        db.add(
+            ResumeVersion(
+                application_id=application.id,
+                job_id=job.id,
+                kind="BASE",
+                status="READY_FOR_REVIEW",
+                attempt=0,
+                source_path="artifacts/final/resume.tex",
+                pdf_path="artifacts/final/resume.pdf",
+                sha256="2" * 64,
+                fallback_reason="3 attempts did not produce a one-page PDF",
+                is_uploaded=True,
+            )
+        )
+        db.add(SourceRegistry(kind="greenhouse", identifier="stripe"))
+        db.flush()
+
+        tick(db, settings, now=at_local(settings, hour=15))
+        assert queued(db, TaskType.DISCOVER_SOURCE) == []
+
     def test_both_halves_open_it(
         self, db: Session, settings: Settings, base_resume: ResumeVersion
     ):

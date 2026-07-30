@@ -81,13 +81,24 @@ Software Engineer Intern, Summer 2027. You will write Python and work on our
 FastAPI services alongside the platform team.
 """
 
+#: A bullet id from ``SAMPLE_RESUME_TEX`` in ``tests/conftest.py``. Tailoring plans
+#: address the resume's own bullets, so a plan naming anything else is refused —
+#: which is what stops one employer's work being written under another's heading.
+TODD_BULLET = "work-experience.todd-labs.1"
+
 
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def settings(tmp_path: Path, sample_resume: tuple[Path, Path]) -> Settings:
+    tex, pdf = sample_resume
+    # Explicit rather than inherited from .env: tailoring now compiles the user's
+    # own LaTeX, and a test that silently used whatever resume the developer had
+    # configured would pass or fail for reasons outside the test.
     return Settings(
         app_env="development",
         app_secret_key="handler-tests",
         data_dir=tmp_path / "data",
+        base_resume_tex=tex,
+        base_resume_pdf=pdf,
     )
 
 
@@ -586,11 +597,12 @@ class TestTailoring:
             {
                 "summary": "",
                 "summary_fact_ids": [],
-                "bullets": [
+                "operations": [
                     {
+                        "bullet_id": TODD_BULLET,
+                        "action": "rewrite",
                         "text": "Built a FastAPI service at Todd Labs.",
                         "fact_ids": ["exp.todd.1"],
-                        "transformation": "shorten",
                     }
                 ],
                 "section_order": [],
@@ -613,11 +625,12 @@ class TestTailoring:
         invented = {
             "summary": "",
             "summary_fact_ids": [],
-            "bullets": [
+            "operations": [
                 {
+                    "bullet_id": TODD_BULLET,
+                    "action": "rewrite",
                     "text": "Scaled the platform to 4 million users.",
                     "fact_ids": ["exp.todd.1"],
-                    "transformation": "rewrite",
                 }
             ],
             "section_order": [],
@@ -639,11 +652,12 @@ class TestTailoring:
             {
                 "summary": "",
                 "summary_fact_ids": [],
-                "bullets": [
+                "operations": [
                     {
+                        "bullet_id": TODD_BULLET,
+                        "action": "rewrite",
                         "text": "Built a FastAPI service at Todd Labs.",
                         "fact_ids": ["exp.todd.1"],
-                        "transformation": "shorten",
                     }
                 ],
                 "section_order": [],
@@ -654,12 +668,55 @@ class TestTailoring:
         worker.run_once(now=NOW)
 
         db.refresh(application)
+        # The row marked as the one that *will* be sent — whether the build
+        # produced a tailored PDF or fell back to the base resume. Which of those
+        # happened is settled by the real-LaTeX tests in tests/e2e; what matters
+        # here is that the handler selects exactly one and it exists on disk.
         version = not_none(
-            db.scalars(select(ResumeVersion).where(ResumeVersion.kind == "TAILORED")).first()
+            db.scalars(
+                select(ResumeVersion).where(ResumeVersion.is_selected.is_(True))
+            ).one_or_none()
         )
         assert application.resume_version_id == version.id
         assert Path(version.pdf_path).is_file()
+        assert Path(version.pdf_path).read_bytes()[:5] == b"%PDF-"
         assert version.status == "READY_FOR_REVIEW"
+
+    def test_tailoring_does_not_claim_the_resume_was_uploaded(
+        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
+    ):
+        """No browser has run. Nothing has been sent anywhere.
+
+        This handler cannot know whether an employer received the file — only the
+        browser worker can, and it says so after the file input accepts it.
+        """
+        application = self._application(db)
+        self._facts(db, verified=True)
+        provider.queue(
+            {
+                "summary": "",
+                "summary_fact_ids": [],
+                "operations": [
+                    {
+                        "bullet_id": TODD_BULLET,
+                        "action": "rewrite",
+                        "text": "Built a FastAPI service at Todd Labs.",
+                        "fact_ids": ["exp.todd.1"],
+                    }
+                ],
+                "section_order": [],
+            }
+        )
+
+        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        rows = db.scalars(
+            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
+        ).all()
+        assert rows, "a resume was built"
+        assert not any(r.is_uploaded for r in rows)
+        assert all(r.uploaded_at is None for r in rows)
 
     def test_an_unsupported_claim_blocks_and_records_the_violations(
         self, worker: Worker, db: Session, provider: NullProvider
@@ -670,8 +727,10 @@ class TestTailoring:
         invented = {
             "summary": "",
             "summary_fact_ids": [],
-            "bullets": [
+            "operations": [
                 {
+                    "bullet_id": TODD_BULLET,
+                    "action": "rewrite",
                     "text": "Scaled the platform to 4 million users at Stripe.",
                     "fact_ids": ["exp.todd.1"],
                     "transformation": "rewrite",
@@ -701,11 +760,12 @@ class TestTailoring:
         invented = {
             "summary": "",
             "summary_fact_ids": [],
-            "bullets": [
+            "operations": [
                 {
+                    "bullet_id": TODD_BULLET,
+                    "action": "rewrite",
                     "text": "Scaled the platform to 4 million users.",
                     "fact_ids": ["exp.todd.1"],
-                    "transformation": "rewrite",
                 }
             ],
             "section_order": [],
