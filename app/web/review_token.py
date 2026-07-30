@@ -28,9 +28,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from app.config import Settings
+from app.web.security import is_fresh
 
 __all__ = [
     "DEFAULT_TTL",
@@ -113,8 +114,13 @@ def verify_token(
         return None
 
     try:
-        payload = _serializer(settings).loads(token, max_age=_max_age(token, settings))
-    except (SignatureExpired, BadSignature):
+        payload, issued_at = _serializer(settings).loads(token, return_timestamp=True)
+    except BadSignature:
+        return None
+    # Age checked here rather than by ``loads(max_age=...)``, for the same reason
+    # as the session cookie: a clock that steps backwards must not expire a review
+    # link somebody is in the middle of using. See security.CLOCK_SKEW_GRACE.
+    if not is_fresh(issued_at, timedelta(seconds=_max_age(token, settings)), now=now):
         return None
     if not isinstance(payload, dict):
         return None

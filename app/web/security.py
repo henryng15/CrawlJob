@@ -15,6 +15,12 @@ Three properties worth stating, because each is easy to get subtly wrong:
 * **CSRF tokens live inside the signed cookie.** Nothing on the page can be
   replayed from another origin, because the attacker cannot read the cookie to
   learn the token, and cannot forge it without the secret key.
+
+* **A clock that steps backwards does not log you out.** The freshness check is
+  an *idle timeout*: it asks whether a cookie is too old. ``itsdangerous`` also
+  rejects one whose timestamp is in the future, which sounds prudent and is
+  wrong here — the timestamp is inside the signature, so the only thing that can
+  produce a future one is our own clock having moved. See :data:`CLOCK_SKEW_GRACE`.
 """
 
 from __future__ import annotations
@@ -22,18 +28,21 @@ from __future__ import annotations
 import hmac
 import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Final
 
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from app.config import Settings
 
 __all__ = [
+    "CLOCK_SKEW_GRACE",
     "COOKIE_NAME",
     "CSRF_FIELD",
     "Session",
     "hash_password",
+    "is_fresh",
     "issue",
     "read",
     "verify_password",
@@ -42,6 +51,36 @@ __all__ = [
 COOKIE_NAME: Final = "internship_ops_session"
 CSRF_FIELD: Final = "csrf_token"
 _SALT: Final = "internship-ops.session.v1"
+
+#: How far a signed timestamp may sit in the future before the token is refused.
+#:
+#: Not a courtesy. A host clock that steps backwards — an NTP correction, a VM
+#: resynchronising after the host slept — makes every token signed in the
+#: preceding moment look as though it comes from the future, and
+#: ``itsdangerous`` treats that as expired. The user is then logged out at
+#: random, and because the redirect deletes the cookie on the way past, they have
+#: to log in again. A one-second step is enough.
+#:
+#: Tolerating it costs nothing: the timestamp lives inside the HMAC, so nobody
+#: without the secret key can put a future one there. The only signer is us.
+#:
+#: The grace is bounded anyway. Beyond it the clock is wrong by more than any
+#: correction explains, and refusing is the safer reading — five minutes cannot
+#: meaningfully extend a sixty-minute idle window.
+CLOCK_SKEW_GRACE: Final = timedelta(minutes=5)
+
+
+def is_fresh(
+    issued_at: datetime, max_age: timedelta, *, now: datetime | None = None
+) -> bool:
+    """Whether a signed timestamp is inside its window.
+
+    Two-sided on purpose, and asymmetric: too old is expiry, a little in the
+    future is a clock that moved, and a lot in the future is a clock nobody
+    should be trusting.
+    """
+    age = (now or datetime.now(UTC)) - issued_at
+    return -CLOCK_SKEW_GRACE <= age <= max_age
 
 @lru_cache(maxsize=1)
 def _dummy_hash() -> str:
@@ -122,19 +161,28 @@ def issue(session: Session, settings: Settings) -> str:
     return str(_serializer(settings).dumps(payload))
 
 
-def read(cookie: str | None, settings: Settings) -> Session | None:
+def read(
+    cookie: str | None, settings: Settings, *, now: datetime | None = None
+) -> Session | None:
     """Recover a session from a cookie, or ``None`` if absent, tampered or idle.
 
     Every failure mode collapses to ``None``: the caller has nothing useful to do
     differently for an expired cookie versus a forged one, and distinguishing them
     in a response tells an attacker which they produced.
+
+    The age is checked here rather than by passing ``max_age`` to ``loads``, so
+    that a backwards clock step is treated as the clock being wrong rather than
+    the session being over (:data:`CLOCK_SKEW_GRACE`). ``now`` is injectable so
+    that behaviour can be tested without waiting for a real clock to misbehave.
     """
     if not cookie:
         return None
-    max_age = settings.session_idle_timeout_minutes * 60
     try:
-        payload = _serializer(settings).loads(cookie, max_age=max_age)
-    except (SignatureExpired, BadSignature):
+        payload, issued_at = _serializer(settings).loads(cookie, return_timestamp=True)
+    except BadSignature:
+        return None
+    max_age = timedelta(minutes=settings.session_idle_timeout_minutes)
+    if not is_fresh(issued_at, max_age, now=now):
         return None
     if not isinstance(payload, dict):
         return None
