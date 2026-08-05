@@ -13,7 +13,6 @@ import pytest
 
 from app.domain.normalization import normalize_title
 from app.services.filters import (
-    DEFAULT_ROLE_TITLES,
     ScreenRules,
     ScreenVerdict,
     age_reference,
@@ -144,10 +143,69 @@ class TestTitle:
         assert title_matches("security engineer intern", rules)
         assert not title_matches("software engineer intern", rules)
 
-    def test_the_shipped_list_covers_the_sixteen_requested_variants(self):
-        """Fifteen entries, because normalization folds "SWE" into one of them."""
-        assert len(set(DEFAULT_ROLE_TITLES)) == len(DEFAULT_ROLE_TITLES)
-        assert normalize_title("SWE Intern") in DEFAULT_ROLE_TITLES
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Software Engineer Intern",
+            "SWE Intern",
+            "Software Developer Intern",
+            "Software Development Intern",
+            "Full Stack Intern",
+            "Front End Engineer Intern",
+            "Backend Developer Intern",
+            "Firmware Engineer Intern",
+            "Embedded Systems Intern",
+            "Android Developer Intern",
+            "Web Application Developer Intern",
+            "Intern, Software Developer",
+            "Site Reliability Engineer Intern",
+            "DevOps Intern",
+            "Platform Engineer Intern",
+            "Cloud Infrastructure Intern",
+            "Machine Learning Engineer Intern",
+            "Game Development Intern",
+        ],
+    )
+    def test_the_shapes_boards_actually_publish_are_accepted(self, title: str):
+        """Every one of these was turned away by the old whole-title allowlist."""
+        assert title_matches(normalize_title(title))
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Electrical Engineer Intern",
+            "Mechanical Engineering Intern",
+            "Intern, Software Product Management",
+            "Software Engineering PhD Internship",
+            "Marketing Intern",
+            "Sales Intern",
+            "Software Engineer",  # not an internship at all
+            "Data Analyst Intern",  # no software word
+        ],
+    )
+    def test_off_target_titles_are_still_turned_away(self, title: str):
+        assert not title_matches(normalize_title(title))
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Front Desk Intern",
+            "Back Office Intern",
+            "Business Development Intern",
+            "Corporate Development Intern",
+            "Talent Development Intern",
+            "Learning and Development Intern",
+            "Business Systems Analyst Intern",
+        ],
+    )
+    def test_words_that_only_mean_software_in_context_do_not_leak(self, title: str):
+        """"front", "back" and "development" are ordinary English.
+
+        Matching them as bare words is what turns a screen for software
+        internships into a screen for internships — every one of these is a real
+        posting that would then take one of the day's ten slots.
+        """
+        assert not title_matches(normalize_title(title))
 
 
 class TestLocation:
@@ -222,13 +280,13 @@ class TestScreen:
         assert self._screen().verdict is ScreenVerdict.PASS
 
     def test_a_stale_posting_is_rejected_with_its_age(self):
-        result = self._screen(posted_at=hours_ago(30))
+        result = self._screen(posted_at=hours_ago(200))
         assert result.verdict is ScreenVerdict.REJECT
-        assert "30h ago" in result.reason
+        assert "200h ago" in result.reason
         assert "posted" in result.reason
 
     def test_the_reason_says_first_seen_when_there_was_no_posted_at(self):
-        result = self._screen(posted_at=None, discovered_at=hours_ago(48))
+        result = self._screen(posted_at=None, discovered_at=hours_ago(200))
         assert "first seen" in result.reason
 
     def test_an_untargeted_title_is_rejected_by_name(self):
@@ -244,7 +302,7 @@ class TestScreen:
     def test_freshness_is_checked_before_the_title(self):
         """A stale, off-target role must report the cheaper reason."""
         result = self._screen(
-            posted_at=hours_ago(72), normalized_title=normalize_title("Marketing Intern")
+            posted_at=hours_ago(200), normalized_title=normalize_title("Marketing Intern")
         )
         assert "older than" in result.reason
 

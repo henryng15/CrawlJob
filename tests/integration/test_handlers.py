@@ -335,7 +335,7 @@ class TestPreSpendScreen:
         assert job.status == JobState.ELIGIBILITY_REJECTED
         entries = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == job.id)).all()
         reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
-        assert any("older than 504h" in r for r in reasons), reasons
+        assert any("older than 168h" in r for r in reasons), reasons
         assert any(
             e.event_metadata.get("stage") == "pre_spend_screen" for e in entries
         ), "the audit trail must say which gate turned it away"

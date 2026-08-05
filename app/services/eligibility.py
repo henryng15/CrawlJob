@@ -116,7 +116,7 @@ class EligibilityRules:
 
     require_us: bool = True
     require_internship: bool = True
-    max_role_age_days: int | None = 21
+    max_role_age_days: int | None = 7
     #: Seasons the user is applying for, e.g. {"SUMMER_2027"}. None accepts any.
     allowed_seasons: frozenset[str] | None = None
     #: True when the user cannot satisfy a graduate-degree requirement.

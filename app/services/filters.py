@@ -31,7 +31,6 @@ from enum import StrEnum
 
 __all__ = [
     "DEFAULT_REJECT_TERMS",
-    "DEFAULT_ROLE_TITLES",
     "ScreenResult",
     "ScreenRules",
     "ScreenVerdict",
@@ -49,32 +48,63 @@ class ScreenVerdict(StrEnum):
     REJECT = "REJECT"
 
 
-#: The role variants being applied for, written as they appear *after*
-#: :func:`app.domain.normalization.normalize_title` has folded them — which is
-#: why "backend" appears as "back end", "devops" as "dev ops", and no season or
-#: year is present. "SWE Intern" and "Software Engineering Internship" are absent
-#: because normalization already turns them into entries that are here.
-DEFAULT_ROLE_TITLES: tuple[str, ...] = (
-    "software engineer intern",
-    "software engineering intern",
-    "back end engineer intern",
-    "back end software engineer intern",
-    "back end developer intern",
-    "infrastructure engineer intern",
-    "software infrastructure intern",
-    "systems infrastructure intern",
-    "platform engineer intern",
-    "cloud engineer intern",
-    "cloud software engineer intern",
-    "cloud infrastructure intern",
-    "dev ops intern",
-    "site reliability engineer intern",
-    "sre intern",
+#: The word that makes a posting an internship at all. Written as
+#: :func:`app.domain.normalization.normalize_title` leaves it — lowercased, with
+#: the season and year already stripped.
+_INTERN_WORDS = frozenset({"intern", "interns", "internship", "internships"})
+
+#: What makes an internship a *software* one. A title needs one of these, and
+#: boards are inventive enough that listing whole titles does not work: an
+#: allowlist of "software engineer intern" and fourteen siblings turned away
+#: "Software Developer Intern", "Full Stack Intern", "Front End Engineer Intern"
+#: and "Firmware Engineer Intern" — every one of them a job worth applying for.
+#:
+#: Single words only where the word is software on its own. "back", "front" and
+#: "stack" are not: they let in "Front Desk Intern" and "Back Office Intern", so
+#: they live in :data:`_SOFTWARE_PHRASES` instead. Nor is "development" —
+#: "Business Development Intern" is a sales job — which is why "developer" is
+#: here and "development" is not.
+_SOFTWARE_WORDS = frozenset(
+    {
+        "software", "developer", "engineer", "engineering",
+        "programmer", "programming", "swe", "sde", "coding",
+        "web", "mobile", "android", "ios",
+        "firmware", "embedded", "kernel", "compiler",
+        "infrastructure", "platform", "cloud", "sre",
+        "distributed", "database", "api", "robotics",
+    }
 )
 
-#: Terms that disqualify a title no matter what else it matched. Checked after
-#: the allowlist and allowed to overrule it, so "Senior Software Engineer Intern"
-#: is rejected rather than accepted for the three words it happens to contain.
+#: Software signals that only mean software as a whole phrase. Written in the
+#: form :func:`app.domain.normalization.normalize_title` leaves them, which is
+#: why "backend" appears here as "back end".
+_SOFTWARE_PHRASES: tuple[str, ...] = (
+    "dev ops",  # normalization splits "DevOps" into two words
+    "back end",
+    "front end",
+    "full stack",
+    "software development",
+    "application development",
+    "product development",
+    "game development",
+    "site reliability",
+    "machine learning",
+    "computer science",
+    "data engineer",
+    "data engineering",
+    "systems engineer",
+    "systems engineering",
+    "embedded systems",
+)
+
+#: Terms that disqualify a title no matter what else it matched. Checked first
+#: and allowed to overrule everything, so "Senior Software Engineer Intern" is
+#: rejected rather than accepted for the three words it happens to contain.
+#:
+#: The second group is the cost of matching on "engineer" rather than on whole
+#: titles: it is the word every engineering discipline uses, so the disciplines
+#: that are not this one have to be named. The third is roles that sit next to
+#: engineering without being it.
 DEFAULT_REJECT_TERMS: tuple[str, ...] = (
     "senior",
     "staff",
@@ -85,6 +115,25 @@ DEFAULT_REJECT_TERMS: tuple[str, ...] = (
     "new graduate",
     "full time",
     "contract",
+    "phd",
+    "doctoral",
+    # other engineering disciplines
+    "electrical",
+    "mechanical",
+    "chemical",
+    "civil",
+    "biomedical",
+    "aerospace",
+    "materials",
+    # adjacent, but not engineering
+    "product management",
+    "program management",
+    "project management",
+    "marketing",
+    "sales",
+    "recruiting",
+    "accounting",
+    "paralegal",
 )
 
 
@@ -92,8 +141,9 @@ DEFAULT_REJECT_TERMS: tuple[str, ...] = (
 class ScreenRules:
     """Screening policy. Defaults match the shipped configuration."""
 
-    max_role_age_hours: int = 24
-    role_titles: tuple[str, ...] = DEFAULT_ROLE_TITLES
+    max_role_age_hours: int = 24 * 7
+    #: Optional narrowing. Empty means any software internship.
+    role_titles: tuple[str, ...] = ()
     reject_terms: tuple[str, ...] = DEFAULT_REJECT_TERMS
     require_us: bool = True
 
@@ -150,22 +200,32 @@ def _contains_term(normalized_title: str, term: str) -> bool:
 
 
 def title_matches(normalized_title: str, rules: ScreenRules | None = None) -> bool:
-    """Whether the title is one of the role variants being applied for.
+    """Whether the title is a software internship worth looking at.
 
-    An allowlist entry matches when every one of its words is present, in any
-    order. Boards write the same role as "Software Engineer Intern", "Intern,
-    Software Engineer" and "Software Engineer, Backend (Intern)", and requiring a
-    contiguous match would accept the first and quietly drop the other two.
+    Two questions, not a list: does it say "intern", and does it say it is about
+    software. Boards write the same role as "Software Engineer Intern", "Intern,
+    Software Engineer", "Software Developer Intern" and "Full Stack Intern", and
+    an allowlist has to guess every phrasing in advance — the ones it fails to
+    guess are simply never seen.
 
-    The looseness is bounded on both sides: a reject term overrules any match,
-    and this is only the *first* title gate — :func:`app.services.eligibility
-    .evaluate` still applies its off-target rules before anything is scored.
+    ``rules.role_titles`` narrows this when set: each entry matches when all of
+    its words are present in any order. Empty, the default, means any software
+    internship. Either way a reject term overrules the match, and this is only
+    the *first* title gate — :func:`app.services.eligibility.evaluate` still
+    applies its off-target rules before anything is scored.
     """
     rules = rules or ScreenRules()
     if any(_contains_term(normalized_title, term) for term in rules.reject_terms):
         return False
+
     present = _words(normalized_title)
-    return any(_words(variant) <= present for variant in rules.role_titles)
+    if not present & _INTERN_WORDS:
+        return False
+    if rules.role_titles:
+        return any(_words(variant) <= present for variant in rules.role_titles)
+    return bool(present & _SOFTWARE_WORDS) or any(
+        _contains_term(normalized_title, phrase) for phrase in _SOFTWARE_PHRASES
+    )
 
 
 # ----------------------------------------------------------------- location

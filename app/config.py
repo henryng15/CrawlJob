@@ -21,7 +21,7 @@ from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_valid
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.safety import load_safety_settings
-from app.services.filters import DEFAULT_REJECT_TERMS, DEFAULT_ROLE_TITLES, ScreenRules
+from app.services.filters import DEFAULT_REJECT_TERMS, ScreenRules
 
 __all__ = ["Settings", "get_settings"]
 
@@ -164,10 +164,10 @@ class Settings(BaseSettings):
     #: be reached: at 24 hours, a first run against an established board
     #: rejected every posting on it, while the settings screen displayed "21
     #: days". One window, applied at both stages.
-    max_role_age_days: int = Field(default=21, ge=1)
+    max_role_age_days: int = Field(default=7, ge=1)
     max_active_applications_per_company: int = Field(default=2, ge=1)
-    #: Role variants to apply for, comma-separated, written in normalized form
-    #: (see ``DEFAULT_ROLE_TITLES``). Empty keeps the shipped list.
+    #: Narrows which internships are considered, comma-separated and written in
+    #: normalized form. Empty — the default — accepts any software internship.
     role_title_variants_raw: str = Field(default="", validation_alias="ROLE_TITLE_VARIANTS")
     #: Terms that disqualify a title even when it matched a variant above.
     #: Empty keeps the shipped list.
@@ -255,7 +255,7 @@ class Settings(BaseSettings):
         """
         return ScreenRules(
             max_role_age_hours=self.max_role_age_days * 24,
-            role_titles=_parse_terms(self.role_title_variants_raw) or DEFAULT_ROLE_TITLES,
+            role_titles=_parse_terms(self.role_title_variants_raw),
             reject_terms=_parse_terms(self.role_reject_terms_raw) or DEFAULT_REJECT_TERMS,
         )
 
