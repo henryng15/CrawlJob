@@ -1,14 +1,14 @@
-"""Storing a resume build (spec §7.7, §23.5).
+"""Attaching the base resume to an application (spec §7.7, §23.5).
 
-Every attempt gets a row and a folder, including the ones that came out at two
-pages. These tests are mostly about that: the record has to be complete enough to
-answer "why is this the PDF that went to the employer", and exactly one row per
-application may claim to be that PDF.
+Preparing a resume is a copy and a row. These tests are about the two things
+that makes non-obvious: the copy has to be a *snapshot*, so editing the original
+afterwards cannot change what an application says it sent; and exactly one row
+per application may claim to be the file that will be uploaded.
 """
 
 from __future__ import annotations
 
-import json
+import hashlib
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -22,42 +22,29 @@ from app.config import Settings
 from app.db.models import Application, Company, Job, ResumeVersion
 from app.domain.normalization import canonicalize_url, url_hash
 from app.domain.states import ApplicationState, JobState
-from app.services.latex import engine_available
-from app.services.resume_artifacts import record_build, resume_dir, selected_version
-from app.services.resume_build import build
-from app.services.resume_tex import parse
+from app.services.resume_artifacts import attach_base, resume_dir, selected_version
 
-pytestmark = [pytest.mark.db, pytest.mark.latex]
-
-if engine_available() is None:  # pragma: no cover - depends on the machine
-    pytest.skip("no LaTeX engine installed", allow_module_level=True)
+pytestmark = pytest.mark.db
 
 NOW = datetime.now(UTC).replace(microsecond=0)
-JD = "Backend Engineer Intern. Python, FastAPI, PostgreSQL, Docker, REST APIs."
-
-MINIMAL = r"""
-\documentclass[letterpaper,10pt]{article}
-\usepackage[top=0.4in,bottom=0.4in,left=0.4in,right=0.4in]{geometry}
-\usepackage{enumitem}
-\newcommand{\resumeItem}[1]{\item\small{#1}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[topsep=5pt]}
-\newcommand{\resumeItemListEnd}{\end{itemize}}
-\begin{document}
-\section{Work Experience}
-  \resumeItemListStart
-    \resumeItem{Built REST APIs in Python with FastAPI and PostgreSQL}
-    \resumeItem{Wrote a compiler in Rust for fun}
-  \resumeItemListEnd
-\end{document}
-"""
 
 
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def base_pdf(tmp_path: Path, sample_resume: Path) -> Path:
+    """A private copy of the sample PDF, so a test may edit it."""
+    source = sample_resume
+    pdf = tmp_path / "base.pdf"
+    pdf.write_bytes(source.read_bytes())
+    return pdf
+
+
+@pytest.fixture
+def settings(tmp_path: Path, base_pdf: Path) -> Settings:
     return Settings(
         app_env="development",
         app_secret_key="artifact-tests",
         data_dir=tmp_path / "data",
+        base_resume_pdf=base_pdf,
     )
 
 
@@ -72,7 +59,9 @@ def db(committing_db) -> Iterator[Session]:
 
 def make_application(db: Session) -> Application:
     company = Company(
-        canonical_name="Acme Inc", normalized_name=f"acme-{uuid.uuid4().hex[:6]}", domain="a.com"
+        canonical_name="Acme Inc",
+        normalized_name=f"acme-{uuid.uuid4().hex[:6]}",
+        domain="a.com",
     )
     db.add(company)
     db.flush()
@@ -86,7 +75,6 @@ def make_application(db: Session) -> Application:
         dedupe_fingerprint=uuid.uuid4().hex,
         discovered_at=NOW,
         status=JobState.SCORED,
-        description_text=JD,
     )
     db.add(job)
     db.flush()
@@ -98,227 +86,130 @@ def make_application(db: Session) -> Application:
     return application
 
 
-def run(db: Session, settings: Settings, application: Application, *, overflow: bool = False):
-    document = parse(MINIMAL)
-    replacements = None
-    if overflow:
-        replacements = {
-            b.index: "Engineered a distributed system in Python. " * 400
-            for b in document.bullets
-        }
-    outcome = build(
-        MINIMAL,
-        job_text=JD,
-        work_dir=resume_dir(settings, application.id),
-        replacements=replacements,
-        base_pdf=None,
+def versions(db: Session, application: Application) -> list[ResumeVersion]:
+    return list(
+        db.scalars(
+            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
+        ).all()
     )
-    selected = record_build(
-        db,
-        settings,
-        application=application,
-        document=document,
-        outcome=outcome,
-        facts_used=["f1", "f2"],
-        model="claude-sonnet-5",
-        prompt_version="resume/v1",
-        now=NOW,
-    )
-    db.commit()
-    return outcome, selected
 
 
-class TestASuccessfulBuild:
-    def test_one_row_is_written_for_the_attempt(
-        self, db: Session, settings: Settings
+class TestWhatIsRecorded:
+    def test_the_pdf_is_copied_into_the_applications_own_folder(
+        self, db: Session, settings: Settings, base_pdf: Path
     ):
         application = make_application(db)
-        outcome, selected = run(db, settings, application)
+        row = attach_base(db, settings, application=application, now=NOW)
 
-        rows = db.scalars(
-            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-        ).all()
-        assert len(rows) == len(outcome.attempts)
-        assert selected is not None
+        assert row is not None
+        path = Path(row.pdf_path)
+        assert path.is_relative_to(resume_dir(settings, application.id))
+        assert path.read_bytes() == base_pdf.read_bytes()
 
-    def test_the_selected_row_is_the_one_that_qualified(
+    def test_the_checksum_is_of_the_copy_on_disk(
         self, db: Session, settings: Settings
     ):
+        """The whole point of storing it: proof that the PDF in the folder is the
+        one the employer received."""
         application = make_application(db)
-        _, selected = run(db, settings, application)
-        assert selected.page_count == 1
-        assert selected.is_selected
+        row = attach_base(db, settings, application=application, now=NOW)
 
-    def test_the_application_points_at_it(self, db: Session, settings: Settings):
-        application = make_application(db)
-        _, selected = run(db, settings, application)
-        db.refresh(application)
-        assert application.resume_version_id == selected.id
+        assert row is not None
+        on_disk = hashlib.sha256(Path(row.pdf_path).read_bytes()).hexdigest()
+        assert row.sha256 == on_disk
 
-    def test_the_artifacts_are_on_disk(self, db: Session, settings: Settings):
-        application = make_application(db)
-        _, selected = run(db, settings, application)
-
-        assert Path(selected.pdf_path).is_file()
-        assert Path(selected.source_path).is_file()
-        assert Path(selected.log_path).is_file()
-        assert Path(selected.manifest_path).is_file()
-
-    def test_the_hashes_match_the_bytes_on_disk(self, db: Session, settings: Settings):
-        """``sha256`` proves the PDF in the folder is the one that was measured."""
-        import hashlib
-
-        application = make_application(db)
-        _, selected = run(db, settings, application)
-
-        actual = hashlib.sha256(Path(selected.pdf_path).read_bytes()).hexdigest()
-        assert selected.sha256 == actual
-
-        tex = hashlib.sha256(Path(selected.source_path).read_bytes()).hexdigest()
-        assert selected.tex_sha256 == tex
-
-    def test_the_manifest_records_what_it_should(self, db: Session, settings: Settings):
-        application = make_application(db)
-        _, selected = run(db, settings, application)
-
-        manifest = json.loads(Path(selected.manifest_path).read_text())
-        assert manifest["attempt"] == 1
-        assert manifest["pages"] == 1
-        assert manifest["one_page"] is True
-        assert manifest["facts_used"] == ["f1", "f2"]
-        assert manifest["model"] == "claude-sonnet-5"
-        assert manifest["prompt_version"] == "resume/v1"
-        assert manifest["engine"]
-        assert manifest["tex_sha256"] and manifest["pdf_sha256"]
-
-    def test_the_manifest_carries_no_prompt_or_resume_text(
-        self, db: Session, settings: Settings
-    ):
-        """It sits in the artifact folder; a prompt carries an employment
-        history (§23.5)."""
-        application = make_application(db)
-        _, selected = run(db, settings, application)
-
-        manifest = json.loads(Path(selected.manifest_path).read_text())
-        assert "prompt" not in manifest
-        assert "messages" not in manifest
-        assert "system" not in manifest
-
-
-class TestAFallbackBuild:
-    def test_every_attempt_is_recorded_not_just_the_last(
-        self, db: Session, settings: Settings
+    def test_it_records_where_the_copy_came_from(
+        self, db: Session, settings: Settings, base_pdf: Path
     ):
         application = make_application(db)
-        outcome, _ = run(db, settings, application, overflow=True)
+        row = attach_base(db, settings, application=application, now=NOW)
 
-        rows = db.scalars(
-            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-        ).all()
-        # Three attempts plus the base row that was actually used.
-        assert len(rows) == len(outcome.attempts) + 1
-        assert sorted(r.attempt for r in rows) == [0, 1, 2, 3]
+        assert row is not None
+        assert row.source_path == str(base_pdf)
 
-    def test_the_failed_attempts_are_marked_rejected(
-        self, db: Session, settings: Settings
+    def test_it_counts_the_pages(self, db: Session, settings: Settings):
+        application = make_application(db)
+        row = attach_base(db, settings, application=application, now=NOW)
+
+        assert row is not None
+        assert row.page_count == 1
+
+    def test_the_application_points_at_the_row(self, db: Session, settings: Settings):
+        application = make_application(db)
+        row = attach_base(db, settings, application=application, now=NOW)
+
+        assert row is not None
+        assert application.resume_version_id == row.id
+        assert selected_version(db, application.id) is not None
+
+
+class TestTheCopyIsASnapshot:
+    def test_editing_the_original_afterwards_changes_nothing(
+        self, db: Session, settings: Settings, base_pdf: Path
+    ):
+        """Otherwise "which resume went to Amazon in August" has no answer."""
+        application = make_application(db)
+        row = attach_base(db, settings, application=application, now=NOW)
+        assert row is not None
+        before = Path(row.pdf_path).read_bytes()
+
+        base_pdf.write_bytes(b"%PDF-1.4 a completely different document\n")
+
+        assert Path(row.pdf_path).read_bytes() == before
+        assert row.sha256 == hashlib.sha256(before).hexdigest()
+
+    def test_the_original_is_never_written_to(
+        self, db: Session, settings: Settings, base_pdf: Path
     ):
         application = make_application(db)
-        run(db, settings, application, overflow=True)
+        before = base_pdf.read_bytes()
+        attach_base(db, settings, application=application, now=NOW)
+        assert base_pdf.read_bytes() == before
 
-        tailored = db.scalars(
-            select(ResumeVersion)
-            .where(ResumeVersion.application_id == application.id)
-            .where(ResumeVersion.kind == "TAILORED")
-        ).all()
-        assert all(r.status == "REJECTED" for r in tailored)
-        assert all(r.page_count != 1 for r in tailored)
 
-    def test_the_selected_row_is_the_base_resume_with_a_reason(
+class TestExactlyOneSelectedRow:
+    def test_attaching_twice_does_not_produce_a_second_row(
         self, db: Session, settings: Settings
     ):
+        """A retried task, or two workers, must not leave two rows both claiming
+        to be the thing that will be uploaded."""
         application = make_application(db)
-        run(db, settings, application, overflow=True)
+        first = attach_base(db, settings, application=application, now=NOW)
+        second = attach_base(db, settings, application=application, now=NOW)
 
-        selected = selected_version(db, application.id)
-        assert selected is not None
-        assert selected.kind == "BASE"
-        assert selected.attempt == 0
-        assert "did not produce a one-page PDF" in selected.fallback_reason
+        assert first is not None and second is not None
+        assert first.id == second.id
+        assert len(versions(db, application)) == 1
 
-    def test_the_failed_attempts_keep_their_logs(self, db: Session, settings: Settings):
-        """The log is the only thing that says why a build did not qualify."""
-        application = make_application(db)
-        run(db, settings, application, overflow=True)
-
-        tailored = db.scalars(
-            select(ResumeVersion)
-            .where(ResumeVersion.application_id == application.id)
-            .where(ResumeVersion.kind == "TAILORED")
-        ).all()
-        for row in tailored:
-            assert Path(row.log_path).is_file()
-            assert Path(row.log_path).read_text(errors="replace").strip()
-
-
-class TestExactlyOneSelectedVersion:
-    def test_only_one_row_claims_to_be_the_selected_one(
+    def test_two_applications_get_separate_copies(
         self, db: Session, settings: Settings
     ):
-        application = make_application(db)
-        run(db, settings, application, overflow=True)
+        one, two = make_application(db), make_application(db)
+        first = attach_base(db, settings, application=one, now=NOW)
+        second = attach_base(db, settings, application=two, now=NOW)
 
-        rows = db.scalars(
-            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-        ).all()
-        assert len([r for r in rows if r.is_selected]) == 1
+        assert first is not None and second is not None
+        assert Path(first.pdf_path) != Path(second.pdf_path)
+        assert resume_dir(settings, one.id) != resume_dir(settings, two.id)
 
-    def test_rebuilding_does_not_leave_two(self, db: Session, settings: Settings):
-        """A second build must not leave the first one still claiming it."""
-        application = make_application(db)
-        run(db, settings, application)
-        run(db, settings, application)
 
-        rows = db.scalars(
-            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-        ).all()
-        assert len([r for r in rows if r.is_selected]) == 1
-
-    def test_rebuilding_keeps_the_earlier_rows(self, db: Session, settings: Settings):
-        """Artifacts are immutable: a rebuild adds, it does not replace."""
-        application = make_application(db)
-        run(db, settings, application)
-        first = len(
-            db.scalars(
-                select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-            ).all()
+class TestRefusingRatherThanInventing:
+    def test_no_configured_resume_returns_nothing(self, db: Session, tmp_path: Path):
+        settings = Settings(
+            app_env="development",
+            app_secret_key="artifact-tests",
+            data_dir=tmp_path / "data",
+            base_resume_pdf=None,
         )
-        run(db, settings, application)
-        second = len(
-            db.scalars(
-                select(ResumeVersion).where(ResumeVersion.application_id == application.id)
-            ).all()
-        )
-        assert second > first
-
-
-class TestTheTemplateSurvives:
-    def test_the_stored_tex_still_has_the_original_preamble(
-        self, db: Session, settings: Settings
-    ):
         application = make_application(db)
-        _, selected = run(db, settings, application)
+        assert attach_base(db, settings, application=application, now=NOW) is None
+        assert versions(db, application) == []
 
-        stored = Path(selected.source_path).read_text(encoding="utf-8")
-        marker = r"\begin{document}"
-        assert stored.split(marker)[0] == MINIMAL.split(marker)[0]
-
-    def test_the_stored_tex_recompiles_to_the_same_page_count(
-        self, db: Session, settings: Settings, tmp_path: Path
+    def test_a_configured_path_that_is_gone_returns_nothing(
+        self, db: Session, settings: Settings, base_pdf: Path
     ):
-        from app.services.latex import compile_pdf
-
+        """"Unavailable" is not "use whatever else is around"."""
+        base_pdf.unlink()
         application = make_application(db)
-        _, selected = run(db, settings, application)
-
-        stored = Path(selected.source_path).read_text(encoding="utf-8")
-        assert compile_pdf(stored, work_dir=tmp_path / "recheck").pages == selected.page_count
+        assert attach_base(db, settings, application=application, now=NOW) is None
+        assert versions(db, application) == []

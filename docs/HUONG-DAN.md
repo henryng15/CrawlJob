@@ -171,46 +171,36 @@ Mất file này = mất toàn bộ bản sao lưu, không cứu được. Không
 
 ---
 
-## Việc 6 — Đưa resume của bạn lên (10 phút)
+## Việc 6 — Đưa resume của bạn lên (2 phút)
+
+Một file PDF duy nhất. Hệ thống **không viết lại CV** — mọi đơn ứng tuyển đều
+nộp đúng file này, không sửa một chữ.
 
 ```bash
-./deploy/push-resume.sh ~/Documents/resume.pdf
+./deploy/push-base-resume.sh ~/VSCode/Resume/official/henryng_swe.pdf
 ```
 
-Nó đọc resume, tách thành từng ý, rồi **hỏi bạn từng ý một**:
+Nó copy file lên máy chủ, ghi nhận vào cơ sở dữ liệu, rồi in ra:
 
 ```
-[exp.todd.1] Xây dựng dịch vụ FastAPI tại Todd Labs, giảm thời gian tạo báo cáo từ 40 phút xuống 6.
-    organisation: Todd Labs    technologies: fastapi, python
-    correct? [y/N]
+file:        /data/internship-ops/resume/henryng_swe.pdf
+size:        113,087 bytes
+fingerprint: 57c9a0f7272adf20
+pages:       1
 ```
 
-Gõ `y` nếu đúng, Enter nếu sai.
+`fingerprint` là mã băm của đúng những byte sẽ được nộp. Mỗi đơn ứng tuyển giữ
+một bản sao riêng kèm mã băm đó, nên sau này bạn sửa CV gốc thì câu hỏi "hồi
+tháng 8 mình nộp bản nào cho Amazon" vẫn trả lời được.
 
-**Tại sao phải ngồi xác nhận:** máy đọc PDF hay nhầm số liệu và ngày tháng. Mỗi CV nó viết sau này đều trích dẫn những ý này. Một ý bạn không đọc là một câu bạn phải tự bào chữa khi phỏng vấn.
+Vì không có bước viết lại nào, cũng không có gì để duyệt: cái vào form là cái
+bạn đã tự tay chuẩn bị.
 
-### Rồi đưa nốt file LaTeX gốc lên
+Xong rồi sửa `.env` trên máy chủ trỏ `BASE_RESUME_PDF` vào file đó và đặt
+`BASE_RESUME_STATUS=READY` (lệnh in sẵn dòng cần copy).
 
-Việc trên nạp **nội dung**. Việc này nạp **cái CV** — đúng file `.tex` bạn đã trau chuốt, vì mọi CV hệ thống viết đều là bản sao của nó với vài dòng được thay chữ.
-
-```bash
-./deploy/push-base-resume.sh ~/VSCode/Resume/resume_dsswede/hoanng_resume.tex
-```
-
-Nó copy cả `.tex` lẫn `.pdf` lên máy chủ, rồi **biên dịch thử ngay trong container** và báo:
-
-```
-engine:      pdflatex
-source:      /data/internship-ops/resume/hoanng_resume.tex
-bullets:     18 editable
-compiles to: 1 page(s)
-```
-
-Bước biên dịch thử này quan trọng hơn vẻ ngoài của nó. Nếu máy chủ thiếu một gói LaTeX, **không có gì báo lỗi cả** — chỉ là mọi đơn ứng tuyển đều lặng lẽ dùng CV gốc chưa tinh chỉnh, trông y hệt như hệ thống đang chạy tốt. Thà biết ngay bây giờ.
-
-Xong rồi sửa `.env` trên máy chủ trỏ vào hai file đó và đặt `BASE_RESUME_STATUS=READY` (lệnh in sẵn dòng cần copy).
-
-Thư mục đó gắn vào container ở chế độ **chỉ đọc**. Hai file gốc của bạn không thể bị ghi đè, kể cả nếu code có bug.
+Thư mục đó gắn vào container ở chế độ **chỉ đọc**. File gốc của bạn không thể bị
+ghi đè, kể cả nếu code có bug.
 
 Xong rồi mở trang web (cái URL ở Việc 5), đăng nhập, vào mục **Setup** để xem còn thiếu gì.
 
@@ -267,7 +257,7 @@ Mỗi sáng 7 giờ (giờ Mỹ) hệ thống tự quét, tự chấm điểm, v
 | 3 | Tạo Tailscale key | 10 phút | Không — cần đăng nhập Google |
 | 4 | Dán vào 1 file | 5 phút | Không — đây là thông tin của bạn |
 | 5 | **Chạy `./deploy/deploy.sh`** | 30 phút chờ | ✅ **Tự động hết** |
-| 6 | Xác nhận từng ý trong resume | 10 phút | Cố ý không tự động |
+| 6 | Đưa file CV lên | 2 phút | ✅ Một lệnh |
 | 7 | Bật Gmail API + bấm Allow | 15 phút | Không — Google bắt buộc có người bấm |
 
 Mọi thứ khác — dựng máy, cài đặt, cấu hình, khởi động, kiểm tra — đã nằm trong một lệnh ở Việc 5.

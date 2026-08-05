@@ -818,7 +818,3 @@ def outreach_detail(session: Session, task_id: uuid.UUID) -> OutreachDetail | No
             ).all()
         ),
     )
-
-
-def today_in(settings: Settings, moment: datetime) -> date:
-    return moment.astimezone(settings.timezone).date()

@@ -171,12 +171,11 @@ def setup(request: Request, db: Db, settings: Config, session: CurrentSession) -
     one that is empty because no board is being watched. This page is the
     difference.
     """
-    from app.services.resume_import import load_facts, unverified
+    from app.services.resume_import import base_version
 
     values = {f.key: f.value for f in list_facts(db)}
     sources = db.scalars(select(SourceRegistry).where(SourceRegistry.enabled.is_(True))).all()
-    verified_facts = load_facts(db)
-    pending_facts = unverified(db)
+    base_resume = base_version(db)
     recruiters = int(db.scalar(select(func.count()).select_from(Recruiter)) or 0)
 
     steps = [
@@ -191,25 +190,16 @@ def setup(request: Request, db: Db, settings: Config, session: CurrentSession) -
         SetupStep(
             title="Import your resume",
             detail=(
-                "Tailoring can only rearrange things that are already true, so it "
-                "needs your resume broken into facts it can cite."
+                "This PDF is uploaded to every application, unchanged. Nothing "
+                "rewrites it, so it is worth it being the one you would send by hand."
             ),
-            done=bool(verified_facts),
+            done=base_resume is not None,
             summary=(
-                f"{len(verified_facts)} verified fact(s)"
-                + (f", {len(pending_facts)} still to confirm" if pending_facts else "")
+                f"stored, {base_resume.page_count or '?'} page(s)"
+                if base_resume is not None
+                else ""
             ),
             command="uv run internship-ops import-resume ~/resume.pdf",
-        ),
-        SetupStep(
-            title="Confirm the extracted facts",
-            detail=(
-                "A model read your PDF and can have misread a date or a percentage. "
-                "Tailoring cites only facts you have confirmed."
-            ),
-            done=not pending_facts,
-            summary=f"{len(pending_facts)} awaiting confirmation." if pending_facts else "",
-            command="uv run internship-ops verify-facts",
         ),
         SetupStep(
             title="Import recruiters",
@@ -445,8 +435,8 @@ def select_job(db: Db, settings: Config, session: CurrentSession, job_id: uuid.U
     # hands off to a browser slot when it succeeds.
     enqueue(
         db,
-        task_type=TaskType.TAILOR_RESUME,
-        dedupe_key=idempotency_key(TaskType.TAILOR_RESUME, str(application.id)),
+        task_type=TaskType.PREPARE_RESUME,
+        dedupe_key=idempotency_key(TaskType.PREPARE_RESUME, str(application.id)),
         payload={"application_id": str(application.id), "job_id": str(view.job.id)},
     )
     return _redirect(f"/applications/{application.id}")
@@ -903,7 +893,6 @@ def resume_versions(
         "resume_versions.html",
         {
             "groups": queries.resume_groups(db),
-            "base_tex": settings.base_resume_tex,
             "base_pdf": settings.base_resume_pdf,
         },
         session=session,
@@ -1013,38 +1002,7 @@ def resume_detail(
     if resume is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such resume")
 
-    plan = _read_validation(resume)
-    return render(
-        request,
-        "resume_detail.html",
-        {
-            "resume": resume,
-            "bullets": plan.get("bullets", []),
-            "violations": plan.get("violations", []),
-            "validation": plan.get("validation"),
-            "base_text": plan.get("base_text"),
-            "tailored_text": plan.get("tailored_text"),
-        },
-        session=session,
-    )
-
-
-def _read_validation(resume: ResumeVersion) -> dict[str, Any]:
-    """Load the sidecar the tailoring worker wrote.
-
-    Missing is normal (a base resume has none) and unreadable is not fatal: the
-    page still shows the artifact and its checksum, which is what a user needs to
-    decide whether to regenerate.
-    """
-    import json
-    from pathlib import Path
-
-    if not resume.validation_path:
-        return {}
-    try:
-        return dict(json.loads(Path(resume.validation_path).read_text(encoding="utf-8")))
-    except (OSError, ValueError):
-        return {}
+    return render(request, "resume_detail.html", {"resume": resume}, session=session)
 
 
 @router.get("/resumes/{resume_id}/download")
@@ -1073,28 +1031,7 @@ def approve_resume(db: Db, session: CurrentSession, resume_id: uuid.UUID) -> Res
     resume = db.get(ResumeVersion, resume_id)
     if resume is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such resume")
-    if _read_validation(resume).get("validation", {}).get("passed") is False:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "This resume failed provenance validation and cannot be approved.",
-        )
     resume.status = "APPROVED"
-    return _redirect(f"/resumes/{resume_id}")
-
-
-@router.post("/resumes/{resume_id}/regenerate", dependencies=[CSRF])
-def regenerate_resume(db: Db, session: CurrentSession, resume_id: uuid.UUID) -> Response:
-    resume = db.get(ResumeVersion, resume_id)
-    if resume is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such resume")
-    enqueue(
-        db,
-        task_type=TaskType.TAILOR_RESUME,
-        dedupe_key=idempotency_key(
-            TaskType.TAILOR_RESUME, str(resume.id), datetime.now(UTC).isoformat()
-        ),
-        payload={"resume_version_id": str(resume.id), "job_id": str(resume.job_id)},
-    )
     return _redirect(f"/resumes/{resume_id}")
 
 

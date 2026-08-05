@@ -40,7 +40,6 @@ from app.services.candidate import Actor, set_fact
 from app.services.llm.base import NullProvider
 from app.services.outreach_policy import next_send_window
 from app.services.queue import enqueue
-from app.services.resume_import import ExtractedFacts, store_facts
 from app.web.app import create_app
 from app.web.deps import get_config, get_db
 from app.web.security import COOKIE_NAME, hash_password, read
@@ -76,19 +75,6 @@ JUDGMENT = {
     "reasons": ["Python and FastAPI match the stored experience."],
 }
 
-TAILORED = {
-    "summary": "",
-    "summary_fact_ids": [],
-    "bullets": [
-        {
-            "text": "Built a FastAPI service at Todd Labs.",
-            "fact_ids": ["exp.todd.1"],
-            "transformation": "shorten",
-        }
-    ],
-    "section_order": ["experience"],
-}
-
 HOOK = {
     "hook_type": "NONE",
     "hook": "",
@@ -105,20 +91,27 @@ def password_hash() -> str:
 
 
 @pytest.fixture
-def settings(password_hash: str, tmp_path: Path) -> Settings:
+def settings(
+    password_hash: str, tmp_path: Path, sample_resume: Path
+) -> Settings:
+    pdf = sample_resume
     return Settings(
         app_env="development",
         app_secret_key="end-to-end",
         admin_username="hoan",
         admin_password_hash=password_hash,
         data_dir=tmp_path / "data",
+        # Preparing an application attaches this file. The sample rather than
+        # the user's own resume: this test asserts the pipeline moves, not
+        # anything about the document.
+        base_resume_pdf=pdf,
     )
 
 
 @pytest.fixture
 def provider() -> NullProvider:
     """Every model call this run will make, in the order it will make them."""
-    return NullProvider([SILENT_SPONSORSHIP, JUDGMENT, TAILORED, HOOK])
+    return NullProvider([SILENT_SPONSORSHIP, JUDGMENT, HOOK])
 
 
 @pytest.fixture
@@ -176,27 +169,10 @@ def drain(worker: Worker, *, now: datetime, limit: int = 15) -> int:
 
 
 def seed_profile(db: Session) -> None:
-    """What the user supplies once: their name, their dates, their resume facts."""
+    """What the user supplies once: their name and their dates."""
     set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
     set_fact(db, "education.graduation_date", "2028-05-15", actor=Actor.USER)
     set_fact(db, "work_authorization.requires_future_sponsorship", True, actor=Actor.USER)
-    store_facts(
-        db,
-        ExtractedFacts.model_validate(
-            {
-                "facts": [
-                    {
-                        "id": "exp.todd.1",
-                        "text": "Built a FastAPI service at Todd Labs that cut report "
-                        "generation from 40 minutes to 6.",
-                        "organisation": "Todd Labs",
-                        "technologies": ["FastAPI", "Python"],
-                    }
-                ]
-            }
-        ),
-        actor=Actor.USER,
-    )
     db.commit()
 
 
@@ -287,7 +263,9 @@ def test_one_job_from_discovery_to_a_gmail_draft(
     db.refresh(application)
 
     resume = not_none(
-        db.scalars(select(ResumeVersion).where(ResumeVersion.kind == "TAILORED")).first()
+        db.scalars(
+            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
+        ).first()
     )
     assert Path(resume.pdf_path).is_file()
     assert application.status == ApplicationState.BROWSER_QUEUED
@@ -342,5 +320,6 @@ def test_one_job_from_discovery_to_a_gmail_draft(
     assert "Open draft in Gmail" in page.text
     assert outreach.sent_at is None, "nothing in this system sends"
 
-    # Every model call was one this test queued; none was invented.
-    assert len(provider.calls) == 4
+    # Every model call was one this test queued; none was invented. Three, not
+    # four: preparing a resume copies a file and calls nothing.
+    assert len(provider.calls) == 3

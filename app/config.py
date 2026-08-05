@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.safety import SafetySettings, load_safety_settings
+from app.safety import load_safety_settings
 from app.services.filters import DEFAULT_REJECT_TERMS, DEFAULT_ROLE_TITLES, ScreenRules
 
 __all__ = ["Settings", "get_settings"]
@@ -96,30 +96,16 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data/internship-ops")
 
     # ---- llm --------------------------------------------------------------
-    #: "routed" sends the high-volume structured tasks to Groq and keeps
-    #: Anthropic for resume writing, which is where quality actually shows.
-    llm_provider: Literal["anthropic", "routed", "null"] = "null"
+    llm_provider: Literal["anthropic", "null"] = "null"
     anthropic_api_key: SecretStr | None = None
-    groq_api_key: SecretStr | None = None
     llm_classification_model: str = "claude-haiku-4-5-20251001"
     llm_writing_model: str = "claude-sonnet-5"
-    groq_model: str = "llama-3.3-70b-versatile"
     llm_monthly_budget_usd: float = Field(default=15.0, gt=0)
-    #: Batch tailoring waits for Anthropic to finish the whole batch. Beyond this
-    #: the batch is abandoned rather than polled forever — a stuck batch must not
-    #: hold the day's applications hostage.
-    llm_batch_timeout_hours: int = Field(default=24, ge=1, le=48)
 
     # ---- base resume (§7.7) -----------------------------------------------
-    #: The canonical LaTeX source and its compiled PDF. **Read-only.** Every
-    #: tailored build is written into the application's artifact directory; these
-    #: two files are never modified, and are what a failed build falls back to.
-    base_resume_tex: Path | None = None
+    #: The one PDF every application uploads. **Read-only** — each application
+    #: gets a copy in its own artifact folder, and this file is never written to.
     base_resume_pdf: Path | None = None
-    #: Attempts per application before falling back. §7.7 caps it at three: each
-    #: is a full LaTeX build, and a fourth costs more than the base resume it
-    #: would eventually fall back to anyway.
-    resume_max_attempts: int = Field(default=3, ge=1, le=5)
 
     # ---- gmail ------------------------------------------------------------
     gmail_credentials_path: Path | None = None
@@ -149,7 +135,7 @@ class Settings(BaseSettings):
     # ---- capacity (§9.3, §15.4) -------------------------------------------
     #: Applications prepared per calendar day in the business timezone, across
     #: every orchestration run, not per run.
-    max_prepared_applications_per_day: int = Field(default=30, ge=1, le=100)
+    max_prepared_applications_per_day: int = Field(default=10, ge=1, le=100)
     #: How long a prepared application waits for you before it expires. Expiry
     #: is a state change, never a delete: the resume, answers, screenshots and
     #: audit trail all survive so it can be restored later.
@@ -167,12 +153,18 @@ class Settings(BaseSettings):
 
     # ---- selection (§16.3) ------------------------------------------------
     minimum_fit_score: float = Field(default=72.0, ge=0, le=100)
+    #: Freshness window, and the only one. Measured against ``posted_at`` when
+    #: the board gives one, and against ``first_seen_at`` only when it does not
+    #: — never the later of the two, which would let a months-old posting look
+    #: new on the day we happened to notice it.
+    #:
+    #: There used to be a second window in hours, read by the pre-spend screen
+    #: while this one was read by the eligibility filter that runs after it. The
+    #: tighter of the two therefore decided everything and the other could never
+    #: be reached: at 24 hours, a first run against an established board
+    #: rejected every posting on it, while the settings screen displayed "21
+    #: days". One window, applied at both stages.
     max_role_age_days: int = Field(default=21, ge=1)
-    #: Freshness window. Measured against ``posted_at`` when the board gives one,
-    #: and against ``first_seen_at`` only when it does not — never the later of
-    #: the two, which would let a months-old posting look new on the day we
-    #: happened to notice it.
-    max_role_age_hours: int = Field(default=24, ge=1)
     max_active_applications_per_company: int = Field(default=2, ge=1)
     #: Role variants to apply for, comma-separated, written in normalized form
     #: (see ``DEFAULT_ROLE_TITLES``). Empty keeps the shipped list.
@@ -225,10 +217,8 @@ class Settings(BaseSettings):
         ]
         if placeholders:
             raise ValueError(f"Production requires real values for: {', '.join(placeholders)}")
-        if self.llm_provider in {"anthropic", "routed"} and self.anthropic_api_key is None:
+        if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
             raise ValueError(f"llm_provider={self.llm_provider} requires anthropic_api_key")
-        if self.llm_provider == "routed" and self.groq_api_key is None:
-            raise ValueError("llm_provider=routed requires groq_api_key")
         if not self.app_base_url.startswith("https://"):
             raise ValueError(
                 "Production app_base_url must be HTTPS via Tailscale Serve, "
@@ -264,7 +254,7 @@ class Settings(BaseSettings):
         screened everywhere at once.
         """
         return ScreenRules(
-            max_role_age_hours=self.max_role_age_hours,
+            max_role_age_hours=self.max_role_age_days * 24,
             role_titles=_parse_terms(self.role_title_variants_raw) or DEFAULT_ROLE_TITLES,
             reject_terms=_parse_terms(self.role_reject_terms_raw) or DEFAULT_REJECT_TERMS,
         )
@@ -287,8 +277,3 @@ def get_settings() -> Settings:
     """
     load_safety_settings()
     return Settings()
-
-
-def get_safety() -> SafetySettings:
-    """Return the safety proof. Cheap; re-validates the environment each call."""
-    return load_safety_settings()

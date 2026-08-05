@@ -1,6 +1,6 @@
 # ADR 0001 — Tailored resumes are built with LaTeX, not HTML
 
-**Status:** accepted, 2026-07-29
+**Status:** superseded by [ADR 0002](0002-no-resume-tailoring.md), 2026-08-05
 **Supersedes:** the recommendation in spec §11.5 (Jinja2 HTML → WeasyPrint)
 **Applies to:** §7.7 resume tailoring
 

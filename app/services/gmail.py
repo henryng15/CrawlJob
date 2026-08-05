@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from enum import StrEnum
-from typing import Any
 
 __all__ = [
     "SCOPES",
@@ -258,18 +257,4 @@ def reconcile(
     return Reconciliation(
         MessageState.DELETED,
         reason="the draft no longer exists and no sent message was found",
-    )
-
-
-def build_google_service(credentials: Any) -> GmailService:  # pragma: no cover - needs OAuth
-    """Construct the real client. Imported lazily so tests need no Google libraries.
-
-    Not exercised by the test suite: doing so would require live OAuth credentials
-    and would create drafts in a real mailbox. It is covered by the deployment
-    checklist instead (§28.5).
-    """
-    raise NotImplementedError(
-        "The Google-backed client is wired up during Gmail OAuth setup. "
-        "Publish the OAuth app to 'In production' first, or refresh tokens will "
-        "expire every 7 days."
     )

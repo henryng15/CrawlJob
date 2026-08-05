@@ -146,33 +146,14 @@ def build_provider(settings: Any, *, budget: BudgetLedger | None = None) -> LLMP
 
     ledger = budget or BudgetLedger(monthly_cap_usd=settings.llm_monthly_budget_usd)
 
-    if settings.llm_provider not in {"anthropic", "routed"}:
+    if settings.llm_provider != "anthropic":
         return NullProvider(budget=ledger)
     if settings.anthropic_api_key is None:
         raise LLMError(f"llm_provider={settings.llm_provider} but ANTHROPIC_API_KEY is not set")
 
-    anthropic = AnthropicProvider(
+    return AnthropicProvider(
         api_key=settings.anthropic_api_key.get_secret_value(),
         classification_model=settings.llm_classification_model,
         writing_model=settings.llm_writing_model,
-        budget=ledger,
-    )
-    if settings.llm_provider == "anthropic":
-        return anthropic
-
-    # Routed: classification to Groq, writing to Anthropic, one shared cap.
-    from app.services.llm.groq import GroqProvider
-    from app.services.llm.router import RoutingProvider
-
-    if settings.groq_api_key is None:
-        raise LLMError("llm_provider=routed but GROQ_API_KEY is not set")
-
-    return RoutingProvider(
-        classification=GroqProvider(
-            api_key=settings.groq_api_key.get_secret_value(),
-            model=settings.groq_model,
-            budget=ledger,
-        ),
-        writing=anthropic,
         budget=ledger,
     )

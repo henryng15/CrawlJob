@@ -4,9 +4,10 @@ Private, single-user system that **prepares** U.S. SWE internship applications a
 recruiter outreach — and stops before every irreversible action.
 
 The system discovers roles, deduplicates them, checks sponsorship language against
-your locked profile facts, tailors a resume, fills the employer's application form
-in a cloud browser, and then **stops before Submit**. You review and submit. Two
-business days later it prepares a recruiter email as a **Gmail draft**. You send it.
+your locked profile facts, attaches your resume, fills the employer's application
+form in a cloud browser, and then **stops before Submit**. You review and submit.
+Two business days later it prepares a recruiter email as a **Gmail draft**. You
+send it.
 
 It automates repetition — never judgment, legal truth, or irreversible actions.
 
@@ -18,7 +19,7 @@ It automates repetition — never judgment, legal truth, or irreversible actions
 | Deduplication by requisition, URL, then fingerprint | [app/services/dedupe.py](app/services/dedupe.py) |
 | Eligibility filter, then sponsorship classification with quoted evidence | [app/services/sponsorship.py](app/services/sponsorship.py) |
 | Fit scoring, 8 components out of 100 | [app/services/scoring.py](app/services/scoring.py) |
-| Resume import and provenance-validated tailoring | [app/services/resume.py](app/services/resume.py) |
+| Resume snapshot per application, hashed | [app/services/resume_artifacts.py](app/services/resume_artifacts.py) |
 | Form filling in a live browser, never Submit | [app/worker/browser_slot.py](app/worker/browser_slot.py) |
 | Outreach scheduling, recruiter matching, Gmail drafts | [app/worker/handlers.py](app/worker/handlers.py) |
 | Review screens for every decision | [app/web/](app/web/) |
@@ -55,9 +56,9 @@ uv run internship-ops worker
 ### Putting your own data in
 
 ```bash
-# Your resume. PDF, DOCX, Markdown or plain text.
+# Your resume. One PDF, uploaded to every application unchanged.
 uv run internship-ops import-resume ~/Documents/resume.pdf
-uv run internship-ops verify-facts        # confirm what was extracted
+uv run internship-ops check-base-resume   # path, pages, checksum
 
 # Your name, which every email is signed with.
 uv run internship-ops set-fact candidate.preferred_name '"Hoan"'
@@ -70,15 +71,10 @@ uv run internship-ops import-recruiters recruiters.csv --commit
 uv run internship-ops discover greenhouse stripe figma --now
 ```
 
-Facts extracted from a resume land **unverified**, and tailoring refuses to cite
-them until you confirm each one. A model reading a PDF gets dates and percentages
-wrong; a provenance chain anchored to facts nobody read is worse than none.
-
-Writing the facts file yourself skips extraction and stores them verified:
-
-```bash
-uv run internship-ops import-resume resume.pdf --facts facts.json
-```
+The resume is never rewritten. Each application gets a copy of that PDF in its
+own artifact folder, hashed there, so "which resume went to this employer" stays
+answerable after you edit the original. Point `BASE_RESUME_PDF` at the file and
+re-run `import-resume` whenever you change it.
 
 ### Model access
 
@@ -127,6 +123,7 @@ free-tier resources still costing $0 — the spec's §17 does not mention this.
 | [docs/HUONG-DAN.md](docs/HUONG-DAN.md) | **Bắt đầu ở đây.** Hướng dẫn từng bước, tiếng Việt. |
 | [AGENTS.md](AGENTS.md) | Rules for anyone (human or agent) writing code here. Read first. |
 | [docs/spec/](docs/spec/README.md) | Full specification, one file per section. |
+| [docs/RUN-LOCALLY.md](docs/RUN-LOCALLY.md) | Running the whole system on this laptop, without Docker. |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when something is wrong. Read before debugging. |
 | [infra/terraform/README.md](infra/terraform/README.md) | Building the OCI machine, step by step. |
 | [docs/spec/README.md](docs/spec/README.md#known-defects-in-this-spec) | Known defects in the spec — fix before implementing the affected section. |
@@ -150,8 +147,9 @@ AUTO_SUBMIT_ENABLED  AUTO_SEND_EMAIL_ENABLED  CAPTCHA_BYPASS_ENABLED  LINKEDIN_A
 
 These are not the whole guarantee, only the visible part of it. The application
 state machine has no edge from any filling state to `SUBMITTED`; the Gmail
-interface has no `send` method; and `app/services/resume.py` blocks a resume whose
-bullets are not supported by cited facts. See [app/safety.py](app/safety.py) and
+interface has no `send` method; and the resume that reaches an employer is a
+byte-for-byte copy of your own file, so nothing can put words in it. See
+[app/safety.py](app/safety.py) and
 [tests/unit/test_states.py](tests/unit/test_states.py), which proves the
 unreachability by graph search rather than by inspection.
 

@@ -21,7 +21,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -61,7 +61,6 @@ class Task(StrEnum):
     SPONSORSHIP = "SPONSORSHIP"
     SCORING = "SCORING"
     RESUME_PLAN = "RESUME_PLAN"
-    FORM_ANSWER = "FORM_ANSWER"
     EMAIL_HOOK = "EMAIL_HOOK"
     EMAIL_BODY = "EMAIL_BODY"
     VALIDATION = "VALIDATION"
@@ -249,17 +248,6 @@ class BudgetLedger:
         self.spent_usd += amount_usd
         if self.on_charge is not None:
             self.on_charge(amount_usd, self.spent_usd, usage)
-
-
-class SupportsStructuredGenerate(Protocol):
-    def structured_generate[T: BaseModel](
-        self,
-        *,
-        task: Task,
-        schema: type[T],
-        messages: list[Message],
-        max_tokens: int,
-    ) -> LLMResponse[T]: ...
 
 
 class LLMProvider(ABC):

@@ -17,7 +17,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import shutil
 import subprocess
 import tarfile
@@ -231,13 +230,3 @@ def expire_artifacts(settings: Settings, *, now: datetime | None = None) -> dict
         removed[label] = count
 
     return removed
-
-
-def free_bytes(path: Path) -> int:
-    """Space left on the volume holding ``path``. Surfaced on the health page."""
-    usage = shutil.disk_usage(path if path.exists() else path.parent)
-    return int(usage.free)
-
-
-def is_writable(path: Path) -> bool:
-    return os.access(path if path.exists() else path.parent, os.W_OK)

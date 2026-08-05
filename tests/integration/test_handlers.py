@@ -84,20 +84,18 @@ FastAPI services alongside the platform team.
 #: A bullet id from ``SAMPLE_RESUME_TEX`` in ``tests/conftest.py``. Tailoring plans
 #: address the resume's own bullets, so a plan naming anything else is refused —
 #: which is what stops one employer's work being written under another's heading.
-TODD_BULLET = "work-experience.todd-labs.1"
 
 
 @pytest.fixture
-def settings(tmp_path: Path, sample_resume: tuple[Path, Path]) -> Settings:
-    tex, pdf = sample_resume
-    # Explicit rather than inherited from .env: tailoring now compiles the user's
-    # own LaTeX, and a test that silently used whatever resume the developer had
-    # configured would pass or fail for reasons outside the test.
+def settings(tmp_path: Path, sample_resume: Path) -> Settings:
+    pdf = sample_resume
+    # Explicit rather than inherited from .env: a test that silently used
+    # whatever resume the developer had configured would pass or fail for
+    # reasons outside the test.
     return Settings(
         app_env="development",
         app_secret_key="handler-tests",
         data_dir=tmp_path / "data",
-        base_resume_tex=tex,
         base_resume_pdf=pdf,
     )
 
@@ -217,15 +215,12 @@ class TestRegistration:
     def test_every_non_browser_task_type_has_a_handler(self, registry: Registry):
         """A task type with no handler is buried on arrival, so a gap here is not
         a missing feature — it is a queue that silently discards work."""
-        # ENRICH_JOB and DEDUPE_JOB happen inside discovery rather than as
-        # separate stages. The two browser types are registered by the slot, and
-        # by exactly one process: two handlers for one type would mean whichever
-        # worker claimed it first decided whether the task made sense.
+        # The two browser types are registered by the slot, and by exactly one
+        # process: two handlers for one type would mean whichever worker claimed
+        # it first decided whether the task made sense.
         assert registry.missing() == {
             TaskType.PREPARE_APPLICATION,
             TaskType.REPLAY_APPLICATION,
-            TaskType.ENRICH_JOB,
-            TaskType.DEDUPE_JOB,
         }
 
     def test_registering_twice_is_refused(self, settings: Settings, provider: NullProvider):
@@ -269,7 +264,7 @@ class TestPreSpendScreen:
     def test_a_posting_older_than_the_window_never_reaches_a_model(
         self, worker: Worker, db: Session, no_feed: None
     ):
-        job = make_job(db, posted_at=NOW - timedelta(hours=30), location_text="Austin, TX")
+        job = make_job(db, posted_at=NOW - timedelta(days=30), location_text="Austin, TX")
         assert self._run(worker, db) == []
         db.refresh(job)
         assert job.status == JobState.ELIGIBILITY_REJECTED
@@ -333,14 +328,14 @@ class TestPreSpendScreen:
         """Rejection is a state change and an audit entry, never a delete."""
         from app.db.models import AuditEvent
 
-        job = make_job(db, posted_at=NOW - timedelta(hours=30), location_text="Austin, TX")
+        job = make_job(db, posted_at=NOW - timedelta(days=30), location_text="Austin, TX")
         self._run(worker, db)
 
         db.refresh(job)
         assert job.status == JobState.ELIGIBILITY_REJECTED
         entries = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == job.id)).all()
         reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
-        assert any("older than 24h" in r for r in reasons), reasons
+        assert any("older than 504h" in r for r in reasons), reasons
         assert any(
             e.event_metadata.get("stage") == "pre_spend_screen" for e in entries
         ), "the audit trail must say which gate turned it away"
@@ -529,7 +524,14 @@ class TestScoring:
         assert tasks(db, TaskType.PREPARE_APPLICATION) == []
 
 
-class TestTailoring:
+class TestPreparingTheResume:
+    """The stage that gives an application its resume.
+
+    It does not rewrite anything: the user keeps one PDF, and this copies it in
+    and hands the application to a browser. What is worth testing is the handoff
+    and the refusal — an application with no resume must not reach a form.
+    """
+
     def _application(self, db: Session) -> Application:
         job = make_job(db)
         application = Application(
@@ -541,245 +543,120 @@ class TestTailoring:
         db.commit()
         return application
 
-    def _facts(self, db: Session, *, verified: bool) -> None:
-        from app.services.candidate import Actor
-        from app.services.resume_import import ExtractedFacts, store_facts
-
-        store_facts(
-            db,
-            ExtractedFacts.model_validate(
-                {
-                    "facts": [
-                        {
-                            "id": "exp.todd.1",
-                            "text": "Built a FastAPI service at Todd Labs that cut report "
-                            "generation from 40 minutes to 6.",
-                            "organisation": "Todd Labs",
-                            "technologies": ["FastAPI", "Python"],
-                        }
-                    ]
-                }
-            ),
-            actor=Actor.USER if verified else Actor.IMPORT,
-        )
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-    def test_unverified_facts_block_tailoring_and_say_so(self, worker: Worker, db: Session):
-        """§7.7: a tailored resume may only cite facts the user has read."""
-        application = self._application(db)
-        self._facts(db, verified=False)
-
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        task = tasks(db, TaskType.TAILOR_RESUME)[0]
-        assert task.status == TaskStatus.DEAD
-        assert "waiting for you to confirm" in not_none(task.last_error)
-
-    def test_no_facts_at_all_names_the_command_to_run(self, worker: Worker, db: Session):
-        application = self._application(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        assert "import-resume" in not_none(tasks(db, TaskType.TAILOR_RESUME)[0].last_error)
-
-    def test_a_supported_plan_queues_the_form_for_a_browser(
-        self, worker: Worker, db: Session, provider: NullProvider
+    def test_it_attaches_the_base_resume_and_queues_a_browser(
+        self, worker: Worker, db: Session, settings: Settings
     ):
-        """Tailoring owns the materials stage and hands off — one owner per type."""
-        application = self._application(db)
-        self._facts(db, verified=True)
-        provider.queue(
-            {
-                "summary": "",
-                "summary_fact_ids": [],
-                "operations": [
-                    {
-                        "bullet_id": TODD_BULLET,
-                        "action": "rewrite",
-                        "text": "Built a FastAPI service at Todd Labs.",
-                        "fact_ids": ["exp.todd.1"],
-                    }
-                ],
-                "section_order": [],
-            }
-        )
+        """It owns the materials stage and hands off — one owner per task type."""
+        from app.services.resume_artifacts import selected_version
 
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        application = self._application(db)
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
         worker.run_once(now=NOW)
 
+        db.expire_all()
         db.refresh(application)
+        row = not_none(selected_version(db, application.id))
+        assert Path(row.pdf_path).is_file()
         assert application.status == ApplicationState.BROWSER_QUEUED
-        assert len(tasks(db, TaskType.PREPARE_APPLICATION)) == 1
+        assert tasks(db, TaskType.PREPARE_APPLICATION), "the browser was queued"
 
-    def test_a_blocked_plan_does_not_queue_a_browser(
+    def test_the_attached_file_is_a_copy_in_the_applications_folder(
+        self, worker: Worker, db: Session, settings: Settings
+    ):
+        from app.services.resume_artifacts import resume_dir, selected_version
+
+        application = self._application(db)
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        row = not_none(selected_version(db, application.id))
+        assert Path(row.pdf_path).is_relative_to(resume_dir(settings, application.id))
+
+    def test_it_does_not_claim_the_resume_was_uploaded(
+        self, worker: Worker, db: Session
+    ):
+        """Selected is intent; uploaded is what a browser actually did."""
+        from app.services.resume_artifacts import selected_version, uploaded_version
+
+        application = self._application(db)
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        assert selected_version(db, application.id) is not None
+        assert uploaded_version(db, application.id) is None
+
+    def test_it_calls_no_model(
         self, worker: Worker, db: Session, provider: NullProvider
     ):
-        """No resume, no form. Filling one without materials wastes a slot."""
+        """There is nothing here to ask a model about, and asking would cost money."""
         application = self._application(db)
-        self._facts(db, verified=True)
-        invented = {
-            "summary": "",
-            "summary_fact_ids": [],
-            "operations": [
-                {
-                    "bullet_id": TODD_BULLET,
-                    "action": "rewrite",
-                    "text": "Scaled the platform to 4 million users.",
-                    "fact_ids": ["exp.todd.1"],
-                }
-            ],
-            "section_order": [],
-        }
-        provider.queue(invented)
-        provider.queue(invented)
 
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
         worker.run_once(now=NOW)
 
-        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
+        assert provider.calls == []
 
-    def test_a_supported_plan_produces_a_pdf_and_attaches_it(
-        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
+    def test_running_it_twice_does_not_produce_a_second_resume(
+        self, worker: Worker, db: Session
     ):
         application = self._application(db)
-        self._facts(db, verified=True)
-        provider.queue(
-            {
-                "summary": "",
-                "summary_fact_ids": [],
-                "operations": [
-                    {
-                        "bullet_id": TODD_BULLET,
-                        "action": "rewrite",
-                        "text": "Built a FastAPI service at Todd Labs.",
-                        "fact_ids": ["exp.todd.1"],
-                    }
-                ],
-                "section_order": [],
-            }
-        )
 
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
-        worker.run_once(now=NOW)
+        for suffix in ("first", "second"):
+            queue(
+                db,
+                TaskType.PREPARE_RESUME,
+                application_id=str(application.id),
+                key=suffix,
+            )
+            worker.run_once(now=NOW)
 
-        db.refresh(application)
-        # The row marked as the one that *will* be sent — whether the build
-        # produced a tailored PDF or fell back to the base resume. Which of those
-        # happened is settled by the real-LaTeX tests in tests/e2e; what matters
-        # here is that the handler selects exactly one and it exists on disk.
-        version = not_none(
-            db.scalars(
-                select(ResumeVersion).where(ResumeVersion.is_selected.is_(True))
-            ).one_or_none()
-        )
-        assert application.resume_version_id == version.id
-        assert Path(version.pdf_path).is_file()
-        assert Path(version.pdf_path).read_bytes()[:5] == b"%PDF-"
-        assert version.status == "READY_FOR_REVIEW"
-
-    def test_tailoring_does_not_claim_the_resume_was_uploaded(
-        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
-    ):
-        """No browser has run. Nothing has been sent anywhere.
-
-        This handler cannot know whether an employer received the file — only the
-        browser worker can, and it says so after the file input accepts it.
-        """
-        application = self._application(db)
-        self._facts(db, verified=True)
-        provider.queue(
-            {
-                "summary": "",
-                "summary_fact_ids": [],
-                "operations": [
-                    {
-                        "bullet_id": TODD_BULLET,
-                        "action": "rewrite",
-                        "text": "Built a FastAPI service at Todd Labs.",
-                        "fact_ids": ["exp.todd.1"],
-                    }
-                ],
-                "section_order": [],
-            }
-        )
-
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
+        db.expire_all()
         rows = db.scalars(
             select(ResumeVersion).where(ResumeVersion.application_id == application.id)
         ).all()
-        assert rows, "a resume was built"
-        assert not any(r.is_uploaded for r in rows)
-        assert all(r.uploaded_at is None for r in rows)
+        assert len(rows) == 1
 
-    def test_an_unsupported_claim_blocks_and_records_the_violations(
-        self, worker: Worker, db: Session, provider: NullProvider
+
+class TestPreparingRefusesWithoutAResume:
+    def test_no_base_resume_buries_the_task_naming_the_setting(
+        self, db: Session, committing_db, tmp_path: Path, provider: NullProvider
     ):
-        """§7.7: block, do not quietly ship a weakened resume."""
-        application = self._application(db)
-        self._facts(db, verified=True)
-        invented = {
-            "summary": "",
-            "summary_fact_ids": [],
-            "operations": [
-                {
-                    "bullet_id": TODD_BULLET,
-                    "action": "rewrite",
-                    "text": "Scaled the platform to 4 million users at Stripe.",
-                    "fact_ids": ["exp.todd.1"],
-                    "transformation": "rewrite",
-                }
-            ],
-            "section_order": [],
-        }
-        provider.queue(invented)
-        provider.queue(invented)
+        """A form filled with no resume wastes one of two browser slots."""
+        settings = Settings(
+            app_env="development",
+            app_secret_key="handler-tests",
+            data_dir=tmp_path / "data",
+            base_resume_pdf=None,
+        )
+        worker = Worker(
+            session_factory=committing_db,
+            worker_id="no-resume",
+            registry=register_pipeline(
+                Registry(), settings=settings, provider_factory=lambda _: provider
+            ),
+            poll_interval=0.0,
+        )
+        job = make_job(db)
+        application = Application(
+            job_id=job.id,
+            application_url=job.canonical_url,
+            status=ApplicationState.MATERIALS_PREPARING,
+        )
+        db.add(application)
+        db.commit()
 
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
         worker.run_once(now=NOW)
 
-        task = tasks(db, TaskType.TAILOR_RESUME)[0]
+        task = tasks(db, TaskType.PREPARE_RESUME)[0]
         assert task.status == TaskStatus.DEAD
-        assert "unsupported claims" in not_none(task.last_error)
-        assert db.scalars(select(ResumeVersion)).all() == []
-
-    def test_the_violations_are_written_where_the_review_screen_reads_them(
-        self, worker: Worker, db: Session, provider: NullProvider, settings: Settings
-    ):
-        """A user cannot judge "it was rejected" without seeing why."""
-        import json
-
-        application = self._application(db)
-        self._facts(db, verified=True)
-        invented = {
-            "summary": "",
-            "summary_fact_ids": [],
-            "operations": [
-                {
-                    "bullet_id": TODD_BULLET,
-                    "action": "rewrite",
-                    "text": "Scaled the platform to 4 million users.",
-                    "fact_ids": ["exp.todd.1"],
-                }
-            ],
-            "section_order": [],
-        }
-        provider.queue(invented)
-        provider.queue(invented)
-
-        queue(db, TaskType.TAILOR_RESUME, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        sidecar = settings.artifacts_dir / str(application.id) / "resume-validation.json"
-        written = json.loads(sidecar.read_text(encoding="utf-8"))
-        assert written["validation"]["passed"] is False
-        assert any(v["kind"] == "INVENTED_METRIC" for v in written["violations"])
+        assert "BASE_RESUME_PDF" in not_none(task.last_error)
+        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
 
 
 #: Comfortably past the two-business-day delay and inside the send window, so the

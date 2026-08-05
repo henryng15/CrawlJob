@@ -12,7 +12,6 @@ from app.db.models.applications import (
     BrowserSession,
     ResumeVersion,
 )
-from app.db.models.batches import BatchState, LLMBatch
 from app.db.models.jobs import (
     Company,
     Job,
@@ -30,7 +29,6 @@ __all__ = [
     "ApplicationField",
     "AuditEvent",
     "Base",
-    "BatchState",
     "BrowserSession",
     "CandidateFact",
     "Company",
@@ -38,7 +36,6 @@ __all__ = [
     "JobScore",
     "JobSourceLink",
     "JobSourceRecord",
-    "LLMBatch",
     "OutreachTask",
     "Recruiter",
     "ResumeVersion",

@@ -1,29 +1,31 @@
-"""Persisting a resume build (spec §7.7, §23.5).
+"""Attaching the base resume to an application (spec §7.7, §23.5).
 
-One build produces up to three attempts plus, sometimes, a fallback. All of them
-are written to disk and recorded in the database, including the ones that came
-out at two pages — because the question the Resume Versions screen has to answer
-is not "what was uploaded" but "why was *that* the thing uploaded", and the
-attempts that did not qualify are the answer.
+The system does not rewrite the resume. The user maintains one PDF, and that
+file is what every application gets — so "preparing" a resume here is a copy and
+a row, not a build.
 
-Artifacts are immutable. A row is inserted per attempt and never updated; a
-rebuild produces new rows. The bytes on disk are the bytes that were hashed, so
-``sha256`` proves the PDF in the folder is the one the page count was measured on.
+The copy is the point. ``BASE_RESUME_PDF`` is a file the user keeps editing;
+without a snapshot, "which resume went to Amazon in August" stops being
+answerable the moment they change it. So the bytes are copied into the
+application's own artifact folder and hashed there, and the hash is what proves
+the PDF in that folder is the one that was sent.
 
-**Selected is not uploaded.** Building picks the PDF that *should* go to the
-employer and marks it ``is_selected``. Whether it actually reached the employer is
-a different fact, known only after Playwright has set the file on the form, and it
-is recorded separately by :func:`mark_uploaded`. Collapsing the two would make
-``/resumes`` claim a document was sent whenever the pipeline merely intended to
-send it — and the case where that matters is the case where something went wrong:
-the browser slot died, the file input was never found, the form changed. Those are
-exactly the applications a person needs to look at, so they must not be the ones
-the screen describes as done.
+**Selected is not uploaded.** Preparing marks the row that *should* go to the
+employer, ``is_selected``. Whether it actually reached them is a different fact,
+known only after Playwright has set the file on the form, and it is recorded
+separately by :func:`mark_uploaded`. Collapsing the two would make ``/resumes``
+claim a document was sent whenever the pipeline merely intended to send it — and
+the case where that matters is the case where something went wrong: the browser
+slot died, the file input was never found, the form changed. Those are exactly
+the applications a person needs to look at, so they must not be the ones the
+screen describes as done.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -33,28 +35,23 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import Application, ResumeVersion
-from app.services.resume_build import (
-    Attempt,
-    BuildOutcome,
-    manifest_for,
-    sha256_of,
-    write_manifest,
-)
-from app.services.resume_edits import Edits
-from app.services.resume_tex import TexResume
 
 __all__ = [
     "BASE_ATTEMPT",
+    "attach_base",
     "mark_uploaded",
-    "record_build",
+    "page_count",
     "resume_dir",
     "selected_version",
+    "sha256_of",
     "uploaded_version",
 ]
 
 log = logging.getLogger(__name__)
 
-#: Attempt number reserved for the user's own resume.
+#: Attempt number reserved for the user's own resume. Kept at 0 because the
+#: column is still there and a row has to say something; nothing counts attempts
+#: any more.
 BASE_ATTEMPT = 0
 
 
@@ -62,188 +59,78 @@ def resume_dir(settings: Settings, application_id: uuid.UUID) -> Path:
     return settings.artifacts_dir / str(application_id) / "resume"
 
 
-def record_build(
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def page_count(pdf: Path) -> int | None:
+    """Pages in a PDF, or ``None`` if it cannot be read.
+
+    ``None`` rather than a raise: a resume whose page count cannot be determined
+    is worth saying so about, and is not a reason to refuse to prepare an
+    application.
+    """
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(str(pdf)).pages)
+    except Exception as exc:  # pragma: no cover - depends on the file
+        log.warning("could not read %s to count its pages: %s", pdf, exc)
+        return None
+
+
+def attach_base(
     session: Session,
     settings: Settings,
     *,
     application: Application,
-    document: TexResume,
-    outcome: BuildOutcome,
-    facts_used: list[str],
-    model: str | None,
-    prompt_version: str | None,
     now: datetime,
-    validation_path: Path | None = None,
-    edits: Edits | None = None,
 ) -> ResumeVersion | None:
-    """Write every attempt to disk and to the database. Returns the selected one.
+    """Snapshot the base resume for this application and record it.
 
-    The selected flag is cleared across the application first, so a rebuild
-    cannot leave two rows both claiming to be the one that will be sent. The
-    uploaded flag is never set here — see :func:`mark_uploaded`.
+    ``None`` when no base resume is configured or the file is gone — the caller
+    turns that into a message naming what the user has to fix, because an
+    application with no resume is not one a browser should be sent to fill.
+
+    Idempotent: an application that already has a selected resume keeps it. Two
+    workers, or one worker retried, must not leave two rows both claiming to be
+    the thing that will be uploaded.
     """
+    existing = selected_version(session, application.id)
+    if existing is not None:
+        return existing
+
+    source = settings.base_resume_pdf
+    if source is None or not source.is_file():
+        return None
+
     directory = resume_dir(settings, application.id)
     directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / "resume.pdf"
+    shutil.copy2(source, destination)
 
-    session.execute(
-        update(ResumeVersion)
-        .where(ResumeVersion.application_id == application.id)
-        .values(is_selected=False)
-    )
-
-    rows: list[ResumeVersion] = []
-    for attempt in outcome.attempts:
-        rows.append(
-            _record_attempt(
-                session,
-                settings,
-                application=application,
-                document=document,
-                attempt=attempt,
-                outcome=outcome,
-                facts_used=facts_used,
-                model=model,
-                prompt_version=prompt_version,
-                now=now,
-                directory=directory,
-                validation_path=validation_path,
-                edits=edits,
-            )
-        )
-
-    if outcome.used_base:
-        rows.append(
-            _record_base(
-                session,
-                application=application,
-                outcome=outcome,
-                now=now,
-                directory=directory,
-                validation_path=validation_path,
-            )
-        )
-
-    session.flush()
-    selected = next((row for row in rows if row.is_selected), None)
-    if selected is not None:
-        application.resume_version_id = selected.id
-    return selected
-
-
-def _record_attempt(
-    session: Session,
-    settings: Settings,
-    *,
-    application: Application,
-    document: TexResume,
-    attempt: Attempt,
-    outcome: BuildOutcome,
-    facts_used: list[str],
-    model: str | None,
-    prompt_version: str | None,
-    now: datetime,
-    directory: Path,
-    validation_path: Path | None = None,
-    edits: Edits | None = None,
-) -> ResumeVersion:
-    attempt_dir = directory / f"attempt-{attempt.number}"
-    attempt_dir.mkdir(parents=True, exist_ok=True)
-
-    tex_path = attempt_dir / "resume.tex"
-    tex_path.write_text(attempt.tex, encoding="utf-8")
-
-    log_path = attempt_dir / "compile.log"
-    log_path.write_text(attempt.result.log_text, encoding="utf-8")
-
-    pdf_path: Path | None = None
-    pdf_sha: str | None = None
-    if attempt.result.pdf_path and attempt.result.pdf_path.is_file():
-        pdf_path = attempt_dir / "resume.pdf"
-        if attempt.result.pdf_path.resolve() != pdf_path.resolve():
-            pdf_path.write_bytes(attempt.result.pdf_path.read_bytes())
-        pdf_sha = sha256_of(pdf_path)
-
-    manifest_path = attempt_dir / "manifest.json"
-    write_manifest(
-        manifest_path,
-        manifest_for(
-            attempt,
-            document=document,
-            facts_used=facts_used,
-            model=model,
-            prompt_version=prompt_version,
-            now=now,
-            pdf_sha256=pdf_sha,
-            fallback_reason=outcome.fallback_reason if outcome.used_base else "",
-            plan_note=edits.note if edits else "",
-            rejections=tuple(str(r) for r in edits.rejections) if edits else (),
-            drift=dict(edits.drift) if edits else None,
-        ),
-    )
-
-    chosen = outcome.chosen is not None and outcome.chosen.number == attempt.number
-    row = ResumeVersion(
-        application_id=application.id,
-        job_id=application.job_id,
-        kind="TAILORED",
-        status="READY_FOR_REVIEW" if attempt.ok else "REJECTED",
-        attempt=attempt.number,
-        source_path=str(tex_path),
-        # A failed attempt still has a row; pointing at the tex keeps the column
-        # non-null without inventing a PDF that does not exist.
-        pdf_path=str(pdf_path) if pdf_path else str(tex_path),
-        log_path=str(log_path),
-        manifest_path=str(manifest_path),
-        # The provenance sidecar when there is one; the manifest otherwise. The
-        # approve button reads this to refuse a resume that failed validation, so
-        # it must point at the file that actually records that verdict.
-        validation_path=str(validation_path or manifest_path),
-        sha256=pdf_sha or "",
-        tex_sha256=attempt.tex_sha256,
-        page_count=attempt.result.pages,
-        prompt_version=prompt_version,
-        model_name=model,
-        facts_used=list(facts_used),
-        is_selected=chosen,
-        fallback_reason=None,
-    )
-    session.add(row)
-    return row
-
-
-def _record_base(
-    session: Session,
-    *,
-    application: Application,
-    outcome: BuildOutcome,
-    now: datetime,
-    directory: Path,
-    validation_path: Path | None = None,
-) -> ResumeVersion:
-    """The fallback row: the user's own resume, used unchanged."""
-    pdf_path = outcome.pdf_path
     row = ResumeVersion(
         application_id=application.id,
         job_id=application.job_id,
         kind="BASE",
         status="READY_FOR_REVIEW",
         attempt=BASE_ATTEMPT,
-        source_path=str(outcome.tex_path or ""),
-        pdf_path=str(pdf_path or ""),
-        manifest_path=None,
-        validation_path=str(validation_path) if validation_path else None,
-        sha256=sha256_of(pdf_path) if pdf_path and pdf_path.is_file() else "",
-        page_count=1,
+        source_path=str(source),
+        pdf_path=str(destination),
+        sha256=sha256_of(destination),
+        page_count=page_count(destination),
         facts_used=[],
         is_selected=True,
-        fallback_reason=outcome.fallback_reason,
+        created_at=now,
     )
     session.add(row)
+    session.flush()
+    application.resume_version_id = row.id
     return row
 
 
 def selected_version(session: Session, application_id: uuid.UUID) -> ResumeVersion | None:
-    """The version the build chose to send. May not have been sent yet."""
+    """The version prepared to send. May not have been sent yet."""
     return session.scalars(
         select(ResumeVersion)
         .where(ResumeVersion.application_id == application_id)
@@ -272,8 +159,8 @@ def mark_uploaded(
     Matched by hash rather than by row id. The browser was handed a *file*, and
     the only honest statement afterwards is "these bytes were uploaded" — so the
     row that gets the flag is the one whose recorded ``sha256`` matches what was
-    read off disk. If a rebuild happened between preparing and filling, that check
-    is what stops the flag landing on a version the employer never saw.
+    read off disk. If the base resume changed between preparing and filling, that
+    check is what stops the flag landing on a version the employer never saw.
     """
     if not path.is_file():
         log.warning("resume at %s is gone; nothing marked as uploaded", path)

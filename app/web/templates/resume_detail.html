@@ -4,71 +4,44 @@
 <h1>Resume review</h1>
 <p class="muted">
   {{ resume.kind }} · {{ resume.status }} ·
-  generated {{ resume.created_at.strftime("%d %b %Y %H:%M") }}
-  {% if resume.model_name %}by {{ resume.model_name }}{% endif %}
+  prepared {{ resume.created_at.strftime("%d %b %Y %H:%M") }}
 </p>
 
-{% if validation and not validation.passed %}
-  <div class="banner-danger">
-    <strong>This resume did not pass provenance validation.</strong>
-    Every flagged line makes a claim the stored facts do not support.
-  </div>
-{% endif %}
-
-<h2>Changed bullets and their provenance</h2>
-<div class="panel table-wrap"><table>
-  <tr><th>Bullet</th><th>Cited facts</th><th>Change</th><th></th></tr>
-  {% for b in bullets %}
-  <tr>
-    <td>{{ b.text }}</td>
-    <td class="muted">{{ b.fact_ids | join(", ") }}</td>
-    <td><span class="tag">{{ b.transformation }}</span></td>
-    <td>
-      {% if b.violations %}
-        {% for v in b.violations %}<span class="tag bad">{{ v.kind }}</span>{% endfor %}
-      {% else %}<span class="tag good">supported</span>{% endif %}
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="4" class="empty">No tailored bullets recorded.</td></tr>
-  {% endfor %}
-</table></div>
-
-{% if violations %}
-  <h2>Validation warnings</h2>
-  <div class="panel">
-    <ul>
-      {% for v in violations %}
-        <li><span class="tag bad">{{ v.kind }}</span> {{ v.detail }}</li>
-      {% endfor %}
-    </ul>
-  </div>
-{% endif %}
-
-<div class="grid">
-  <div class="panel">
-    <h2 style="margin-top:0">Base</h2>
-    <pre class="jd">{{ base_text or "Base resume text not available." }}</pre>
-  </div>
-  <div class="panel">
-    <h2 style="margin-top:0">Tailored</h2>
-    <pre class="jd">{{ tailored_text or "Tailored text not available." }}</pre>
-  </div>
+<div class="panel">
+  <p class="muted">
+    A copy of your base resume, taken when this application was prepared. Nothing
+    rewrites it &mdash; the checksum is what proves the file in this
+    application&rsquo;s folder is the one that will be uploaded, even after you
+    edit the original.
+  </p>
+  <dl class="facts">
+    <dt>Pages</dt><dd>{{ resume.page_count or "unknown" }}</dd>
+    <dt>Checksum</dt><dd><code>{{ resume.sha256[:16] }}</code></dd>
+    <dt>File</dt><dd><code>{{ resume.pdf_path }}</code></dd>
+    <dt>Copied from</dt><dd><code>{{ resume.source_path }}</code></dd>
+    <dt>Uploaded</dt>
+    <dd>
+      {% if resume.is_uploaded %}
+        yes, {{ resume.uploaded_at.strftime("%d %b %Y %H:%M") }}
+      {% else %}
+        not yet
+      {% endif %}
+    </dd>
+  </dl>
 </div>
+
+<details>
+  <summary>Preview</summary>
+  <iframe src="/resumes/{{ resume.id }}/view" title="Resume"
+          style="width:100%;height:70vh;border:1px solid #ccc;margin-top:.5rem"></iframe>
+</details>
 
 <h2>Decision</h2>
 <div class="panel">
   <a class="button" href="/resumes/{{ resume.id }}/download">Download PDF</a>
   <form method="post" action="/resumes/{{ resume.id }}/approve" class="inline">
     <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-    <button class="primary" {{ 'disabled' if validation and not validation.passed }}>Approve</button>
+    <button class="primary">Approve</button>
   </form>
-  <form method="post" action="/resumes/{{ resume.id }}/regenerate" class="inline">
-    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-    <button>Regenerate</button>
-  </form>
-  {% if validation and not validation.passed %}
-    <p class="muted">Approval is blocked while a bullet is unsupported. Regenerate, or fix the underlying fact.</p>
-  {% endif %}
 </div>
 {% endblock %}

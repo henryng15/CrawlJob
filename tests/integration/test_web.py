@@ -490,7 +490,7 @@ class TestJobReview:
         # Tailoring first: it produces the resume the form needs, and hands off
         # to a browser slot when it succeeds.
         queued = db.query(ScheduledTask).all()
-        assert [t.task_type for t in queued] == ["TAILOR_RESUME"]
+        assert [t.task_type for t in queued] == ["PREPARE_RESUME"]
 
     def test_the_company_cap_blocks_a_second_selection(
         self, signed_in: TestClient, db: Session, settings: Settings

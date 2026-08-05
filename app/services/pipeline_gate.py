@@ -18,12 +18,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import ResumeVersion
 from app.domain.tasks import TaskType
+from app.services.resume_import import base_version
 
 __all__ = ["PIPELINE_TASKS", "GateResult", "check_gate", "is_pipeline_task"]
 
@@ -44,12 +43,9 @@ __all__ = ["PIPELINE_TASKS", "GateResult", "check_gate", "is_pipeline_task"]
 PIPELINE_TASKS: frozenset[TaskType] = frozenset(
     {
         TaskType.DISCOVER_SOURCE,
-        TaskType.ENRICH_JOB,
-        TaskType.DEDUPE_JOB,
         TaskType.ANALYZE_SPONSORSHIP,
         TaskType.SCORE_JOB,
-        TaskType.TAILOR_RESUME,
-        TaskType.SUBMIT_TAILORING_BATCH,
+        TaskType.PREPARE_RESUME,
         TaskType.PREPARE_APPLICATION,
         TaskType.SCHEDULE_OUTREACH,
         TaskType.MATCH_RECRUITER,
@@ -87,18 +83,11 @@ def check_gate(session: Session, settings: Settings) -> GateResult:
         )
 
     # The declaration above says a resume is ready; this asks the database
-    # whether one exists. Both have to agree. Specifically a BASE resume that
-    # belongs to no application: a TAILORED row is an output of the pipeline, and
-    # so — since §7.7's fallback — is a BASE row with an ``application_id``, which
-    # records "this application used the base resume unchanged". Counting either
-    # would let the gate open on the pipeline's own past work.
-    base = session.scalars(
-        select(ResumeVersion)
-        .where(ResumeVersion.kind == "BASE")
-        .where(ResumeVersion.application_id.is_(None))
-        .limit(1)
-    ).first()
-    if base is None:
+    # whether one exists. Both have to agree. ``base_version`` deliberately
+    # ignores rows carrying an ``application_id`` — those record "this
+    # application got a copy of the base resume", which is the pipeline's own
+    # output, and counting them would let the gate open on its own past work.
+    if base_version(session) is None:
         return GateResult(
             False,
             "BASE_RESUME_STATUS says READY but no base resume has been imported. "

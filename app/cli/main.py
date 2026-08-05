@@ -59,21 +59,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     discover.add_argument("--now", action="store_true", help="also run it immediately")
     discover.set_defaults(run=_discover)
 
-    resume = sub.add_parser("import-resume", help="store your resume and derive its facts")
-    resume.add_argument("path", type=Path, help="your resume: .pdf, .docx, .md or .txt")
-    resume.add_argument(
-        "--facts",
-        type=Path,
-        default=None,
-        help="a JSON facts file you wrote yourself; skips extraction and is stored verified",
-    )
+    resume = sub.add_parser("import-resume", help="register the resume every application uploads")
+    resume.add_argument("path", type=Path, help="your resume: .pdf or .docx")
     resume.set_defaults(run=_import_resume)
-
-    verify = sub.add_parser(
-        "verify-facts", help="confirm extracted resume facts, one at a time"
-    )
-    verify.add_argument("--all", action="store_true", help="confirm every pending fact")
-    verify.set_defaults(run=_verify_facts)
 
     recruiters = sub.add_parser("import-recruiters", help="import a recruiter spreadsheet")
     recruiters.add_argument("path", type=Path)
@@ -98,7 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     status.set_defaults(run=_status)
 
     base_resume = sub.add_parser(
-        "check-base-resume", help="compile the canonical resume and check it is one page"
+        "check-base-resume", help="check the resume that will be uploaded"
     )
     base_resume.set_defaults(run=_check_base_resume)
 
@@ -272,14 +260,24 @@ def _hash_password(args: argparse.Namespace) -> int:
 
 
 def _discover(args: argparse.Namespace) -> int:
+    from datetime import datetime
+
     from app.config import get_settings
     from app.db.session import session_scope
     from app.domain.tasks import TaskType, idempotency_key
     from app.services.queue import enqueue
 
+    settings = get_settings()
     payload: dict[str, Any] = {"kind": args.kind, "names": list(args.names)}
+    # The bucket is what the scheduler puts in its own key, and for the same
+    # reason: ``dedupe_key`` is unique across every task ever inserted, finished
+    # ones included. Without it this command works exactly once per database and
+    # then reports "already queued" forever, having done nothing. A minute is
+    # the right grain for something a person typed — it still swallows a
+    # double-invocation, but asking again later means asking again.
+    bucket = datetime.now(settings.timezone).strftime("%Y-%m-%dT%H:%M")
     with session_scope() as session:
-        key = idempotency_key(TaskType.DISCOVER_SOURCE, args.kind, *args.names)
+        key = idempotency_key(TaskType.DISCOVER_SOURCE, args.kind, *args.names, bucket)
         task = enqueue(
             session,
             task_type=TaskType.DISCOVER_SOURCE,
@@ -311,7 +309,6 @@ def _discover(args: argparse.Namespace) -> int:
 def _import_resume(args: argparse.Namespace) -> int:
     from app.config import get_settings
     from app.db.session import session_scope
-    from app.services.llm.anthropic import build_provider
     from app.services.resume_import import import_resume
 
     settings = get_settings()
@@ -320,55 +317,16 @@ def _import_resume(args: argparse.Namespace) -> int:
         return 1
 
     with session_scope() as session:
-        result = import_resume(
-            session,
-            args.path,
-            settings=settings,
-            provider=build_provider(settings) if args.facts is None else None,
-            facts_file=args.facts,
-        )
+        result = import_resume(session, settings, path=args.path)
         print(result.summary())
-        for fact_id in result.needs_verification:
-            print(f"  unverified: {fact_id}")
-
-    if result.needs_verification:
-        print("\nConfirm them with: internship-ops verify-facts")
-    return 0
-
-
-def _verify_facts(args: argparse.Namespace) -> int:
-    """Walk the pending facts and record the user's confirmation.
-
-    Tailoring cites only verified facts, so this is the step that decides what may
-    appear on a document the user signs their name to. Deliberately one at a time
-    unless --all: reading them is the entire point.
-    """
-    from app.db.session import session_scope
-    from app.services.candidate import Actor, get_fact, set_fact
-    from app.services.resume_import import FACT_PREFIX, unverified
-
-    with session_scope() as session:
-        pending = unverified(session)
-        if not pending:
-            print("Nothing to confirm.")
-            return 0
-
-        for fact_id in pending:
-            stored = get_fact(session, f"{FACT_PREFIX}{fact_id}")
-            if stored is None:
-                continue
-            value = stored.value if isinstance(stored.value, dict) else {}
-            print(f"\n[{fact_id}] {value.get('text', '')}")
+        if result.pages is not None and result.pages != 1:
             print(
-                f"    organisation: {value.get('organisation') or '—'}"
-                f"    technologies: {', '.join(value.get('technologies', [])) or '—'}"
+                f"\nNote: it is {result.pages} pages. Nothing here shortens it — "
+                "this file is uploaded as it is.",
+                file=sys.stderr,
             )
-            if not args.all and input("    correct? [y/N] ").strip().lower() != "y":
-                print("    left unverified")
-                continue
-            set_fact(session, f"{FACT_PREFIX}{fact_id}", value, actor=Actor.USER, verified=True)
-            print("    confirmed")
 
+    print("\nSet BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0
 
 
@@ -490,76 +448,58 @@ def _status(args: argparse.Namespace) -> int:
 
 
 def _check_base_resume(args: argparse.Namespace) -> int:
-    """Compile the canonical resume here, where the pipeline will compile it.
+    """Look at the file every application will upload.
 
-    A resume that builds on a laptop and not in the container does not fail
-    loudly — every application silently falls back to the untailored base, which
-    looks like the system working. This is the check that catches it before a
-    hundred applications go out that way.
+    Nothing rewrites or shortens this document, so whatever is wrong with it is
+    wrong on every application. Worth one command that says what it is before a
+    hundred of them go out.
     """
-    import tempfile
-    from pathlib import Path
-
     from app.config import get_settings
-    from app.services.latex import compile_pdf, engine_available, page_count
-    from app.services.resume_tex import parse
-    from app.services.tailoring import base_resume_source
+    from app.db.session import session_scope
+    from app.services.resume_artifacts import page_count, sha256_of
+    from app.services.resume_import import base_version
 
     settings = get_settings()
-
-    engine = engine_available()
-    if engine is None:
-        print("No LaTeX engine is installed in this image.", file=sys.stderr)
-        return 1
-    print(f"engine:      {engine}")
-
-    source = base_resume_source(settings)
-    if source is None:
+    pdf = settings.base_resume_pdf
+    if pdf is None or not pdf.is_file():
         print(
-            f"No base resume at BASE_RESUME_TEX={settings.base_resume_tex}.",
-            file=sys.stderr,
-        )
-        return 1
-    base_tex, base_pdf = source.tex, source.pdf
-    print(f"source:      {settings.base_resume_tex}")
-    # The fingerprint every plan made from this file is pinned to. Printing it
-    # makes "the base resume changed after this plan was made" a message the user
-    # can act on rather than a hash they have never seen before.
-    print(f"fingerprint: {source.sha256[:16]}")
-
-    bullets = parse(base_tex).bullets
-    print(f"bullets:     {len(bullets)} editable")
-    if not bullets:
-        print(
-            "\nNo \\resumeItem bullets were found, so tailoring has nothing it "
-            "may change and every application would use this file unchanged.",
+            f"No resume at BASE_RESUME_PDF={settings.base_resume_pdf}.",
             file=sys.stderr,
         )
         return 1
 
-    with tempfile.TemporaryDirectory() as work:
-        result = compile_pdf(base_tex, work_dir=Path(work) / "check")
-        if not result.ok:
-            print(f"\nIt did not compile: {result.error}", file=sys.stderr)
-            print(result.log_text[-2000:], file=sys.stderr)
-            return 1
-        print(f"compiles to: {result.pages} page(s)")
-        if result.pages != 1:
-            print(
-                "\nThe base resume itself is longer than one page. Tailoring can "
-                "only remove content, so no application will ever fit.",
-                file=sys.stderr,
-            )
-            return 1
+    print(f"file:        {pdf}")
+    print(f"size:        {pdf.stat().st_size:,} bytes")
+    print(f"fingerprint: {sha256_of(pdf)[:16]}")
 
-    if base_pdf is None:
+    pages = page_count(pdf)
+    print(f"pages:       {pages if pages is not None else 'unreadable'}")
+    if pages is None:
         print(
-            f"\nNo compiled PDF at BASE_RESUME_PDF={settings.base_resume_pdf}. "
-            "A build that runs out of attempts would have nothing to fall back to.",
+            "\nThe file could not be read as a PDF. An employer's form will not "
+            "read it either.",
             file=sys.stderr,
         )
         return 1
-    print(f"fallback:    {base_pdf} ({page_count(base_pdf)} page(s))")
+    if pages != 1:
+        # Not fatal: a two-page resume is a choice some people make, and this
+        # command reports rather than decides. It is still almost always a
+        # surprise, which is why it is called out.
+        print(
+            f"\nIt is {pages} pages. Nothing here shortens it — every application "
+            "gets exactly this file.",
+            file=sys.stderr,
+        )
+
+    with session_scope() as session:
+        imported = base_version(session)
+    if imported is None:
+        print(
+            "\nIt has not been imported yet, so the pipeline gate is still shut.\n"
+            f"Run: internship-ops import-resume {pdf}",
+            file=sys.stderr,
+        )
+        return 1
 
     print("\nReady. Set BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0

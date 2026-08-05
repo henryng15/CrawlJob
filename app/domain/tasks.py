@@ -13,11 +13,9 @@ __all__ = ["TaskStatus", "TaskType", "idempotency_key"]
 
 class TaskType(StrEnum):
     DISCOVER_SOURCE = "DISCOVER_SOURCE"
-    ENRICH_JOB = "ENRICH_JOB"
-    DEDUPE_JOB = "DEDUPE_JOB"
     ANALYZE_SPONSORSHIP = "ANALYZE_SPONSORSHIP"
     SCORE_JOB = "SCORE_JOB"
-    TAILOR_RESUME = "TAILOR_RESUME"
+    PREPARE_RESUME = "PREPARE_RESUME"
     PREPARE_APPLICATION = "PREPARE_APPLICATION"
     REPLAY_APPLICATION = "REPLAY_APPLICATION"
     RECONCILE_SUBMISSION = "RECONCILE_SUBMISSION"
@@ -31,11 +29,6 @@ class TaskType(StrEnum):
     CLEANUP_EXPIRED_SESSION = "CLEANUP_EXPIRED_SESSION"
     EXPIRE_PREPARED_APPLICATIONS = "EXPIRE_PREPARED_APPLICATIONS"
     RESTORE_APPLICATION = "RESTORE_APPLICATION"
-    #: Tailoring is split in two because a batch takes minutes to hours. One task
-    #: submits and ends; another polls. A single task that waited would hold a
-    #: worker lease for the whole run and be redone from scratch on every retry.
-    SUBMIT_TAILORING_BATCH = "SUBMIT_TAILORING_BATCH"
-    POLL_TAILORING_BATCH = "POLL_TAILORING_BATCH"
 
 
 class TaskStatus(StrEnum):

@@ -172,7 +172,7 @@ class TestCacheSavingsAreObservedNotAssumed:
     def test_a_provider_that_reports_nothing_reads_as_no_cache(
         self, committing_db: sessionmaker[Session], db: Session, settings: Settings
     ):
-        """Groq reports no cache figures. That must read as 0%, not as an error."""
+        """A provider may report no cache figures. That must read as 0%, not as an error."""
         ledger = load_ledger(committing_db, settings, now=NOW)
         ledger.charge(0.1, usage(input_tokens=1000))
         assert usage_this_month(db, settings, now=NOW).cache_hit_rate == 0.0

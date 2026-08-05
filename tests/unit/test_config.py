@@ -31,21 +31,29 @@ PROD: dict[str, Any] = {
 }
 
 
+#: The four kill switches. They are read by :func:`load_safety_settings` rather
+#: than declared as ``Settings`` fields, so the sweep below cannot find them.
+_SAFETY_VARS = (
+    "AUTO_SUBMIT_ENABLED",
+    "AUTO_SEND_EMAIL_ENABLED",
+    "CAPTCHA_BYPASS_ENABLED",
+    "LINKEDIN_AUTOMATION_ENABLED",
+)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    """Keep the developer's real .env and environment out of these tests."""
-    for var in (
-        "APP_ENV",
-        "APP_BASE_URL",
-        "APP_SECRET_KEY",
-        "APP_ENCRYPTION_KEY",
-        "LLM_PROVIDER",
-        "ANTHROPIC_API_KEY",
-        "AUTO_SUBMIT_ENABLED",
-        "AUTO_SEND_EMAIL_ENABLED",
-        "CAPTCHA_BYPASS_ENABLED",
-        "LINKEDIN_AUTOMATION_ENABLED",
-    ):
+    """Keep the developer's real .env and environment out of these tests.
+
+    Derived from the model rather than listed by hand. A hand-written list goes
+    stale the moment a field is added, and these tests assert *defaults* — so a
+    variable that survives does not fail loudly, it silently tests the
+    developer's machine instead of the code.
+    """
+    for name, field in Settings.model_fields.items():
+        alias = field.validation_alias
+        monkeypatch.delenv(alias if isinstance(alias, str) else name.upper(), raising=False)
+    for var in _SAFETY_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.chdir(tmp_path)  # no .env file to pick up
     get_settings.cache_clear()

@@ -29,20 +29,15 @@ RUN uv sync --frozen --no-dev --extra llm --extra gmail --extra recruiters --ext
 
 FROM python:3.13-slim-bookworm AS runtime
 
-# pdflatex compiles the tailored resume from the user's own .tex, so the engine
-# and the packages that document loads have to be present: newtxtext (fonts-extra),
-# titlesec/enumitem/fancyhdr/xcolor (latex-recommended), ulem and babel. A missing
-# package does not fail loudly here — it fails every build, and every application
-# silently falls back to the untailored base resume.
-#
 # postgresql-client provides pg_dump for the nightly backup. Without it the backup
 # task fails every night with a message that reads like a bug rather than a
 # missing package.
+#
+# No TeX distribution: the resume is a PDF the user supplies, copied and
+# uploaded as it is. Nothing here compiles a document, and texlive-*-extra alone
+# was most of a gigabyte in an image that is rebuilt on every deploy.
 RUN apt-get update \
- && apt-get install --no-install-recommends -y \
-      texlive-latex-base texlive-latex-recommended texlive-latex-extra \
-      texlive-fonts-recommended texlive-fonts-extra texlive-lang-english \
-      fonts-dejavu-core postgresql-client \
+ && apt-get install --no-install-recommends -y postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 app \

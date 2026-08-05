@@ -57,25 +57,24 @@ which. The common ones:
 | Message | Means | Do |
 |---|---|---|
 | `no handler for X` | This worker does not implement that stage | Check the worker started the browser slot too, if X is `PREPARE_APPLICATION` or `REPLAY_APPLICATION` |
-| `resume fact(s) are waiting for you to confirm` | Tailoring refuses unverified facts | `uv run internship-ops verify-facts` |
 | `no candidate name is set` | Nothing to sign an email with | Set it on **/setup** |
 | `no recruiter is assigned` | Nobody matched for that company | Pick one on the outreach page |
-| `tailoring produced unsupported claims` | A bullet cited a fact that does not support it | Open the resume review page; the violations are listed |
-| `no base resume is configured` | `BASE_RESUME_TEX` is unset or points at nothing | `internship-ops check-base-resume`, then fix the path |
+| `no base resume is available` | `BASE_RESUME_PDF` is unset or points at nothing | `internship-ops check-base-resume`, then fix the path |
 | `a CAPTCHA is present` | Working as designed | Open the live review link and finish it yourself |
 
-### Every application says "base resume used"
+### An application has no resume
 
-Not a dead task — the pipeline is working and every resume is going out
-untailored. Almost always a LaTeX package missing from the worker image, which
-fails per build rather than at startup.
+`PREPARE_RESUME` is dead with "no base resume is available". The resume is one
+PDF read from `BASE_RESUME_PDF`; nothing generates it, so this is always a path
+that is wrong or a file that moved.
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm worker internship-ops check-base-resume
 ```
 
-If that passes, the fallback is real: open **/resumes**, read `compile.log` on
-attempt 1, and the reason is in the last twenty lines.
+That prints the path, the size, the checksum and the page count, and says
+whether it has been imported. On the server the file must be inside the mounted
+data directory — a path on your laptop will not exist in the container.
 
 To retry a dead task after fixing the cause, re-queue the work rather than
 resetting the row — the idempotency key means a second enqueue is free.
@@ -142,7 +141,7 @@ GROUP BY 1 ORDER BY 1 DESC;
 ```
 
 The deterministic parts of the pipeline keep working at zero budget. What stops
-is scoring's AI components, hook generation and resume tailoring.
+is scoring's AI components and hook generation.
 
 ---
 

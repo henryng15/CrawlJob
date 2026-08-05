@@ -84,23 +84,16 @@ def db(db_engine: Engine) -> Iterator[Session]:
 
 
 @pytest.fixture(scope="session")
-def sample_resume(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
-    """A small canonical resume, for tests that need one but not *the* one.
+def sample_resume(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A one-page PDF, for tests that need a base resume but not *the* one.
 
-    Written here rather than read from ``.env`` so the tailoring path can be
-    exercised on a machine that has never configured a real resume. The PDF is a
-    blank page: it exists to be copied byte for byte when a build falls back, and
-    nothing reads its contents.
-
-    Tests that need the user's actual resume — the ones proving the template is
-    preserved — read ``BASE_RESUME_TEX`` directly and skip when it is unset.
+    Written here rather than read from ``.env`` so the pipeline can be exercised
+    on a machine that has never configured a real resume. Blank on purpose:
+    nothing in this system reads a resume's contents any more — it copies the
+    file, hashes it, counts its pages and uploads it.
     """
-    directory = tmp_path_factory.mktemp("base-resume")
+    pdf = tmp_path_factory.mktemp("base-resume") / "resume.pdf"
 
-    tex = directory / "resume.tex"
-    tex.write_text(SAMPLE_RESUME_TEX, encoding="utf-8")
-
-    pdf = directory / "resume.pdf"
     from pypdf import PdfWriter
 
     writer = PdfWriter()
@@ -108,53 +101,4 @@ def sample_resume(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]
     with pdf.open("wb") as handle:
         writer.write(handle)
 
-    return tex, pdf
-
-
-#: Deliberately close in shape to a real resume: custom commands, sections, entry
-#: headings, and more than one bullet per list. The headings matter — bullet ids
-#: are built from the employer or project a line sits under, so a fixture without
-#: them would give every bullet an id with no entry in it and never exercise the
-#: check that stops one employer's work being written under another's name.
-SAMPLE_RESUME_TEX = r"""\documentclass[letterpaper,10pt]{article}
-\usepackage[top=0.4in,bottom=0.4in,left=0.4in,right=0.4in]{geometry}
-\usepackage{enumitem}
-\newcommand{\resumeItem}[1]{\item\small{#1}}
-\newcommand{\resumeItemListStart}{\begin{itemize}[topsep=5pt]}
-\newcommand{\resumeItemListEnd}{\end{itemize}}
-\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[itemsep=3pt,label={}]}
-\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeSubheading}[4]{\item\textbf{#1} #2 \\ \emph{#3} #4}
-\newcommand{\resumeProjectHeadingDesc}[3]{\item\textbf{#1} #2 \\ #3}
-\begin{document}
-\section{Work Experience}
-  \resumeSubHeadingListStart
-    \resumeSubheading
-      {Todd Labs}{June 2026 - Present}
-      {Software Engineer Intern}{}
-      \resumeItemListStart
-        \resumeItem{Built a FastAPI service at Todd Labs}
-        \resumeItem{Contributed to a PostgreSQL migration}
-      \resumeItemListEnd
-  \resumeSubHeadingListEnd
-\section{Projects}
-  \resumeSubHeadingListStart
-    \resumeProjectHeadingDesc
-      {ThesisLedger $|$ \emph{DuckDB, Python}}{}
-      {Research tool}
-      \resumeItemListStart
-        \resumeItem{ThesisLedger, a DuckDB-backed research tool}
-        \resumeItem{A Kubernetes operator for batch jobs}
-      \resumeItemListEnd
-  \resumeSubHeadingListEnd
-\section{Education}
-  \resumeSubHeadingListStart
-    \resumeSubheading
-      {Kenyon College}{May 2028}
-      {Bachelor of Arts}{GPA: 4.0}
-      \resumeItemListStart
-        \resumeItem{Coursework: algorithms, databases, operating systems}
-      \resumeItemListEnd
-  \resumeSubHeadingListEnd
-\end{document}
-"""
+    return pdf
