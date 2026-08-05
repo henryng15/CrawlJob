@@ -19,24 +19,16 @@ from app.db.base import (
     enum_column,
 )
 from app.domain.normalization import AtsType
-from app.domain.states import ApplicationState, BrowserSlotState
+from app.domain.states import ApplicationState
 
-__all__ = ["Application", "ApplicationField", "BrowserSession", "ResumeVersion"]
+__all__ = ["Application", "ApplicationField", "ResumeVersion"]
 
 #: Application states that mean "this attempt is over". A new application row may
 #: be created for the same job once it reaches one of these (see the partial
 #: unique index on Application).
 _CLOSED_STATES = (
     ApplicationState.SKIPPED,
-    ApplicationState.WITHDRAWN,
     ApplicationState.FAILED,
-    # An expired application has been let go, so it must not keep the job locked
-    # against a fresh attempt. Restoring one therefore has to check that nothing
-    # else has since claimed the job.
-    ApplicationState.EXPIRED,
-    # Blocked for the same reason: often the block *is* "something else already
-    # covers this job", so counting it as active would be circular.
-    ApplicationState.RESTORE_BLOCKED,
 )
 
 
@@ -119,15 +111,9 @@ class Application(UUIDMixin, TimestampMixin, Base):
                 "status NOT IN (" + ", ".join(repr(s.value) for s in _CLOSED_STATES) + ")"
             ),
         ),
-        Index("ix_applications_status_ready", "status", "ready_for_review_at"),
-        # Partial: only rows that are actually waiting carry a deadline, and the
-        # sweep runs every quarter hour forever.
-        Index(
-            "ix_applications_expires_at",
-            "expires_at",
-            postgresql_where=text("expires_at IS NOT NULL"),
-        ),
-        Index("ix_applications_outreach_due", "outreach_due_at"),
+        Index("ix_applications_status_needs_me", "status", "needs_me_at"),
+        # The daily submit cap is counted off this one, on every auto-submit.
+        Index("ix_applications_submitted_at", "submitted_at"),
     )
 
     job_id: Mapped[uuid.UUID] = mapped_column(
@@ -140,40 +126,32 @@ class Application(UUIDMixin, TimestampMixin, Base):
     status = enum_column(name="status", default=ApplicationState.CREATED, index=True)
     application_url: Mapped[str] = mapped_column(Text, nullable=False)
     ats_type = enum_column(name="ats_type", nullable=True)
-    browser_slot_id: Mapped[str | None] = mapped_column(Text)
 
-    ready_for_review_at: Mapped[datetime | None] = mapped_column()
-    #: When this application stops waiting for the user (§7.9). Stamped on the
-    #: way into a state that waits for a person, and cleared on the way out, so
-    #: the sweep is one indexed comparison rather than a rule reimplemented in
-    #: SQL. NULL means "not waiting", which is why the sweep can never expire
-    #: work the machine still owns.
-    expires_at: Mapped[datetime | None] = mapped_column()
-    #: Why a restore was refused, in the user's words. Set with the transition to
-    #: RESTORE_BLOCKED and cleared when a restore is attempted again, so the row
-    #: never shows a stale explanation for a block that has since lifted.
-    restore_blocked_reason: Mapped[str | None] = mapped_column(Text)
-    #: When a restore last succeeded. The row is otherwise indistinguishable from
-    #: one that was never expired, and "this came back from the dead" is
-    #: something the user should be able to see on the list.
-    restored_at: Mapped[datetime | None] = mapped_column()
-    #: SHA-256 of the base resume this application's tailoring was planned
-    #: against. Pinned when the bullet inventory is read, checked before the plan
-    #: is applied. The ids in a plan only mean anything relative to one version of
-    #: the resume, so a plan and a resume that disagree is not something to
-    #: reconcile — it is a plan to throw away (§7.7).
-    base_tex_sha256: Mapped[str | None] = mapped_column(Text)
+    # ---- handed over to the user -----------------------------------------
+    needs_me_at: Mapped[datetime | None] = mapped_column()
+    #: One sentence saying why the machine stopped, written for the user rather
+    #: than for a log — it is rendered verbatim on the dashboard. The state alone
+    #: cannot carry this: "the employer is on your manual list" and "three
+    #: required questions had no locked fact" are the same state and completely
+    #: different instructions.
+    needs_me_reason: Mapped[str | None] = mapped_column(Text)
+    #: The exact question texts still to be answered, so the dashboard can tell
+    #: the user what to fill in before they open the form. Empty for an
+    #: application that stopped for a reason other than missing answers.
+    missing_fields: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
 
+    # ---- submitted --------------------------------------------------------
     submitted_at: Mapped[datetime | None] = mapped_column()
-    #: How the submission was established: an observed signal, or the user
-    #: pressing "Mark Submitted" (§7.10).
+    #: How the submission was established: the confirmation page we saw after
+    #: clicking, or the user pressing "Mark submitted" for one they did by hand.
     submission_detection_method: Mapped[str | None] = mapped_column(Text)
     submission_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3))
-    #: Confirmation URL, matched text, screenshot path. Never raw POST bodies
-    #: (§7.10, §23.5).
+    #: Confirmation URL, matched text, screenshot path. Never raw POST bodies.
     confirmation_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-
-    outreach_due_at: Mapped[datetime | None] = mapped_column()
+    #: True when the submit path ran to the end with the click suppressed. The
+    #: row looks exactly like a real submission otherwise, and telling the two
+    #: apart afterwards is the entire value of a dry run.
+    was_dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     fields: Mapped[list[ApplicationField]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
@@ -216,33 +194,3 @@ class ApplicationField(UUIDMixin, TimestampMixin, Base):
     locator_strategy: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     application: Mapped[Application] = relationship(back_populates="fields")
-
-
-class BrowserSession(UUIDMixin, Base):
-    __tablename__ = "browser_sessions"
-    __table_args__ = (
-        enum_check(BrowserSlotState, "status"),
-        Index("ix_browser_sessions_slot_status", "slot_name", "status"),
-        Index("ix_browser_sessions_heartbeat", "heartbeat_at"),
-    )
-
-    slot_name: Mapped[str] = mapped_column(Text, nullable=False)
-    application_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("applications.id")
-    )
-    status = enum_column(name="status", default=BrowserSlotState.IDLE)
-
-    #: Hash only. A stolen database row must not yield a working review link
-    #: (§15.3).
-    review_token_hash: Mapped[str | None] = mapped_column(Text)
-    profile_path: Mapped[str | None] = mapped_column(Text)
-    storage_state_path: Mapped[str | None] = mapped_column(Text)
-    replay_package_path: Mapped[str | None] = mapped_column(Text)
-
-    #: Written by the slot itself. A stale heartbeat is how the worker detects a
-    #: crashed slot and recovers the lock (§9.1).
-    heartbeat_at: Mapped[datetime | None] = mapped_column()
-    expires_at: Mapped[datetime | None] = mapped_column()
-    started_at: Mapped[datetime | None] = mapped_column()
-    ended_at: Mapped[datetime | None] = mapped_column()
-    error_summary: Mapped[str | None] = mapped_column(Text)

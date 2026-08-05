@@ -6,8 +6,18 @@ the question is asking, and where the answer may come from.
 The second decision is the safety-critical one. §7.8 lists the questions that must
 never be answered by inference — work authorization, citizenship, export control,
 criminal history, the EEO block, salary, attestations and electronic signatures.
-Each of those either comes from a locked candidate fact the user set deliberately,
-or it goes to the user.
+None of those may ever be model-derived or read from an unlocked fact.
+
+Within that set the questions divide by *how often the truthful answer changes*:
+
+* Whether someone is a citizen, or has a felony conviction, or how they choose to
+  answer the EEO block, is a constant for that person. The user sets it once,
+  deliberately, and locks it — see :data:`LOCKED_FACT_ANSWERABLE_KEYS`.
+* Expected salary is per-application. Relocation depends on where the job is. A
+  clearance or export-control answer depends on the employer asking. And a
+  signature or an attestation is not a fact at all but a legal act, which is the
+  user's to perform. See :data:`ALWAYS_MANUAL_KEYS`: those stop the application
+  even when a locked fact happens to exist.
 
 The classification is deliberately biased toward manual: an unrecognised question
 becomes ``UNRESOLVED`` rather than being guessed at. The cost of that bias is the
@@ -23,6 +33,8 @@ from enum import StrEnum
 from typing import Any
 
 __all__ = [
+    "ALWAYS_MANUAL_KEYS",
+    "LOCKED_FACT_ANSWERABLE_KEYS",
     "MANUAL_ONLY_KEYS",
     "Answer",
     "FieldSpec",
@@ -69,16 +81,20 @@ class SourceType(StrEnum):
     UNRESOLVED = "UNRESOLVED"
 
 
-#: Semantic keys whose answers may only ever come from a locked fact or a human.
-#: Every entry here is a question where a wrong answer is a false statement.
-MANUAL_ONLY_KEYS: frozenset[str] = frozenset(
+#: Manual-only keys whose truthful answer is a constant for a given person. The
+#: user sets each one once and locks it, and a locked fact is as true on the
+#: hundredth form as on the first — so these may be filled from one, and only from
+#: one. Never from a model, never from an unlocked fact.
+LOCKED_FACT_ANSWERABLE_KEYS: frozenset[str] = frozenset(
     {
         "auth.work_authorized",
-        "auth.work_authorized_without_sponsorship",
         "auth.requires_sponsorship",
+        # Listed for completeness only. A question carrying both markers is
+        # refused by app.services.work_authorization before resolution reaches
+        # this table, because the two facts cannot be combined without changing
+        # what is being claimed.
+        "auth.work_authorized_without_sponsorship",
         "auth.citizenship",
-        "auth.export_control",
-        "auth.security_clearance",
         "background.criminal_history",
         "background.previously_employed",
         "background.noncompete",
@@ -86,12 +102,31 @@ MANUAL_ONLY_KEYS: frozenset[str] = frozenset(
         "eeo.veteran_status",
         "eeo.race_ethnicity",
         "eeo.gender",
+    }
+)
+
+#: Manual-only keys that stop the application even when a locked fact exists,
+#: because a stored answer would not be the answer to *this* question:
+#:
+#: * salary expectation and relocation are per-application judgements;
+#: * clearance and export control depend on the employer and the role asking;
+#: * a signature or an attestation is a legal act, not a fact — only the person
+#:   making the statement may make it.
+ALWAYS_MANUAL_KEYS: frozenset[str] = frozenset(
+    {
         "compensation.expected",
         "commitment.relocation",
+        "auth.security_clearance",
+        "auth.export_control",
         "legal.attestation",
         "legal.signature",
     }
 )
+
+#: Every key a model may never answer and an unlocked fact may never fill. Kept as
+#: the union so callers auditing "was policy applied to this field" need only one
+#: set; the split above decides whether a locked fact is enough.
+MANUAL_ONLY_KEYS: frozenset[str] = LOCKED_FACT_ANSWERABLE_KEYS | ALWAYS_MANUAL_KEYS
 
 #: Ordered question patterns. First match wins, so the specific ones come first.
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -298,7 +333,15 @@ def resolve(
 
     # Policy before data. A manual-only question is not answered from a model or
     # from an unlocked fact even when one happens to be available.
-    if key in MANUAL_ONLY_KEYS:
+    if key in ALWAYS_MANUAL_KEYS:
+        return Answer(
+            key,
+            None,
+            SourceType.MANUAL_REQUIRED,
+            note="only the user may answer this, on every application",
+        )
+
+    if key in LOCKED_FACT_ANSWERABLE_KEYS:
         if key in facts and key in locked_keys:
             return Answer(
                 key,
@@ -311,7 +354,7 @@ def resolve(
             key,
             None,
             SourceType.MANUAL_REQUIRED,
-            note="policy requires the user to answer this",
+            note="policy requires a locked candidate fact for this, and none is set",
         )
 
     if key in facts:
@@ -346,9 +389,7 @@ def _work_authorization(
     """
     from app.services.work_authorization import Category, decide
 
-    decision = decide(
-        spec.question_text, spec.name, facts=facts, locked_keys=locked_keys
-    )
+    decision = decide(spec.question_text, spec.name, facts=facts, locked_keys=locked_keys)
     if decision.category is Category.UNRELATED:
         return None
 

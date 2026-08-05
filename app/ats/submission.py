@@ -1,13 +1,16 @@
 """Submission detection (spec §7.10).
 
-The system never submits, so it has to *notice* when the user did. Getting this
-wrong is costly in both directions and the errors are not symmetric:
+Clicking Submit is not the same as having applied. The click may hit a validation
+error, a session that expired while the form was being filled, or a page that
+silently saved a draft. So the worker clicks and then *reads the employer's page*
+to find out what happened, and that reading is what this module performs.
 
-* **A false positive** schedules a recruiter email claiming an application was
-  submitted when it was not. §8.3 forbids that claim, and the user finds out from
-  the recruiter's reply.
-* **A false negative** leaves an application sitting in the queue. The user
-  notices and presses "Mark Submitted".
+Getting it wrong is costly in both directions, and the errors are not symmetric:
+
+* **A false positive** marks an application ``SUBMITTED`` that was never filed.
+  The user never sees it again, and never applies for that job.
+* **A false negative** leaves an application in ``NEEDS_ME``. The user opens the
+  link, sees it went through, and presses "Mark Submitted".
 
 So the threshold is deliberately high — one strong signal, or two medium ones
 (§7.10) — and the fallback for a miss is a button, not a guess.
@@ -36,11 +39,10 @@ class Strength(IntEnum):
 
 
 class DetectionMethod(StrEnum):
+    #: The page was read after our own click and said the application landed.
     AUTOMATIC = "AUTOMATIC"
     #: The user pressed "Mark Submitted" (§7.10 fallback).
     USER_CONFIRMED = "USER_CONFIRMED"
-    #: A confirmation email was matched during Gmail reconciliation.
-    EMAIL_RECONCILED = "EMAIL_RECONCILED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +102,7 @@ _SUBMIT_ENDPOINTS: tuple[re.Pattern[str], ...] = (
 
 @dataclass(frozen=True, slots=True)
 class Observation:
-    """The page before and after the user's click, plus what the network did."""
+    """The page before and after the Submit click, plus what the network did."""
 
     url_before: str
     url_after: str
@@ -183,8 +185,12 @@ def collect_signals(obs: Observation) -> list[Signal]:
 def detect(obs: Observation) -> SubmissionVerdict:
     """Decide whether the application was submitted.
 
-    Requires one strong signal, or two medium ones of which at least one is about
-    the form rather than about navigation (§7.10).
+    Called on the page the worker is looking at just after it clicked Submit
+    itself. Knowing a click was issued is not evidence of anything — this asks
+    only what the employer's page now shows — so the bar is unchanged from when
+    the same function watched the user click: one strong signal, or two medium
+    ones of which at least one is about the form rather than about navigation
+    (§7.10).
 
     That last clause exists because navigating away from a form produces a URL
     change and a title change together — two medium signals, and a reported
@@ -192,7 +198,9 @@ def detect(obs: Observation) -> SubmissionVerdict:
     the button goes, the form is replaced, or the page says something.
 
     Visible validation errors veto the whole thing: a rejected form often
-    re-renders and retitles, which otherwise mimics success closely.
+    re-renders and retitles, which otherwise mimics success closely. That is the
+    common case now that the worker submits — a required question the fill pass
+    could not see must come back as "not submitted", not as a guess.
     """
     signals = collect_signals(obs)
     verdict = SubmissionVerdict(submitted=False, confidence=0.0, signals=signals)

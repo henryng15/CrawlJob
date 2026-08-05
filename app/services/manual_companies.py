@@ -6,9 +6,14 @@ the user maintains and is consulted before any automated submission.
 
 The key is the **domain**, and the reason is worth stating once: company names do
 not identify companies. Two names can be one employer ("Raytheon" / "RTX"), one
-name can be two employers, and abbreviations collide with real words. A policy
-list keyed on names fails *open* — it lets an application through because a string
-did not match — which is the one failure this list exists to prevent.
+name can be two employers, and abbreviations collide with real words.
+
+Everything in :func:`is_manual_only` therefore fails *closed*. The system now
+clicks Submit on its own, so a wrong "no" is not a wasted preparation any more —
+it is an application sent to an employer the user had reserved for themselves,
+and there is no undo for that. A wrong "yes" costs the user a few minutes in
+their own browser. The two errors are not comparable, so the function only ever
+answers "no" when it has a domain and that domain is demonstrably absent.
 """
 
 from __future__ import annotations
@@ -139,41 +144,74 @@ def import_csv(session: Session, path: Path, *, source: str) -> ImportReport:
     return report
 
 
-def is_manual_only(session: Session, *, domain: str | None, company_name: str | None) -> bool:
-    """Must an application to this employer be finished by hand?
+def _match_keys(host: str) -> list[str]:
+    """``host`` and every parent domain of it, most specific first.
 
-    Decided on the normalized domain whenever one is available. The name is only
-    consulted when ``domain`` is absent, and **that fallback is unreliable** — it
-    compares :func:`~app.domain.normalization.normalize_company` keys, which miss
-    every one of these real pairs:
+    A feed hands us ``careers.stripe.com`` while the user's list says
+    ``stripe.com``. Comparing only the exact string would call that a miss, and a
+    miss is now an auto-submission. Parents can only ever add a "yes", so a
+    meaningless tail like ``com.br`` in the sequence costs nothing: it is not on
+    anyone's list, and if it somehow were, that is the user's own list saying so.
+    """
+    labels = host.split(".")
+    return [".".join(labels[index:]) for index in range(len(labels) - 1)]
+
+
+def _domain_is_listed(session: Session, host: str) -> bool:
+    return (
+        session.scalars(
+            select(ManualOnlyCompany.id)
+            .where(ManualOnlyCompany.domain.in_(_match_keys(host)))
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def _name_is_listed(session: Session, company_name: str | None) -> bool:
+    """Does a listed company fold to the same name key as ``company_name``?
+
+    Names shorter than two characters after folding are never matched: ``"X"``
+    folds to ``"x"``, and a one-character key would pull any similarly folded
+    name onto the list.
+    """
+    if not company_name:
+        return False
+    key = normalize_company(company_name)
+    if len(key) < _MIN_NAME_KEY_LENGTH:
+        return False
+    listed = session.scalars(select(ManualOnlyCompany.company_name)).all()
+    return any(normalize_company(name) == key for name in listed)
+
+
+def is_manual_only(session: Session, *, domain: str | None, company_name: str | None) -> bool:
+    """Must an application to this employer be finished by hand? **Fails closed.**
+
+    Exactly one thing produces ``False``: a usable domain that is absent from the
+    list, under a name that is also absent. Everything else is ``True``.
+
+    In particular **no domain means ``True``**. Do not "fix" that by falling
+    through to the name — this function is the last thing between a discovered
+    posting and a browser that clicks Submit, and ``False`` is the irreversible
+    answer. A company routed to manual by mistake costs the user a few minutes;
+    a company routed to auto by mistake sends an application they had reserved
+    for themselves, in their words, and it cannot be recalled.
+
+    The name check is an **additional way to reach ``True``** and never a way to
+    reach ``False``. It compares
+    :func:`~app.domain.normalization.normalize_company` keys, which miss every
+    one of these real pairs:
 
     * ``"DE Shaw"`` vs ``"D. E. Shaw & Co."``
     * ``"Raytheon"`` vs ``"RTX"``
     * ``"Coca-Cola"`` vs ``"The Coca-Cola Company"``
     * ``"BCG"`` vs ``"Boston Consulting Group"``
 
-    A false negative here means an application to a listed company is treated as
-    automatable, so callers should obtain a domain rather than lean on the name.
-
-    Names shorter than two characters after folding are never matched at all:
-    ``"X"`` folds to ``"x"``, and a one-character key would let any similarly
-    folded name pull a company onto the list.
+    So a name that does not match proves nothing at all, and is treated as
+    proving nothing. Only the domain can clear an employer for auto-submission,
+    which is the whole reason discovery works to obtain one.
     """
-    normalized = normalize_domain(domain or "")
-    if normalized:
-        return (
-            session.scalars(
-                select(ManualOnlyCompany.id).where(ManualOnlyCompany.domain == normalized).limit(1)
-            ).first()
-            is not None
-        )
-
-    if not company_name:
-        return False
-
-    key = normalize_company(company_name)
-    if len(key) < _MIN_NAME_KEY_LENGTH:
-        return False
-
-    listed = session.scalars(select(ManualOnlyCompany.company_name)).all()
-    return any(normalize_company(name) == key for name in listed)
+    host = normalize_domain(domain or "")
+    if not host:
+        return True
+    return _domain_is_listed(session, host) or _name_is_listed(session, company_name)

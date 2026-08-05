@@ -1,8 +1,9 @@
 """End-to-end browser tests against the fake ATS (Milestone 0, §7.8, §28.4).
 
-These drive a real Chromium through Playwright against a real HTTP server. They
-are the acceptance criteria for Milestone 0 locally; the ARM64 half still needs
-the OCI instance.
+These drive a real Chromium through Playwright against a real HTTP server, and
+they are the only place the whole auto lane is exercised end to end: extract,
+resolve, fill, click Submit, read the confirmation page. Everything else can be
+made to pass with a mock that agrees with the code.
 
 Marked ``browser`` so the fast loop can skip them:
 
@@ -15,14 +16,20 @@ import socket
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import uvicorn
 
-from app.ats.driver import detect_captcha, extract_form, fill_form
-from app.ats.fields import SourceType, resolve
-from app.ats.replay import build_package, check_replayable
-from app.ats.submission import Observation, detect
+from app.ats.driver import (
+    FillReport,
+    detect_captcha,
+    extract_form,
+    fill_form,
+    find_submit_control,
+    submit_form,
+)
+from app.ats.fields import FieldSpec, SourceType, resolve
 from browser.fake_ats.app import create_app, submissions
 
 pytest.importorskip("playwright.sync_api", reason="playwright is an optional extra")
@@ -101,11 +108,30 @@ def resume(tmp_path: Path) -> Path:
     return path
 
 
-def prepare(page: Page, url: str, resume_path: Path | None = None):
-    """Extract, resolve and fill — the worker's whole pre-review pass."""
+@pytest.fixture(autouse=True)
+def clean_submissions() -> Iterator[None]:
+    """The fake ATS keeps submissions in one module-level dict.
+
+    Cleared around every test so "did this test submit anything" is answerable,
+    which is the assertion the dry-run tests rest on.
+    """
+    submissions.clear()
+    yield
+    submissions.clear()
+
+
+def prepare(
+    page: Page,
+    url: str,
+    resume_path: Path | None = None,
+    *,
+    facts: dict[str, Any] = FACTS,
+    locked: frozenset[str] = LOCKED,
+) -> tuple[list[FieldSpec], list, FillReport]:
+    """Extract, resolve and fill — the worker's whole pass before the click."""
     page.goto(url)
     specs = extract_form(page)
-    answers = [resolve(s, facts=FACTS, locked_keys=LOCKED) for s in specs]
+    answers = [resolve(s, facts=facts, locked_keys=locked) for s in specs]
     report = fill_form(page, specs, answers, resume_path=resume_path)
     return specs, answers, report
 
@@ -229,7 +255,6 @@ class TestFillRespectsPolicy:
         self, page: Page, ats_url: str, resume: Path
     ):
         _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
-        assert report.needs_human
         assert len(report.skipped_manual) >= 4
 
     def test_the_salary_question_is_left_for_the_user(self, page: Page, ats_url: str, resume: Path):
@@ -237,40 +262,135 @@ class TestFillRespectsPolicy:
         assert page.input_value("#salary") == ""
 
 
-class TestNeverSubmits:
-    def test_the_form_is_not_submitted(self, page: Page, ats_url: str, resume: Path):
-        """The hard rule. Filling a form must never post it."""
-        submissions.clear()
-        prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+class TestBlocking:
+    """Which unanswered questions stop an application, and which do not.
 
-        assert not submissions, "the fill pass posted an application"
-        assert page.url.rstrip("/") == f"{ats_url}/greenhouse/jobs/1"
+    The old rule — any skipped field blocks — put every Greenhouse form in the
+    manual queue, because every Greenhouse form has an optional question. The new
+    rule reads ``required`` off the employer's own markup.
+    """
 
-    def test_the_submit_button_is_still_there_afterwards(
+    def test_an_optional_empty_field_does_not_block(self, page: Page, ats_url: str, resume: Path):
+        """The EEO block and the attestation are optional here, and stay empty."""
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+
+        assert "Gender" in report.skipped_manual
+        assert page.input_value("#eeo_gender") == ""
+        assert not report.blocked, report.summary()
+        assert report.blocking_questions == []
+        assert report.block_reason == ""
+
+    def test_a_missing_required_field_blocks_and_names_the_question(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        """The name goes to the dashboard verbatim, so it has to be the employer's.
+
+        "School" is what the user will look for on the page when they open it —
+        ``education.school`` is not.
+        """
+        without_school = {k: v for k, v in FACTS.items() if k != "education.school"}
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume, facts=without_school)
+
+        assert report.blocked
+        assert report.blocking_questions == ["School"]
+        assert "School" in report.block_reason
+
+    def test_an_unanswerable_required_field_blocks_even_though_others_filled(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        """Nothing locked means the two work-authorization questions block."""
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume, locked=frozenset())
+
+        assert report.filled, "the ordinary fields should still have been filled"
+        assert set(report.blocking_questions) == {
+            "Are you legally authorized to work in the US?",
+            "Will you now or in the future require sponsorship?",
+        }
+
+
+class TestSubmitting:
+    """The click, and reading what the employer's page says came of it."""
+
+    def test_a_complete_form_is_submitted_and_detected(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        assert not report.blocked, report.summary()
+
+        outcome = submit_form(page, dry_run=False)
+
+        assert outcome.clicked
+        assert outcome.submitted, outcome.reason
+        assert len(submissions) == 1, "the employer did not record an application"
+        assert next(iter(submissions.values())).fields["first_name"] == "Hoan"
+
+    def test_the_verdict_rests_on_the_confirmation_page_not_on_having_clicked(
         self, page: Page, ats_url: str, resume: Path
     ):
         prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        outcome = submit_form(page, dry_run=False)
+
+        assert outcome.verdict is not None
+        assert outcome.verdict.strong_count >= 1
+        assert "confirmation" in page.url
+
+    def test_a_validation_fault_is_not_reported_as_success(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        """The ATS rejects the first submit and re-renders with an error banner.
+
+        A re-render changes the URL and the title, which is exactly what success
+        looks like — so this is the case a naive detector gets wrong, and the case
+        that would bury a job the user never applied for.
+        """
+        prepare(page, f"{ats_url}/greenhouse/jobs/1?fault=validation", resume)
+        outcome = submit_form(page, dry_run=False)
+
+        assert outcome.clicked
+        assert not outcome.submitted, outcome.reason
+        assert not submissions, "the employer never accepted this application"
+
+    def test_a_dry_run_locates_the_control_but_never_clicks(
+        self, page: Page, ats_url: str, resume: Path
+    ):
+        prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        before = page.url
+        outcome = submit_form(page, dry_run=True)
+
+        assert outcome.dry_run
+        assert not outcome.clicked
+        assert outcome.control == "Submit Application"
+        assert outcome.verdict is None
+        assert not submissions, "a dry run posted an application"
+        assert page.url == before
+
+    def test_the_form_is_still_there_after_a_dry_run(self, page: Page, ats_url: str, resume: Path):
+        """The proof that nothing happened, taken from the page rather than a flag."""
+        prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        submit_form(page, dry_run=True)
+
+        assert page.query_selector("#application-form") is not None
         assert page.query_selector("#submit-application") is not None
+        assert page.input_value("#first_name") == "Hoan"
 
-    def test_detection_reports_nothing_submitted_after_a_fill(
-        self, page: Page, ats_url: str, resume: Path
-    ):
-        url = f"{ats_url}/greenhouse/jobs/1"
-        title_before = page.title() if page.url != "about:blank" else ""
-        prepare(page, url, resume)
+    def test_a_page_with_no_submit_control_is_refused(self, page: Page, ats_url: str):
+        page.goto(f"{ats_url}/greenhouse/jobs/1?fault=expired")
+        outcome = submit_form(page, dry_run=False)
 
-        verdict = detect(
-            Observation(
-                url_before=url,
-                url_after=page.url,
-                text_after=page.inner_text("body"),
-                title_before=title_before or page.title(),
-                title_after=page.title(),
-                submit_button_present_after=page.query_selector("#submit-application") is not None,
-                form_present_after=page.query_selector("#application-form") is not None,
-            )
+        assert not outcome.clicked
+        assert "no submit control" in outcome.reason
+
+    def test_two_plausible_controls_are_refused_rather_than_guessed(self, page: Page):
+        """A click cannot be taken back, so ambiguity is answered with a refusal."""
+        page.set_content(
+            "<form><button type='submit'>Submit</button><button>Apply with LinkedIn</button></form>"
         )
-        assert not verdict.submitted
+        control, reason = find_submit_control(page)
+        outcome = submit_form(page, dry_run=False)
+
+        assert control is None
+        assert "2 possible submit controls" in reason
+        assert not outcome.clicked
 
 
 class TestCaptcha:
@@ -288,49 +408,11 @@ class TestCaptcha:
         """AGENTS.md: never bypass. The only response is to stop and ask."""
         _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1?fault=captcha", resume)
         assert report.captcha_detected
-        assert report.needs_human
+        assert report.blocked
+        assert "CAPTCHA" in report.block_reason
 
 
-class TestReplayAgainstARealPage:
-    def test_a_package_built_from_a_live_page_replays_against_it(
-        self, page: Page, ats_url: str, resume: Path
-    ):
-        from datetime import UTC, datetime
-
-        url = f"{ats_url}/greenhouse/jobs/1"
-        specs, answers, _ = prepare(page, url, resume)
-        package = build_package(
-            application_id="app-1",
-            application_url=url,
-            ats_type="GREENHOUSE",
-            specs=specs,
-            answers=answers,
-            created_at=datetime.now(UTC),
-        )
-
-        page.goto(url)
-        assert check_replayable(package, extract_form(page)).can_replay
-
-    def test_a_renamed_form_still_replays_because_labels_are_unchanged(
-        self, page: Page, ats_url: str, resume: Path
-    ):
-        """Renaming inputs breaks CSS selectors but not accessible labels."""
-        from datetime import UTC, datetime
-
-        url = f"{ats_url}/greenhouse/jobs/1"
-        specs, answers, _ = prepare(page, url, resume)
-        package = build_package(
-            application_id="app-1",
-            application_url=url,
-            ats_type="GREENHOUSE",
-            specs=specs,
-            answers=answers,
-            created_at=datetime.now(UTC),
-        )
-
-        page.goto(f"{url}?fault=selectors")
-        assert check_replayable(package, extract_form(page)).can_replay
-
+class TestARenamedForm:
     def test_a_renamed_form_is_still_fillable_via_label_locators(
         self, page: Page, ats_url: str, resume: Path
     ):

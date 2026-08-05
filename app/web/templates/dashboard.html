@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <h1>
@@ -7,75 +6,131 @@
   {% if d.needs_attention %}<span class="count-badge">{{ d.needs_attention }} waiting on you</span>{% endif %}
 </h1>
 
-<div class="grid">
-  <div class="panel">
-    <h2 style="margin-top:0">Daily limits</h2>
-    <dl class="facts">
-      <dt>Applications prepared</dt>
-      <dd>
-        {{ d.limits.prepared_today }} / {{ d.limits.prepared_cap }}
-        {% if d.limits.prepared_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
-      </dd>
-      <dt>Drafts created</dt>
-      <dd>
-        {{ d.limits.drafts_today }} / {{ d.limits.drafts_cap }}
-        {% if d.limits.drafts_exhausted %}<span class="tag warn">cap reached</span>{% endif %}
-      </dd>
-    </dl>
+{% if d.dry_run %}
+  <div class="banner-warn">
+    <strong>Dry run &mdash; nothing is being sent.</strong>
+    The browser fills every form, finds the Submit button, photographs it and stops.
+    Applications still arrive below as needing you. Turn off
+    <code>AUTO_SUBMIT_DRY_RUN</code> to let it click.
   </div>
-
-  <div class="panel">
-    <h2 style="margin-top:0">Queue</h2>
-    <dl class="facts">
-      {% for name, count in d.queue_health.items() %}
-        <dt>{{ name }}</dt><dd>{{ count }}</dd>
-      {% endfor %}
-    </dl>
-    {% if d.queue_health.get('dead') %}
-      <p class="tag bad">{{ d.queue_health['dead'] }} task(s) buried — see the worker log</p>
-    {% endif %}
+{% elif not d.auto_submit_enabled %}
+  <div class="banner-warn">
+    <strong>Auto-submit is off.</strong> Every form is filled and then handed to you.
+    Turn on <code>AUTO_SUBMIT_ENABLED</code> to let the browser finish them.
   </div>
-
-  <div class="panel">
-    <h2 style="margin-top:0">Browser slots</h2>
-    {% if d.slots %}
-      <dl class="facts">
-        {% for slot in d.slots %}
-          <dt>{{ slot.slot_name }}</dt>
-          <dd>
-            {{ slot.status }}
-            {% if slot.stale(now=now) %}<span class="tag bad">no heartbeat</span>{% endif %}
-          </dd>
-        {% endfor %}
-      </dl>
-    {% else %}
-      <p class="empty">No live sessions.</p>
-    {% endif %}
-  </div>
-</div>
-
-<h2>Submissions awaiting confirmation</h2>
-{{ m.apps_table(d.awaiting_confirmation, "Nothing awaiting confirmation.") }}
-
-<h2>Applications waiting on you</h2>
-{{ m.apps_table(d.applications | selectattr("needs_a_person") | list,
-                "No application needs you right now.") }}
-
-<h2>Replay queue</h2>
-{{ m.apps_table(d.replay_queue, "Replay queue is empty.") }}
-
-<h2>Email drafts ready</h2>
-{{ m.outreach_table(d.drafts_ready, "No drafts ready.") }}
-{% if d.drafts_ready %}
-  <p class="muted">Reviewing opens the draft in Gmail. This system never sends.</p>
 {% endif %}
 
-<h2>Outreach due</h2>
-{{ m.outreach_table(d.outreach_due, "Nothing due.") }}
+<div class="panel">
+  <dl class="facts">
+    <dt>Submitted today</dt>
+    <dd>
+      {{ d.submitted_today }} / {{ d.daily_cap }}
+      {% if d.cap_reached %}<span class="tag warn">cap reached</span>{% endif %}
+    </dd>
+    <dt>In progress</dt>
+    <dd>
+      {{ d.in_progress | length }}
+      {% if d.in_progress %}
+        <span class="muted">
+          &mdash;
+          {% for a in d.in_progress %}
+            {{ a.company }} ({{ a.status }}){% if not loop.last %} &middot; {% endif %}
+          {% endfor %}
+        </span>
+      {% endif %}
+    </dd>
+    {% if d.queue_health.get('dead') %}
+      <dt>Workers</dt>
+      <dd><span class="tag bad">{{ d.queue_health['dead'] }} task(s) buried &mdash; see the worker log</span></dd>
+    {% endif %}
+  </dl>
+</div>
 
-<h2>Selected, not yet applied</h2>
-{{ m.jobs_table(d.selected, "Nothing selected.") }}
+<h2>Needs you &mdash; {{ d.needs_me | length }}</h2>
+{% if d.needs_me %}
+  <p class="muted">
+    The machine stopped rather than guess. Open the form in your own browser,
+    answer what is listed, submit it, then press &ldquo;Mark submitted&rdquo;.
+  </p>
+  <div class="panel table-wrap"><table>
+    <tr>
+      <th>Company</th><th>Role</th><th>Why it stopped</th>
+      <th>Still to answer</th><th>Since</th><th></th>
+    </tr>
+    {% for a in d.needs_me %}
+    <tr>
+      <td>{{ a.company }}</td>
+      <td>{{ a.job_title }}</td>
+      <td>{{ a.needs_me_reason or "—" }}</td>
+      <td>
+        {% if a.missing_fields %}
+          <ul class="questions">
+            {% for question in a.missing_fields %}<li>{{ question }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          <span class="muted">nothing listed</span>
+        {% endif %}
+      </td>
+      <td class="muted">{{ a.when.strftime("%d %b %H:%M") }}</td>
+      <td class="actions">
+        <a class="button primary" href="{{ a.application_url }}"
+           target="_blank" rel="noopener noreferrer">Open the form</a>
+        <form method="post" action="/applications/{{ a.id }}/submitted" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+          <button type="submit">Mark submitted</button>
+        </form>
+        <form method="post" action="/applications/{{ a.id }}/skip" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
+          <button class="danger" type="submit">Skip</button>
+        </form>
+        <div><a href="/applications/{{ a.id }}">details</a></div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+{% else %}
+  <p class="empty">Nothing is waiting on you.</p>
+{% endif %}
 
-<h2>Discovered today ({{ d.discovered_today | length }})</h2>
-{{ m.jobs_table(d.discovered_today, "Nothing discovered today.") }}
+<h2>Submitted &mdash; {{ d.submitted | length }}</h2>
+{% if d.submitted %}
+  <div class="panel table-wrap"><table>
+    <tr><th>Company</th><th>Role</th><th>When</th><th>How</th><th></th></tr>
+    {% for a in d.submitted %}
+    <tr>
+      <td>{{ a.company }}</td>
+      <td>{{ a.job_title }}</td>
+      <td>{{ a.when.strftime("%d %b %H:%M") }}</td>
+      <td><span class="tag {{ '' if a.marked_by_you else 'good' }}">{{ a.detection }}</span></td>
+      <td>
+        {% if a.confirmation_screenshot %}
+          <a href="/applications/{{ a.id }}/confirmation" target="_blank" rel="noopener">confirmation</a>
+          &middot;
+        {% endif %}
+        <a href="/applications/{{ a.id }}">details</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+{% else %}
+  <p class="empty">Nothing submitted yet.</p>
+{% endif %}
+
+<h2>Failed or skipped &mdash; {{ d.closed | length }}</h2>
+{% if d.closed %}
+  <div class="panel table-wrap"><table>
+    <tr><th>Company</th><th>Role</th><th>Status</th><th>What went wrong</th><th></th></tr>
+    {% for a in d.closed %}
+    <tr>
+      <td>{{ a.company }}</td>
+      <td>{{ a.job_title }}</td>
+      <td><span class="tag {{ 'bad' if a.status == 'FAILED' else '' }}">{{ a.status }}</span></td>
+      <td class="muted">{{ a.note or "—" }}</td>
+      <td><a href="/applications/{{ a.id }}">details</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+{% else %}
+  <p class="empty">Nothing failed or skipped.</p>
+{% endif %}
 {% endblock %}

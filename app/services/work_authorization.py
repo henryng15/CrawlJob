@@ -117,16 +117,12 @@ _FUTURE = re.compile(
 
 #: Answers "do you need us to file something for *this* role". For a student on
 #: CPT the truthful answer is usually no — the internship needs no petition.
-SPONSORSHIP_NOW_FACT_KEYS: tuple[str, ...] = (
-    "work_authorization.requires_sponsorship_now",
-)
+SPONSORSHIP_NOW_FACT_KEYS: tuple[str, ...] = ("work_authorization.requires_sponsorship_now",)
 
 #: Answers "...now or in the future". A different fact because it is a different
 #: question: the same person can truthfully answer no to one and yes to the
 #: other, and collapsing them is how a form ends up carrying a false statement.
-SPONSORSHIP_FACT_KEYS: tuple[str, ...] = (
-    "work_authorization.requires_future_sponsorship",
-)
+SPONSORSHIP_FACT_KEYS: tuple[str, ...] = ("work_authorization.requires_future_sponsorship",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,11 +176,7 @@ def categorize(*texts: str | None) -> Category:
         # "Now or in the future" is a wider question than "for this role", and
         # for an intern the honest answers differ. Splitting them here is what
         # lets both be answered truthfully instead of both being left blank.
-        return (
-            Category.SPONSORSHIP_FUTURE
-            if _FUTURE.search(haystack)
-            else Category.SPONSORSHIP_NOW
-        )
+        return Category.SPONSORSHIP_FUTURE if _FUTURE.search(haystack) else Category.SPONSORSHIP_NOW
     return Category.UNRELATED
 
 
@@ -230,8 +222,11 @@ def decide(
         return Decision(
             category,
             reason=(
-                f"no locked {'sponsorship-now' if category is Category.SPONSORSHIP_NOW
-                    else 'future-sponsorship'} fact is set; "
+                f"no locked {
+                    'sponsorship-now'
+                    if category is Category.SPONSORSHIP_NOW
+                    else 'future-sponsorship'
+                } fact is set; "
                 "add one in Settings or answer this yourself"
             ),
         )

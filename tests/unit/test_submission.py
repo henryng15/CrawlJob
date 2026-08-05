@@ -1,8 +1,9 @@
 """Submission detection tests (spec §7.10).
 
+The worker clicks Submit and then reads the page to find out what came of it.
 The two error directions are not symmetric, and the tests are weighted
-accordingly. A false positive produces a recruiter email claiming an application
-that does not exist; a false negative produces a button the user presses.
+accordingly: a false positive buries a job the user never applied for, while a
+false negative costs them one button press.
 """
 
 from __future__ import annotations
@@ -226,6 +227,13 @@ class TestUserConfirmation:
 
     def test_automatic_detection_is_labelled_differently(self):
         assert detect(obs()).method is DetectionMethod.AUTOMATIC
+
+    def test_reading_the_page_and_asking_the_user_are_the_only_two_methods(self):
+        """Gmail reconciliation is gone, so no mailbox may declare a submission."""
+        assert set(DetectionMethod) == {
+            DetectionMethod.AUTOMATIC,
+            DetectionMethod.USER_CONFIRMED,
+        }
 
 
 class TestRealisticFlows:

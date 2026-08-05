@@ -227,9 +227,7 @@ def _fingerprints(postings: list[RawPosting]) -> list[str]:
     return out
 
 
-def _check_dedupe(
-    entry: AdapterReport, adapter: DiscoveryAdapter, first: list[RawPosting]
-) -> None:
+def _check_dedupe(entry: AdapterReport, adapter: DiscoveryAdapter, first: list[RawPosting]) -> None:
     """Fingerprints must be stable across fetches and unique within one."""
     fingerprints = _fingerprints(first)
     duplicates = len(fingerprints) - len(set(fingerprints))
@@ -362,9 +360,7 @@ def _summarise(entry: AdapterReport, postings: list[RawPosting], *, now: datetim
     entry.stats["with_description"] = sum(
         1 for p in postings if (p.posting.description_text or "").strip()
     )
-    entry.stats["with_location"] = sum(
-        1 for p in postings if (p.posting.location or "").strip()
-    )
+    entry.stats["with_location"] = sum(1 for p in postings if (p.posting.location or "").strip())
     if stamped:
         newest = max(stamped)
         entry.stats["newest_posting"] = newest.isoformat()

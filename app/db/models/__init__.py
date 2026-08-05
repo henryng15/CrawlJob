@@ -9,7 +9,6 @@ from app.db.base import Base
 from app.db.models.applications import (
     Application,
     ApplicationField,
-    BrowserSession,
     ResumeVersion,
 )
 from app.db.models.jobs import (
@@ -20,7 +19,6 @@ from app.db.models.jobs import (
     JobSourceRecord,
     SponsorshipAssessment,
 )
-from app.db.models.outreach import OutreachTask, Recruiter, SuppressionEntry
 from app.db.models.policy import ManualOnlyCompany
 from app.db.models.sources import SourceRegistry
 from app.db.models.tasks import AuditEvent, CandidateFact, ScheduledTask, TaskRun
@@ -30,7 +28,6 @@ __all__ = [
     "ApplicationField",
     "AuditEvent",
     "Base",
-    "BrowserSession",
     "CandidateFact",
     "Company",
     "Job",
@@ -38,12 +35,9 @@ __all__ = [
     "JobSourceLink",
     "JobSourceRecord",
     "ManualOnlyCompany",
-    "OutreachTask",
-    "Recruiter",
     "ResumeVersion",
     "ScheduledTask",
     "SourceRegistry",
     "SponsorshipAssessment",
-    "SuppressionEntry",
     "TaskRun",
 ]

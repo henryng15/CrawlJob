@@ -6,7 +6,17 @@ authentication and are intended for exactly this: listing open roles.
 None of them submit anything. Greenhouse, Lever and Ashby all have application
 submission APIs, and all three require employer-side credentials an applicant does
 not and should not have (§5.6). Applications go through the hosted form in a
-browser, and stop before Submit.
+browser.
+
+Each adapter also tries to name the *employer's* domain, because that is the key
+the manual-only list is joined on. All three feeds make this hard: the standard
+posting URL is the ATS's own (``boards.greenhouse.io``, ``jobs.lever.co``,
+``jobs.ashbyhq.com``), and none of the three publishes a company website field in
+its public payload. A domain is therefore only found when the employer runs their
+board on their own hostname, or when the feed happens to carry a website field.
+Otherwise it stays ``None`` and the gate routes the application to a human — see
+:func:`~app.services.discovery.base.employer_host` for why the ATS hostname is
+never used as a substitute.
 """
 
 from __future__ import annotations
@@ -17,7 +27,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.services.dedupe import NormalizedPosting
-from app.services.discovery.base import DiscoveryAdapter, RawPosting, iter_valid
+from app.services.discovery.base import (
+    DiscoveryAdapter,
+    RawPosting,
+    employer_host,
+    iter_valid,
+    website_domain,
+)
 
 __all__ = ["AshbyAdapter", "GreenhouseAdapter", "LeverAdapter", "strip_html"]
 
@@ -97,11 +113,16 @@ class GreenhouseAdapter(DiscoveryAdapter):
     def fetch(self) -> list[RawPosting]:
         payload = self._get_json(self.url)
         company = payload.get("name") or self.board
+        # Board-level first: when a board names the employer's site it names it
+        # once, and every job on it inherits the same answer.
+        board_domain = website_domain(payload)
         return iter_valid(
-            self._parse(job, company) for job in payload.get("jobs", []) if job.get("absolute_url")
+            self._parse(job, company, board_domain)
+            for job in payload.get("jobs", [])
+            if job.get("absolute_url")
         )
 
-    def _parse(self, job: dict[str, Any], company: str) -> RawPosting:
+    def _parse(self, job: dict[str, Any], company: str, board_domain: str | None) -> RawPosting:
         return self._make(
             NormalizedPosting(
                 company=company,
@@ -110,6 +131,12 @@ class GreenhouseAdapter(DiscoveryAdapter):
                 location=(job.get("location") or {}).get("name", ""),
                 description_text=strip_html(job.get("content")),
                 posted_at=_iso(job.get("updated_at") or job.get("first_published")),
+                # ``absolute_url`` is the employer's own host only when they run
+                # an embedded or custom-domain board; on the default board it is
+                # boards.greenhouse.io and yields nothing, by design.
+                company_domain=(
+                    board_domain or website_domain(job) or employer_host(job.get("absolute_url"))
+                ),
             ),
             external_id=str(job.get("id")) if job.get("id") is not None else None,
             source_url=self.url,
@@ -152,6 +179,13 @@ class LeverAdapter(DiscoveryAdapter):
                 location=categories.get("location", "") or "",
                 description_text=body,
                 posted_at=_epoch_ms(job.get("createdAt")),
+                # jobs.lever.co on the default board, the employer's own careers
+                # host when they front it with one. Never the former.
+                company_domain=(
+                    website_domain(job)
+                    or employer_host(job.get("hostedUrl"))
+                    or employer_host(job.get("applyUrl"))
+                ),
             ),
             external_id=job.get("id"),
             source_url=self.url,
@@ -179,9 +213,12 @@ class AshbyAdapter(DiscoveryAdapter):
 
     def fetch(self) -> list[RawPosting]:
         payload = self._get_json(self.url)
-        return iter_valid(self._parse(job) for job in payload.get("jobs", []) if job.get("jobUrl"))
+        board_domain = website_domain(payload)
+        return iter_valid(
+            self._parse(job, board_domain) for job in payload.get("jobs", []) if job.get("jobUrl")
+        )
 
-    def _parse(self, job: dict[str, Any]) -> RawPosting:
+    def _parse(self, job: dict[str, Any], board_domain: str | None) -> RawPosting:
         return self._make(
             NormalizedPosting(
                 company=job.get("organizationName") or self.board,
@@ -191,6 +228,14 @@ class AshbyAdapter(DiscoveryAdapter):
                 description_text=job.get("descriptionPlain")
                 or strip_html(job.get("descriptionHtml")),
                 posted_at=_iso(job.get("publishedAt")),
+                # jobUrl before applyUrl: the apply link is occasionally pointed
+                # at a third-party form, while jobUrl is the board itself.
+                company_domain=(
+                    board_domain
+                    or website_domain(job)
+                    or employer_host(job.get("jobUrl"))
+                    or employer_host(job.get("applyUrl"))
+                ),
             ),
             external_id=job.get("id"),
             source_url=self.url,

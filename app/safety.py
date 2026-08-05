@@ -1,9 +1,9 @@
-"""Hard safety guards (spec §29).
+"""Hard safety guards.
 
-These enforce the two rules in AGENTS.md that are never negotiable:
-
-1. The system never clicks Submit on an application.
-2. The system never sends an email; it only creates Gmail drafts.
+This system submits job applications on the user's behalf. That is an action it
+cannot take back — an employer who receives a half-answered application has
+received it — so every route to a Submit click passes through
+:func:`assert_safe_to_submit` in this file.
 
 The guards live here rather than in ``config.py`` so that importing them cannot
 drag in database or provider configuration, and so that a reviewer can read the
@@ -11,10 +11,14 @@ entire enforcement surface in one file.
 
 Design notes:
 
-* The four kill-switch flags are typed ``Literal[False]``. There is no code path
+* Three kill-switch flags remain typed ``Literal[False]``: the system never sends
+  email, never touches a CAPTCHA, never automates LinkedIn. There is no code path
   that produces a ``True``; a config file that asks for one raises at import of
   the application, not at the moment the dangerous action would run.
-* Parsing fails closed. An unrecognised value such as ``AUTO_SUBMIT_ENABLED=yes
+* ``AUTO_SUBMIT_ENABLED`` is deliberately *not* among them any more. Submitting is
+  the product. It is guarded by a daily cap and a dry-run default instead of by an
+  impossibility.
+* Parsing fails closed. An unrecognised value such as ``CAPTCHA_BYPASS_ENABLED=yes
   please`` is treated as an attempt to enable, not as noise to ignore.
 """
 
@@ -30,9 +34,8 @@ __all__ = [
     "FORBIDDEN_FLAGS",
     "SafetySettings",
     "SafetyViolation",
-    "assert_gmail_service_has_no_send",
-    "assert_safe_to_create_draft",
-    "assert_safe_to_review",
+    "SubmitRefused",
+    "assert_safe_to_submit",
     "load_safety_settings",
 ]
 
@@ -46,8 +49,9 @@ class SafetyViolation(RuntimeError):
 
 
 #: Environment variables that may only ever be false. Ordered for stable errors.
+#: ``AUTO_SUBMIT_ENABLED`` used to head this list; it is now an ordinary setting
+#: on ``Settings``, because submitting is what the system is for.
 FORBIDDEN_FLAGS: Final[tuple[str, ...]] = (
-    "AUTO_SUBMIT_ENABLED",
     "AUTO_SEND_EMAIL_ENABLED",
     "CAPTCHA_BYPASS_ENABLED",
     "LINKEDIN_AUTOMATION_ENABLED",
@@ -61,12 +65,11 @@ class SafetySettings(BaseModel):
     """Immutable proof that every kill switch is off.
 
     Constructing this model is the only way to obtain that proof, and the field
-    types make ``SafetySettings(auto_submit_enabled=True)`` a validation error.
+    types make ``SafetySettings(captcha_bypass_enabled=True)`` a validation error.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    auto_submit_enabled: Literal[False] = False
     auto_send_email_enabled: Literal[False] = False
     captcha_bypass_enabled: Literal[False] = False
     linkedin_automation_enabled: Literal[False] = False
@@ -75,8 +78,8 @@ class SafetySettings(BaseModel):
 def load_safety_settings(env: Mapping[str, str] | None = None) -> SafetySettings:
     """Validate the environment and return the safety proof.
 
-    Call this once during application startup, before any worker, browser slot,
-    or Gmail client is constructed.
+    Call this once during application startup, before any worker or browser is
+    constructed.
 
     Raises:
         SafetyViolation: if any forbidden flag is set to anything other than an
@@ -95,73 +98,59 @@ def load_safety_settings(env: Mapping[str, str] | None = None) -> SafetySettings
         raise SafetyViolation(
             "Refusing to start: these settings are permanently disabled and cannot "
             "be enabled by configuration — " + ", ".join(offenders) + ". "
-            "See AGENTS.md and docs/spec/29-hard-safety-guards-in-code.md."
+            "See AGENTS.md."
         )
 
     return SafetySettings()
 
 
-def assert_gmail_service_has_no_send(service: object) -> None:
-    """Fail if a Gmail client exposes any way to transmit mail (spec §7.14).
+class SubmitRefused(RuntimeError):
+    """The application must not be submitted, and the reason is not a bug.
 
-    The MVP Gmail interface must not merely refuse to send — the capability must
-    be absent, so that a future refactor cannot re-expose it by flipping a flag.
+    Separate from :class:`SafetyViolation` because the two want opposite
+    handling. A violation means the configuration is wrong and the process should
+    die. A refusal is an ordinary outcome — the daily cap is reached, a required
+    answer is missing — and the application simply moves to ``NEEDS_ME`` with the
+    message attached for the user to read.
     """
-    forbidden = ("send", "send_draft", "send_message", "drafts_send")
-    found = [name for name in forbidden if hasattr(service, name)]
-    if found:
-        raise SafetyViolation(
-            f"{type(service).__name__} exposes forbidden send capability: {found}. "
-            "The Gmail service must only create and update drafts."
-        )
 
 
-def assert_safe_to_review(
+def assert_safe_to_submit(
     *,
-    has_clicked_submit: bool,
-    application_status: str,
-    allowed_pre_submit_states: frozenset[str],
+    enabled: bool,
+    dry_run: bool,
+    blocked: bool,
+    block_reason: str,
+    captcha_detected: bool,
+    resume_attached: bool,
+    submitted_today: int,
+    daily_cap: int,
 ) -> None:
-    """Guard the handoff to human review (spec §29).
+    """The single choke point before a Submit click.
 
-    Called immediately before a browser slot is exposed over noVNC.
+    Every condition here has to hold at the moment of the click rather than when
+    the application was queued, because the queue is minutes old and the page is
+    live. The order runs cheapest-first and, more importantly, most-specific
+    first: the user reading ``needs_me_reason`` on the dashboard should be told
+    the actual thing to fix, not "auto-submit is off".
+
+    ``dry_run`` is not checked here. Refusing on it would collapse two different
+    outcomes — "we would have submitted this" and "we could not" — into one, and
+    the entire value of a dry run is telling those apart. The caller does the
+    dry-run branch after this function has agreed the submission was safe.
+
+    Raises:
+        SubmitRefused: with a sentence meant for the user, not for a log.
     """
-    if has_clicked_submit:
-        raise SafetyViolation(
-            "Adapter reported a Submit click. The system must never submit an "
-            "application; only the user may."
-        )
-    if application_status not in allowed_pre_submit_states:
-        raise SafetyViolation(
-            f"Application status {application_status!r} is not a pre-submit state. "
-            f"Expected one of {sorted(allowed_pre_submit_states)}."
-        )
-
-
-def assert_safe_to_create_draft(
-    *,
-    application_status: str,
-    submitted_at: object,
-    outreach_due: bool,
-    is_suppressed: bool,
-    within_rate_limit: bool,
-) -> None:
-    """Guard recruiter outreach (spec §29, §8.2).
-
-    Every condition here has caused real-world harm when skipped: emailing about
-    an application that was never submitted, emailing someone who asked not to be
-    contacted, or emailing faster than a human plausibly would.
-    """
-    if application_status != "SUBMITTED":
-        raise SafetyViolation(
-            f"Cannot draft outreach for application in state {application_status!r}; "
-            "outreach requires a confirmed submission."
-        )
-    if submitted_at is None:
-        raise SafetyViolation("Application is marked SUBMITTED but has no submitted_at timestamp.")
-    if not outreach_due:
-        raise SafetyViolation("Outreach is not yet due; the business-day delay has not elapsed.")
-    if is_suppressed:
-        raise SafetyViolation("Recruiter is suppressed; refusing to create a draft.")
-    if not within_rate_limit:
-        raise SafetyViolation("Daily or per-company outreach limit reached; refusing to draft.")
+    if captcha_detected:
+        raise SubmitRefused("this form is behind a CAPTCHA, so it has to be done by hand")
+    if blocked:
+        raise SubmitRefused(block_reason or "a required question had no locked fact behind it")
+    if not resume_attached:
+        raise SubmitRefused("the browser could not confirm your resume reached the form")
+    if not enabled:
+        raise SubmitRefused("auto-submit is switched off (AUTO_SUBMIT_ENABLED)")
+    if daily_cap <= 0:
+        raise SubmitRefused("the daily submit cap is set to zero")
+    if submitted_today >= daily_cap:
+        raise SubmitRefused(f"today's cap of {daily_cap} submitted applications is reached")

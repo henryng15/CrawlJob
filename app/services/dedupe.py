@@ -191,9 +191,7 @@ def upsert_job(
         assert existing is not None
         return existing, result
 
-    company = _get_or_create_company(
-        session, posting.company, domain=posting.company_domain
-    )
+    company = _get_or_create_company(session, posting.company, domain=posting.company_domain)
     job = Job(
         company_id=company.id,
         canonical_url=posting.canonical_url,

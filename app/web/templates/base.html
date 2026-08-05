@@ -60,7 +60,9 @@
       border: 1px solid var(--line); background: var(--panel); color: var(--ink);
       cursor: pointer; text-decoration: none; display: inline-block;
     }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary, a.button.primary {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
     button.danger { border-color: var(--bad); color: var(--bad); }
     input, select, textarea {
       font: inherit; padding: .4rem .55rem; border: 1px solid var(--line);
@@ -74,6 +76,17 @@
       border: 1px solid var(--bad); color: var(--bad); border-radius: 8px;
       padding: .75rem 1rem; margin-bottom: 1rem; background: var(--panel);
     }
+    /* Loud on purpose: in dry-run nothing is actually being sent, and a user who
+       misses that will believe applications went out that never did. */
+    .banner-warn {
+      border: 1px solid var(--warn); color: var(--warn); border-radius: 8px;
+      border-left-width: 5px; padding: .75rem 1rem; margin-bottom: 1rem;
+      background: var(--panel);
+    }
+    ul.questions { margin: .15rem 0; padding-left: 1.1rem; }
+    ul.questions li { margin: .1rem 0; }
+    td.actions { white-space: nowrap; }
+    td.actions form, td.actions .button { margin-right: .3rem; }
     dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: 0; }
     dl.facts dt { color: var(--muted); }
     dl.facts dd { margin: 0; }
@@ -97,11 +110,9 @@
   <span class="brand">Internship Ops</span>
   <nav>
     <a href="/">Dashboard</a>
-    <a href="/today">Today</a>
     <a href="/jobs">Jobs</a>
     <a href="/applications">All applications</a>
     <a href="/resumes">Resumes</a>
-    <a href="/outreach">Outreach</a>
     <a href="/settings">Settings</a>
     <a href="/setup">Setup</a>
   </nav>

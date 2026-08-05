@@ -60,9 +60,7 @@ def base_version(session: Session) -> ResumeVersion | None:
     ).first()
 
 
-def import_resume(
-    session: Session, settings: Settings, *, path: Path
-) -> ImportResult:
+def import_resume(session: Session, settings: Settings, *, path: Path) -> ImportResult:
     """Store the base resume and record it.
 
     The file is copied rather than referenced so that the pipeline keeps working

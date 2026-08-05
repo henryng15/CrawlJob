@@ -30,8 +30,6 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -125,16 +123,6 @@ def validate_form(
 
             report.screenshot = str(_screenshot(page, out_dir, "pre-submit"))
             report.mapping_path = str(_write_mapping(out_dir, specs, answers))
-            report.replay_path = str(
-                _write_replay(
-                    out_dir,
-                    specs,
-                    answers,
-                    resume_path=resume_path,
-                    url=url,
-                    ats_type=ats.upper(),
-                )
-            )
 
             if resume_path is not None and not report.resume_attached:
                 report.add(
@@ -186,9 +174,10 @@ def _check_no_submission(report: StageTwoReport, page: Any) -> None:
     """
     report.submitted = False
     try:
-        still_there = any(
-            page.query_selector(marker) is not None for marker in _SUBMIT_MARKERS
-        ) or page.query_selector("form") is not None
+        still_there = (
+            any(page.query_selector(marker) is not None for marker in _SUBMIT_MARKERS)
+            or page.query_selector("form") is not None
+        )
     except Exception:
         report.add(Severity.WARNING, "no-submit", "the page could not be re-queried")
         return
@@ -232,35 +221,6 @@ def _write_mapping(out_dir: Path, specs: list[Any], answers: list[Any]) -> Path:
         )
     path = out_dir / "field-mapping.json"
     path.write_text(json.dumps(rows, indent=2, default=str), encoding="utf-8")
-    return path
-
-
-def _write_replay(
-    out_dir: Path,
-    specs: list[Any],
-    answers: list[Any],
-    *,
-    resume_path: Path | None,
-    url: str,
-    ats_type: str,
-) -> Path:
-    """A replay package, the same shape the browser worker stores (§7.11)."""
-    from app.ats.replay import build_package
-
-    package = build_package(
-        # No application exists — this is the point of validation. A nil UUID
-        # says so in the artifact rather than borrowing a real application's id.
-        application_id="00000000-0000-0000-0000-000000000000",
-        application_url=url,
-        ats_type=ats_type,
-        specs=specs,
-        answers=answers,
-        created_at=datetime.now(UTC),
-        resume_artifact_path=str(resume_path) if resume_path else None,
-    )
-    path = out_dir / "replay-package.json"
-    payload = asdict(package) if hasattr(package, "__dataclass_fields__") else package
-    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return path
 
 

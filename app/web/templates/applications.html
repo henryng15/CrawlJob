@@ -4,8 +4,9 @@
 {% block content %}
 <h1>All applications</h1>
 <p class="muted">
-  Everything, whatever became of it &mdash; submitted, never submitted, failed,
-  lapsed, restored. Nothing is ever deleted from this list.
+  Everything, whatever became of it &mdash; submitted, handed to you, failed,
+  skipped. Nothing is ever deleted from this list. The
+  <a href="/">dashboard</a> is the one that says what to do next.
 </p>
 
 {% if counts %}
@@ -18,13 +19,5 @@
   </p>
 {% endif %}
 
-{{ m.apps_table(rows,
-                "No applications yet." if not active_filter else "None with that status.",
-                now=now, csrf=session.csrf_token) }}
-
-<p class="muted">
-  Restoring reopens the form, puts the saved answers back and re-uploads the same
-  resume. It does not use one of today&rsquo;s slots and never creates a second
-  application. It never submits.
-</p>
+{{ m.apps_table(rows, "No applications yet." if not active_filter else "None with that status.") }}
 {% endblock %}

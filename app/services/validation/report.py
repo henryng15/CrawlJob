@@ -143,7 +143,6 @@ class StageTwoReport:
     resume_confirmation: str = ""
     screenshot: str = ""
     mapping_path: str = ""
-    replay_path: str = ""
     #: Always false. Recorded so the artifact says so in writing.
     submitted: bool = False
     findings: list[Finding] = field(default_factory=list)
@@ -176,7 +175,6 @@ class StageTwoReport:
             "resume_confirmation": self.resume_confirmation,
             "screenshot": self.screenshot,
             "mapping_path": self.mapping_path,
-            "replay_path": self.replay_path,
             "submitted": self.submitted,
             "error": self.error,
             "ok": self.ok,

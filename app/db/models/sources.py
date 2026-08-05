@@ -27,9 +27,7 @@ class SourceRegistry(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "source_registry"
     __table_args__ = (
         UniqueConstraint("kind", "identifier", name="uq_source_registry_identity"),
-        CheckConstraint(
-            "kind IN (" + ", ".join(repr(k) for k in KINDS) + ")", name="kind_valid"
-        ),
+        CheckConstraint("kind IN (" + ", ".join(repr(k) for k in KINDS) + ")", name="kind_valid"),
         Index("ix_source_registry_enabled", "enabled"),
     )
 

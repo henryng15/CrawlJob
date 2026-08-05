@@ -187,11 +187,8 @@ class JobScore(UUIDMixin, CreatedAtMixin, Base):
     total_score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     #: Per-component breakdown, shown to the user on the job review page (§22.2).
     components: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    #: PASS / REJECT from the deterministic filter, which runs before the model
-    #: and which a high AI score may never override (§7.6).
+    #: PASS / REJECT from the deterministic eligibility filter. Nothing may
+    #: override it: a score is a ranking, eligibility is a fact.
     hard_filter_result: Mapped[str] = mapped_column(Text, nullable=False)
-    fact_references: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
-    model_name: Mapped[str | None] = mapped_column(Text)
-    prompt_version: Mapped[str | None] = mapped_column(Text)
 
     job: Mapped[Job] = relationship(back_populates="score")

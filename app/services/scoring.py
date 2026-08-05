@@ -24,8 +24,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from pydantic import BaseModel, Field, model_validator
-
 from app.services.eligibility import (
     EligibilityResult,
     EligibilityRules,
@@ -34,13 +32,6 @@ from app.services.eligibility import (
     evaluate,
     graduation_year_fits,
     seniority_of,
-)
-from app.services.llm.base import (
-    LLMError,
-    LLMProvider,
-    Message,
-    SchemaValidationError,
-    Task,
 )
 from app.services.sponsorship import (
     Classification,
@@ -52,43 +43,25 @@ from app.services.sponsorship import (
 
 __all__ = [
     "WEIGHTS",
-    "AiJudgment",
     "JobScore",
     "ScoreInput",
     "score",
 ]
 
-PROMPT_VERSION = "scoring/v1"
-
-#: Maximum points per component (§7.6). They sum to 100.
+#: Maximum points per component. Three further components — how central software
+#: engineering is to the role, skills overlap, and project relevance — used to be
+#: judged by a model and carried half the total. They are gone with the model, so
+#: the remaining components are rescaled to 100 at the end rather than reweighted
+#: here: the point functions stay readable against their own natural maxima.
 WEIGHTS: dict[str, float] = {
     "internship_level_fit": 20.0,
-    "core_swe_relevance": 20.0,
-    "skills_overlap": 15.0,
-    "experience_relevance": 15.0,
     "graduation_eligibility": 10.0,
     "location_fit": 5.0,
     "sponsorship_compatibility": 10.0,
     "application_freshness": 5.0,
 }
 
-#: The components a model is asked to judge. The rest are computed.
-AI_COMPONENTS = ("core_swe_relevance", "skills_overlap", "experience_relevance")
-
-
-class AiJudgment(BaseModel):
-    """The model's contribution: three scores and the facts they rest on."""
-
-    core_swe_relevance: float = Field(ge=0, le=20)
-    skills_overlap: float = Field(ge=0, le=15)
-    experience_relevance: float = Field(ge=0, le=15)
-    #: Ids of candidate facts that justify the scores, e.g. ["skill.fastapi"].
-    fact_references: list[str] = Field(default_factory=list)
-    reasons: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def _clamp(self) -> AiJudgment:
-        return self
+_TOTAL_WEIGHT = sum(WEIGHTS.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,10 +95,7 @@ class JobScore:
     components: dict[str, float]
     hard_filter_result: Verdict
     eligibility_reasons: list[str]
-    fact_references: list[str]
     reasons: list[str]
-    model_name: str | None = None
-    prompt_version: str = PROMPT_VERSION
 
     @property
     def is_eligible(self) -> bool:
@@ -231,49 +201,21 @@ Rules:
 """
 
 
-def _enforce_citations(judgment: AiJudgment) -> tuple[AiJudgment, list[str]]:
-    """Zero the judgment scores when nothing in the profile backs them (§7.6).
-
-    An uncited high score is the model asserting a match rather than finding one,
-    and it would push a poorly-matched job into the daily queue ahead of a good
-    one.
-    """
-    if judgment.fact_references:
-        return judgment, []
-    scored = any(getattr(judgment, name) > 0 for name in AI_COMPONENTS)
-    if not scored:
-        return judgment, []
-    return (
-        judgment.model_copy(
-            update={name: 0.0 for name in AI_COMPONENTS},
-        ),
-        ["fit scores were dropped: the model cited no candidate facts"],
-    )
-
-
-# ------------------------------------------------------------------ driver
-
-
 def score(
     data: ScoreInput,
     *,
-    provider: LLMProvider | None = None,
     sponsorship: SponsorshipAnalysis | None = None,
-    candidate_summary: str = "",
     rules: EligibilityRules | None = None,
     now: datetime,
 ) -> JobScore:
     """Score a job out of 100.
 
-    When the deterministic filter rejects the job, the model is never consulted
-    and the total is zero: §7.6 forbids a high AI score from overriding a hard
-    ineligibility, and the cheapest way to guarantee that is not to ask.
+    A job the deterministic filter rejects scores zero: no component may rescue a
+    hard ineligibility.
 
     Args:
         data: the job and the candidate facts it is judged against.
-        provider: LLM provider. Omit to score deterministically only.
         sponsorship: prior analysis of the employer's stated policy.
-        candidate_summary: profile text given to the model.
         rules: eligibility policy.
         now: reference time for the freshness component.
     """
@@ -295,7 +237,6 @@ def score(
             components=dict.fromkeys(WEIGHTS, 0.0),
             hard_filter_result=Verdict.REJECT,
             eligibility_reasons=list(eligibility.reasons),
-            fact_references=[],
             reasons=["ineligible; not scored"],
         )
 
@@ -314,62 +255,13 @@ def score(
         components[name] = points
         reasons.append(f"{name}: {why}")
 
-    fact_references: list[str] = []
-    model_name: str | None = None
-
-    if provider is None:
-        for name in AI_COMPONENTS:
-            components[name] = 0.0
-        reasons.append("fit components not scored: no provider configured")
-    else:
-        try:
-            response = provider.structured_generate(
-                task=Task.SCORING,
-                schema=AiJudgment,
-                messages=[
-                    Message(role="system", content=_SYSTEM),
-                    Message(
-                        role="user",
-                        content=(
-                            f"CANDIDATE PROFILE\n{candidate_summary}\n\n"
-                            f"JOB TITLE\n{data.normalized_title}\n\n"
-                            f"JOB DESCRIPTION\n{data.description_text or '(not available)'}"
-                        ),
-                    ),
-                ],
-            )
-        except SchemaValidationError:
-            # Out-of-range scores mean the model is misbehaving, not missing.
-            # Zeroing them silently would hide a broken prompt behind a low score.
-            raise
-        except LLMError as exc:
-            # A job scored on its deterministic components alone is scored low,
-            # not scored wrong: the AI components contribute 50 of the 100
-            # points, so the job simply ranks below ones that were fully judged.
-            # Failing instead would stop the pipeline for every job.
-            for name in AI_COMPONENTS:
-                components[name] = 0.0
-            reasons.append(f"fit components not scored: {exc}")
-        else:
-            model_name = response.model
-            judgment, notes = _enforce_citations(response.value)
-            for name in AI_COMPONENTS:
-                components[name] = getattr(judgment, name)
-            fact_references = list(judgment.fact_references)
-            reasons.extend(judgment.reasons)
-            reasons.extend(notes)
-
-    # Clamp defensively: a provider that ignores the schema bounds must not be
-    # able to inflate a total past 100.
     for name, maximum in WEIGHTS.items():
         components[name] = max(0.0, min(components.get(name, 0.0), maximum))
 
     return JobScore(
-        total=round(sum(components.values()), 2),
+        total=round(100.0 * sum(components.values()) / _TOTAL_WEIGHT, 2),
         components=components,
         hard_filter_result=eligibility.verdict,
         eligibility_reasons=list(eligibility.warnings),
-        fact_references=fact_references,
         reasons=reasons,
-        model_name=model_name,
     )

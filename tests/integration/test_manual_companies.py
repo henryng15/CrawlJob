@@ -1,8 +1,10 @@
 """The manual-only company list.
 
-The list decides whether an application may ever be submitted automatically, so
-the tests that matter are the ones about *not matching*: a name that looks close
-enough, a one-character key, a domain that is not on the list.
+The list decides whether an application is submitted automatically or handed to
+the user, so the tests that matter are the ones about the *direction of failure*:
+what happens when there is nothing to match on. The answer must always be
+"manual". A test here that asserts ``False`` is asserting that a browser may
+click Submit, and each one says why it is safe to.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import ManualOnlyCompany
@@ -128,26 +130,63 @@ class TestIsManualOnly:
     def test_a_listed_domain_matches_however_it_is_written(self, db: Session):
         assert is_manual_only(db, domain="https://WWW.Stripe.com/jobs", company_name=None) is True
 
-    def test_an_unlisted_domain_does_not_match(self, db: Session):
+    def test_a_subdomain_of_a_listed_domain_matches(self, db: Session):
+        """Discovery yields ``careers.stripe.com``; the list says ``stripe.com``.
+
+        Treating those as different strings would clear Stripe for
+        auto-submission on a technicality.
+        """
+        assert is_manual_only(db, domain="careers.stripe.com", company_name=None) is True
+        assert is_manual_only(db, domain="jobs.eu.databricks.com", company_name=None) is True
+
+    def test_a_parent_of_a_listed_domain_is_not_a_match(self, db: Session):
+        """Listing ``stripe.com`` must not list every ``.com``."""
+        assert is_manual_only(db, domain="notstripe.com", company_name=None) is False
+        assert is_manual_only(db, domain="com", company_name=None) is False
+
+    def test_an_unlisted_domain_with_an_unlisted_name_is_automatable(self, db: Session):
+        """The one route to ``False``, and the only one there is."""
+        assert is_manual_only(db, domain="figma.com", company_name="Figma") is False
         assert is_manual_only(db, domain="figma.com", company_name=None) is False
 
-    def test_the_domain_decides_even_when_a_name_is_given(self, db: Session):
-        """The name fallback exists for missing domains, not for second opinions."""
-        assert is_manual_only(db, domain="figma.com", company_name="Stripe") is False
 
-    def test_the_name_is_used_only_when_the_domain_is_absent(self, db: Session):
-        assert is_manual_only(db, domain=None, company_name="Stripe, Inc.") is True
-        assert is_manual_only(db, domain="", company_name="Stripe, Inc.") is True
+class TestNoDomainIsAlwaysManual:
+    """The inversion. Absence of evidence is never evidence of automatability."""
 
-    def test_an_unknown_name_does_not_match(self, db: Session):
-        assert is_manual_only(db, domain=None, company_name="Figma") is False
+    @pytest.fixture(autouse=True)
+    def listed(self, db: Session, tmp_path: Path):
+        import_csv(db, write(tmp_path, CSV), source="seed_manual.csv")
 
-    def test_nothing_to_match_on_is_not_a_match(self, db: Session):
-        assert is_manual_only(db, domain=None, company_name=None) is False
+    @pytest.mark.parametrize("domain", [None, "", "   ", "https://", "/"])
+    def test_no_usable_domain_means_manual(self, db: Session, domain):
+        assert is_manual_only(db, domain=domain, company_name="Definitely Not Listed") is True
+
+    def test_nothing_to_match_on_at_all_means_manual(self, db: Session):
+        assert is_manual_only(db, domain=None, company_name=None) is True
+
+    def test_an_empty_list_still_holds_undomained_employers_back(self, db: Session):
+        """Nothing imported yet is the state a fresh install is in."""
+        db.execute(delete(ManualOnlyCompany))
+        db.flush()
+        assert is_manual_only(db, domain=None, company_name="Figma") is True
+        assert is_manual_only(db, domain="figma.com", company_name="Figma") is False
+
+
+class TestTheNameOnlyEverSaysYes:
+    @pytest.fixture(autouse=True)
+    def listed(self, db: Session, tmp_path: Path):
+        import_csv(db, write(tmp_path, CSV), source="seed_manual.csv")
+
+    def test_a_listed_name_under_an_unlisted_domain_is_manual(self, db: Session):
+        """A second chance at "yes", not a second opinion overturning one."""
+        assert is_manual_only(db, domain="stripe-careers.example", company_name="Stripe") is True
+
+    def test_a_name_that_misses_cannot_overturn_a_listed_domain(self, db: Session):
+        assert is_manual_only(db, domain="stripe.com", company_name="Figma") is True
 
     def test_a_one_character_name_key_is_never_matched(self, db: Session):
         """The name "X" folds to "x", which must not put a company on the list."""
-        assert is_manual_only(db, domain=None, company_name="X") is False
+        assert is_manual_only(db, domain="unlisted.example", company_name="X") is False
         assert is_manual_only(db, domain="x.com", company_name=None) is True
 
     @pytest.mark.parametrize(
@@ -159,8 +198,13 @@ class TestIsManualOnly:
             ("Boston Consulting Group", "BCG"),
         ],
     )
-    def test_the_name_fallback_misses_real_pairs(self, db: Session, listed_as, asked_about):
-        """Documented in ``is_manual_only``: these are why the domain is the key."""
+    def test_the_name_check_misses_real_pairs(self, db: Session, listed_as, asked_about):
+        """Documented in ``is_manual_only``: this is why the domain is the key.
+
+        The pairs still miss, so a *right* domain is what protects these
+        employers. What has changed is that a missing domain no longer lands
+        here at all — it is answered "manual" before the name is consulted.
+        """
         db.add(
             ManualOnlyCompany(
                 domain=f"{asked_about.lower().replace(' ', '')}.example",
@@ -169,13 +213,16 @@ class TestIsManualOnly:
             )
         )
         db.flush()
-        assert is_manual_only(db, domain=None, company_name=asked_about) is False
+        assert is_manual_only(db, domain="unrelated.example", company_name=asked_about) is False
+        assert is_manual_only(db, domain=None, company_name=asked_about) is True
 
 
 @pytest.mark.skipif(not SEED.exists(), reason=f"seed list not available at {SEED}")
 class TestTheRealSeedList:
-    def test_it_imports_to_243_companies(self, db: Session):
+    def test_every_row_parses(self, db: Session):
+        """All 247 rows are usable: nothing is silently dropped as unparseable."""
         report = import_csv(db, SEED, source="seed_manual.csv")
+        assert report.total == 247
         assert report.added == 243
         assert report.duplicates == 4, "Rippling, Cruise, Nuro and Nubank appear twice"
         assert report.invalid == 0
@@ -190,3 +237,9 @@ class TestTheRealSeedList:
     def test_a_company_on_the_list_is_manual_only(self, db: Session):
         import_csv(db, SEED, source="seed_manual.csv")
         assert is_manual_only(db, domain="https://www.google.com/", company_name=None) is True
+
+    def test_a_multi_label_suffix_survives_the_parent_walk(self, db: Session):
+        """``nubank.com.br`` must be reached, and ``com.br`` must not be a hit."""
+        import_csv(db, SEED, source="seed_manual.csv")
+        assert is_manual_only(db, domain="careers.nubank.com.br", company_name=None) is True
+        assert is_manual_only(db, domain="unrelated.com.br", company_name=None) is False

@@ -3,6 +3,10 @@
 ``TestManualOnlyQuestions`` is the class that matters. Every question in it is one
 where a wrong answer is a false statement on a legal document, and the tests
 assert that no amount of available data or model output can produce one.
+
+``TestTheManualOnlySplit`` guards the line drawn inside that set: a locked fact
+may answer a question whose truthful answer never changes, and may not answer one
+that is per-application or that is a legal act.
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from __future__ import annotations
 import pytest
 
 from app.ats.fields import (
+    ALWAYS_MANUAL_KEYS,
+    LOCKED_FACT_ANSWERABLE_KEYS,
     MANUAL_ONLY_KEYS,
     FieldSpec,
     FieldType,
@@ -140,10 +146,14 @@ class TestManualOnlyQuestions:
         }
         locked = frozenset(facts)
 
-        now = resolve(ask("Do you require sponsorship for this role?"), facts=facts,
-                      locked_keys=locked)
-        later = resolve(ask("Will you now or in the future require sponsorship?"),
-                        facts=facts, locked_keys=locked)
+        now = resolve(
+            ask("Do you require sponsorship for this role?"), facts=facts, locked_keys=locked
+        )
+        later = resolve(
+            ask("Will you now or in the future require sponsorship?"),
+            facts=facts,
+            locked_keys=locked,
+        )
 
         assert now.value is False
         assert later.value is True
@@ -167,6 +177,92 @@ class TestManualOnlyQuestions:
         with_locked = resolve(ask("Gender"), facts=FACTS, locked_keys=LOCKED)
         assert with_locked.source_type is SourceType.LOCKED_FACT
         assert with_locked.value == "Decline to self-identify"
+
+
+#: The locked fact that answers each auto-answerable key. A table rather than
+#: ``{key: "Yes"}`` because the work-authorization keys read facts of their own
+#: (:mod:`app.services.work_authorization`), which is the whole point of them.
+_LOCKED_FACT_FOR: dict[str, dict[str, object]] = {
+    "auth.work_authorized": {"work_authorization.is_authorized": True},
+    "auth.requires_sponsorship": {"work_authorization.requires_future_sponsorship": True},
+    "auth.citizenship": {"auth.citizenship": "Yes"},
+    "background.criminal_history": {"background.criminal_history": "No"},
+    "background.previously_employed": {"background.previously_employed": "No"},
+    "background.noncompete": {"background.noncompete": "No"},
+    "eeo.disability": {"eeo.disability": "Decline to self-identify"},
+    "eeo.veteran_status": {"eeo.veteran_status": "Decline to self-identify"},
+    "eeo.race_ethnicity": {"eeo.race_ethnicity": "Decline to self-identify"},
+    "eeo.gender": {"eeo.gender": "Decline to self-identify"},
+}
+
+
+class TestTheManualOnlySplit:
+    """Which manual-only questions a locked fact may answer, and which it may not.
+
+    The auto lane exists only because the first group can be answered once and
+    reused. It stays honest only because the second group cannot.
+    """
+
+    def test_the_two_sets_partition_the_manual_only_keys(self):
+        """A key in neither set would silently fall through to ordinary handling."""
+        assert LOCKED_FACT_ANSWERABLE_KEYS | ALWAYS_MANUAL_KEYS == MANUAL_ONLY_KEYS
+        assert not (LOCKED_FACT_ANSWERABLE_KEYS & ALWAYS_MANUAL_KEYS)
+
+    def test_the_always_manual_set_is_exactly_what_policy_names(self):
+        assert set(ALWAYS_MANUAL_KEYS) == {
+            "compensation.expected",
+            "commitment.relocation",
+            "auth.security_clearance",
+            "auth.export_control",
+            "legal.attestation",
+            "legal.signature",
+        }
+
+    @pytest.mark.parametrize("key", sorted(ALWAYS_MANUAL_KEYS))
+    def test_a_locked_fact_does_not_unlock_an_always_manual_question(self, key):
+        """Salary and relocation change per application; a signature is an act.
+
+        A stored answer to any of them would be an answer to a different question
+        than the one on this form.
+        """
+        answer = resolve(ask(_question_for(key)), facts={key: "Yes"}, locked_keys=frozenset({key}))
+        assert answer.source_type is SourceType.MANUAL_REQUIRED
+        assert answer.value is None
+
+    @pytest.mark.parametrize("key", sorted(_LOCKED_FACT_FOR))
+    def test_a_locked_fact_answers_a_constant_question(self, key):
+        facts = _LOCKED_FACT_FOR[key]
+        answer = resolve(ask(_question_for(key)), facts=facts, locked_keys=frozenset(facts))
+
+        assert answer.source_type is SourceType.LOCKED_FACT
+        assert answer.value is not None
+        assert answer.is_fillable
+
+    def test_the_fact_table_covers_every_answerable_key(self):
+        """So a key added to the answerable set cannot skip the test above."""
+        assert set(_LOCKED_FACT_FOR) | {"auth.work_authorized_without_sponsorship"} == (
+            LOCKED_FACT_ANSWERABLE_KEYS
+        )
+
+    def test_the_combined_question_is_refused_even_with_every_fact_locked(self):
+        """Listed as answerable, and still never answered.
+
+        "Authorized to work without sponsorship" is one Yes/No spanning two
+        questions whose polarity does not compose — see
+        ``app/services/work_authorization.py``.
+        """
+        facts = {
+            "work_authorization.is_authorized": True,
+            "work_authorization.requires_future_sponsorship": True,
+            "auth.work_authorized_without_sponsorship": True,
+        }
+        answer = resolve(
+            ask(_question_for("auth.work_authorized_without_sponsorship")),
+            facts=facts,
+            locked_keys=frozenset(facts),
+        )
+        assert answer.source_type is SourceType.MANUAL_REQUIRED
+        assert answer.value is None
 
 
 def _question_for(key: str) -> str:

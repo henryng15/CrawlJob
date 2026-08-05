@@ -4,11 +4,15 @@ This module reads what the *employer* said. It never touches what is true about
 the user — that lives in ``candidate_facts`` and no model can write it (§7.1).
 
 The design rests on one idea: **a restrictive classification requires a quote, and
-the quote must actually be in the job description.** A model asked to find
-sponsorship language will sometimes produce a plausible sentence that the posting
-does not contain. :func:`verify_evidence` checks each quote against the source
-text and discards any that is not there, after which a classification left without
-evidence is downgraded rather than trusted.
+the quote must actually be in the job description.** :func:`deterministic_prepass`
+finds those quotes with regexes and :func:`verify_evidence` checks each one against
+the source text, discarding any that is not there.
+
+There used to be a model behind this as well, for the postings whose wording the
+patterns miss. It is gone: it was the largest running cost in the system, and a
+missed restriction is not silent — the application still gets prepared, and the
+work-authorization questions on the form are answered from locked facts or not at
+all.
 
 The consequence of getting this wrong is concrete: a fabricated "we do not sponsor"
 quote makes the user skip a job they were eligible for, and a missed real one sends
@@ -24,14 +28,6 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.services.llm.base import (
-    LLMError,
-    LLMProvider,
-    Message,
-    SchemaValidationError,
-    Task,
-)
-
 log = logging.getLogger(__name__)
 
 __all__ = [
@@ -40,7 +36,6 @@ __all__ = [
     "RecommendedAction",
     "SponsorshipAnalysis",
     "WorkAuthRestriction",
-    "analyze",
     "deterministic_prepass",
     "recommend",
     "verify_evidence",
@@ -359,76 +354,3 @@ Rules:
   supports it.
 - Do not infer immigration law, eligibility, or advice.
 """
-
-
-def analyze(
-    description: str,
-    *,
-    provider: LLMProvider,
-    source_url: str = "",
-) -> SponsorshipAnalysis:
-    """Classify a job description, deterministically where possible.
-
-    The keyword pre-pass handles the clear cases at no cost; the model is only
-    consulted when the wording is not obvious. Whatever the source, the result
-    passes through :func:`enforce_evidence` before it is returned.
-    """
-    if not description.strip():
-        return SponsorshipAnalysis(
-            classification=Classification.SPONSORSHIP_NOT_MENTIONED,
-            work_authorization_restriction=WorkAuthRestriction.UNKNOWN,
-            confidence=0.0,
-            reasoning_summary="No description text was available.",
-        )
-
-    hit = deterministic_prepass(description, source_url=source_url)
-    if hit.classification is not None or hit.restriction is not None:
-        # Either half is decisive on its own: an explicit citizenship requirement
-        # settles the recommendation whatever the posting says about sponsorship,
-        # and an explicit refusal settles it whatever it says about authorization.
-        # The half that was not matched is reported honestly rather than asserted:
-        # NOT_MENTIONED and UNKNOWN both mean "this pass found nothing", and
-        # neither claims the posting is silent on the point.
-        both = hit.classification is not None and hit.restriction is not None
-        return enforce_evidence(
-            SponsorshipAnalysis(
-                classification=hit.classification or Classification.SPONSORSHIP_NOT_MENTIONED,
-                work_authorization_restriction=hit.restriction or WorkAuthRestriction.UNKNOWN,
-                evidence=hit.evidence,
-                confidence=0.95 if both else 0.85,
-                reasoning_summary="Matched explicit sponsorship or work-authorization language.",
-            ),
-            description,
-        )
-
-    try:
-        response = provider.structured_generate(
-            task=Task.SPONSORSHIP,
-            schema=SponsorshipAnalysis,
-            messages=[
-                Message(role="system", content=_SYSTEM),
-                Message(role="user", content=description),
-            ],
-        )
-    except SchemaValidationError:
-        # A model that returned the wrong shape is misbehaving, not absent.
-        # Swallowing it here would make a broken prompt look like a missing key.
-        raise
-    except LLMError as exc:
-        # No model, no budget, or a provider that failed. The honest answer is
-        # "this pass found nothing", which is what the pre-pass already
-        # concluded — and it is a *permissive* answer, so degrading cannot turn a
-        # job the employer ruled out into one the system proceeds with.
-        log.info("sponsorship classified deterministically only: %s", exc)
-        return SponsorshipAnalysis(
-            classification=Classification.SPONSORSHIP_NOT_MENTIONED,
-            work_authorization_restriction=WorkAuthRestriction.UNKNOWN,
-            confidence=0.2,
-            reasoning_summary=(
-                "No explicit sponsorship language was found, and no model was "
-                "available to read the wording. Check the description yourself "
-                "before relying on this."
-            ),
-        )
-
-    return enforce_evidence(response.value, description)

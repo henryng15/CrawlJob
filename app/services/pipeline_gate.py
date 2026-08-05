@@ -27,30 +27,18 @@ from app.services.resume_import import base_version
 __all__ = ["PIPELINE_TASKS", "GateResult", "check_gate", "is_pipeline_task"]
 
 
-#: Task types that move an application towards a recruiter and therefore wait
-#: for the gate.
+#: Task types that move a job towards a submitted application, and therefore
+#: wait for the gate.
 #:
-#: Four kinds of work are deliberately *not* here. Backups, cleanup and expiry
-#: protect data that already exists — pausing must never become a way to lose
-#: it. Restore is something you asked for by hand. Reconciliation only observes:
-#: if you submitted a prepared application yourself and then paused the system,
-#: the record of that submission must still be picked up.
-#:
-#: And polling a tailoring batch collects results that have *already been paid
-#: for*. Submitting is gated, because that is where the money goes; gating the
-#: poll as well would mean pausing after a submit threw the money away.
-#: Pausing stops new work, not the truth about work already done.
+#: Backups are deliberately *not* here: they protect data that already exists,
+#: and pausing must never become a way to lose it. Pausing stops new work, not
+#: the record of work already done.
 PIPELINE_TASKS: frozenset[TaskType] = frozenset(
     {
         TaskType.DISCOVER_SOURCE,
-        TaskType.ANALYZE_SPONSORSHIP,
         TaskType.SCORE_JOB,
-        TaskType.PREPARE_RESUME,
         TaskType.PREPARE_APPLICATION,
-        TaskType.SCHEDULE_OUTREACH,
-        TaskType.MATCH_RECRUITER,
-        TaskType.GENERATE_HOOK,
-        TaskType.CREATE_GMAIL_DRAFT,
+        TaskType.SUBMIT_APPLICATION,
     }
 )
 

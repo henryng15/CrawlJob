@@ -64,9 +64,7 @@ class Cadence:
         local = now.astimezone(tz)
         if self.at:
             day = local.date().isoformat()
-            return tuple(
-                f"{day}#{at:%H%M}" for at in sorted(self.at) if local.time() >= at
-            )
+            return tuple(f"{day}#{at:%H%M}" for at in sorted(self.at) if local.time() >= at)
 
         assert self.every is not None
         seconds = int(self.every.total_seconds())
@@ -88,24 +86,8 @@ class Job:
 #: §16.2's default schedule. Discovery is expanded per enabled source, so it is
 #: not listed here.
 SCHEDULE: tuple[Job, ...] = (
-    Job(
-        "submission_reconciliation",
-        TaskType.RECONCILE_SUBMISSION,
-        Cadence(every=timedelta(minutes=15)),
-    ),
-    Job("outreach_due_scan", TaskType.SCHEDULE_OUTREACH, Cadence(every=timedelta(minutes=30))),
-    Job("gmail_reconciliation", TaskType.RECONCILE_GMAIL, Cadence(every=timedelta(minutes=30))),
     Job("backup_database", TaskType.BACKUP_DATABASE, Cadence(at=(time(2, 30),))),
     Job("backup_artifacts", TaskType.BACKUP_ARTIFACTS, Cadence(at=(time(2, 45),))),
-    Job("cleanup", TaskType.CLEANUP_EXPIRED_SESSION, Cadence(at=(time(3, 15),))),
-    # Quarter-hourly rather than daily: a TTL the dashboard is up to a day late
-    # in honouring is not a TTL the user can trust. The sweep is one indexed
-    # query, so the frequency costs nothing.
-    Job(
-        "expire_prepared_applications",
-        TaskType.EXPIRE_PREPARED_APPLICATIONS,
-        Cadence(every=timedelta(minutes=15)),
-    ),
 )
 
 #: Discovery runs at each configured orchestration time, one task per source
@@ -160,9 +142,7 @@ def _schedule_discovery(session: Session, settings: Settings, *, now: datetime) 
     if not buckets:
         return 0
 
-    sources = session.scalars(
-        select(SourceRegistry).where(SourceRegistry.enabled.is_(True))
-    ).all()
+    sources = session.scalars(select(SourceRegistry).where(SourceRegistry.enabled.is_(True))).all()
     if not sources:
         log.info("no enabled sources; add some in Settings or with: internship-ops add-source")
         return 0

@@ -1,14 +1,22 @@
 """Playwright form driver (spec §7.8, §5.7, Milestone 0).
 
 Extracts a form's questions, fills the answers policy allows, uploads the resume,
-and stops. There is no code path from here to a Submit click: ``fill_form`` never
-locates a submit control, and ``assert_safe_to_review`` runs before the slot is
-handed to the user.
+and — when nothing is blocking — clicks Submit. :func:`submit_form` is the only
+place in the system where that click may happen, and it refuses whenever the page
+offers anything other than exactly one submit control.
 
-Locators are tried in the order :mod:`app.ats.replay` records them — accessible
-label first, CSS selector last — because that order is what survives an ATS
-redesign. When no locator resolves, the field is reported unfilled rather than
-being written into a best-guess element.
+Two rules shape everything here:
+
+**Only required fields block.** An unanswered optional question is a form the user
+chose not to embellish; an unanswered *required* one is a form that cannot legally
+be filed on their behalf. Treating both as blocking is what kept the auto-submit
+rate at zero, so :class:`FillReport` reports them separately.
+
+**Never guess.** Locators are tried in the order :mod:`app.ats.locators` builds
+them — accessible label first, CSS selector last — because that order is what
+survives an ATS redesign. When no locator resolves the field is reported unfilled rather
+than written into a best-guess element, and when the answer is not available the
+application goes to the user rather than being invented.
 
 Playwright is imported lazily so that importing this module, and running the rest
 of the suite, does not require a browser to be installed.
@@ -17,12 +25,15 @@ of the suite, does not require a browser to be installed.
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from app.ats.fields import Answer, FieldSpec, FieldType, SourceType
-from app.ats.replay import LocatorStrategy, Strategy, build_locators
+from app.ats.fields import Answer, FieldSpec, FieldType
+from app.ats.locators import LocatorStrategy, Strategy, build_locators
+from app.ats.submission import Observation, SubmissionVerdict, detect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from playwright.sync_api import Locator, Page
@@ -31,11 +42,16 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "CAPTCHA_MARKERS",
+    "ERROR_MARKERS",
+    "SUBMIT_NAME",
     "FillReport",
+    "SubmitOutcome",
     "attached_filenames",
     "detect_captcha",
     "extract_form",
     "fill_form",
+    "find_submit_control",
+    "submit_form",
 ]
 
 #: Selectors that mean a human must take over. The system never attempts these
@@ -74,12 +90,24 @@ class SupportsQuery(Protocol):
 
 @dataclass(slots=True)
 class FillReport:
-    """What one fill pass achieved."""
+    """What one fill pass achieved, and whether it may be submitted.
+
+    The three per-field lists are the audit trail: every question, and what became
+    of it. ``blocking_questions`` is the much shorter subset that actually stops
+    the application — a required question with no answer, or a required field the
+    page did not yield an element for. An optional question left empty appears in
+    ``skipped_manual`` and nowhere else, because a form that omits a cover letter
+    is a complete form.
+    """
 
     filled: list[str] = field(default_factory=list)
     skipped_manual: list[str] = field(default_factory=list)
     not_found: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    #: The question texts a human must answer before this can be submitted. Shown
+    #: verbatim on the dashboard, so they are the labels the user will read on the
+    #: employer's own page rather than internal semantic keys.
+    blocking_questions: list[str] = field(default_factory=list)
     captcha_detected: bool = False
     #: The resume file the browser **confirmed** is attached to a file input.
     #: ``None`` means no resume reached the form: the field was absent, setting it
@@ -93,13 +121,31 @@ class FillReport:
     resume_unconfirmed: str = ""
 
     @property
-    def needs_human(self) -> bool:
-        return bool(self.skipped_manual or self.not_found or self.captcha_detected)
+    def blocked(self) -> bool:
+        """Whether this application must go to the user instead of being sent."""
+        return bool(self.captcha_detected or self.blocking_questions)
+
+    @property
+    def block_reason(self) -> str:
+        """One sentence for the dashboard. Empty when nothing is blocking."""
+        if self.captcha_detected:
+            # AGENTS.md: never attempted, never outsourced, never worked around.
+            return "The form carries a CAPTCHA, which only you can solve."
+        if not self.blocking_questions:
+            return ""
+        count = len(self.blocking_questions)
+        shown = ", ".join(self.blocking_questions[:3])
+        more = f", and {count - 3} more" if count > 3 else ""
+        return (
+            f"{count} required question{'' if count == 1 else 's'} "
+            f"could not be answered from your locked facts: {shown}{more}."
+        )
 
     def summary(self) -> str:
         return (
             f"{len(self.filled)} filled, {len(self.skipped_manual)} left for the user, "
             f"{len(self.not_found)} not located"
+            + (f", {len(self.blocking_questions)} blocking" if self.blocking_questions else "")
             + (", CAPTCHA present" if self.captcha_detected else "")
             + ("" if self.resume_uploaded else ", no resume attached")
         )
@@ -114,9 +160,7 @@ def attached_filenames(target: Any) -> list[str] | None:
     ignorance, the other is a fact, and only the second is evidence.
     """
     try:
-        names = target.evaluate(
-            "el => el.files ? Array.from(el.files).map(f => f.name) : null"
-        )
+        names = target.evaluate("el => el.files ? Array.from(el.files).map(f => f.name) : null")
     except Exception as exc:  # pragma: no cover - depends on the page
         log.warning("could not read back the file input: %s", type(exc).__name__)
         return None
@@ -253,8 +297,16 @@ def fill_form(
     at: writing an answer into the wrong element produces a form that looks
     plausible and is wrong, which is the hardest kind of error for a reviewer to
     catch.
+
+    Whether that work *blocks* the submission is decided by ``spec.required``
+    alone, so an employer's optional cover letter costs nothing and their required
+    school name costs everything.
     """
     report = FillReport(captcha_detected=detect_captcha(page))
+
+    def block(spec: FieldSpec, label: str) -> None:
+        if spec.required and label not in report.blocking_questions:
+            report.blocking_questions.append(label)
 
     for spec, answer in zip(specs, answers, strict=True):
         label = spec.question_text or spec.name or "(unlabelled)"
@@ -269,13 +321,10 @@ def fill_form(
             and resume_path is not None
         )
 
-        if not is_resume_upload:
-            if answer.source_type in {SourceType.MANUAL_REQUIRED, SourceType.UNRESOLVED}:
-                report.skipped_manual.append(label)
-                continue
-            if answer.value is None:
-                report.skipped_manual.append(label)
-                continue
+        if not is_resume_upload and (answer.needs_human or answer.value is None):
+            report.skipped_manual.append(label)
+            block(spec, label)
+            continue
 
         target = None
         for locator in build_locators(spec):
@@ -285,6 +334,7 @@ def fill_form(
 
         if target is None:
             report.not_found.append(label)
+            block(spec, label)
             continue
 
         try:
@@ -300,11 +350,13 @@ def fill_form(
                     report.resume_unconfirmed = reason
                     report.errors.append(f"{label}: {reason}")
                     report.not_found.append(label)
+                    block(spec, label)
                 else:
                     report.resume_uploaded = resume_path
         except Exception as exc:
             report.errors.append(f"{label}: {type(exc).__name__}: {exc}")
             report.not_found.append(label)
+            block(spec, label)
             if is_resume_upload:
                 report.resume_unconfirmed = f"{type(exc).__name__} while attaching it"
 
@@ -325,6 +377,234 @@ def _apply(target: Locator, spec: FieldSpec, answer: Answer, resume_path: Path |
             target.check()
         case _:
             target.fill(str(answer.value))
+
+
+#: Names that mean "this button files the application". Matched against a
+#: control's accessible name, so it catches the ``<button>Submit Application
+#: </button>`` that carries no ``type`` attribute at all.
+SUBMIT_NAME: re.Pattern[str] = re.compile(r"submit|apply|send application", re.I)
+
+#: Where a submit control may live. Deliberately narrow — a link styled as a
+#: button is not clicked, because "Apply on company site" is one of those.
+_SUBMIT_CANDIDATES = "button, input[type='submit'], input[type='button']"
+
+#: Markers an ATS uses to render a rejected form. Their presence vetoes a
+#: submitted verdict (§7.10), so a validation failure cannot read as success.
+ERROR_MARKERS: tuple[str, ...] = (
+    "[role='alert']",
+    ".errors",
+    ".error",
+    ".field-error",
+    "[aria-invalid='true']",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitOutcome:
+    """What came of one attempt to submit.
+
+    ``clicked`` and ``verdict.submitted`` answer different questions and both are
+    recorded: the first is what this process did, the second is what the employer's
+    page says happened. A click with no verdict is a click whose result we could
+    not read, which is not the same as a failure.
+    """
+
+    #: Whether the Submit control was actually clicked.
+    clicked: bool
+    #: Whether this run was configured never to click.
+    dry_run: bool
+    #: One sentence: why we refused, or what the page said afterwards.
+    reason: str
+    #: The accessible name of the control, once one was resolved unambiguously.
+    control: str = ""
+    #: The page before and after, as :func:`app.ats.submission.detect` reads it.
+    observation: Observation | None = None
+    #: ``None`` when nothing was clicked, so there is nothing to judge.
+    verdict: SubmissionVerdict | None = None
+
+    @property
+    def submitted(self) -> bool:
+        return self.verdict is not None and self.verdict.submitted
+
+
+def find_submit_control(page: SupportsQuery) -> tuple[Any, str]:
+    """The one control that submits this form, or ``None`` and why not.
+
+    Returns the element and its accessible name, or ``(None, reason)``. Two
+    plausible Submit buttons is the case that must never be guessed at: the click
+    cannot be undone, and clicking the wrong one either does nothing or files
+    something the user never saw. So anything but exactly one match refuses.
+    """
+    matches: list[tuple[Any, str]] = []
+    for element in page.query_selector_all(_SUBMIT_CANDIDATES):
+        if not _is_visible(element):
+            continue
+        name = _accessible_name(element)
+        if _is_submit_typed(element) or SUBMIT_NAME.search(name):
+            matches.append((element, name or "(unnamed)"))
+
+    if not matches:
+        return None, "no submit control is present on the page"
+    if len(matches) > 1:
+        offered = ", ".join(name for _, name in matches)
+        return None, f"the page offers {len(matches)} possible submit controls ({offered})"
+    return matches[0]
+
+
+def submit_form(page: Page, *, dry_run: bool) -> SubmitOutcome:
+    """Click Submit and read what the employer's page says came of it.
+
+    The only place in the system where an application is filed. Everything that
+    decides *whether* to call it — the required-field rule, the daily cap, the
+    manual-only employer list — lives in the caller; everything that decides
+    whether it *worked* lives in :mod:`app.ats.submission`. This function only
+    does the clicking and the looking, and holds no database or queue state.
+
+    Args:
+        page: the filled form.
+        dry_run: locate the control, read the page, log it — but do not click.
+    """
+    control, control_name = find_submit_control(page)
+    if control is None:
+        return SubmitOutcome(
+            clicked=False, dry_run=dry_run, reason=f"refusing to submit: {control_name}"
+        )
+
+    before = _read(page)
+
+    if dry_run:
+        # Everything above ran, so a dry run still proves the control exists and
+        # is unambiguous — which is most of what can go wrong.
+        log.info("dry run: located submit control %r on %s", control_name, before.url)
+        return SubmitOutcome(
+            clicked=False,
+            dry_run=True,
+            reason="dry run: the submit control was located but not clicked",
+            control=control_name,
+            observation=_observation(before, before, ()),
+        )
+
+    network: list[tuple[str, int]] = []
+
+    def record(response: Any) -> None:
+        network.append((str(response.url), int(response.status)))
+
+    # Playwright reports every response on the page, including the one the form
+    # POSTs to, which is the only way _SUBMIT_ENDPOINTS can ever see a status.
+    page.on("response", record)
+    try:
+        control.click()
+        _settle(page)
+    finally:
+        page.remove_listener("response", record)
+
+    observation = _observation(before, _read(page), tuple(network))
+    verdict = detect(observation)
+    log.info("submitted=%s (%s)", verdict.submitted, verdict.reason)
+    return SubmitOutcome(
+        clicked=True,
+        dry_run=False,
+        reason=verdict.reason,
+        control=control_name,
+        observation=observation,
+        verdict=verdict,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Reading:
+    """One look at the page, taken before and after the click."""
+
+    url: str
+    title: str
+    text: str
+    form_present: bool
+    submit_present: bool
+    errors_visible: bool
+
+
+def _read(page: Page, *, form_selector: str = "form") -> _Reading:
+    return _Reading(
+        url=page.url,
+        title=_quietly(page.title, ""),
+        text=_quietly(lambda: page.inner_text("body"), ""),
+        form_present=page.query_selector(form_selector) is not None,
+        submit_present=find_submit_control(page)[0] is not None,
+        errors_visible=_errors_visible(page),
+    )
+
+
+def _observation(
+    before: _Reading, after: _Reading, network: tuple[tuple[str, int], ...]
+) -> Observation:
+    return Observation(
+        url_before=before.url,
+        url_after=after.url,
+        text_after=after.text,
+        title_before=before.title,
+        title_after=after.title,
+        submit_button_present_before=before.submit_present,
+        submit_button_present_after=after.submit_present,
+        form_present_before=before.form_present,
+        form_present_after=after.form_present,
+        network=network,
+        errors_visible=after.errors_visible,
+    )
+
+
+def _settle(page: Page, *, timeout_ms: float = 10_000) -> None:
+    """Wait for the page to finish reacting to the click.
+
+    Both waits are best-effort: a page that keeps a socket open never reaches
+    ``networkidle``, and giving up on the wait is not the same as the submission
+    having failed — the reading afterwards decides that.
+    """
+    for state in ("load", "networkidle"):
+        try:
+            page.wait_for_load_state(state, timeout=timeout_ms)
+        except Exception as exc:  # pragma: no cover - timing dependent
+            log.debug("page did not reach %s: %s", state, type(exc).__name__)
+
+
+def _errors_visible(page: SupportsQuery) -> bool:
+    for marker in ERROR_MARKERS:
+        element = page.query_selector(marker)
+        if element is not None and _is_visible(element):
+            return True
+    return False
+
+
+def _is_visible(element: Any) -> bool:
+    """Whether the browser is showing this element.
+
+    Unknown counts as visible: an element we cannot ask about still counts toward
+    ambiguity, and the safe direction there is refusing to click.
+    """
+    return bool(_quietly(element.is_visible, True))
+
+
+def _is_submit_typed(element: Any) -> bool:
+    return (element.get_attribute("type") or "").strip().lower() == "submit"
+
+
+def _accessible_name(element: Any) -> str:
+    """What a screen reader would announce for a control, near enough."""
+    for source in (
+        element.get_attribute("aria-label"),
+        element.get_attribute("value"),
+        _quietly(element.inner_text, ""),
+        element.get_attribute("title"),
+    ):
+        if source and str(source).strip():
+            return str(source).strip()
+    return ""
+
+
+def _quietly[T](call: Callable[[], T], default: T) -> T:
+    try:
+        return call()
+    except Exception:  # pragma: no cover - depends on the page
+        return default
 
 
 def _option_for(value: Any, options: tuple[str, ...]) -> str:

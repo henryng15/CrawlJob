@@ -32,66 +32,21 @@
   {% endif %}
 {% endmacro %}
 
-{# ``now`` enables the "time left" column; ``csrf`` enables the Restore button.
-   Both optional, so the plain two-argument call still works everywhere. #}
-{% macro apps_table(rows, empty, now=none, csrf=none) %}
+{# The flat list, for the complete-record screen. The dashboard does not use it:
+   there each group is worth different columns, and one shared table would show
+   every row the union of them. #}
+{% macro apps_table(rows, empty) %}
   {% if rows %}
     <div class="panel table-wrap"><table>
-      <tr>
-        <th>Company</th><th>Role</th><th>Status</th>
-        {% if now %}<th>Time left</th>{% endif %}
-        <th>Manual fields</th><th></th>
-      </tr>
+      <tr><th>Company</th><th>Role</th><th>Status</th><th>Why</th><th>When</th><th></th></tr>
       {% for a in rows %}
       <tr>
         <td>{{ a.company }}</td>
         <td>{{ a.job_title }}</td>
-        <td>
-          <span class="tag {{ 'warn' if a.needs_a_person else '' }}">{{ a.status }}</span>
-          {% if a.was_restored %}<span class="tag">restored</span>{% endif %}
-          {% if a.restore_blocked_reason %}
-            <div class="muted">{{ a.restore_blocked_reason }}</div>
-          {% endif %}
-        </td>
-        {% if now %}
-          <td>
-            {% set left = a.hours_left(now=now) %}
-            {% if left is none %}<span class="muted">—</span>
-            {% elif left <= 0 %}<span class="tag bad">lapsed</span>
-            {% elif left < 4 %}<span class="tag warn">{{ "%.0f" % left }}h</span>
-            {% else %}{{ "%.0f" % left }}h{% endif %}
-          </td>
-        {% endif %}
-        <td>{{ a.unresolved_fields or "—" }}</td>
-        <td>
-          <a href="/applications/{{ a.id }}">Open</a>
-          {% if csrf and a.restorable %}
-            <form method="post" action="/applications/{{ a.id }}/restore" style="display:inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button type="submit">Restore</button>
-            </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </table></div>
-  {% else %}
-    <p class="empty">{{ empty }}</p>
-  {% endif %}
-{% endmacro %}
-
-{% macro outreach_table(rows, empty) %}
-  {% if rows %}
-    <div class="panel table-wrap"><table>
-      <tr><th>Due</th><th>Company</th><th>Role</th><th>Recruiter</th><th>Status</th><th></th></tr>
-      {% for o in rows %}
-      <tr>
-        <td>{{ o.due_at.strftime("%d %b %H:%M") }}</td>
-        <td>{{ o.company }}</td>
-        <td>{{ o.job_title }}</td>
-        <td>{{ o.recruiter_name or "—" }}</td>
-        <td><span class="tag">{{ o.status }}</span></td>
-        <td><a href="/outreach/{{ o.id }}">Review</a></td>
+        <td><span class="tag {{ 'warn' if a.needs_me else '' }}">{{ a.status }}</span></td>
+        <td>{{ a.needs_me_reason or a.note or "—" }}</td>
+        <td class="muted">{{ a.when.strftime("%d %b %H:%M") }}</td>
+        <td><a href="/applications/{{ a.id }}">Open</a></td>
       </tr>
       {% endfor %}
     </table></div>

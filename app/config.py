@@ -95,35 +95,34 @@ class Settings(BaseSettings):
     )
     data_dir: Path = Path("/data/internship-ops")
 
-    # ---- llm --------------------------------------------------------------
-    llm_provider: Literal["anthropic", "null"] = "null"
-    anthropic_api_key: SecretStr | None = None
-    llm_classification_model: str = "claude-haiku-4-5-20251001"
-    llm_writing_model: str = "claude-sonnet-5"
-    llm_monthly_budget_usd: float = Field(default=15.0, gt=0)
-
     # ---- base resume (§7.7) -----------------------------------------------
     #: The one PDF every application uploads. **Read-only** — each application
     #: gets a copy in its own artifact folder, and this file is never written to.
     base_resume_pdf: Path | None = None
 
-    # ---- gmail ------------------------------------------------------------
-    gmail_credentials_path: Path | None = None
-    gmail_token_path: Path | None = None
-    gmail_draft_only: Literal[True] = True
-
     # ---- pipeline gates ---------------------------------------------------
-    #: The master switch, and it defaults to off. Discovery, tailoring, browser
-    #: preparation and outreach all refuse to run while this is false, so a
-    #: freshly deployed instance prepares nothing until it is turned on
-    #: deliberately. Backups, cleanup and expiry keep running regardless —
-    #: pausing the pipeline must not stop the jobs that protect existing data.
+    #: The master switch, and it defaults to off. Discovery and application
+    #: preparation refuse to run while this is false, so a freshly deployed
+    #: instance does nothing until it is turned on deliberately. Backups keep
+    #: running regardless — pausing must not stop the jobs that protect data.
     pipeline_enabled: bool = False
-    #: A declaration that the base resume is ready to tailor from. It is checked
-    #: *alongside* the database, never instead of it: a flag can be set by
-    #: someone who has not looked, and today's lesson is that a screen agreeing
-    #: with a flag is what makes a broken thing hard to find.
+    #: A declaration that the base resume is on disk and is the one to upload. It
+    #: is checked *alongside* the database, never instead of it: a flag can be set
+    #: by someone who has not looked, and a screen agreeing with a flag is what
+    #: makes a broken thing hard to find.
     base_resume_status: Literal["MISSING", "READY"] = "MISSING"
+
+    # ---- auto-submit ------------------------------------------------------
+    #: Whether the browser may click Submit at all. Off by default: a fresh
+    #: deployment fills forms and hands every one of them to the user.
+    auto_submit_enabled: bool = False
+    #: Do everything up to and including locating the Submit control, screenshot
+    #: it, record what would have happened — and do not click. Defaults to on,
+    #: because the first bug in a submit path is discovered by an employer.
+    auto_submit_dry_run: bool = True
+    #: A ceiling on how much a bad night can cost. Counted per calendar day in
+    #: the business timezone, across every worker.
+    max_auto_submits_per_day: int = Field(default=20, ge=0, le=200)
 
     # ---- orchestration ----------------------------------------------------
     #: Local wall-clock times, comma-separated. Each is a separate run with its
@@ -136,20 +135,11 @@ class Settings(BaseSettings):
     #: Applications prepared per calendar day in the business timezone, across
     #: every orchestration run, not per run.
     max_prepared_applications_per_day: int = Field(default=10, ge=1, le=100)
-    #: How long a prepared application waits for you before it expires. Expiry
-    #: is a state change, never a delete: the resume, answers, screenshots and
-    #: audit trail all survive so it can be restored later.
-    prepared_application_ttl_hours: int = Field(default=24, ge=1, le=168)
+    #: How many browsers may fill forms at once. Two Chromium processes is what
+    #: an OCI A1 free-tier instance handles comfortably; the work is short now
+    #: that nobody sits in front of the browser, so this is a throughput dial
+    #: rather than a reservation pool.
     max_browser_workers: int = Field(default=2, ge=1, le=4)
-    max_live_sessions: int = Field(default=2, ge=1, le=4)
-    live_session_ttl_hours: int = Field(default=8, ge=1, le=24)
-
-    # ---- outreach (§8.1) --------------------------------------------------
-    outreach_initial_daily_limit: int = Field(default=3, ge=0, le=10)
-    outreach_max_daily_limit: int = Field(default=5, ge=0, le=10)
-    outreach_delay_business_days: int = Field(default=2, ge=1, le=30)
-    outreach_max_per_company_30d: int = Field(default=2, ge=1, le=5)
-    outreach_max_followups: int = Field(default=1, ge=0, le=2)
 
     # ---- selection (§16.3) ------------------------------------------------
     minimum_fit_score: float = Field(default=72.0, ge=0, le=100)
@@ -192,20 +182,6 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _daily_limits_are_ordered(self) -> Settings:
-        if self.outreach_initial_daily_limit > self.outreach_max_daily_limit:
-            raise ValueError(
-                f"outreach_initial_daily_limit ({self.outreach_initial_daily_limit}) exceeds "
-                f"outreach_max_daily_limit ({self.outreach_max_daily_limit})"
-            )
-        if self.max_live_sessions > self.max_browser_workers:
-            raise ValueError(
-                f"max_live_sessions ({self.max_live_sessions}) exceeds "
-                f"max_browser_workers ({self.max_browser_workers})"
-            )
-        return self
-
-    @model_validator(mode="after")
     def _production_requires_real_secrets(self) -> Settings:
         """Refuse to run in production with development placeholders."""
         if self.app_env != "production":
@@ -217,8 +193,6 @@ class Settings(BaseSettings):
         ]
         if placeholders:
             raise ValueError(f"Production requires real values for: {', '.join(placeholders)}")
-        if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
-            raise ValueError(f"llm_provider={self.llm_provider} requires anthropic_api_key")
         if not self.app_base_url.startswith("https://"):
             raise ValueError(
                 "Production app_base_url must be HTTPS via Tailscale Serve, "

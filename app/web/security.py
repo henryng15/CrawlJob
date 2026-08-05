@@ -70,9 +70,7 @@ _SALT: Final = "internship-ops.session.v1"
 CLOCK_SKEW_GRACE: Final = timedelta(minutes=5)
 
 
-def is_fresh(
-    issued_at: datetime, max_age: timedelta, *, now: datetime | None = None
-) -> bool:
+def is_fresh(issued_at: datetime, max_age: timedelta, *, now: datetime | None = None) -> bool:
     """Whether a signed timestamp is inside its window.
 
     Two-sided on purpose, and asymmetric: too old is expiry, a little in the
@@ -81,6 +79,7 @@ def is_fresh(
     """
     age = (now or datetime.now(UTC)) - issued_at
     return -CLOCK_SKEW_GRACE <= age <= max_age
+
 
 @lru_cache(maxsize=1)
 def _dummy_hash() -> str:
@@ -106,9 +105,7 @@ class Session:
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        settings.app_secret_key.get_secret_value(), salt=_SALT
-    )
+    return URLSafeTimedSerializer(settings.app_secret_key.get_secret_value(), salt=_SALT)
 
 
 def hash_password(password: str) -> str:
@@ -143,9 +140,7 @@ def authenticate(username: str, password: str, settings: Settings) -> Session | 
 
     expected = settings.admin_username
     stored = (
-        settings.admin_password_hash
-        if hmac.compare_digest(username, expected)
-        else _dummy_hash()
+        settings.admin_password_hash if hmac.compare_digest(username, expected) else _dummy_hash()
     )
 
     if not verify_password(password, stored):
@@ -161,9 +156,7 @@ def issue(session: Session, settings: Settings) -> str:
     return str(_serializer(settings).dumps(payload))
 
 
-def read(
-    cookie: str | None, settings: Settings, *, now: datetime | None = None
-) -> Session | None:
+def read(cookie: str | None, settings: Settings, *, now: datetime | None = None) -> Session | None:
     """Recover a session from a cookie, or ``None`` if absent, tampered or idle.
 
     Every failure mode collapses to ``None``: the caller has nothing useful to do

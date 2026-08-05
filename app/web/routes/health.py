@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter
 from sqlalchemy import text
 
+from app.config import get_settings
 from app.safety import load_safety_settings
 from app.web.deps import Db
 
@@ -30,13 +31,17 @@ def live() -> dict[str, str]:
 def ready(db: Db) -> dict[str, Any]:
     db.execute(text("SELECT 1"))
     safety = load_safety_settings()
+    settings = get_settings()
     return {
         "status": "ok",
         "database": "ok",
-        # Reported so a monitor can alert if a deployment ever came up with a
-        # kill switch flipped. It cannot happen — parsing fails closed — but an
-        # alert that never fires is cheaper than discovering it could.
-        "auto_submit_enabled": safety.auto_submit_enabled,
+        # Reported so a monitor can see what this deployment is actually doing.
+        # The two are very different postures and the difference is invisible
+        # from the outside: dry-run fills every form and sends nothing.
+        "auto_submit_enabled": settings.auto_submit_enabled,
+        "auto_submit_dry_run": settings.auto_submit_dry_run,
+        # A kill switch flipped here cannot happen — parsing fails closed — but
+        # an alert that never fires is cheaper than discovering it could.
         "auto_send_email_enabled": safety.auto_send_email_enabled,
     }
 

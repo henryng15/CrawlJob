@@ -48,9 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     worker.add_argument("--max-tasks", type=int, default=None)
     worker.set_defaults(run=_worker)
 
-    hash_password = sub.add_parser(
-        "hash-password", help="produce a value for ADMIN_PASSWORD_HASH"
-    )
+    hash_password = sub.add_parser("hash-password", help="produce a value for ADMIN_PASSWORD_HASH")
     hash_password.set_defaults(run=_hash_password)
 
     discover = sub.add_parser("discover", help="queue a discovery run")
@@ -62,11 +60,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     resume = sub.add_parser("import-resume", help="register the resume every application uploads")
     resume.add_argument("path", type=Path, help="your resume: .pdf or .docx")
     resume.set_defaults(run=_import_resume)
-
-    recruiters = sub.add_parser("import-recruiters", help="import a recruiter spreadsheet")
-    recruiters.add_argument("path", type=Path)
-    recruiters.add_argument("--commit", action="store_true", help="write; default is preview")
-    recruiters.set_defaults(run=_import_recruiters)
 
     manual = sub.add_parser(
         "import-manual-companies",
@@ -93,9 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     status = sub.add_parser("status", help="show the queue and what is waiting on you")
     status.set_defaults(run=_status)
 
-    base_resume = sub.add_parser(
-        "check-base-resume", help="check the resume that will be uploaded"
-    )
+    base_resume = sub.add_parser("check-base-resume", help="check the resume that will be uploaded")
     base_resume.set_defaults(run=_check_base_resume)
 
     validate = sub.add_parser(
@@ -336,29 +327,6 @@ def _import_resume(args: argparse.Namespace) -> int:
 
     print("\nSet BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0
-
-
-def _import_recruiters(args: argparse.Namespace) -> int:
-    from app.db.session import session_scope
-    from app.services.recruiters import Source, commit_import, parse_xlsx, preview_import
-
-    if not args.path.exists():
-        print(f"no such file: {args.path}", file=sys.stderr)
-        return 1
-
-    source: Source = (
-        list(parse_xlsx(args.path))
-        if args.path.suffix.lower() == ".xlsx"
-        else args.path.read_text(encoding="utf-8")
-    )
-    with session_scope() as session:
-        report = commit_import(session, source) if args.commit else preview_import(session, source)
-        print(report.summary())
-        if not args.commit:
-            print("\nPreview only. Re-run with --commit to write.")
-    return 0
-
-
 def _import_manual_companies(args: argparse.Namespace) -> int:
     from app.db.session import session_scope
     from app.services.manual_companies import import_csv, preview_import
@@ -448,7 +416,7 @@ def _status(args: argparse.Namespace) -> int:
     from app.config import get_settings
     from app.db.session import session_scope
     from app.web.queries import dashboard
-    from app.worker.browser_slot import register_browser_handlers
+    from app.worker.browser import register_browser_handlers
     from app.worker.handlers import register_pipeline
     from app.worker.runtime import Registry, health
 
@@ -464,11 +432,10 @@ def _status(args: argparse.Namespace) -> int:
 
     print(json.dumps(queue, indent=2))
     print(
-        f"\njobs discovered today: {len(board.discovered_today)}"
-        f"\nselected, not applied: {len(board.selected)}"
-        f"\nwaiting on you:        {board.needs_attention}"
-        f"\ndrafts ready:          {len(board.drafts_ready)}"
-        f"\napplications prepared: {board.limits.prepared_today}/{board.limits.prepared_cap}"
+        f"\nsubmitted today: {board.submitted_today}/{settings.max_auto_submits_per_day}"
+        f"\nwaiting on you:  {board.needs_attention}"
+        + ("\n\nauto-submit is OFF" if not settings.auto_submit_enabled else "")
+        + ("\nDRY RUN: nothing is actually being sent" if settings.auto_submit_dry_run else "")
     )
     return 0
 
@@ -505,8 +472,7 @@ def _check_base_resume(args: argparse.Namespace) -> int:
     print(f"pages:       {pages if pages is not None else 'unreadable'}")
     if pages is None:
         print(
-            "\nThe file could not be read as a PDF. An employer's form will not "
-            "read it either.",
+            "\nThe file could not be read as a PDF. An employer's form will not read it either.",
             file=sys.stderr,
         )
         return 1
@@ -582,8 +548,7 @@ def _validate_adapters(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         print(
-            f"Cannot write reports to {out_dir}: {exc}\n"
-            "Pass --out with somewhere writable.",
+            f"Cannot write reports to {out_dir}: {exc}\nPass --out with somewhere writable.",
             file=sys.stderr,
         )
         return 1
@@ -749,8 +714,10 @@ def _print_stage_two(reports: list[Any]) -> None:
         print(f"   filled:            {len(entry.filled)}")
         print(f"   left for you:      {len(entry.left_for_human)}")
         print(f"   not recognised:    {len(entry.unrecognised)}")
-        print(f"   resume attached:   {entry.resume_attached}"
-              + (f"  ({entry.resume_confirmation})" if entry.resume_confirmation else ""))
+        print(
+            f"   resume attached:   {entry.resume_attached}"
+            + (f"  ({entry.resume_confirmation})" if entry.resume_confirmation else "")
+        )
         print(f"   submitted:         {entry.submitted}")
         for finding in entry.findings:
             print(f"      {finding.line()}")
