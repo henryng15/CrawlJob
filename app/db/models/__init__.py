@@ -21,6 +21,7 @@ from app.db.models.jobs import (
     SponsorshipAssessment,
 )
 from app.db.models.outreach import OutreachTask, Recruiter, SuppressionEntry
+from app.db.models.policy import ManualOnlyCompany
 from app.db.models.sources import SourceRegistry
 from app.db.models.tasks import AuditEvent, CandidateFact, ScheduledTask, TaskRun
 
@@ -36,6 +37,7 @@ __all__ = [
     "JobScore",
     "JobSourceLink",
     "JobSourceRecord",
+    "ManualOnlyCompany",
     "OutreachTask",
     "Recruiter",
     "ResumeVersion",

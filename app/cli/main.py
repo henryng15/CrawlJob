@@ -68,6 +68,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     recruiters.add_argument("--commit", action="store_true", help="write; default is preview")
     recruiters.set_defaults(run=_import_recruiters)
 
+    manual = sub.add_parser(
+        "import-manual-companies",
+        help="import the list of companies to apply to by hand",
+    )
+    manual.add_argument("path", type=Path)
+    manual.add_argument("--commit", action="store_true", help="write; default is preview")
+    manual.set_defaults(run=_import_manual_companies)
+
     source = sub.add_parser("add-source", help="watch a job board")
     source.add_argument("kind", choices=["greenhouse", "lever", "ashby", "github_feed"])
     source.add_argument("identifier", help="board id, company slug, or owner/repo")
@@ -345,6 +353,27 @@ def _import_recruiters(args: argparse.Namespace) -> int:
     )
     with session_scope() as session:
         report = commit_import(session, source) if args.commit else preview_import(session, source)
+        print(report.summary())
+        if not args.commit:
+            print("\nPreview only. Re-run with --commit to write.")
+    return 0
+
+
+def _import_manual_companies(args: argparse.Namespace) -> int:
+    from app.db.session import session_scope
+    from app.services.manual_companies import import_csv, preview_import
+
+    if not args.path.exists():
+        print(f"no such file: {args.path}", file=sys.stderr)
+        return 1
+
+    with session_scope() as session:
+        source = args.path.name
+        report = (
+            import_csv(session, args.path, source=source)
+            if args.commit
+            else preview_import(session, args.path, source=source)
+        )
         print(report.summary())
         if not args.commit:
             print("\nPreview only. Re-run with --commit to write.")
