@@ -93,18 +93,56 @@ def _serve_health() -> None:
 
 
 def _slot_row(session: Session, *, now: datetime) -> BrowserSession:
-    """The open session row for this slot, created if absent."""
+    """A session row this slot can start a fill from, created if absent.
+
+    ``IDLE`` is the only state a fill can begin from, so an open row in any other
+    state is finished work that was never closed — a slot that died mid-fill, or
+    a row left behind by the version of this file that forgot to close them. It
+    is retired here rather than reported, because there is nothing for a person
+    to decide: the browser it referred to is long gone, and refusing to work
+    until somebody clears the row by hand is how two applications a day became
+    the ceiling.
+    """
     row = session.scalars(
         select(BrowserSession)
         .where(BrowserSession.slot_name == SLOT_NAME)
         .where(BrowserSession.ended_at.is_(None))
     ).first()
+
+    if row is not None and BrowserSlotState(row.status) is not BrowserSlotState.IDLE:
+        log.info(
+            "slot %s had an open session in %s; retiring it", SLOT_NAME, row.status
+        )
+        row.ended_at = now
+        session.flush()
+        row = None
+
     if row is None:
         row = BrowserSession(slot_name=SLOT_NAME, status=BrowserSlotState.IDLE)
         session.add(row)
         session.flush()
     row.heartbeat_at = now
     return row
+
+
+def _release(slot: BrowserSession, *, into: BrowserSlotState, now: datetime) -> None:
+    """Record how the fill ended, then close the session so the slot is free.
+
+    A row per application, closed when its browser closes. Both halves matter.
+
+    Closing it is what makes the *next* application possible. Without this the
+    row stayed open in a terminal state, ``_slot_row`` handed that same row back,
+    and the next fill asked for ``LIVE_REVIEW -> ALLOCATING`` — which the state
+    machine rightly refuses. The task then retried three times and died. Two
+    applications per slot per day, everything after them lost, and nothing said
+    so: the only thing that ever set ``ended_at`` was the 03:15 cleanup sweep.
+
+    The slot is genuinely free at this point. ``_page`` closes Chromium when its
+    ``with`` block exits, well before any of these states is reached, so what the
+    open row was holding was a lock and not a browser.
+    """
+    slot.status = assert_transition(BrowserSlotState(slot.status), into)
+    slot.ended_at = now
 
 
 def register_browser_handlers(
@@ -206,9 +244,7 @@ def register_browser_handlers(
                 ApplicationState(application.status), ApplicationState.MANUAL_LOGIN_REQUIRED
             )
             set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
-            slot.status = assert_transition(
-                BrowserSlotState(slot.status), BrowserSlotState.MANUAL_LOGIN
-            )
+            _release(slot, into=BrowserSlotState.MANUAL_LOGIN, now=now)
             return HandlerResult(detail="a challenge is present; handing over to you")
 
         if report.needs_human:
@@ -216,9 +252,7 @@ def register_browser_handlers(
                 ApplicationState(application.status), ApplicationState.MANUAL_FIELD_REQUIRED
             )
             set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
-            slot.status = assert_transition(
-                BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
-            )
+            _release(slot, into=BrowserSlotState.LIVE_REVIEW, now=now)
             return HandlerResult(
                 detail=f"{len(report.skipped_manual) + len(report.not_found)} field(s) need you"
             )
@@ -228,9 +262,7 @@ def register_browser_handlers(
         )
         application.ready_for_review_at = now
         set_deadline(application, now=now, ttl_hours=config.prepared_application_ttl_hours)
-        slot.status = assert_transition(
-            BrowserSlotState(slot.status), BrowserSlotState.LIVE_REVIEW
-        )
+        _release(slot, into=BrowserSlotState.LIVE_REVIEW, now=now)
         # §29: the last check before a live browser is handed to the user. It has
         # never fired and is not expected to; that is the point of a guard.
         assert_safe_to_review(
