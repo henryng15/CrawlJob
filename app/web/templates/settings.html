@@ -4,17 +4,36 @@
 <h1>Settings</h1>
 
 <div class="panel">
-  <h2 style="margin-top:0">Safety</h2>
+  <h2 style="margin-top:0">Submitting</h2>
   <p class="muted">
-    These are compiled-in constants, not toggles. They are shown so their state is
+    Read from the environment, not editable here: turning submission on is a
+    deliberate act performed on the machine, not a click on a web page.
+  </p>
+  <dl class="facts">
+    <dt>Auto-submit</dt>
+    <dd>
+      {% if s.auto_submit_enabled %}<span class="tag warn">enabled</span>
+      {% else %}<span class="tag good">disabled — everything is handed to you</span>{% endif %}
+    </dd>
+    <dt>Dry run</dt>
+    <dd>
+      {% if s.auto_submit_dry_run %}<span class="tag warn">on — the click is suppressed</span>
+      {% else %}<span class="tag">off — the browser really clicks Submit</span>{% endif %}
+    </dd>
+    <dt>Submits / day</dt><dd>{{ s.max_auto_submits_per_day }}</dd>
+  </dl>
+</div>
+
+<div class="panel">
+  <h2 style="margin-top:0">Permanently unavailable</h2>
+  <p class="muted">
+    Compiled-in constants, not toggles. They are shown so their state is
     verifiable, and there is deliberately no control to change them (§29).
   </p>
   <dl class="facts">
-    <dt>Auto-submit</dt><dd><span class="tag good">disabled</span></dd>
     <dt>Auto-send email</dt><dd><span class="tag good">disabled</span></dd>
     <dt>CAPTCHA bypass</dt><dd><span class="tag good">disabled</span></dd>
     <dt>LinkedIn automation</dt><dd><span class="tag good">disabled</span></dd>
-    <dt>Gmail scopes</dt><dd>{{ gmail_scopes | join(", ") }}</dd>
   </dl>
 </div>
 
@@ -24,12 +43,7 @@
     <dl class="facts">
       <dt>Applications / day</dt><dd>{{ s.max_prepared_applications_per_day }}</dd>
       <dt>Browser workers</dt><dd>{{ s.max_browser_workers }}</dd>
-      <dt>Live sessions</dt><dd>{{ s.max_live_sessions }}</dd>
-      <dt>Outreach / day</dt>
-      <dd>{{ s.outreach_initial_daily_limit }} → {{ s.outreach_max_daily_limit }}</dd>
-      <dt>Per company / 30d</dt><dd>{{ s.outreach_max_per_company_30d }}</dd>
-      <dt>Follow-ups</dt><dd>{{ s.outreach_max_followups }}</dd>
-      <dt>Outreach delay</dt><dd>{{ s.outreach_delay_business_days }} business days</dd>
+      <dt>Per company</dt><dd>{{ s.max_active_applications_per_company }}</dd>
     </dl>
   </div>
 
@@ -38,20 +52,9 @@
     <dl class="facts">
       <dt>Minimum fit score</dt><dd>{{ s.minimum_fit_score }}</dd>
       <dt>Max role age</dt><dd>{{ s.max_role_age_days }} days</dd>
-      <dt>Max per company</dt><dd>{{ s.max_active_applications_per_company }}</dd>
+      <dt>Runs at</dt><dd>{{ s.orchestration_times | join(", ") }}</dd>
       <dt>Public scraping</dt>
       <dd>{{ "enabled" if s.public_job_scraping_enabled else "disabled" }}</dd>
-    </dl>
-  </div>
-
-  <div class="panel">
-    <h2 style="margin-top:0">Model budget</h2>
-    <dl class="facts">
-      <dt>Provider</dt><dd>{{ s.llm_provider }}</dd>
-      <dt>Classification</dt><dd>{{ s.llm_classification_model }}</dd>
-      <dt>Writing</dt><dd>{{ s.llm_writing_model }}</dd>
-      <dt>Monthly budget</dt><dd>${{ "%.2f" % s.llm_monthly_budget_usd }}</dd>
-      <dt>Spent this month</dt><dd>${{ "%.2f" % spent }}</dd>
     </dl>
   </div>
 </div>
@@ -121,22 +124,6 @@
     <label style="flex:1">Label <input name="label" placeholder="optional"></label>
     <button class="primary">Watch</button>
   </form>
-</div>
-
-<h2>Recruiter import</h2>
-<div class="panel">
-  <form method="post" action="/settings/recruiters" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ session.csrf_token }}">
-    <p><input type="file" name="file" accept=".csv,.xlsx" required></p>
-    <p>
-      <label><input type="checkbox" name="commit" value="1" style="width:auto"> commit (otherwise preview only)</label>
-    </p>
-    <button class="primary">Upload</button>
-  </form>
-  {% if import_report %}
-    <p class="flash">{{ import_report }}</p>
-  {% endif %}
-  <p class="muted">{{ recruiter_count }} recruiters stored.</p>
 </div>
 
 <h2>Data retention</h2>

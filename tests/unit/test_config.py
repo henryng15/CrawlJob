@@ -31,7 +31,7 @@ PROD: dict[str, Any] = {
 }
 
 
-#: The four kill switches. They are read by :func:`load_safety_settings` rather
+#: The kill switches. They are read by :func:`load_safety_settings` rather
 #: than declared as ``Settings`` fields, so the sweep below cannot find them.
 _SAFETY_VARS = (
     "AUTO_SUBMIT_ENABLED",
@@ -65,25 +65,26 @@ class TestDefaults:
     def test_development_defaults_load(self):
         s = build()
         assert s.app_env == "development"
-        assert s.llm_provider == "null", "must not call a paid API by default"
         assert s.max_prepared_applications_per_day == 10
-        assert s.outreach_delay_business_days == 2
 
-    def test_gmail_is_draft_only_and_cannot_be_changed(self):
-        assert build().gmail_draft_only is True
+    def test_auto_submit_is_off_and_dry_by_default(self):
+        """A fresh deployment fills forms and sends nothing."""
+        s = build()
+        assert s.auto_submit_enabled is False
+        assert s.auto_submit_dry_run is True
         with pytest.raises(ValidationError):
-            build(gmail_draft_only=False)
+            build(auto_submit_enabled="maybe")
 
     def test_settings_are_frozen(self):
         s = build()
         with pytest.raises(ValidationError):
-            s.max_live_sessions = 99  # type: ignore[misc]
+            s.max_browser_workers = 99  # type: ignore[misc]
 
-    def test_model_ids_are_real(self):
+    def test_no_model_is_configured_at_all(self):
         """The spec's sample .env shipped `claude-sonnet-4-6`, which does not exist."""
         s = build()
-        assert s.llm_writing_model == "claude-sonnet-5"
-        assert s.llm_classification_model.startswith("claude-haiku-4-5")
+        assert not hasattr(s, "llm_provider"), "the application path calls no model"
+        assert not hasattr(s, "anthropic_api_key")
 
     def test_derived_paths(self, tmp_path):
         s = build(data_dir=tmp_path)
@@ -99,22 +100,20 @@ class TestValidation:
     def test_timezone_property_resolves(self):
         assert build().timezone.key == "America/New_York"
 
-    def test_initial_daily_limit_cannot_exceed_max(self):
-        with pytest.raises(ValidationError, match="exceeds"):
-            build(outreach_initial_daily_limit=5, outreach_max_daily_limit=3)
 
-    def test_live_sessions_cannot_exceed_workers(self):
-        """Two live sessions on a 12 GB VM is the documented ceiling (§15.5)."""
-        with pytest.raises(ValidationError, match="exceeds"):
-            build(max_live_sessions=4, max_browser_workers=2)
+    def test_the_daily_submit_cap_is_bounded(self):
+        """A ceiling on the ceiling: a typo in the cap must not become a bad night."""
+        with pytest.raises(ValidationError):
+            build(max_auto_submits_per_day=500)
+        with pytest.raises(ValidationError):
+            build(max_auto_submits_per_day=-1)
 
     @pytest.mark.parametrize(
         ("field", "value"),
         [
-            ("llm_monthly_budget_usd", 0),
             ("minimum_fit_score", 101),
             ("max_browser_workers", 0),
-            ("outreach_delay_business_days", 0),
+            ("max_auto_submits_per_day", -1),
             ("max_prepared_applications_per_day", 0),
         ],
     )
@@ -139,13 +138,7 @@ class TestProductionHardening:
         with pytest.raises(ValidationError, match="HTTPS"):
             build(**{**PROD, "app_base_url": "http://internship-ops.example.ts.net"})
 
-    def test_anthropic_provider_requires_a_key(self):
-        with pytest.raises(ValidationError, match="anthropic_api_key"):
-            build(**{**PROD, "llm_provider": "anthropic"})
 
-    def test_anthropic_provider_with_key_is_valid(self):
-        s = build(**{**PROD, "llm_provider": "anthropic", "anthropic_api_key": "sk-ant-x"})
-        assert s.llm_provider == "anthropic"
 
     def test_production_requires_an_admin_password(self):
         """An instance with no password would be open to anyone on the tailnet."""
@@ -164,14 +157,14 @@ class TestProductionHardening:
 
     def test_secrets_are_not_leaked_by_repr(self):
         """Secrets must not reach logs or error reports (§23.5)."""
-        s = build(**{**PROD, "llm_provider": "anthropic", "anthropic_api_key": "sk-ant-SECRET"})
+        s = build(**PROD)
         assert "sk-ant-SECRET" not in repr(s)
         assert "a-real-secret" not in repr(s)
 
 
 class TestGetSettings:
     def test_runs_safety_guards_before_building_settings(self, monkeypatch):
-        monkeypatch.setenv("AUTO_SUBMIT_ENABLED", "true")
+        monkeypatch.setenv("CAPTCHA_BYPASS_ENABLED", "true")
         with pytest.raises(SafetyViolation):
             get_settings()
 

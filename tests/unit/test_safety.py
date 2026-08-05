@@ -1,7 +1,8 @@
-"""Tests for the hard safety guards (spec §29).
+"""Tests for the hard safety guards.
 
-If any test in this file fails, the build is broken in the one way the project
-cannot tolerate. Treat a failure here as a stop-the-line event.
+If any test in this file fails, the build is broken in the one way this project
+cannot tolerate: it can now send an application it should not have. Treat a
+failure here as a stop-the-line event.
 """
 
 from __future__ import annotations
@@ -15,19 +16,15 @@ from app.safety import (
     FORBIDDEN_FLAGS,
     SafetySettings,
     SafetyViolation,
-    assert_gmail_service_has_no_send,
-    assert_safe_to_create_draft,
-    assert_safe_to_review,
+    SubmitRefused,
+    assert_safe_to_submit,
     load_safety_settings,
 )
-
-PRE_SUBMIT = frozenset({"READY_FOR_REVIEW", "LIVE_REVIEW_READY"})
 
 
 class TestSafetySettings:
     def test_defaults_are_all_off(self):
         s = SafetySettings()
-        assert s.auto_submit_enabled is False
         assert s.auto_send_email_enabled is False
         assert s.captcha_bypass_enabled is False
         assert s.linkedin_automation_enabled is False
@@ -62,7 +59,7 @@ class TestLoadSafetySettings:
     def test_unrecognised_values_fail_closed(self, value):
         """An unparseable value is an attempt to enable, not something to ignore."""
         with pytest.raises(SafetyViolation):
-            load_safety_settings({"AUTO_SUBMIT_ENABLED": value})
+            load_safety_settings({"CAPTCHA_BYPASS_ENABLED": value})
 
     def test_reports_every_offender_at_once(self):
         env = dict.fromkeys(FORBIDDEN_FLAGS, "true")
@@ -72,7 +69,7 @@ class TestLoadSafetySettings:
             assert flag in str(exc.value)
 
     def test_reads_os_environ_by_default(self, monkeypatch):
-        monkeypatch.setenv("AUTO_SUBMIT_ENABLED", "true")
+        monkeypatch.setenv("CAPTCHA_BYPASS_ENABLED", "true")
         with pytest.raises(SafetyViolation):
             load_safety_settings()
 
@@ -81,79 +78,69 @@ class TestLoadSafetySettings:
         assert not issubclass(SafetyViolation, ValueError)
 
 
-class TestGmailHasNoSend:
-    def test_draft_only_service_passes(self):
-        class DraftOnlyGmail:
-            def create_draft(self): ...
-            def update_draft(self): ...
+class TestAssertSafeToSubmit:
+    """The one choke point before an irreversible click."""
 
-        assert_gmail_service_has_no_send(DraftOnlyGmail())
+    def _ok(self, **overrides):
+        kwargs = {
+            "enabled": True,
+            "dry_run": False,
+            "blocked": False,
+            "block_reason": "",
+            "captcha_detected": False,
+            "resume_attached": True,
+            "submitted_today": 0,
+            "daily_cap": 20,
+        }
+        return {**kwargs, **overrides}
 
-    @pytest.mark.parametrize("name", ["send", "send_draft", "send_message", "drafts_send"])
-    def test_any_send_shaped_attribute_is_rejected(self, name):
-        service = type("Gmail", (), {name: lambda self: None})()
-        with pytest.raises(SafetyViolation, match=name):
-            assert_gmail_service_has_no_send(service)
+    def test_a_complete_application_is_allowed_through(self):
+        assert_safe_to_submit(**self._ok())
 
-    def test_a_disabled_send_method_still_fails(self):
-        """Presence is the violation. Refusing at call time is not good enough."""
+    def test_a_dry_run_is_not_a_refusal(self):
+        """The caller branches on dry_run *after* this agrees the submission was safe.
 
-        class Gmail:
-            def send(self):
-                raise NotImplementedError("disabled")
-
-        with pytest.raises(SafetyViolation):
-            assert_gmail_service_has_no_send(Gmail())
-
-
-class TestAssertSafeToReview:
-    def test_clean_pre_submit_state_passes(self):
-        assert_safe_to_review(
-            has_clicked_submit=False,
-            application_status="READY_FOR_REVIEW",
-            allowed_pre_submit_states=PRE_SUBMIT,
-        )
-
-    def test_submit_click_blocks_review(self):
-        with pytest.raises(SafetyViolation, match="never submit"):
-            assert_safe_to_review(
-                has_clicked_submit=True,
-                application_status="READY_FOR_REVIEW",
-                allowed_pre_submit_states=PRE_SUBMIT,
-            )
-
-    def test_post_submit_status_blocks_review(self):
-        with pytest.raises(SafetyViolation, match="not a pre-submit state"):
-            assert_safe_to_review(
-                has_clicked_submit=False,
-                application_status="SUBMITTED",
-                allowed_pre_submit_states=PRE_SUBMIT,
-            )
-
-
-class TestAssertSafeToCreateDraft:
-    OK: ClassVar[dict[str, Any]] = {
-        "application_status": "SUBMITTED",
-        "submitted_at": "2026-07-01T00:00:00Z",
-        "outreach_due": True,
-        "is_suppressed": False,
-        "within_rate_limit": True,
-    }
-
-    def test_all_conditions_met_passes(self):
-        assert_safe_to_create_draft(**self.OK)
+        Refusing here would collapse "we would have submitted" and "we could not"
+        into one outcome, which is the only thing a dry run is for.
+        """
+        assert_safe_to_submit(**self._ok(dry_run=True))
 
     @pytest.mark.parametrize(
         ("override", "match"),
         [
-            ({"application_status": "READY_FOR_REVIEW"}, "confirmed submission"),
-            ({"application_status": "SUBMISSION_UNCERTAIN"}, "confirmed submission"),
-            ({"submitted_at": None}, "no submitted_at"),
-            ({"outreach_due": False}, "not yet due"),
-            ({"is_suppressed": True}, "suppressed"),
-            ({"within_rate_limit": False}, "limit reached"),
+            ({"captcha_detected": True}, "CAPTCHA"),
+            ({"blocked": True, "block_reason": "3 questions need you"}, "3 questions need you"),
+            ({"blocked": True}, "locked fact"),
+            ({"resume_attached": False}, "resume"),
+            ({"enabled": False}, "AUTO_SUBMIT_ENABLED"),
+            ({"daily_cap": 0}, "zero"),
+            ({"submitted_today": 20, "daily_cap": 20}, "cap of 20"),
+            ({"submitted_today": 21, "daily_cap": 20}, "cap of 20"),
         ],
     )
-    def test_each_condition_blocks_independently(self, override, match):
-        with pytest.raises(SafetyViolation, match=match):
-            assert_safe_to_create_draft(**{**self.OK, **override})
+    def test_each_condition_refuses_on_its_own(self, override, match):
+        with pytest.raises(SubmitRefused, match=match):
+            assert_safe_to_submit(**self._ok(**override))
+
+    def test_the_most_specific_reason_wins(self):
+        """The user reads this on the dashboard, so it has to name the thing to fix."""
+        with pytest.raises(SubmitRefused, match="CAPTCHA"):
+            assert_safe_to_submit(
+                **self._ok(captcha_detected=True, blocked=True, enabled=False)
+            )
+
+    def test_a_refusal_is_not_a_safety_violation(self):
+        """A violation kills the process; a refusal is an ordinary outcome."""
+        assert not issubclass(SubmitRefused, SafetyViolation)
+
+
+class TestAutoSubmitIsNoLongerForbidden:
+    def test_the_flag_is_not_a_kill_switch_any_more(self):
+        """Submitting is the product. It is capped, not made impossible."""
+        assert "AUTO_SUBMIT_ENABLED" not in FORBIDDEN_FLAGS
+
+    def test_sending_email_still_is(self):
+        assert "AUTO_SEND_EMAIL_ENABLED" in FORBIDDEN_FLAGS
+
+    def test_setting_it_does_not_stop_the_process(self):
+        load_safety_settings({"AUTO_SUBMIT_ENABLED": "true"})

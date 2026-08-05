@@ -478,15 +478,12 @@ def _artifacts_root(settings: Settings) -> Path:
 
 
 def _sessions_root(settings: Settings) -> Path:
-    """Where Playwright's storage state is saved, one file per application.
+    """Where browser sessions used to be saved, one file per application.
 
-    Not under ``artifacts_dir``: a browser slot writes it to
-    ``{data_dir}/browser-sessions/{slot}/{application_id}.json`` (see
-    ``app/worker/browser_slot.py``). The first version of this table swept
-    ``artifacts_dir`` for the substring "storage-state" and so matched nothing
-    at all — session cookies, the one artifact here that is a live credential,
-    were kept for ever while the settings screen told the user they were deleted
-    after seven days.
+    Nothing writes here any more: each application now gets a fresh context that
+    is thrown away when the page closes, so there are no cookies to keep. The
+    sweep stays because deployments that ran the old code still have the files,
+    and those files are live credentials.
     """
     return settings.data_dir / "browser-sessions"
 
@@ -543,8 +540,6 @@ _SWEEPS: tuple[_Sweep, ...] = (
     # one artifact whose retention is a security decision rather than a disk one.
     # Timed from mtime, which is the moment the state was saved — at or after the
     # submission it belongs to, so this can only ever delete early, never late.
-    # A replay that finds the file gone simply logs in again (browser_slot only
-    # restores it ``if ... Path(storage_state).is_file()``).
     _Sweep("storage-state", timedelta(days=7), _sessions_root, ("*.json",)),
 )
 

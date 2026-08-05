@@ -1,228 +1,137 @@
-"""Tests for the state machines (spec §13).
+"""State machine tests.
 
-The important test in this file is
-``TestHumanGate::test_submitted_is_unreachable_without_a_human_gate``. It proves by
-graph search that no sequence of automated transitions reaches ``SUBMITTED``. If
-someone later adds a well-meaning shortcut to the transition table, that test —
-not a code reviewer — is what catches it.
+The property this file used to assert — that ``SUBMITTED`` was unreachable
+without crossing a state only a person could leave — is deliberately gone. The
+system submits now. What replaces it is smaller and about shape rather than
+permission: the machine has exactly one automated route to ``SUBMITTED``, one way
+to hand an application to the user, and no state it can get stuck in.
 """
 
 from __future__ import annotations
-
-from collections import deque
-from enum import StrEnum
-from itertools import pairwise
 
 import pytest
 
 from app.domain.states import (
     APPLICATION_TRANSITIONS,
-    BROWSER_SLOT_TRANSITIONS,
-    HUMAN_GATED_APPLICATION_STATES,
     JOB_TRANSITIONS,
-    OUTREACH_TRANSITIONS,
+    TERMINAL_APPLICATION_STATES,
     ApplicationState,
-    BrowserSlotState,
     InvalidTransition,
     JobState,
-    OutreachState,
     assert_transition,
     can_transition,
 )
 
-ALL_MACHINES = [
-    (JobState, JOB_TRANSITIONS),
-    (ApplicationState, APPLICATION_TRANSITIONS),
-    (OutreachState, OUTREACH_TRANSITIONS),
-    (BrowserSlotState, BROWSER_SLOT_TRANSITIONS),
-]
 
-
-def reachable_from[S: StrEnum](
-    start: S,
-    table: dict[S, frozenset[S]],
-    *,
-    do_not_expand: frozenset[S] = frozenset(),
-) -> set[S]:
-    """States reachable from ``start`` without expanding out of ``do_not_expand``."""
-    seen = {start}
-    queue = deque([start])
+def reachable(start, table):
+    """Every state reachable from ``start``."""
+    seen, queue = {start}, [start]
     while queue:
-        state = queue.popleft()
-        if state in do_not_expand:
-            continue
-        for target in table[state]:
-            if target not in seen:
-                seen.add(target)
-                queue.append(target)
+        for nxt in table[queue.pop()]:
+            if nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
     return seen
 
 
-# --------------------------------------------------------- table integrity
+class TestTheTableIsWellFormed:
+    @pytest.mark.parametrize("state", list(ApplicationState))
+    def test_every_application_state_has_an_entry(self, state):
+        assert state in APPLICATION_TRANSITIONS
+
+    @pytest.mark.parametrize("state", list(JobState))
+    def test_every_job_state_has_an_entry(self, state):
+        assert state in JOB_TRANSITIONS
+
+    @pytest.mark.parametrize("state", list(ApplicationState))
+    def test_no_state_is_stranded(self, state):
+        assert state in reachable(ApplicationState.CREATED, APPLICATION_TRANSITIONS)
+
+    @pytest.mark.parametrize("state", list(ApplicationState))
+    def test_nothing_is_a_dead_end_except_the_terminal_states(self, state):
+        if state in TERMINAL_APPLICATION_STATES:
+            assert APPLICATION_TRANSITIONS[state] == frozenset()
+        else:
+            assert APPLICATION_TRANSITIONS[state], f"{state} cannot be left"
 
 
-@pytest.mark.parametrize(
-    ("enum_cls", "table"), ALL_MACHINES, ids=lambda x: getattr(x, "__name__", "")
-)
-class TestTableIntegrity:
-    def test_every_state_has_an_entry(self, enum_cls, table):
-        assert set(table) == set(enum_cls), "every state needs an explicit entry, even if terminal"
+class TestTheAutoLane:
+    def test_the_browser_can_submit(self):
+        """The whole point of the refactor, asserted once and plainly."""
+        assert can_transition(ApplicationState.BROWSER_FILLING, ApplicationState.SUBMITTED)
 
-    def test_every_target_is_a_known_state(self, enum_cls, table):
-        for source, targets in table.items():
-            unknown = {t for t in targets if t not in set(enum_cls)}
-            assert not unknown, f"{source} points at unknown states {unknown}"
+    def test_only_two_states_reach_submitted(self):
+        """One is the browser finishing. The other is the user saying they did it."""
+        sources = {
+            state
+            for state, targets in APPLICATION_TRANSITIONS.items()
+            if ApplicationState.SUBMITTED in targets
+        }
+        assert sources == {ApplicationState.BROWSER_FILLING, ApplicationState.NEEDS_ME}
 
-    def test_no_state_transitions_to_itself(self, enum_cls, table):
-        offenders = [s for s, targets in table.items() if s in targets]
-        assert not offenders, f"self-transitions hide bugs: {offenders}"
+    def test_submitted_is_terminal(self):
+        """An application that went out cannot be un-sent, so the row cannot move."""
+        assert APPLICATION_TRANSITIONS[ApplicationState.SUBMITTED] == frozenset()
 
-    def test_every_state_is_reachable_or_is_an_entry_point(self, enum_cls, table):
-        """Catches states that were added to the enum but never wired up."""
-        entry_points = {JobState.DISCOVERED, ApplicationState.CREATED, BrowserSlotState.IDLE}
-        targeted = {t for targets in table.values() for t in targets}
-        orphans = set(enum_cls) - targeted - entry_points
-        # Outreach starts at either NOT_ELIGIBLE or SCHEDULED depending on §8.2.
-        orphans -= {OutreachState.NOT_ELIGIBLE}
-        assert not orphans, f"unreachable states: {orphans}"
+    def test_a_queued_application_cannot_skip_the_browser(self):
+        assert not can_transition(ApplicationState.BROWSER_QUEUED, ApplicationState.SUBMITTED)
 
-
-# ------------------------------------------------------------- human gate
+    def test_materials_cannot_jump_straight_to_submitted(self):
+        assert not can_transition(ApplicationState.MATERIALS_READY, ApplicationState.SUBMITTED)
 
 
-class TestHumanGate:
-    def test_submitted_is_unreachable_without_a_human_gate(self):
-        """The core safety property: the machine cannot submit an application.
+class TestHandingOver:
+    def test_both_lanes_end_in_the_same_place(self):
+        """The manual list and a blocked form are one state, told apart by a reason."""
+        assert can_transition(ApplicationState.MATERIALS_READY, ApplicationState.NEEDS_ME)
+        assert can_transition(ApplicationState.BROWSER_FILLING, ApplicationState.NEEDS_ME)
 
-        We walk every automated transition from CREATED but refuse to step *out
-        of* a human-gated state, since only a person can do that. SUBMITTED must
-        stay unreachable.
-        """
-        reached = reachable_from(
-            ApplicationState.CREATED,
-            APPLICATION_TRANSITIONS,
-            do_not_expand=HUMAN_GATED_APPLICATION_STATES,
-        )
-        assert ApplicationState.SUBMITTED not in reached
-        assert ApplicationState.SUBMISSION_PENDING_CONFIRMATION not in reached
+    def test_the_user_can_finish_what_the_machine_handed_over(self):
+        assert can_transition(ApplicationState.NEEDS_ME, ApplicationState.SUBMITTED)
 
-    def test_submitted_is_reachable_once_a_human_acts(self):
-        """Sanity check: the gate blocks the machine, not the product."""
-        reached = reachable_from(ApplicationState.CREATED, APPLICATION_TRANSITIONS)
-        assert ApplicationState.SUBMITTED in reached
+    def test_the_machine_never_takes_it_back(self):
+        """Two things filling one form is worse than one."""
+        assert not can_transition(ApplicationState.NEEDS_ME, ApplicationState.BROWSER_QUEUED)
+        assert not can_transition(ApplicationState.NEEDS_ME, ApplicationState.BROWSER_FILLING)
 
-    def test_filling_worker_cannot_jump_to_submitted(self):
-        assert not can_transition(ApplicationState.BROWSER_FILLING, ApplicationState.SUBMITTED)
-
-    @pytest.mark.parametrize("state", sorted(ApplicationState))
-    def test_only_confirmation_states_lead_to_submitted(self, state):
-        if ApplicationState.SUBMITTED in APPLICATION_TRANSITIONS[state]:
-            assert state in {
-                ApplicationState.SUBMISSION_PENDING_CONFIRMATION,
-                ApplicationState.SUBMISSION_UNCERTAIN,
-            }
-
-    def test_outreach_cannot_reach_sent_without_review(self):
-        """Nothing may mark outreach SENT except reconciliation after review."""
-        senders = [s for s, t in OUTREACH_TRANSITIONS.items() if OutreachState.SENT in t]
-        assert senders == [OutreachState.READY_FOR_REVIEW]
-
-    def test_reply_cancels_followup(self):
-        """A replied thread may only close — never queue another draft (§8.4)."""
-        assert OUTREACH_TRANSITIONS[OutreachState.REPLIED] == frozenset({OutreachState.CLOSED})
+    def test_anything_unfinished_can_be_abandoned(self):
+        for state, targets in APPLICATION_TRANSITIONS.items():
+            if state in TERMINAL_APPLICATION_STATES:
+                continue
+            assert ApplicationState.SKIPPED in targets, f"{state} cannot be skipped"
 
 
-# ---------------------------------------------------------------- engine
+class TestFailure:
+    def test_a_failed_application_can_be_retried(self):
+        assert can_transition(ApplicationState.FAILED, ApplicationState.BROWSER_QUEUED)
+
+    def test_a_failed_application_cannot_be_declared_submitted(self):
+        assert not can_transition(ApplicationState.FAILED, ApplicationState.SUBMITTED)
 
 
-class TestAssertTransition:
-    def test_allowed_transition_returns_target(self):
-        result = assert_transition(ApplicationState.CREATED, ApplicationState.MATERIALS_PREPARING)
-        assert result is ApplicationState.MATERIALS_PREPARING
-
-    def test_disallowed_transition_raises(self):
-        with pytest.raises(InvalidTransition) as exc:
-            assert_transition(ApplicationState.CREATED, ApplicationState.SUBMITTED)
-        assert exc.value.current is ApplicationState.CREATED
-        assert exc.value.target is ApplicationState.SUBMITTED
-
-    def test_error_message_lists_allowed_targets(self):
-        with pytest.raises(InvalidTransition, match="MATERIALS_PREPARING"):
-            assert_transition(ApplicationState.CREATED, ApplicationState.SUBMITTED)
-
-    def test_terminal_state_reports_as_terminal(self):
-        with pytest.raises(InvalidTransition, match=r"terminal"):
-            assert_transition(ApplicationState.SKIPPED, ApplicationState.CREATED)
-
-    def test_mixing_machines_is_a_type_error(self):
-        with pytest.raises(TypeError, match="ApplicationState"):
-            assert_transition(JobState.DISCOVERED, ApplicationState.CREATED)
-
-    def test_unregistered_enum_is_a_type_error(self):
-        class Rogue(StrEnum):
-            A = "A"
-
-        with pytest.raises(TypeError, match="No transition table"):
-            assert_transition(Rogue.A, Rogue.A)
-
-
-class TestRepresentativeFlows:
-    def test_happy_path_application(self):
-        flow = [
-            ApplicationState.CREATED,
-            ApplicationState.MATERIALS_PREPARING,
-            ApplicationState.MATERIALS_READY,
-            ApplicationState.BROWSER_QUEUED,
-            ApplicationState.BROWSER_FILLING,
-            ApplicationState.READY_FOR_REVIEW,
-            ApplicationState.LIVE_REVIEW_READY,
-            ApplicationState.SUBMISSION_PENDING_CONFIRMATION,
-            ApplicationState.SUBMITTED,
-        ]
-        for current, target in pairwise(flow):
-            assert_transition(current, target)
-
-    def test_expired_session_replay_path(self):
-        flow = [
-            ApplicationState.READY_FOR_REVIEW,
-            ApplicationState.READY_FOR_REPLAY,
-            ApplicationState.REPLAYING,
-            ApplicationState.LIVE_REVIEW_READY,
-        ]
-        for current, target in pairwise(flow):
-            assert_transition(current, target)
-
-    def test_uncertain_submission_can_be_replayed_or_confirmed(self):
-        assert can_transition(ApplicationState.SUBMISSION_UNCERTAIN, ApplicationState.SUBMITTED)
-        assert can_transition(
-            ApplicationState.SUBMISSION_UNCERTAIN, ApplicationState.READY_FOR_REPLAY
+class TestTheEngine:
+    def test_a_legal_move_returns_the_target(self):
+        assert (
+            assert_transition(ApplicationState.CREATED, ApplicationState.MATERIALS_READY)
+            is ApplicationState.MATERIALS_READY
         )
 
-    def test_happy_path_outreach(self):
-        flow = [
-            OutreachState.SCHEDULED,
-            OutreachState.HOOK_GENERATING,
-            OutreachState.DRAFT_CREATING,
-            OutreachState.READY_FOR_REVIEW,
-            OutreachState.SENT,
-            OutreachState.REPLIED,
-            OutreachState.CLOSED,
-        ]
-        for current, target in pairwise(flow):
-            assert_transition(current, target)
+    def test_an_illegal_move_raises_and_says_what_was_allowed(self):
+        with pytest.raises(InvalidTransition) as caught:
+            assert_transition(ApplicationState.CREATED, ApplicationState.SUBMITTED)
+        assert "MATERIALS_READY" in str(caught.value)
 
-    def test_browser_slot_recycles_to_idle(self):
-        flow = [
-            BrowserSlotState.IDLE,
-            BrowserSlotState.ALLOCATING,
-            BrowserSlotState.FILLING,
-            BrowserSlotState.LIVE_REVIEW,
-            BrowserSlotState.CLEANING,
-            BrowserSlotState.IDLE,
-        ]
-        for current, target in pairwise(flow):
-            assert_transition(current, target)
+    def test_states_from_different_machines_cannot_be_compared(self):
+        with pytest.raises(TypeError):
+            can_transition(ApplicationState.CREATED, JobState.DISCOVERED)  # type: ignore[arg-type]
 
-    def test_unhealthy_slot_must_be_cleaned_before_reuse(self):
-        assert not can_transition(BrowserSlotState.UNHEALTHY, BrowserSlotState.IDLE)
-        assert can_transition(BrowserSlotState.UNHEALTHY, BrowserSlotState.CLEANING)
+
+class TestJobs:
+    def test_a_job_reaches_selected(self):
+        assert JobState.SELECTED in reachable(JobState.DISCOVERED, JOB_TRANSITIONS)
+
+    def test_a_rejected_job_can_only_be_archived(self):
+        assert JOB_TRANSITIONS[JobState.ELIGIBILITY_REJECTED] == frozenset({JobState.ARCHIVED})
+
+    def test_archived_is_terminal(self):
+        assert JOB_TRANSITIONS[JobState.ARCHIVED] == frozenset()

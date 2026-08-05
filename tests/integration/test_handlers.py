@@ -22,19 +22,14 @@ from app.db.models import (
     Company,
     Job,
     JobScore,
-    OutreachTask,
-    Recruiter,
     ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
-    SuppressionEntry,
 )
 from app.domain.normalization import canonicalize_url, url_hash
-from app.domain.states import ApplicationState, JobState, OutreachState
+from app.domain.states import ApplicationState, JobState
 from app.domain.tasks import TaskStatus, TaskType, idempotency_key
 from app.services.candidate import Actor, set_fact
-from app.services.llm.base import NullProvider
-from app.services.outreach_policy import next_send_window
 from app.services.queue import enqueue
 from app.worker.handlers import register_pipeline
 from app.worker.runtime import Registry, Worker
@@ -57,24 +52,6 @@ CITIZENS_ONLY_JD = """
 Software Engineer Intern, Summer 2027. Python and FastAPI work.
 Applicants must be a U.S. citizen to be eligible for this position.
 """
-
-#: What the model would return for a posting that says nothing about sponsorship.
-#: Queued explicitly so a test can never pass on a response nobody wrote.
-SILENT = {
-    "classification": "SPONSORSHIP_NOT_MENTIONED",
-    "work_authorization_restriction": "UNKNOWN",
-    "evidence": [],
-    "confidence": 0.4,
-    "reasoning_summary": "The posting does not mention sponsorship.",
-}
-
-JUDGMENT = {
-    "core_swe_relevance": 16.0,
-    "skills_overlap": 11.0,
-    "experience_relevance": 10.0,
-    "fact_references": ["skill.python"],
-    "reasons": ["Python and FastAPI match the stored skills."],
-}
 
 ORDINARY_JD = """
 Software Engineer Intern, Summer 2027. You will write Python and work on our
@@ -101,15 +78,9 @@ def settings(tmp_path: Path, sample_resume: Path) -> Settings:
 
 
 @pytest.fixture
-def provider() -> NullProvider:
-    """One provider for the whole run, so queued responses are consumed in order."""
-    return NullProvider()
-
-
-@pytest.fixture
-def registry(settings: Settings, provider: NullProvider) -> Registry:
+def registry(settings: Settings) -> Registry:
     return register_pipeline(
-        Registry(), settings=settings, provider_factory=lambda _: provider
+        Registry(), settings=settings
     )
 
 
@@ -215,29 +186,25 @@ class TestRegistration:
     def test_every_non_browser_task_type_has_a_handler(self, registry: Registry):
         """A task type with no handler is buried on arrival, so a gap here is not
         a missing feature — it is a queue that silently discards work."""
-        # The two browser types are registered by the slot, and by exactly one
+        # Submitting is registered by the browser worker, and by exactly one
         # process: two handlers for one type would mean whichever worker claimed
         # it first decided whether the task made sense.
-        assert registry.missing() == {
-            TaskType.PREPARE_APPLICATION,
-            TaskType.REPLAY_APPLICATION,
-        }
+        assert registry.missing() == {TaskType.SUBMIT_APPLICATION}
 
-    def test_registering_twice_is_refused(self, settings: Settings, provider: NullProvider):
+    def test_registering_twice_is_refused(self, settings: Settings):
         target = Registry()
-        register_pipeline(target, settings=settings, provider_factory=lambda _: provider)
+        register_pipeline(target, settings=settings)
         with pytest.raises(ValueError, match="already has a handler"):
-            register_pipeline(target, settings=settings, provider_factory=lambda _: provider)
+            register_pipeline(target, settings=settings)
 
 
 class TestPreSpendScreen:
     """The gate between discovery and the first euro (§7.3).
 
-    Everything downstream of ``DISCOVER_SOURCE`` costs something: sponsorship
-    analysis and scoring both call a model, and a job that survives them can take
-    one of the day's thirty prepared-application slots. So these tests assert on
+    A job that survives the screen can take one of the day's application slots
+    and, past the browser, be sent to a real employer. So these tests assert on
     the fan-out, not on a return value — a job that is screened out must produce
-    no ``ANALYZE_SPONSORSHIP`` task at all.
+    no ``SCORE_JOB`` task at all.
     """
 
     @pytest.fixture
@@ -253,15 +220,15 @@ class TestPreSpendScreen:
     def _run(self, worker: Worker, db: Session) -> list[ScheduledTask]:
         queue(db, TaskType.DISCOVER_SOURCE, kind="greenhouse", name="acme")
         drain(worker)
-        return tasks(db, TaskType.ANALYZE_SPONSORSHIP)
+        return tasks(db, TaskType.SCORE_JOB)
 
-    def test_a_fresh_targeted_us_job_reaches_sponsorship_analysis(
+    def test_a_fresh_targeted_us_job_reaches_scoring(
         self, worker: Worker, db: Session, no_feed: None
     ):
         job = make_job(db, posted_at=NOW - timedelta(hours=2), location_text="Austin, TX")
         assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
 
-    def test_a_posting_older_than_the_window_never_reaches_a_model(
+    def test_a_posting_older_than_the_window_is_screened_out(
         self, worker: Worker, db: Session, no_feed: None
     ):
         job = make_job(db, posted_at=NOW - timedelta(days=30), location_text="Austin, TX")
@@ -287,7 +254,7 @@ class TestPreSpendScreen:
         job = make_job(db, posted_at=None, discovered_at=NOW, location_text="Austin, TX")
         assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
 
-    def test_an_untargeted_title_never_reaches_a_model(
+    def test_an_untargeted_title_is_screened_out(
         self, worker: Worker, db: Session, no_feed: None
     ):
         make_job(
@@ -299,7 +266,7 @@ class TestPreSpendScreen:
         )
         assert self._run(worker, db) == []
 
-    def test_a_remote_role_in_europe_never_reaches_a_model(
+    def test_a_remote_role_in_europe_is_screened_out(
         self, worker: Worker, db: Session, no_feed: None
     ):
         """The case normalization cannot see: both fold to "remote"."""
@@ -311,7 +278,7 @@ class TestPreSpendScreen:
         )
         assert self._run(worker, db) == []
 
-    def test_a_remote_us_role_does_reach_a_model(
+    def test_a_remote_us_role_survives_the_screen(
         self, worker: Worker, db: Session, no_feed: None
     ):
         job = make_job(
@@ -361,87 +328,84 @@ class TestPreSpendScreen:
 
 
 class TestSponsorship:
-    def test_a_citizens_only_posting_is_rejected_without_a_model_call(
-        self, worker: Worker, db: Session, provider: NullProvider
-    ):
-        """The keyword pre-pass settles this, so the budget is never touched.
+    """The employer's stated policy, read by regex during discovery.
 
-        A citizenship requirement the candidate does not meet is the one
-        sponsorship case with a decisive answer; everything softer goes to the
-        user (see the next test).
-        """
-        job = make_job(db, description=CITIZENS_ONLY_JD)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
+    There is no separate stage any more: the prepass is cheap enough to run
+    inline, so what these assert is that a restrictive posting never reaches
+    scoring at all.
+    """
 
+    @pytest.fixture
+    def no_feed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("app.worker.sources.adapters_for", lambda *a, **k: [_Empty()])
+
+    def _discover(self, worker: Worker, db: Session) -> None:
+        queue(db, TaskType.DISCOVER_SOURCE, kind="greenhouse", name="acme")
         drain(worker)
+
+    def test_a_citizens_only_posting_is_rejected(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        """A citizenship requirement the candidate does not meet is the one
+        sponsorship case with a decisive answer; everything softer is left
+        alone (see the next test)."""
+        job = make_job(db, description=CITIZENS_ONLY_JD)
+        self._discover(worker, db)
         db.refresh(job)
 
         assert job.status == JobState.ELIGIBILITY_REJECTED
-        assert provider.calls == []
 
-    def test_no_sponsorship_wording_goes_to_the_user_rather_than_the_bin(
-        self, worker: Worker, db: Session
+    def test_no_sponsorship_wording_stops_the_job_before_it_costs_anything(
+        self, worker: Worker, db: Session, no_feed: None
     ):
-        """"We cannot sponsor" is the employer's policy, not a legal conclusion
-        about this candidate. §7.5 routes it to a human."""
+        """"We cannot sponsor" is the employer's policy. For a candidate who
+        needs sponsorship it is decisive, and applying anyway wastes both
+        sides' time."""
         job = make_job(db, description=NO_SPONSORSHIP_JD)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
-        worker.run_once(now=NOW)
+        self._discover(worker, db)
 
         assessment = not_none(
             db.scalars(
                 select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id)
             ).first()
         )
-        assert assessment.recommended_action == "MANUAL_REVIEW"
-        db.refresh(job)
-        assert job.status != JobState.ELIGIBILITY_REJECTED
-
-    def test_the_quote_is_stored_as_evidence(self, worker: Worker, db: Session):
-        job = make_job(db, description=NO_SPONSORSHIP_JD)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
-        drain(worker)
-
-        assessment = not_none(
-            db.scalars(select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id))
-            .first()
-        )
-        assert assessment.evidence
-        assert "unable to sponsor" in assessment.evidence[0]["quote"].lower()
-
-    def test_a_rejected_job_is_never_scored(self, worker: Worker, db: Session):
-        job = make_job(db, description=CITIZENS_ONLY_JD)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
-        drain(worker)
-
+        assert assessment.recommended_action == "SKIP"
         assert tasks(db, TaskType.SCORE_JOB) == []
 
-    def test_an_ordinary_posting_fans_out_to_scoring(
-        self, worker: Worker, db: Session, provider: NullProvider
+    def test_the_quote_is_stored_as_evidence(
+        self, worker: Worker, db: Session, no_feed: None
     ):
-        provider.queue(SILENT)
-        job = make_job(db)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
-        worker.run_once(now=NOW)
+        """A restrictive classification with no quote is an assertion, not a
+        finding — and the user reads this sentence on the job page."""
+        job = make_job(db, description=NO_SPONSORSHIP_JD)
+        self._discover(worker, db)
 
-        assert [t.dedupe_key for t in tasks(db, TaskType.SCORE_JOB)] == [
-            idempotency_key(TaskType.SCORE_JOB, str(job.id))
-        ]
+        assessment = not_none(
+            db.scalars(
+                select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id)
+            ).first()
+        )
+        assert assessment.evidence_quotes
+        assert "unable to sponsor" in assessment.evidence_quotes[0]["quote"].lower()
+
+    def test_a_silent_posting_reaches_scoring(
+        self, worker: Worker, db: Session, no_feed: None
+    ):
+        job = make_job(db)
+        self._discover(worker, db)
+
+        assert [t.payload["job_id"] for t in tasks(db, TaskType.SCORE_JOB)] == [str(job.id)]
 
     def test_re_running_does_not_duplicate_the_assessment(
-        self, worker: Worker, db: Session, provider: NullProvider
+        self, worker: Worker, db: Session, no_feed: None
     ):
-        provider.queue(SILENT)
-        provider.queue(JUDGMENT)
-        job = make_job(db)
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(job.id))
-        drain(worker)
-
+        job = make_job(db, description=NO_SPONSORSHIP_JD)
+        self._discover(worker, db)
         enqueue(
             db,
-            task_type=TaskType.ANALYZE_SPONSORSHIP,
+            task_type=TaskType.DISCOVER_SOURCE,
             dedupe_key="second-look",
-            payload={"job_id": str(job.id)},
+            payload={"kind": "greenhouse", "name": "acme"},
             run_at=NOW,
         )
         db.commit()
@@ -454,24 +418,24 @@ class TestSponsorship:
         )
         assert count == 1
 
+
+class TestScoringRefusesBadInput:
     def test_a_job_that_vanished_is_buried_not_retried(self, worker: Worker, db: Session):
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(uuid.uuid4()))
+        queue(db, TaskType.SCORE_JOB, job_id=str(uuid.uuid4()))
         worker.run_once(now=NOW)
 
-        task = tasks(db, TaskType.ANALYZE_SPONSORSHIP)[0]
-        assert task.status == TaskStatus.DEAD
+        assert tasks(db, TaskType.SCORE_JOB)[0].status == TaskStatus.DEAD
 
     def test_a_malformed_payload_is_buried(self, worker: Worker, db: Session):
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id="not-a-uuid")
+        queue(db, TaskType.SCORE_JOB, job_id="not-a-uuid")
         worker.run_once(now=NOW)
-        assert tasks(db, TaskType.ANALYZE_SPONSORSHIP)[0].status == TaskStatus.DEAD
+        assert tasks(db, TaskType.SCORE_JOB)[0].status == TaskStatus.DEAD
 
 
 class TestScoring:
     def test_a_scored_job_gets_a_row_and_a_status(
-        self, worker: Worker, db: Session, provider: NullProvider
+        self, worker: Worker, db: Session
     ):
-        provider.queue(JUDGMENT)
         job = make_job(db)
         set_fact(db, "education.graduation_date", "2028-05-15", actor=Actor.USER)
         db.commit()
@@ -484,8 +448,8 @@ class TestScoring:
         assert job.status == JobState.SCORED
         assert 0 < float(stored.total_score) <= 100
 
-    def test_an_ineligible_job_scores_zero_and_skips_the_model(
-        self, worker: Worker, db: Session, provider: NullProvider
+    def test_an_ineligible_job_scores_zero(
+        self, worker: Worker, db: Session
     ):
         """§7.6: a high AI score may never override a hard ineligibility, and the
         cheapest way to guarantee that is not to ask."""
@@ -497,12 +461,10 @@ class TestScoring:
         stored = not_none(db.scalars(select(JobScore).where(JobScore.job_id == job.id)).first())
         assert float(stored.total_score) == 0
         assert job.status == JobState.ELIGIBILITY_REJECTED
-        assert provider.calls == []
 
     def test_the_breakdown_is_stored_for_the_review_screen(
-        self, worker: Worker, db: Session, provider: NullProvider
+        self, worker: Worker, db: Session
     ):
-        provider.queue(JUDGMENT)
         job = make_job(db)
         queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
         drain(worker)
@@ -510,18 +472,46 @@ class TestScoring:
         stored = not_none(db.scalars(select(JobScore).where(JobScore.job_id == job.id)).first())
         assert "internship_level_fit" in stored.components
 
-    def test_scoring_does_not_start_an_application(
-        self, worker: Worker, db: Session, provider: NullProvider
+    def test_a_good_score_starts_an_application(
+        self, worker: Worker, db: Session
     ):
-        """Selection is the user's (§0.2). A good score is an invitation, not a
-        decision."""
-        provider.queue(JUDGMENT)
+        """The change that makes this an auto-apply system: nobody presses a
+        button between a job scoring well and an application existing."""
         job = make_job(db)
         queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
         drain(worker)
 
+        application = not_none(db.scalars(select(Application)).first())
+        assert application.job_id == job.id
+        assert [t.payload["application_id"] for t in tasks(db, TaskType.PREPARE_APPLICATION)] == [
+            str(application.id)
+        ]
+
+    def test_a_poor_score_starts_nothing(self, worker: Worker, db: Session):
+        job = make_job(db, title="Senior Staff Engineer", location_text="Boise, ID")
+        queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
+        drain(worker)
+
         assert db.scalars(select(Application)).all() == []
-        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
+
+    def test_a_second_application_for_one_job_is_refused(
+        self, worker: Worker, db: Session
+    ):
+        """Re-scoring must not apply twice to the same posting."""
+        job = make_job(db)
+        queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
+        drain(worker)
+        enqueue(
+            db,
+            task_type=TaskType.SCORE_JOB,
+            dedupe_key="second-look",
+            payload={"job_id": str(job.id)},
+            run_at=NOW,
+        )
+        db.commit()
+        drain(worker)
+
+        assert len(db.scalars(select(Application)).all()) == 1
 
 
 class TestPreparingTheResume:
@@ -591,7 +581,7 @@ class TestPreparingTheResume:
         assert uploaded_version(db, application.id) is None
 
     def test_it_calls_no_model(
-        self, worker: Worker, db: Session, provider: NullProvider
+        self, worker: Worker, db: Session
     ):
         """There is nothing here to ask a model about, and asking would cost money."""
         application = self._application(db)
@@ -599,7 +589,6 @@ class TestPreparingTheResume:
         queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
         worker.run_once(now=NOW)
 
-        assert provider.calls == []
 
     def test_running_it_twice_does_not_produce_a_second_resume(
         self, worker: Worker, db: Session
@@ -723,7 +712,7 @@ class TestCompaniesYouHandleYourself:
 
 class TestPreparingRefusesWithoutAResume:
     def test_no_base_resume_buries_the_task_naming_the_setting(
-        self, db: Session, committing_db, tmp_path: Path, provider: NullProvider
+        self, db: Session, committing_db, tmp_path: Path
     ):
         """A form filled with no resume wastes one of two browser slots."""
         settings = Settings(
@@ -758,180 +747,11 @@ class TestPreparingRefusesWithoutAResume:
         assert tasks(db, TaskType.PREPARE_APPLICATION) == []
 
 
-#: Comfortably past the two-business-day delay and inside the send window, so the
-#: tests below are about matching and drafting rather than about the calendar.
-#: Computed with the policy's own helper rather than a hand-picked date, which
-#: would land on a weekend roughly two runs in seven.
-AFTER_THE_DELAY = next_send_window(NOW + timedelta(days=9))
-
-
-class TestOutreachPipeline:
-    def _submitted(self, db: Session) -> Application:
-        job = make_job(db)
-        application = Application(
-            job_id=job.id,
-            application_url=job.canonical_url,
-            status=ApplicationState.SUBMITTED,
-            submitted_at=NOW - timedelta(days=1),
-        )
-        db.add(application)
-        db.commit()
-        return application
-
-    def _recruiter(self, db: Session, **kw: object) -> Recruiter:
-        company = db.scalars(
-            select(Company).where(Company.normalized_name == "acme")
-        ).first() or Company(canonical_name="Acme Inc", normalized_name="acme", domain="acme.com")
-        db.add(company)
-        db.flush()
-        defaults: dict[str, object] = {
-            "full_name": "Alice Nguyen",
-            "raw_company": "Acme Inc",
-            "email": "alice@acme.com",
-            "email_domain": "acme.com",
-            "company_id": company.id,
-            "title": "University Recruiter",
-        }
-        recruiter = Recruiter(**{**defaults, **kw})
-        db.add(recruiter)
-        db.commit()
-        return recruiter
-
-    def test_outreach_is_due_two_business_days_later(self, worker: Worker, db: Session):
-        application = self._submitted(db)
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.due_at > (application.submitted_at or NOW)
-        assert outreach.status == OutreachState.SCHEDULED
-
-    def test_outreach_is_refused_before_submission(self, worker: Worker, db: Session):
-        """§8.2: the email says "I applied". It must be true."""
-        job = make_job(db)
-        application = Application(
-            job_id=job.id,
-            application_url=job.canonical_url,
-            status=ApplicationState.READY_FOR_REVIEW,
-        )
-        db.add(application)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        worker.run_once(now=NOW)
-
-        assert db.scalars(select(OutreachTask)).all() == []
-        assert tasks(db, TaskType.SCHEDULE_OUTREACH)[0].status == TaskStatus.DEAD
-
-    def test_an_unmatched_company_asks_rather_than_guessing(self, worker: Worker, db: Session):
-        application = self._submitted(db)
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.status == OutreachState.RECRUITER_MATCH_REQUIRED
-        assert outreach.recruiter_id is None
-
-    def test_a_matched_recruiter_leads_to_a_draft(self, worker: Worker, db: Session):
-        self._recruiter(db)
-        application = self._submitted(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.status == OutreachState.READY_FOR_REVIEW
-        assert outreach.gmail_draft_id
-        assert outreach.subject and outreach.body
-
-    def test_the_body_names_the_role_and_the_recruiter(self, worker: Worker, db: Session):
-        self._recruiter(db)
-        application = self._submitted(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert "Alice" in not_none(outreach.body)
-        assert "Software Engineer Intern" in not_none(outreach.body)
-
-    def test_a_draft_carries_no_unrendered_placeholder(self, worker: Worker, db: Session):
-        """The draft goes through validate_content, which refuses one."""
-        self._recruiter(db)
-        application = self._submitted(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert "{{" not in not_none(outreach.body)
-
-    def test_a_withheld_draft_records_why(self, worker: Worker, db: Session):
-        """"No draft" with no explanation is indistinguishable from a bug."""
-        self._recruiter(db)
-        application = self._submitted(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        # Deliberately before the due date: the two-business-day delay is the
-        # rule being exercised.
-        drain(worker, now=NOW + timedelta(minutes=1))
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.gmail_draft_id is None
-        assert any("not due until" in r for r in (outreach.hook_json or {}).get("withheld", []))
-
-    def test_a_suppressed_recruiter_gets_no_draft(self, worker: Worker, db: Session):
-        recruiter = self._recruiter(db)
-        db.add(SuppressionEntry(email=recruiter.email, reason="OPT_OUT", source="test"))
-        application = self._submitted(db)
-        set_fact(db, "candidate.preferred_name", "Hoan", actor=Actor.USER)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.gmail_draft_id is None
-        assert outreach.status != OutreachState.READY_FOR_REVIEW
-
-    def test_a_do_not_contact_recruiter_is_never_matched(self, worker: Worker, db: Session):
-        self._recruiter(db, do_not_contact=True)
-        application = self._submitted(db)
-        db.commit()
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        outreach = not_none(db.scalars(select(OutreachTask)).first())
-        assert outreach.gmail_draft_id is None
-
-    def test_without_a_candidate_name_the_task_stops_and_says_why(
-        self, worker: Worker, db: Session
-    ):
-        """Better a clear stop than an email signed by nobody."""
-        self._recruiter(db)
-        application = self._submitted(db)
-
-        queue(db, TaskType.SCHEDULE_OUTREACH, application_id=str(application.id))
-        drain(worker, now=AFTER_THE_DELAY)
-
-        hook_task = tasks(db, TaskType.GENERATE_HOOK)[0]
-        assert hook_task.status == TaskStatus.DEAD
-        assert "candidate.preferred_name" in not_none(hook_task.last_error)
-
 
 class TestTransactionality:
     def test_a_failing_stage_enqueues_nothing(self, worker: Worker, db: Session):
         """The whole point of committing work and fan-out together."""
-        queue(db, TaskType.ANALYZE_SPONSORSHIP, job_id=str(uuid.uuid4()))
+        queue(db, TaskType.SCORE_JOB, job_id=str(uuid.uuid4()))
         worker.run_once(now=NOW)
 
-        assert tasks(db, TaskType.SCORE_JOB) == []
+        assert tasks(db, TaskType.PREPARE_APPLICATION) == []

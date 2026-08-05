@@ -150,7 +150,6 @@ class TestAnUnconfirmedAttachment:
         report = run(FakePage(FakeLocator(holds=[])), resume)
         assert report.errors
         assert report.not_found == ["Resume"]
-        assert report.needs_human
 
     def test_the_summary_says_no_resume_was_attached(self, resume: Path):
         report = run(FakePage(FakeLocator(holds=[])), resume)

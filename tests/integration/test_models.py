@@ -17,12 +17,10 @@ from app.db.models import (
     Application,
     Company,
     Job,
-    OutreachTask,
-    Recruiter,
     ScheduledTask,
 )
 from app.domain.normalization import AtsType, canonicalize_url, url_hash
-from app.domain.states import ApplicationState, JobState, OutreachState
+from app.domain.states import ApplicationState, JobState
 from app.domain.tasks import TaskStatus, TaskType
 
 pytestmark = pytest.mark.db
@@ -138,7 +136,7 @@ class TestApplicationUniqueness:
         """G5: never apply twice to the same requisition."""
         company = make_company(db)
         job = make_job(db, company, url="https://a.com/1")
-        make_application(db, job, ApplicationState.READY_FOR_REVIEW)
+        make_application(db, job, ApplicationState.NEEDS_ME)
         with pytest.raises(IntegrityError):
             make_application(db, job, ApplicationState.CREATED)
 
@@ -152,7 +150,7 @@ class TestApplicationUniqueness:
 
     @pytest.mark.parametrize(
         "closed",
-        [ApplicationState.SKIPPED, ApplicationState.WITHDRAWN, ApplicationState.FAILED],
+        [ApplicationState.SKIPPED, ApplicationState.FAILED],
     )
     def test_can_reapply_after_an_abandoned_attempt(self, db: Session, closed):
         """Diverges from the spec's plain UNIQUE(job_id), which blocks this forever."""
@@ -170,31 +168,6 @@ class TestApplicationUniqueness:
         db.flush()  # must not raise
 
 
-class TestRecruiter:
-    def test_email_is_unique_so_reimport_merges(self, db: Session):
-        db.add(Recruiter(full_name="A", raw_company="Acme", email="r@acme.com"))
-        db.flush()
-        db.add(Recruiter(full_name="A Dup", raw_company="Acme Inc", email="r@acme.com"))
-        with pytest.raises(IntegrityError):
-            db.flush()
-
-
-class TestOutreach:
-    def test_one_outreach_task_per_application(self, db: Session):
-        """§8.1 max_recruiters_per_application: 1."""
-        company = make_company(db)
-        job = make_job(db, company, url="https://a.com/1")
-        app = make_application(db, job, ApplicationState.SUBMITTED)
-        for _ in range(2):
-            db.add(
-                OutreachTask(
-                    application_id=app.id,
-                    status=OutreachState.SCHEDULED,
-                    due_at=NOW + timedelta(days=2),
-                )
-            )
-        with pytest.raises(IntegrityError):
-            db.flush()
 
 
 class TestScheduledTask:

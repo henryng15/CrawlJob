@@ -25,14 +25,12 @@ from app.db.models import (
     Company,
     Job,
     JobScore,
-    OutreachTask,
-    Recruiter,
     ResumeVersion,
     ScheduledTask,
     SponsorshipAssessment,
 )
 from app.domain.normalization import canonicalize_url, url_hash
-from app.domain.states import ApplicationState, JobState, OutreachState
+from app.domain.states import ApplicationState, JobState
 from app.web.app import create_app
 from app.web.deps import get_config, get_db
 from app.web.security import COOKIE_NAME, hash_password
@@ -636,121 +634,6 @@ class TestApplicationReview:
         db.refresh(application)
         assert application.status == ApplicationState.CREATED
 
-
-class TestOutreachReview:
-    def _task(self, db: Session, **kw: object) -> OutreachTask:
-        application = make_application(db, make_job(db), ApplicationState.SUBMITTED)
-        defaults: dict[str, object] = {
-            "application_id": application.id,
-            "status": OutreachState.READY_FOR_REVIEW,
-            "due_at": NOW,
-            "subject": "Following up on my application",
-            "body": "Hello.",
-        }
-        task = OutreachTask(**{**defaults, **kw})
-        db.add(task)
-        db.flush()
-        return task
-
-    def test_the_page_states_that_nothing_is_sent(self, signed_in: TestClient, db: Session):
-        task = self._task(db)
-        body = " ".join(signed_in.get(f"/outreach/{task.id}").text.split())
-        assert "Sending is yours alone" in body
-        assert "has no send scope" in body
-
-    def test_the_app_exposes_no_send_route(self, web: FastAPI):
-        """§29: the absence of a send action is a property, not a habit.
-
-        Asserted over the route table rather than by probing URLs, because a
-        probe only rules out the paths someone thought to guess.
-        """
-        paths = all_paths(web)
-        # An empty walk would make the real assertion below pass for the wrong
-        # reason; FastAPI nests included routers, and it did exactly that once.
-        assert "/outreach/{task_id}" in paths
-        assert not [p for p in paths if "send" in p.lower()]
-
-    def test_a_hook_without_a_source_is_flagged(self, signed_in: TestClient, db: Session):
-        task = self._task(db, hook_json={"hook": "I loved your talk", "hook_type": "TALK"})
-        body = signed_in.get(f"/outreach/{task.id}").text
-        assert "falls back to a plain version" in body
-
-    def test_changing_the_recruiter_sticks(
-        self, signed_in: TestClient, db: Session, settings: Settings
-    ):
-        task = self._task(db)
-        company = not_none(db.query(Company).filter_by(normalized_name="acme").first())
-        recruiter = Recruiter(
-            full_name="Alice Nguyen",
-            raw_company="Acme Inc",
-            email="alice@acme.com",
-            company_id=company.id,
-        )
-        db.add(recruiter)
-        db.flush()
-
-        response = signed_in.post(
-            f"/outreach/{task.id}/recruiter",
-            data={"csrf_token": csrf(signed_in, settings), "recruiter_id": str(recruiter.id)},
-        )
-        assert response.status_code == 303
-        db.refresh(task)
-        assert task.recruiter_id == recruiter.id
-
-    def test_a_suppressed_recruiter_cannot_be_chosen(
-        self, signed_in: TestClient, db: Session, settings: Settings
-    ):
-        task = self._task(db)
-        recruiter = Recruiter(
-            full_name="Bob Optout",
-            raw_company="Acme Inc",
-            email="bob@acme.com",
-            do_not_contact=True,
-        )
-        db.add(recruiter)
-        db.flush()
-
-        response = signed_in.post(
-            f"/outreach/{task.id}/recruiter",
-            data={"csrf_token": csrf(signed_in, settings), "recruiter_id": str(recruiter.id)},
-        )
-        assert response.status_code == 400
-
-    def test_suppressing_is_permanent_and_recorded(
-        self, signed_in: TestClient, db: Session, settings: Settings
-    ):
-        from app.db.models import SuppressionEntry
-
-        task = self._task(db)
-        recruiter = Recruiter(
-            full_name="Carol", raw_company="Acme Inc", email="carol@acme.com"
-        )
-        db.add(recruiter)
-        db.flush()
-        task.recruiter_id = recruiter.id
-        db.flush()
-
-        response = signed_in.post(
-            f"/outreach/{task.id}/suppress", data={"csrf_token": csrf(signed_in, settings)}
-        )
-        assert response.status_code == 303
-        db.refresh(recruiter)
-        assert recruiter.do_not_contact is True
-        assert db.query(SuppressionEntry).filter_by(email="carol@acme.com").count() == 1
-
-    def test_saving_a_draft_that_still_has_a_placeholder_is_refused(
-        self, signed_in: TestClient, db: Session, settings: Settings
-    ):
-        task = self._task(db)
-        response = signed_in.post(
-            f"/outreach/{task.id}/draft",
-            data={
-                "csrf_token": csrf(signed_in, settings),
-                "subject": "Hello {{first_name}}",
-                "body": "Hi there.",
-            },
-        )
-        assert response.status_code == 400
 
 
 class TestResumeVersions:

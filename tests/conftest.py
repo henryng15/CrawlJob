@@ -39,7 +39,13 @@ def db_engine() -> Iterator[Engine]:
 
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
-    command.downgrade(cfg, "base")
+    # Dropped rather than downgraded. All this needs is an empty database, and
+    # requiring it via ``downgrade base`` would force every migration to be
+    # reversible for the sake of a test fixture — including the ones whose honest
+    # answer is "restore the backup".
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
     command.upgrade(cfg, "head")
 
     yield engine

@@ -327,6 +327,9 @@ def register_pipeline(
         if result.total < config.minimum_fit_score:
             return HandlerResult(detail=f"{detail}, below the {config.minimum_fit_score} bar")
 
+        if job.status == JobState.SELECTED:
+            return HandlerResult(detail=f"{detail}, already selected")
+
         refusal = _cannot_start_application(session, job, config, now=run_clock())
         if refusal:
             return HandlerResult(detail=f"{detail}, not started: {refusal}")

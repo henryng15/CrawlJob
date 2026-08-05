@@ -33,13 +33,11 @@ of a matter of waiting for a machine to misbehave.
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.config import Settings
-from app.web.review_token import DEFAULT_TTL, hash_token, issue_token, verify_token
 from app.web.security import CLOCK_SKEW_GRACE, Session, is_fresh, issue, read
 
 NOW = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
@@ -201,104 +199,3 @@ class TestTheRule:
     def test_the_boundaries_are_inclusive(self):
         assert is_fresh(NOW - timedelta(hours=1), timedelta(hours=1), now=NOW)
         assert is_fresh(NOW + CLOCK_SKEW_GRACE, timedelta(hours=1), now=NOW)
-
-
-class TestReviewLinksSurviveItToo:
-    """The same defect was in the live-review token, and would have expired a
-    review link somebody was in the middle of using."""
-
-    @pytest.fixture
-    def token(self, settings: Settings) -> tuple[str, str]:
-        return issue_token(
-            application_id=uuid.uuid4(), slot_name="slot-1", settings=settings
-        )
-
-    def test_a_link_minted_a_second_in_the_future_still_opens(
-        self, settings: Settings, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Through the real clock, as the browser worker would hit it."""
-        import time
-
-        import itsdangerous.timed
-
-        ahead = time.time() + 1
-        monkeypatch.setattr(itsdangerous.timed.time, "time", lambda: ahead)
-        value, stored = issue_token(
-            application_id=uuid.uuid4(), slot_name="slot-1", settings=settings
-        )
-        monkeypatch.undo()
-
-        grant = verify_token(
-            value, slot_name="slot-1", stored_hash=stored, settings=settings
-        )
-        assert grant is not None
-
-    def test_a_one_second_backwards_step_keeps_the_link_working(
-        self, settings: Settings, token: tuple[str, str]
-    ):
-        value, stored = token
-        grant = verify_token(
-            value,
-            slot_name="slot-1",
-            stored_hash=stored,
-            settings=settings,
-            now=datetime.now(UTC) - timedelta(seconds=1),
-        )
-        assert grant is not None
-
-    def test_a_wildly_wrong_clock_still_refuses_the_link(
-        self, settings: Settings, token: tuple[str, str]
-    ):
-        value, stored = token
-        grant = verify_token(
-            value,
-            slot_name="slot-1",
-            stored_hash=stored,
-            settings=settings,
-            now=datetime.now(UTC) - CLOCK_SKEW_GRACE - timedelta(seconds=1),
-        )
-        assert grant is None
-
-    def test_an_expired_link_is_still_expired(
-        self, settings: Settings, token: tuple[str, str]
-    ):
-        value, stored = token
-        grant = verify_token(
-            value,
-            slot_name="slot-1",
-            stored_hash=stored,
-            settings=settings,
-            now=datetime.now(UTC) + DEFAULT_TTL + timedelta(minutes=1),
-        )
-        assert grant is None
-
-    def test_a_link_for_another_slot_is_still_refused(
-        self, settings: Settings, token: tuple[str, str]
-    ):
-        """The clock change must not have loosened anything else."""
-        value, stored = token
-        assert (
-            verify_token(
-                value,
-                slot_name="slot-2",
-                stored_hash=stored,
-                settings=settings,
-                now=datetime.now(UTC),
-            )
-            is None
-        )
-
-    def test_a_revoked_link_is_still_refused(
-        self, settings: Settings, token: tuple[str, str]
-    ):
-        value, _ = token
-        assert (
-            verify_token(
-                value,
-                slot_name="slot-1",
-                stored_hash=hash_token("a different token"),
-                settings=settings,
-                now=datetime.now(UTC),
-            )
-            is None
-        )
