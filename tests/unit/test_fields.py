@@ -24,7 +24,7 @@ FACTS = {
     "candidate.last_name": "Nguyen",
     "candidate.email": "nguyen15@kenyon.edu",
     "candidate.phone": "+1-555-0100",
-    "candidate.github": "https://github.com/Vicientt",
+    "candidate.github": "https://github.com/henryng15",
     "education.school": "Kenyon College",
     "auth.work_authorized": True,
     "auth.requires_sponsorship": True,

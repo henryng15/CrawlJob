@@ -125,6 +125,34 @@ class TestStripHtml:
         markup = "<div><p>We do <b>not</b> sponsor.</p></div>"
         assert strip_html(markup) == strip_html(markup)
 
+    def test_escaped_markup_is_unescaped_before_the_tags_are_stripped(self):
+        """Greenhouse's ``content`` field arrives escaped.
+
+        Found by running stage 1 against three live Greenhouse boards: every one
+        of 1,522 postings came back as markup. Stripping first finds no tags —
+        they are entities at that point — and the unescape afterwards turns them
+        *into* tags, so sponsorship analysis was reading ``<div class=...>`` and
+        recording quote offsets into it.
+        """
+        escaped = (
+            "&lt;div class=&quot;intro&quot;&gt;"
+            "&lt;p&gt;We do not sponsor.&lt;/p&gt;&lt;/div&gt;"
+        )
+        assert strip_html(escaped) == "We do not sponsor."
+
+    def test_ordinary_markup_is_unaffected(self):
+        """Lever and Ashby send real HTML; that path must not change."""
+        assert strip_html("<p>Hello <b>there</b></p>") == "Hello there"
+
+    def test_a_literal_less_than_survives(self):
+        """Why the unescape is conditional rather than unconditional.
+
+        Unescaping every payload would turn "salary &lt; 100k" in an ordinary
+        HTML description into an unterminated tag and swallow the rest of the
+        sentence.
+        """
+        assert strip_html("<p>salary &lt; 100k here</p>") == "salary < 100k here"
+
 
 class TestContentHash:
     def test_key_order_does_not_change_the_hash(self):

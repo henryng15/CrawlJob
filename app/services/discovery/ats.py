@@ -24,6 +24,10 @@ __all__ = ["AshbyAdapter", "GreenhouseAdapter", "LeverAdapter", "strip_html"]
 _TAG = re.compile(r"<[^>]+>")
 _WS = re.compile(r"[ \t]*\n\s*\n\s*")
 
+#: A payload whose tags are themselves escaped: ``&lt;p&gt;`` rather than ``<p>``.
+#: Greenhouse's ``content`` field arrives this way.
+_ESCAPED_TAG = re.compile(r"&lt;/?[a-zA-Z]")
+
 
 def strip_html(markup: str | None) -> str | None:
     """Plain text from an ATS description field.
@@ -31,10 +35,25 @@ def strip_html(markup: str | None) -> str | None:
     Job descriptions arrive as HTML. Sponsorship analysis quotes exact excerpts
     from this text and records character offsets (§7.5), so the conversion has to
     be stable — the same input must always give the same offsets.
+
+    Greenhouse escapes its markup, so the field contains ``&lt;p&gt;`` rather
+    than ``<p>``. Stripping tags first therefore finds none, and the unescape
+    afterwards turns the entities *into* tags — handing sponsorship analysis a
+    description made of markup, with offsets pointing into ``<div class=...>``.
+    Live validation against three Greenhouse boards found this on 100% of 1,522
+    postings.
+
+    So a payload that is escaped is unescaped first. The check is deliberately
+    narrow — escaped tags present and no real ones — because unescaping
+    unconditionally would turn a literal "salary &lt; 100k" in an ordinary HTML
+    description into an unterminated tag and eat the rest of the sentence.
     """
     if not markup:
         return None
-    text = _TAG.sub(" ", markup)
+    text = markup
+    if _ESCAPED_TAG.search(text) and not _TAG.search(text):
+        text = html.unescape(text)
+    text = _TAG.sub(" ", text)
     text = html.unescape(text)
     text = re.sub(r"[ \t]+", " ", text)
     return _WS.sub("\n\n", text).strip() or None

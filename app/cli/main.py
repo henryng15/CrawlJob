@@ -102,6 +102,66 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     base_resume.set_defaults(run=_check_base_resume)
 
+    validate = sub.add_parser(
+        "validate-adapters",
+        help="one-shot check of the Greenhouse, Lever and Ashby adapters",
+        description=(
+            "Runs beside the pipeline, never through it: no task is queued, no "
+            "application is created, no daily quota is used, and PIPELINE_ENABLED "
+            "is not read or changed. Stage 1 only reads public job feeds. Stage 2 "
+            "opens one real application form per ATS and stops before Submit."
+        ),
+    )
+    validate.add_argument(
+        "--stage",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="1: read the feeds (default). 2: also open one real form per ATS.",
+    )
+    validate.add_argument(
+        "--boards",
+        default="",
+        help="ats=board,board;ats=board — defaults to a built-in set",
+    )
+    validate.add_argument(
+        "--only", default="", help="restrict to one ATS: greenhouse, lever or ashby"
+    )
+    validate.add_argument(
+        "--url",
+        action="append",
+        default=[],
+        metavar="ATS=URL",
+        help=(
+            "stage 2: name the job to open for one ATS, instead of taking the "
+            "first that passed the screen. For when the screen rejects a role a "
+            "person would call suitable — which is itself worth reporting."
+        ),
+    )
+    validate.add_argument(
+        "--out",
+        default="",
+        help=(
+            "where to write reports and screenshots. Defaults to the artifacts "
+            "directory, which on a workstation is usually the server's path and "
+            "not writable."
+        ),
+    )
+    validate.add_argument(
+        "--headed",
+        action="store_true",
+        help="stage 2: show the browser instead of running it headless",
+    )
+    validate.add_argument(
+        "--yes",
+        action="store_true",
+        help=(
+            "skip the typed confirmation for stage 2. Only for a run you have "
+            "already decided on; stage 2 loads a real employer's form."
+        ),
+    )
+    validate.set_defaults(run=_validate_adapters)
+
     migrate = sub.add_parser("migrate", help="apply database migrations")
     migrate.add_argument("--revision", default="head")
     migrate.set_defaults(run=_migrate)
@@ -503,6 +563,228 @@ def _check_base_resume(args: argparse.Namespace) -> int:
 
     print("\nReady. Set BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0
+
+
+# ------------------------------------------------------ adapter validation
+
+
+#: What has to be typed before stage 2 opens somebody's application form. A
+#: y/n prompt is too easy to answer without reading; this is not.
+_STAGE_TWO_PHRASE = "open one real form per ATS"
+
+
+def _parse_boards(raw: str) -> dict[str, tuple[str, ...]] | None:
+    """``greenhouse=stripe,figma;lever=ramp`` into a mapping."""
+    if not raw.strip():
+        return None
+    boards: dict[str, tuple[str, ...]] = {}
+    for group in raw.split(";"):
+        if not group.strip():
+            continue
+        ats, _, names = group.partition("=")
+        listed = tuple(n.strip() for n in names.split(",") if n.strip())
+        if ats.strip() and listed:
+            boards[ats.strip().lower()] = listed
+    return boards or None
+
+
+def _validate_adapters(args: argparse.Namespace) -> int:
+    """Check the ATS adapters against the live world, once, on request."""
+    from datetime import UTC, datetime
+
+    from app.config import get_settings
+    from app.services.validation import validate_feeds
+    from app.services.validation.report import Severity, write_report
+
+    settings = get_settings()
+    boards = _parse_boards(args.boards)
+    if args.only:
+        wanted = args.only.strip().lower()
+        source = boards or _default_boards()
+        boards = {k: v for k, v in source.items() if k == wanted}
+        if not boards:
+            print(f"No boards configured for {wanted!r}.", file=sys.stderr)
+            return 1
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    root = Path(args.out) if args.out else settings.artifacts_dir / "validation"
+    out_dir = root / stamp
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(
+            f"Cannot write reports to {out_dir}: {exc}\n"
+            "Pass --out with somewhere writable.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Stage 1 — reading public job feeds. Nothing is written to any board.\n")
+    stage_one = validate_feeds(settings, boards)
+    _print_stage_one(stage_one)
+    write_report(out_dir / "stage-1.json", stage_one.as_dict())
+    print(f"\nReport: {out_dir / 'stage-1.json'}")
+
+    if args.stage < 2:
+        return 0 if stage_one.ok else 1
+
+    if not stage_one.ok:
+        print(
+            "\nStage 1 found blockers. Fix those before opening a real form.",
+            file=sys.stderr,
+        )
+        return 1
+
+    candidates = _stage_two_candidates(stage_one)
+    for override in args.url:
+        ats, _, target = override.partition("=")
+        if not ats.strip() or not target.strip():
+            print(f"Ignoring malformed --url {override!r}", file=sys.stderr)
+            continue
+        candidates[ats.strip().lower()] = {
+            "company": "(named on the command line)",
+            "title": "(chosen by hand)",
+            "location": "",
+            "url": target.strip(),
+            "posted_at": "",
+        }
+    if not candidates:
+        print("\nNo posting passed the screen, so there is nothing to open.")
+        return 1
+
+    print("\nStage 2 will open exactly one real application form per ATS:\n")
+    for ats, job in candidates.items():
+        print(f"  {ats:<12} {job['company']} — {job['title']}")
+        print(f"  {'':<12} {job['url']}")
+    print(
+        "\nIt fills only the safe fields, attaches the base resume, and stops.\n"
+        "It never clicks Submit, and leaves sponsorship, work authorization, EEO,\n"
+        "demographic and signature fields blank. No application is created and no\n"
+        "daily quota is used."
+    )
+
+    if not args.yes:
+        print(f'\nType "{_STAGE_TWO_PHRASE}" to continue, or anything else to stop.')
+        try:
+            typed = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nStopped.", file=sys.stderr)
+            return 1
+        if typed != _STAGE_TWO_PHRASE:
+            print("Stopped; nothing was opened.", file=sys.stderr)
+            return 1
+
+    reports = _run_stage_two(settings, candidates, out_dir, headless=not args.headed)
+    _print_stage_two(reports)
+    write_report(
+        out_dir / "stage-2.json",
+        {"stage": 2, "runs": [r.as_dict() for r in reports]},
+    )
+    print(f"\nReport: {out_dir / 'stage-2.json'}")
+
+    worst = [r for r in reports if not r.ok]
+    if any(f.severity is Severity.BLOCKER for r in reports for f in r.findings):
+        return 1
+    return 1 if worst else 0
+
+
+def _default_boards() -> dict[str, tuple[str, ...]]:
+    from app.services.validation.stage_one import DEFAULT_BOARDS
+
+    return DEFAULT_BOARDS
+
+
+def _stage_two_candidates(stage_one: Any) -> dict[str, dict[str, str]]:
+    """One posting per ATS: the first that passed the pre-spend screen.
+
+    Deterministic rather than random, so a rerun opens the same form and an
+    employer sees one page view rather than a series of them.
+    """
+    chosen: dict[str, dict[str, str]] = {}
+    for adapter in stage_one.adapters:
+        if adapter.ats in chosen or not adapter.eligible:
+            continue
+        chosen[adapter.ats] = adapter.eligible[0]
+    return chosen
+
+
+def _run_stage_two(
+    settings: Any, candidates: dict[str, dict[str, str]], out_dir: Any, *, headless: bool
+) -> list[Any]:
+    from app.db.session import session_scope
+    from app.services.candidate import list_facts
+    from app.services.validation.stage_two import validate_form
+
+    with session_scope() as session:
+        stored = {f.key: f.value for f in list_facts(session)}
+        locked = frozenset(f.key for f in list_facts(session) if f.is_locked)
+
+    resume = settings.base_resume_pdf
+    if resume is None or not resume.is_file():
+        resume = None
+        print(
+            "No base resume PDF is configured; the upload step cannot be checked.",
+            file=sys.stderr,
+        )
+
+    reports = []
+    for ats, job in candidates.items():
+        print(f"\n--- {ats}: {job['company']} — {job['title']}")
+        reports.append(
+            validate_form(
+                settings,
+                ats=ats,
+                company=job["company"],
+                title=job["title"],
+                url=job["url"],
+                facts=stored,
+                locked_keys=locked,
+                resume_path=resume,
+                out_dir=out_dir / ats,
+                headless=headless,
+            )
+        )
+    return reports
+
+
+def _print_stage_one(report: Any) -> None:
+    from app.services.validation.report import Severity
+
+    for ats, adapters in report.by_ats().items():
+        print(f"== {ats}")
+        for entry in adapters:
+            if entry.fetch_error:
+                print(f"   {entry.board:<14} FETCH FAILED  {entry.fetch_error}")
+                continue
+            stats = entry.stats
+            print(
+                f"   {entry.board:<14} {entry.fetched:>4} postings, "
+                f"{stats.get('with_posted_at', 0)} dated, "
+                f"{stats.get('with_description', 0)} described, "
+                f"{stats.get('passed_screen', 0)} pass the screen"
+            )
+            for finding in entry.findings:
+                if finding.severity is not Severity.NOTE:
+                    print(f"      {finding.line()}")
+        print()
+
+
+def _print_stage_two(reports: list[Any]) -> None:
+    print()
+    for entry in reports:
+        print(f"== {entry.ats}: {entry.company} — {entry.title}")
+        if entry.error:
+            print(f"   FAILED  {entry.error}")
+            continue
+        print(f"   fields found:      {entry.fields_found}")
+        print(f"   filled:            {len(entry.filled)}")
+        print(f"   left for you:      {len(entry.left_for_human)}")
+        print(f"   not recognised:    {len(entry.unrecognised)}")
+        print(f"   resume attached:   {entry.resume_attached}"
+              + (f"  ({entry.resume_confirmation})" if entry.resume_confirmation else ""))
+        print(f"   submitted:         {entry.submitted}")
+        for finding in entry.findings:
+            print(f"      {finding.line()}")
 
 
 # ---------------------------------------------------------------- migrate

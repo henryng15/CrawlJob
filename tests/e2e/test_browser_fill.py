@@ -35,7 +35,7 @@ FACTS = {
     "candidate.last_name": "Nguyen",
     "candidate.email": "nguyen15@kenyon.edu",
     "candidate.phone": "+1-555-0100",
-    "candidate.github": "https://github.com/Vicientt",
+    "candidate.github": "https://github.com/henryng15",
     "candidate.linkedin": "https://linkedin.com/in/example",
     "education.school": "Kenyon College",
     # Work-authorization answers come from the locked candidate fact, never from

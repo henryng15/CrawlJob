@@ -942,9 +942,9 @@ class TestSettings:
     def test_a_public_fact_is_rendered(self, signed_in: TestClient, db: Session):
         from app.services.candidate import Actor, set_fact
 
-        set_fact(db, "candidate.github", "github.com/Vicientt", actor=Actor.USER)
+        set_fact(db, "candidate.github", "github.com/henryng15", actor=Actor.USER)
         db.flush()
-        assert "github.com/Vicientt" in signed_in.get("/settings").text
+        assert "github.com/henryng15" in signed_in.get("/settings").text
 
 
 class TestHealth:
