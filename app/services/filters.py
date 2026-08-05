@@ -64,13 +64,18 @@ _INTERN_WORDS = frozenset({"intern", "interns", "internship", "internships"})
 #: they live in :data:`_SOFTWARE_PHRASES` instead. Nor is "development" —
 #: "Business Development Intern" is a sales job — which is why "developer" is
 #: here and "development" is not.
+#:
+#: The acronyms earn their place the other way round: a board that writes "FDE
+#: Intern" or "SDET Intern" and nothing else gives the screen no other word to
+#: go on. None of them is ordinary English, so none can arrive by accident.
 _SOFTWARE_WORDS = frozenset(
     {
         "software", "developer", "engineer", "engineering",
-        "programmer", "programming", "swe", "sde", "coding",
+        "programmer", "programming", "coding",
+        "swe", "sde", "sdet", "sre", "fde", "ml",
         "web", "mobile", "android", "ios",
         "firmware", "embedded", "kernel", "compiler",
-        "infrastructure", "platform", "cloud", "sre",
+        "infrastructure", "platform", "cloud",
         "distributed", "database", "api", "robotics",
     }
 )
@@ -78,11 +83,16 @@ _SOFTWARE_WORDS = frozenset(
 #: Software signals that only mean software as a whole phrase. Written in the
 #: form :func:`app.domain.normalization.normalize_title` leaves them, which is
 #: why "backend" appears here as "back end".
+#:
+#: "architect" and "solutions" are absent on their own for the same reason
+#: "front" is: an Architect Intern designs buildings, and an HR Solutions Intern
+#: is in HR.
 _SOFTWARE_PHRASES: tuple[str, ...] = (
     "dev ops",  # normalization splits "DevOps" into two words
     "back end",
     "front end",
     "full stack",
+    "forward deployed",
     "software development",
     "application development",
     "product development",
@@ -95,6 +105,11 @@ _SOFTWARE_PHRASES: tuple[str, ...] = (
     "systems engineer",
     "systems engineering",
     "embedded systems",
+    "solutions engineer",
+    "solutions architect",
+    "software architect",
+    "cloud architect",
+    "technical solutions",
 )
 
 #: Terms that disqualify a title no matter what else it matched. Checked first

@@ -173,6 +173,46 @@ class TestTitle:
     @pytest.mark.parametrize(
         "title",
         [
+            # The neighbours of a SWE internship: same skills, different label.
+            "Forward Deployed Engineer Intern",
+            "FDE Intern",
+            "SDE Intern",
+            "SDET Intern",
+            "Backend Engineer Intern",
+            "Cloud Engineer Intern",
+            "Cloud Platform Intern",
+            "Cloud Architect Intern",
+            "DevOps Engineer Intern",
+            "SRE Intern",
+            "Infrastructure Engineer Intern",
+            "Systems Engineer Intern",
+            "Distributed Systems Intern",
+            "Solutions Engineer Intern",
+            "Solutions Architect Intern",
+            "Technical Solutions Intern",
+            "Data Engineer Intern",
+            "ML Intern",
+            "AI Engineer Intern",
+            "Security Engineer Intern",
+            "Network Engineer Intern",
+            "QA Engineer Intern",
+            "Test Engineer Intern",
+            "Compiler Engineer Intern",
+            "Mobile Engineer Intern",
+        ],
+    )
+    def test_the_neighbouring_roles_are_accepted_too(self, title: str):
+        """FDE, SWE, backend, cloud, DevOps and the rest of that family.
+
+        The same skills under a different label. Most reach the screen through
+        the word "engineer"; the acronyms and the architect titles would not,
+        and are the reason those entries exist.
+        """
+        assert title_matches(normalize_title(title))
+
+    @pytest.mark.parametrize(
+        "title",
+        [
             "Electrical Engineer Intern",
             "Mechanical Engineering Intern",
             "Intern, Software Product Management",
@@ -196,6 +236,10 @@ class TestTitle:
             "Talent Development Intern",
             "Learning and Development Intern",
             "Business Systems Analyst Intern",
+            "Architect Intern",
+            "Interior Architect Intern",
+            "HR Solutions Intern",
+            "Client Solutions Intern",
         ],
     )
     def test_words_that_only_mean_software_in_context_do_not_leak(self, title: str):
