@@ -18,7 +18,23 @@ from urllib.parse import urlsplit
 from app.services.dedupe import NormalizedPosting
 from app.services.discovery.base import DiscoveryAdapter, RawPosting, SourceType, iter_valid
 
-__all__ = ["GithubMarkdownFeedAdapter", "parse_markdown_table"]
+__all__ = ["APPLY_COLUMNS", "GithubMarkdownFeedAdapter", "parse_markdown_table"]
+
+#: Column headers, lowercased, that carry the link to the employer's form. Each
+#: curated repository names it differently — SimplifyJobs and vanshb03 use
+#: "Application/Link", speedyapply uses "Posting" — and a name missing from this
+#: list means every row of that feed is dropped. That is the intended failure:
+#: the alternative, guessing at another column, is what put employer homepages
+#: in the application_url of 107 jobs.
+APPLY_COLUMNS: tuple[str, ...] = (
+    "application/link",
+    "apply",
+    "link",
+    "application",
+    "posting",
+    "job posting",
+    "job link",
+)
 
 #: A markdown link, `[text](url)`. Rows use these for both company and apply link.
 _LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
@@ -122,13 +138,20 @@ class GithubMarkdownFeedAdapter(DiscoveryAdapter):
             company = _clean(row.get("company", ""))
             title = _clean(row.get("role", "") or row.get("position", "") or row.get("title", ""))
             link = _first_link(
-                row.get("application/link", "")
-                or row.get("apply", "")
-                or row.get("link", "")
-                or row.get("application", "")
-                or row.get("company", "")
+                next(
+                    (row[name] for name in APPLY_COLUMNS if row.get(name)),
+                    "",
+                )
             )
             if not (company and title and link):
+                # Deliberately no fallback to the company column. It used to be
+                # the last resort here, and what it produced was not a missing
+                # link but a *plausible wrong* one: speedyapply names its column
+                # "Posting", which was not in the list, so all 107 rows were
+                # stored with the employer's homepage as the application URL.
+                # Nothing downstream can tell nvidia.com from a Workday req, so
+                # the browser would have opened a marketing page and filled in
+                # nothing. Skipping is loud; a homepage is silent.
                 continue
 
             postings.append(

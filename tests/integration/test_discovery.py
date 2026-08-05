@@ -95,6 +95,19 @@ README = """
 | **Broken** | No Link Role | Nowhere | 🔒 | Jul 04 |
 """  # noqa: E501 — the fixture must keep the real README's single-line rows
 
+#: The other shape in the wild. speedyapply names the apply column "Posting" and
+#: wraps the employer in an anchor to their *homepage* — so a parser that misses
+#: "Posting" and falls back to the company cell gets a URL that looks entirely
+#: reasonable and is useless. That is exactly what happened: 107 real jobs were
+#: stored pointing at nvidia.com and tiktok.com instead of the requisition.
+SPEEDYAPPLY_README = """
+# 2027 SWE College Jobs
+
+| Company | Position | Location | Salary | Posting | Age |
+|---|---|---|---|---|---|
+| <a href="https://www.nvidia.com"><strong>NVIDIA</strong></a> | Performance Engineer Intern | St. Louis, MO | $62/hr | <a href="https://nvidia.wd5.myworkdayjobs.com/en-US/nvidiaexternalcareersite/job/US-MO-St-Louis/Perf_JR2015779"><img src="https://i.imgur.com/JpkfjIq.png" alt="Apply"/></a> | 29d |
+"""  # noqa: E501 — the fixture must keep the real README's single-line rows
+
 
 def stub_client(payload: object, *, status: int = 200, text: str | None = None) -> httpx.Client:
     def handler(request: httpx.Request) -> httpx.Response:
@@ -275,6 +288,53 @@ class TestGithubFeedAdapter:
     def test_source_name_identifies_the_repository(self):
         with self.build() as adapter:
             assert adapter.source_name == "github:speedyapply/2027-SWE-College-Jobs"
+
+
+class TestTheApplyLinkIsTheRequisition:
+    """The one field the browser cannot do without.
+
+    A wrong company or a wrong title costs a wasted slot. A wrong *link* costs
+    nothing visible at all: the row stores, the screen lists it, and the browser
+    opens a marketing page and fills in nothing.
+    """
+
+    def build(self, markdown: str) -> GithubMarkdownFeedAdapter:
+        return GithubMarkdownFeedAdapter(
+            "speedyapply/2027-SWE-College-Jobs",
+            client=stub_client(None, text=markdown),
+        )
+
+    def test_a_posting_column_is_read(self):
+        with self.build(SPEEDYAPPLY_README) as adapter:
+            results = adapter.fetch()
+
+        assert len(results) == 1
+        assert results[0].posting.application_url.startswith(
+            "https://nvidia.wd5.myworkdayjobs.com/"
+        )
+
+    def test_the_employers_homepage_is_never_used_as_the_apply_url(self):
+        """The company cell is an anchor too, and it is not the application."""
+        with self.build(SPEEDYAPPLY_README) as adapter:
+            results = adapter.fetch()
+
+        assert "nvidia.com" not in results[0].posting.application_url
+
+    def test_a_schema_with_no_recognised_apply_column_drops_the_row(self):
+        """Loudly nothing, rather than quietly wrong.
+
+        A feed that renames its column should lose its rows and show up as a
+        discovery run that found none — visible. Falling back to whatever other
+        link the row happens to carry is what produced 107 unusable jobs.
+        """
+        unknown = (
+            "| Company | Position | Where To Apply |\n"
+            "|---|---|---|\n"
+            "| <a href='https://acme.com'>Acme</a> | SWE Intern |"
+            " <a href='https://boards.greenhouse.io/acme/jobs/1'>Apply</a> |\n"
+        )
+        with self.build(unknown) as adapter:
+            assert adapter.fetch() == []
 
 
 # ---------------------------------------------------------------- ingestion
