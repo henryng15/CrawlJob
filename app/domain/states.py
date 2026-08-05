@@ -153,7 +153,16 @@ APPLICATION_TRANSITIONS: Final[dict[ApplicationState, frozenset[ApplicationState
         {ApplicationState.MATERIALS_READY, ApplicationState.FAILED}
     )
     | _ABANDON,
-    ApplicationState.MATERIALS_READY: frozenset({ApplicationState.BROWSER_QUEUED}) | _ABANDON,
+    # READY_FOR_REVIEW without a browser is the manual-only path: employers on
+    # the operator's own shortlist are prepared — resume attached, link ready —
+    # and then handed straight over, because those are the ones they have said
+    # they will fill in themselves. Adding this edge cannot weaken the property
+    # this table exists for: READY_FOR_REVIEW is human-gated, so every route to
+    # SUBMITTED still crosses a state only a person can leave.
+    ApplicationState.MATERIALS_READY: frozenset(
+        {ApplicationState.BROWSER_QUEUED, ApplicationState.READY_FOR_REVIEW}
+    )
+    | _ABANDON,
     ApplicationState.BROWSER_QUEUED: frozenset(
         {ApplicationState.BROWSER_FILLING, ApplicationState.FAILED}
     )

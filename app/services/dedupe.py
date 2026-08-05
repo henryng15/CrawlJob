@@ -58,6 +58,11 @@ class NormalizedPosting:
     description_text: str | None = None
     posted_at: datetime | None = None
     source_season: str | None = None
+    #: The employer's own website, when the source names one. Worth carrying
+    #: because a domain is the only reliable key for company-level policy: names
+    #: arrive as "RTX" here and "Raytheon" in a hand-written list, and normalizing
+    #: both does not make them equal.
+    company_domain: str | None = None
 
     @property
     def canonical_url(self) -> str:
@@ -147,13 +152,22 @@ def resolve(session: Session, posting: NormalizedPosting) -> DedupeResult:
     return DedupeResult(DedupeVerdict.NEW)
 
 
-def _get_or_create_company(session: Session, raw_name: str) -> Company:
+def _get_or_create_company(
+    session: Session, raw_name: str, *, domain: str | None = None
+) -> Company:
     normalized = normalize_company(raw_name)
     company = session.scalars(select(Company).where(Company.normalized_name == normalized)).first()
     if company is None:
-        company = Company(canonical_name=raw_name.strip(), normalized_name=normalized)
+        company = Company(
+            canonical_name=raw_name.strip(), normalized_name=normalized, domain=domain
+        )
         session.add(company)
         session.flush()
+    elif domain and not company.domain:
+        # Backfilled rather than overwritten: the first feed to name a domain
+        # wins, and a row created before any feed carried one is filled in
+        # instead of staying blank forever.
+        company.domain = domain
     return company
 
 
@@ -177,7 +191,9 @@ def upsert_job(
         assert existing is not None
         return existing, result
 
-    company = _get_or_create_company(session, posting.company)
+    company = _get_or_create_company(
+        session, posting.company, domain=posting.company_domain
+    )
     job = Job(
         company_id=company.id,
         canonical_url=posting.canonical_url,

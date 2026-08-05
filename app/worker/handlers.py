@@ -419,13 +419,23 @@ def register_pipeline(
         One way this stops: no base resume on disk. An application with nothing
         to attach is not one a browser should be sent to fill, and the message
         names the setting to fix.
+
+        Employers on the manual-only list stop here too, but successfully: the
+        resume is attached and the application is handed over without a browser
+        ever opening. Those are the ones the user has said they will fill in
+        themselves, so filling them would be work thrown away — and a browser
+        slot is the scarcest thing this system has.
         """
+        from app.services.expiry import set_deadline
+        from app.services.manual_companies import is_manual_only
         from app.services.resume_artifacts import attach_base
 
         now = run_clock()
         application = _require(
             session.get(Application, _payload_uuid(task, "application_id")), "application"
         )
+        job = _require(session.get(Job, application.job_id), "job")
+        company = session.get(Company, job.company_id) if job.company_id else None
 
         row = attach_base(session, config, application=application, now=now)
         if row is None:
@@ -443,15 +453,37 @@ def register_pipeline(
             _move(application, ApplicationState.MATERIALS_PREPARING, session=session)
         if application.status == ApplicationState.MATERIALS_PREPARING:
             _move(application, ApplicationState.MATERIALS_READY, session=session)
-        if application.status == ApplicationState.MATERIALS_READY:
-            _move(application, ApplicationState.BROWSER_QUEUED, session=session)
 
+        pages = f"{row.page_count} page(s)" if row.page_count else "page count unknown"
+
+        by_hand = is_manual_only(
+            session,
+            domain=company.domain if company else None,
+            company_name=company.canonical_name if company else None,
+        )
+        if by_hand:
+            _move(
+                application,
+                ApplicationState.READY_FOR_REVIEW,
+                session=session,
+                reason="employer is on the manual-only list; nothing was filled",
+                stage="manual_only_policy",
+            )
+            application.ready_for_review_at = now
+            set_deadline(
+                application, now=now, ttl_hours=config.prepared_application_ttl_hours
+            )
+            return HandlerResult(
+                detail=f"resume attached ({pages}); yours to fill — {company.canonical_name
+                    if company else 'this employer'} is on the manual-only list"
+            )
+
+        _move(application, ApplicationState.BROWSER_QUEUED, session=session)
         follow = (
             TaskType.PREPARE_APPLICATION,
             idempotency_key(TaskType.PREPARE_APPLICATION, str(application.id)),
             {"application_id": str(application.id)},
         )
-        pages = f"{row.page_count} page(s)" if row.page_count else "page count unknown"
         return HandlerResult(
             detail=f"resume attached ({pages}); queued for a browser",
             follow_ups=(follow,),

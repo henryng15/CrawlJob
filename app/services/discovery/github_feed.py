@@ -58,6 +58,21 @@ def _first_link(cell: str) -> str | None:
     return href.group(1).strip() if href else None
 
 
+def _host(url: str | None) -> str | None:
+    """The bare host of ``url``, lowercased and without ``www.``.
+
+    These feeds link the employer's own site from the company cell, which is the
+    one place a company-level domain can be had for free. It is worth taking:
+    company *names* arrive as "RTX" from a board and "Raytheon" from a
+    hand-written list, and no amount of normalizing makes those equal.
+    """
+    if not url:
+        return None
+    host = urlsplit(url).netloc.lower().split("@")[-1].split(":")[0]
+    host = host.removeprefix("www.")
+    return host or None
+
+
 def parse_markdown_table(markdown: str) -> list[dict[str, str]]:
     """Extract rows from every markdown table in ``markdown``.
 
@@ -162,6 +177,7 @@ class GithubMarkdownFeedAdapter(DiscoveryAdapter):
                         application_url=link,
                         location=_clean(row.get("location", "")),
                         source_season=self.season,
+                        company_domain=_host(_first_link(row.get("company", ""))),
                     ),
                     external_id=self._external_id(link),
                     source_url=self.url,

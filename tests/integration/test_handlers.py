@@ -622,6 +622,105 @@ class TestPreparingTheResume:
         assert len(rows) == 1
 
 
+class TestCompaniesYouHandleYourself:
+    """Employers on the manual-only list get materials and nothing else.
+
+    The user fills those in by hand, so filling them here is work thrown away —
+    and a browser slot is the scarcest thing this system has.
+    """
+
+    def _application(self, db: Session, *, domain: str) -> Application:
+        job = make_job(db)
+        company = db.get(Company, job.company_id)
+        assert company is not None
+        company.domain = domain
+        application = Application(
+            job_id=job.id,
+            application_url=job.canonical_url,
+            status=ApplicationState.MATERIALS_PREPARING,
+        )
+        db.add(application)
+        db.commit()
+        return application
+
+    def _listed(self, db: Session, domain: str) -> None:
+        from app.db.models import ManualOnlyCompany
+
+        db.add(
+            ManualOnlyCompany(
+                domain=domain, company_name="Acme Inc", source="test"
+            )
+        )
+        db.commit()
+
+    def test_a_listed_employer_is_handed_over_without_a_browser(
+        self, worker: Worker, db: Session
+    ):
+        from app.services.resume_artifacts import selected_version
+
+        self._listed(db, "acme.com")
+        application = self._application(db, domain="acme.com")
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        db.refresh(application)
+        assert application.status == ApplicationState.READY_FOR_REVIEW
+        assert selected_version(db, application.id) is not None, "still gets its resume"
+        assert tasks(db, TaskType.PREPARE_APPLICATION) == [], "no browser was queued"
+
+    def test_an_unlisted_employer_still_goes_to_a_browser(
+        self, worker: Worker, db: Session
+    ):
+        """The control: the policy must turn away only what is on the list."""
+        self._listed(db, "somewhere-else.com")
+        application = self._application(db, domain="acme.com")
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        db.refresh(application)
+        assert application.status == ApplicationState.BROWSER_QUEUED
+        assert tasks(db, TaskType.PREPARE_APPLICATION), "the browser was queued"
+
+    def test_the_reason_is_recorded_where_the_user_will_read_it(
+        self, worker: Worker, db: Session
+    ):
+        """An application that skipped the browser looks identical to one the
+        browser failed on, unless it says why."""
+        from app.db.models import AuditEvent
+
+        self._listed(db, "acme.com")
+        application = self._application(db, domain="acme.com")
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        entries = db.scalars(
+            select(AuditEvent).where(AuditEvent.entity_id == application.id)
+        ).all()
+        reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
+        assert any("manual-only" in r for r in reasons), reasons
+
+    def test_it_waits_for_you_rather_than_expiring_immediately(
+        self, worker: Worker, db: Session
+    ):
+        """It is still a prepared application, so the TTL still applies."""
+        self._listed(db, "acme.com")
+        application = self._application(db, domain="acme.com")
+
+        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        worker.run_once(now=NOW)
+
+        db.expire_all()
+        db.refresh(application)
+        assert application.expires_at is not None
+        assert application.ready_for_review_at is not None
+
+
 class TestPreparingRefusesWithoutAResume:
     def test_no_base_resume_buries_the_task_naming_the_setting(
         self, db: Session, committing_db, tmp_path: Path, provider: NullProvider
