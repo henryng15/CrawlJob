@@ -130,17 +130,31 @@ class TestManualOnlyQuestions:
         assert answer.value == "Decline to self-identify"
         assert answer.fact_ids == ("eeo.gender",)
 
-    def test_sponsorship_is_left_blank_even_with_a_locked_fact(self):
-        """§7.8 permits a locked fact here; the user asked for blank anyway.
+    def test_sponsorship_reads_the_fact_that_matches_the_question(self):
+        """The wording decides which fact answers, because it decides what was
+        asked. "For this role" and "now or in the future" are two questions, and
+        a student on CPT answers them opposite ways — both truthfully."""
+        facts = {
+            "work_authorization.requires_sponsorship_now": False,
+            "work_authorization.requires_future_sponsorship": True,
+        }
+        locked = frozenset(facts)
 
-        They want to read each employer's phrasing themselves, because the
-        wording varies enough that one stored boolean does not safely answer all
-        of them.
-        """
+        now = resolve(ask("Do you require sponsorship for this role?"), facts=facts,
+                      locked_keys=locked)
+        later = resolve(ask("Will you now or in the future require sponsorship?"),
+                        facts=facts, locked_keys=locked)
+
+        assert now.value is False
+        assert later.value is True
+        assert now.source_type is SourceType.LOCKED_FACT
+
+    def test_sponsorship_is_left_blank_when_its_fact_is_unset(self):
+        """Nothing is assumed. An unset fact is a question for the user."""
         answer = resolve(
             ask("Will you now or in the future require sponsorship?"),
-            facts={"work_authorization.requires_future_sponsorship": True},
-            locked_keys=frozenset({"work_authorization.requires_future_sponsorship"}),
+            facts={},
+            locked_keys=frozenset(),
         )
         assert answer.source_type is SourceType.MANUAL_REQUIRED
         assert answer.value is None

@@ -377,7 +377,12 @@ def _init_auth_keys() -> None:
     _AUTH_KEY_BY_CATEGORY.update(
         {
             Category.AUTHORIZATION: "auth.work_authorized",
-            Category.SPONSORSHIP: "auth.requires_sponsorship",
+            # Two keys, because they are two questions. "Do you require
+            # sponsorship for this role" and "...now or in the future" have
+            # different truthful answers for the same person, and a review screen
+            # that showed them under one name would hide that.
+            Category.SPONSORSHIP_NOW: "auth.requires_sponsorship_now",
+            Category.SPONSORSHIP_FUTURE: "auth.requires_sponsorship",
             Category.COMBINED: "auth.work_authorized_without_sponsorship",
         }
     )

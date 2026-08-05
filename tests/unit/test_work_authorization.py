@@ -20,8 +20,12 @@ from app.services.work_authorization import Category, categorize, decide
 
 AUTHORIZED = "work_authorization.is_authorized"
 SPONSORSHIP = "work_authorization.requires_future_sponsorship"
+SPONSORSHIP_NOW = "work_authorization.requires_sponsorship_now"
 
-FACTS = {AUTHORIZED: True, SPONSORSHIP: True}
+#: The shape of a student on CPT: allowed to work, needs nothing filed for the
+#: internship itself, needs an H-1B for the job after it. The two sponsorship
+#: answers are opposites, and both are true.
+FACTS = {AUTHORIZED: True, SPONSORSHIP: True, SPONSORSHIP_NOW: False}
 LOCKED = frozenset(FACTS)
 
 
@@ -51,16 +55,33 @@ class TestCategorising:
     @pytest.mark.parametrize(
         "question",
         [
-            "Will you now or in the future require sponsorship for an employment visa?",
             "Do you require visa sponsorship?",
-            "Will you require sponsorship to continue working for us?",
+            "Do you require sponsorship for this position?",
             "What is your current visa status?",
             "Do you hold an H-1B?",
             "Will you need a work permit?",
         ],
     )
-    def test_sponsorship_alone_is_recognised(self, question):
-        assert categorize(question) is Category.SPONSORSHIP
+    def test_a_sponsorship_question_about_this_role_is_recognised(self, question):
+        assert categorize(question) is Category.SPONSORSHIP_NOW
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Will you now or in the future require sponsorship for an employment visa?",
+            "Will you require sponsorship to continue working for us?",
+            "Will you at any point require visa sponsorship?",
+            "Do you now or in the future need sponsorship?",
+            "Will you ever require sponsorship?",
+        ],
+    )
+    def test_a_sponsorship_question_reaching_into_the_future_is_recognised(self, question):
+        """A different question, and for an intern a different truthful answer.
+
+        Reading "now or in the future" as if it asked only about the internship
+        is how a form ends up carrying a false statement.
+        """
+        assert categorize(question) is Category.SPONSORSHIP_FUTURE
 
     @pytest.mark.parametrize(
         "question",
@@ -121,14 +142,39 @@ class TestDeciding:
         )
         assert decision.needs_human
 
-    def test_sponsorship_is_left_blank_even_though_the_answer_is_known(self):
-        """The user asked for this explicitly: they read each one themselves."""
+    def test_sponsorship_for_this_role_comes_from_its_own_fact(self):
         decision = decide(
             "Will you require visa sponsorship?", facts=FACTS, locked_keys=LOCKED
         )
+        assert decision.value is False
+        assert decision.fact_key == SPONSORSHIP_NOW
+
+    def test_sponsorship_reaching_into_the_future_comes_from_the_other_fact(self):
+        """Same person, same day, opposite answers — both of them true."""
+        decision = decide(
+            "Will you now or in the future require visa sponsorship?",
+            facts=FACTS,
+            locked_keys=LOCKED,
+        )
+        assert decision.value is True
+        assert decision.fact_key == SPONSORSHIP
+
+    def test_an_unlocked_sponsorship_fact_is_not_used(self):
+        decision = decide(
+            "Will you require visa sponsorship?", facts=FACTS, locked_keys=frozenset()
+        )
         assert decision.needs_human
         assert decision.value is None
-        assert "left for you" in decision.reason
+
+    def test_a_missing_sponsorship_fact_leaves_it_for_the_user(self):
+        """Nothing is guessed. An unset fact is a question, not a default."""
+        decision = decide(
+            "Will you require visa sponsorship?",
+            facts={AUTHORIZED: True},
+            locked_keys=frozenset({AUTHORIZED}),
+        )
+        assert decision.needs_human
+        assert decision.value is None
 
     def test_a_combined_question_is_never_answered(self):
         decision = decide(
@@ -159,11 +205,15 @@ class TestThroughTheResolver:
         assert result.source_type is SourceType.LOCKED_FACT
         assert result.fact_ids == (AUTHORIZED,)
 
-    def test_sponsorship_is_left_for_the_user(self):
-        result = answer("Will you now or in the future require sponsorship?")
-        assert result.value is None
-        assert result.source_type is SourceType.MANUAL_REQUIRED
-        assert result.needs_human
+    def test_sponsorship_now_and_later_resolve_to_different_answers(self):
+        now = answer("Do you require sponsorship for this position?")
+        later = answer("Will you now or in the future require sponsorship?")
+
+        assert now.value is False
+        assert now.semantic_key == "auth.requires_sponsorship_now"
+        assert later.value is True
+        assert later.semantic_key == "auth.requires_sponsorship"
+        assert now.source_type is SourceType.LOCKED_FACT
 
     def test_a_combined_question_is_left_for_the_user(self):
         result = answer("Are you legally authorized to work in the US without sponsorship?")

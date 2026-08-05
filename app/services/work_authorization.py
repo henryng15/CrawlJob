@@ -3,16 +3,22 @@
 These are the questions where a wrong answer is not a bad answer but a false
 statement on a legal document. Everything here is arranged around one
 observation: employers ask about work authorization and about sponsorship in
-three different shapes, and only one of them can be answered safely.
+four different shapes, and the difference between two of them is the whole
+point of this module.
 
 **Authorization only** — "Are you legally authorized to work in the United
 States?" One fact answers it, the user set that fact deliberately, and it is
 locked. Answered.
 
-**Sponsorship only** — "Will you now or in the future require sponsorship for an
-employment visa?" Left blank for the user, by their explicit instruction, even
-though the system knows the answer. The stakes and the phrasing vary enough
-between employers that they want to read each one.
+**Sponsorship, this role** — "Do you require sponsorship for this position?"
+Answered from its own locked fact. For a student on CPT the truthful answer is
+usually *no*: the internship needs no petition filed.
+
+**Sponsorship, now or in the future** — "Will you now **or in the future**
+require sponsorship?" A wider question, with its own locked fact, because the
+same person truthfully answers no to the one above and yes to this one. Keeping
+one fact for both is how a form ends up carrying a false statement — so the
+phrasing is detected and the right fact is used, rather than the convenient one.
 
 **Combined** — "Are you legally authorized to work in the United States *without
 sponsorship*?" One Yes/No that answers two different questions, and this is the
@@ -48,7 +54,13 @@ __all__ = [
 
 class Category(StrEnum):
     AUTHORIZATION = "AUTHORIZATION"
-    SPONSORSHIP = "SPONSORSHIP"
+    #: "Do you require sponsorship *for this role*." A different question from
+    #: the one below, and for an intern usually a different answer: a student on
+    #: CPT needs no petition filed for the internship itself.
+    SPONSORSHIP_NOW = "SPONSORSHIP_NOW"
+    #: "...now **or in the future**." Reaches past the internship to the job
+    #: after it, which is where an H-1B would be needed.
+    SPONSORSHIP_FUTURE = "SPONSORSHIP_FUTURE"
     #: Both in one question. Never answered.
     COMBINED = "COMBINED"
     UNRELATED = "UNRELATED"
@@ -89,8 +101,29 @@ AUTHORIZATION_FACT_KEYS: tuple[str, ...] = (
     "work_authorization.authorized_us",
 )
 
-#: Recorded for completeness and used by scoring. Deliberately *not* used to fill
-#: a form: sponsorship questions are the user's to answer.
+#: Language that widens a sponsorship question past the role being applied for.
+#: "Now or in the future", "at any time during your employment", "ongoing" — the
+#: phrasings differ, the effect does not.
+_FUTURE = re.compile(
+    r"\bin\s+the\s+future\b"
+    r"|\bfuture\b"
+    r"|\bor\s+later\b"
+    r"|\bat\s+any\s+(?:time|point)\b"
+    r"|\bongoing\b"
+    r"|\bcontinu(?:e|ed|ing)\b"
+    r"|\bever\b",
+    re.I,
+)
+
+#: Answers "do you need us to file something for *this* role". For a student on
+#: CPT the truthful answer is usually no — the internship needs no petition.
+SPONSORSHIP_NOW_FACT_KEYS: tuple[str, ...] = (
+    "work_authorization.requires_sponsorship_now",
+)
+
+#: Answers "...now or in the future". A different fact because it is a different
+#: question: the same person can truthfully answer no to one and yes to the
+#: other, and collapsing them is how a form ends up carrying a false statement.
 SPONSORSHIP_FACT_KEYS: tuple[str, ...] = (
     "work_authorization.requires_future_sponsorship",
 )
@@ -144,7 +177,14 @@ def categorize(*texts: str | None) -> Category:
     if authorization:
         return Category.AUTHORIZATION
     if sponsorship:
-        return Category.SPONSORSHIP
+        # "Now or in the future" is a wider question than "for this role", and
+        # for an intern the honest answers differ. Splitting them here is what
+        # lets both be answered truthfully instead of both being left blank.
+        return (
+            Category.SPONSORSHIP_FUTURE
+            if _FUTURE.search(haystack)
+            else Category.SPONSORSHIP_NOW
+        )
     return Category.UNRELATED
 
 
@@ -173,10 +213,27 @@ def decide(
             ),
         )
 
-    if category is Category.SPONSORSHIP:
+    if category in (Category.SPONSORSHIP_NOW, Category.SPONSORSHIP_FUTURE):
+        keys = (
+            SPONSORSHIP_NOW_FACT_KEYS
+            if category is Category.SPONSORSHIP_NOW
+            else SPONSORSHIP_FACT_KEYS
+        )
+        for key in keys:
+            if key in facts and key in locked_keys:
+                return Decision(
+                    category,
+                    value=facts[key],
+                    fact_key=key,
+                    reason=f"answered from the locked fact {key}",
+                )
         return Decision(
             category,
-            reason="sponsorship questions are left for you to answer",
+            reason=(
+                f"no locked {'sponsorship-now' if category is Category.SPONSORSHIP_NOW
+                    else 'future-sponsorship'} fact is set; "
+                "add one in Settings or answer this yourself"
+            ),
         )
 
     if category is Category.AUTHORIZATION:

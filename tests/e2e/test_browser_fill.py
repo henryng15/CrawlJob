@@ -198,17 +198,17 @@ class TestFillRespectsPolicy:
         prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
         assert page.input_value("#work_auth") == "Yes"
 
-    def test_the_sponsorship_dropdown_is_left_for_the_user(
+    def test_the_sponsorship_dropdown_is_answered_from_the_matching_fact(
         self, page: Page, ats_url: str, resume: Path
     ):
-        """Known, locked, and still not typed in.
+        """The fake ATS asks the "now or in the future" form of the question.
 
-        The user asked for sponsorship questions to stay blank so they can read
-        each employer's phrasing themselves.
+        So it is the future fact that answers it — not the one about this role,
+        which for a student on CPT says the opposite and would be a false
+        statement here.
         """
-        _, _, report = prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
-        assert page.input_value("#sponsorship") == ""
-        assert "Will you now or in the future require sponsorship?" in report.skipped_manual
+        prepare(page, f"{ats_url}/greenhouse/jobs/1", resume)
+        assert page.input_value("#sponsorship") == "Yes"
 
     def test_the_eeo_block_is_left_untouched(self, page: Page, ats_url: str, resume: Path):
         """§7.8: the system may prefill a locked EEO preference, never infer one.
