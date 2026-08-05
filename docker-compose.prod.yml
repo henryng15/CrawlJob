@@ -6,12 +6,11 @@
 #
 # 1. **No Docker socket on the worker.** The sample mounts /var/run/docker.sock,
 #    and its own security note advises against it. The socket is root on the
-#    host; this process runs model output. Browser slots are fixed services on
-#    the internal network instead.
+#    host. The browser workers are fixed services on the internal network.
 #
-# 2. **Only Caddy publishes a port, and only on loopback.** Postgres, the web
-#    app, and every browser port exist on the internal Docker network alone
-#    (§23.1). Tailscale Serve provides the private HTTPS in front.
+# 2. **Only Caddy publishes a port, and only on loopback.** Postgres and the web
+#    app exist on the internal Docker network alone. Tailscale Serve provides
+#    the private HTTPS in front.
 
 name: internship-ops
 
@@ -24,9 +23,11 @@ x-common: &common
       max-size: "10m"
       max-file: "3"
 
-# Memory limits total 2 + 0.5 + 1 + 2 + 2 + 0.128 = 7.6 GB of the 12 GB
-# instance, leaving ~4 GB for the host, Docker itself, and page cache. Two
-# browser slots share the `&browser` anchor, so each carries the 2 GB.
+# Memory limits total 2 + 0.5 + 1 + 1.5 + 1.5 + 0.128 = 6.6 GB, leaving room for
+# the host, Docker itself and page cache. The two browser workers share the
+# `&browser` anchor, so each carries the same limit. They need less than the old
+# slots did: nothing keeps a window open waiting for a person any more, so a
+# browser lives for about a minute and then exits.
 services:
   postgres:
     <<: *common
@@ -112,11 +113,11 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 
-  browser-slot-1: &browser
+  browser-1: &browser
     <<: *common
     # Chromium plus its renderers, and the 1 GB shm below is charged
     # against the same budget.
-    mem_limit: 2g
+    mem_limit: 1536m
     build:
       context: .
       dockerfile: docker/browser-arm64.Dockerfile
@@ -125,16 +126,13 @@ services:
     # default makes tabs die on any page with images.
     shm_size: "1gb"
     environment:
-      SLOT_NAME: slot-1
-      DISPLAY: ":99"
+      SLOT_NAME: browser-1
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
     volumes:
-      - /data/internship-ops/browser-profiles/slot-1:/home/pwuser/profile
-      - /data/internship-ops/browser-sessions/slot-1:/session
       - /data/internship-ops/artifacts:/data/internship-ops/artifacts
     security_opt:
       - no-new-privileges:true
@@ -143,21 +141,16 @@ services:
       # exactly that and nothing more — strictly better than --no-sandbox (§23.4).
       - seccomp:./deploy/chromium-seccomp.json
 
-  browser-slot-2:
+  browser-2:
     <<: *browser
     environment:
-      SLOT_NAME: slot-2
-      DISPLAY: ":99"
-    volumes:
-      - /data/internship-ops/browser-profiles/slot-2:/home/pwuser/profile
-      - /data/internship-ops/browser-sessions/slot-2:/session
-      - /data/internship-ops/artifacts:/data/internship-ops/artifacts
+      SLOT_NAME: browser-2
 
   caddy:
     <<: *common
     image: caddy:2
     mem_limit: 128m
-    depends_on: [web, browser-slot-1, browser-slot-2]
+    depends_on: [web]
     # Loopback only. Tailscale Serve publishes it; nothing reaches this from the
     # public internet (§23.1).
     ports:

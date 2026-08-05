@@ -1,8 +1,10 @@
-# Browser slot: Chromium, a control service, and a noVNC view of it (spec §15.1).
+# Browser worker: Chromium, headless, filling and submitting one form at a time.
 #
-# The user has to be able to watch and take over — a CAPTCHA, an SSO login, a
-# question only they can answer — so the browser runs on a real X display with
-# x11vnc and websockify in front of it, rather than headless.
+# It used to run on a real X display with x11vnc and noVNC in front, so the user
+# could watch and take over. They cannot take over any more — a form the machine
+# cannot finish is handed back as a link and finished in their own browser — so
+# the display stack is gone and with it about 200 MB of image and a running
+# Xvfb, x11vnc and websockify per container.
 #
 # Built on Playwright's own image because it ships the exact browser build its
 # Python package expects. Multi-arch: the same file builds on the arm64 OCI
@@ -13,12 +15,9 @@
 # starts cleanly and then cannot open a page.
 FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
 
-# Xvfb gives Chromium a display; x11vnc exports it; websockify turns that into
-# something a browser tab can render. fluxbox exists so dialogs have a window
-# manager to place them — without one, some ATS modals open off-screen.
+# tini only: it reaps the zombie processes Chromium leaves behind.
 RUN apt-get update \
- && apt-get install --no-install-recommends -y \
-      xvfb x11vnc x11-utils xsel fluxbox websockify novnc tini \
+ && apt-get install --no-install-recommends -y tini \
  && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -27,9 +26,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH=/src \
     PYTHONUNBUFFERED=1 \
-    DISPLAY=":99" \
-    SCREEN_GEOMETRY="1440x900x24" \
-    SLOT_NAME="slot-1"
+    SLOT_NAME="browser-1"
 
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
 
@@ -42,18 +39,16 @@ RUN uv sync --frozen --no-dev --extra browser
 
 COPY docker/browser-entrypoint.sh /usr/local/bin/browser-entrypoint.sh
 RUN chmod +x /usr/local/bin/browser-entrypoint.sh \
- && mkdir -p /home/pwuser/profile /session /artifacts \
- && chown -R pwuser:pwuser /home/pwuser /session /artifacts /src
+ && mkdir -p /artifacts \
+ && chown -R pwuser:pwuser /home/pwuser /artifacts /src
 
 # §23.4: Chromium runs as a non-root user. Running as root would mean a page
 # that escapes the renderer sandbox lands as root in the container.
 USER pwuser
 
-# Control 9221, noVNC 6080, health 7080 — the same inside every slot. The spec's
-# port table gives each slot distinct numbers, but each container has its own
-# network namespace, so distinct ports buy nothing and the Caddyfile in §15.2
-# already assumes 6080 for both. See docs/spec/README.md#known-defects.
-EXPOSE 9221 6080 7080
+# Health only. Each container has its own network namespace, so the same port in
+# every one of them is fine.
+EXPOSE 7080
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/browser-entrypoint.sh"]
 

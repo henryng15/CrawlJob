@@ -1,0 +1,129 @@
+# AGENTS.md
+
+AutoApply — a private, single-user system that **submits** U.S. SWE internship
+applications on the operator's behalf.
+
+This repository used to do the opposite. It prepared applications and stopped,
+and its rules, its state machine and its tests all enforced that a person pressed
+Submit. That is gone on purpose. If you find a comment, a docstring or a section
+under `docs/spec/` still saying the system never submits, it is stale — this file
+wins.
+
+---
+
+## The two lanes
+
+Every application takes exactly one of them.
+
+1. **Manual** — the employer is on the manual-only list (`manual_only_companies`,
+   imported from `ColdEmail/data/seed_manual.csv`). No browser opens. The
+   application gets its resume and goes straight to `NEEDS_ME`.
+2. **Auto** — everything else. The browser opens the form, fills every field it
+   can answer from a locked fact, and submits. If any **required** field is left
+   unanswered, it submits nothing and goes to `NEEDS_ME` instead.
+
+`NEEDS_ME` means the user finishes it in their own browser, from the link on the
+dashboard. There is no route back into ours.
+
+## The rules that are still absolute
+
+1. **Never bypass a CAPTCHA, bot detection, or a rate limit.** A challenge means
+   the application goes to `NEEDS_ME`.
+2. **Never send email.** There is no email code left; keep it that way.
+3. **Never change, soften or infer** work authorization, sponsorship need,
+   citizenship, graduation date, GPA, employment history, EEO answers or export
+   control eligibility. These come from locked candidate facts or a human. Never
+   from a model, never from a default.
+4. **Never automate LinkedIn**, and never scrape login-gated pages.
+5. **Never put secrets** in git, images, Terraform state, logs or screenshots.
+6. **Never expose a port publicly.** Tailscale only; Funnel stays off.
+
+## Before the click
+
+`app/safety.py::assert_safe_to_submit` is the only choke point, and everything
+that can refuse a submission refuses there. Do not add a second path to
+`page.click()` — `app/ats/driver.py::submit_form` is the only one, and
+`find_submit_control` refuses rather than guessing when two controls match.
+
+Three settings exist because the first bug in a submit path is discovered by an
+employer:
+
+- `AUTO_SUBMIT_ENABLED` (default false) — off means fill and hand over.
+- `AUTO_SUBMIT_DRY_RUN` (default true) — locate the control, screenshot it, do
+  not click. The application lands in `NEEDS_ME` marked `was_dry_run`, never in
+  `SUBMITTED`, because "we would have sent this" and "we sent this" must never
+  look the same on the dashboard.
+- `MAX_AUTO_SUBMITS_PER_DAY` (default 20) — a ceiling on what one bad night costs.
+
+## Always
+
+- **Fail closed.** `is_manual_only` returns True when it has no domain. An
+  uncertain field blocks. An unrecognised question blocks. A mistake toward
+  manual costs the user minutes; a mistake toward auto sends an application they
+  cannot recall.
+- **Evidence or nothing.** A restrictive sponsorship classification needs a quote
+  that is actually in the posting.
+- **Idempotent tasks**, each with a dedupe key, safe to run twice.
+- **Preserve artifacts.** Every application records the exact `resume_version_id`
+  the browser confirmed was attached — not the one that was built.
+- Treat model output as untrusted. There is no model in the pipeline right now;
+  keep it that way unless the user asks otherwise.
+
+## No LLM in the pipeline
+
+Nothing in `app/` calls a model. Scoring is arithmetic over five deterministic
+components, rescaled to 100. Sponsorship screening is regex
+(`deterministic_prepass`) plus the user's own locked facts. This is what makes
+the system free to run, and it is a requirement, not an accident.
+
+## Stop and ask
+
+OCI credentials · Tailscale login · API keys · a manual ATS login · any legal or
+work-authorization question · anything that would contradict a locked fact.
+
+## Conventions
+
+- Python 3.12, FastAPI + Jinja2 + HTMX, PostgreSQL 16, SQLAlchemy 2 + Alembic.
+- Task queue is PostgreSQL (`FOR UPDATE SKIP LOCKED`). No Redis, no Celery.
+- Browser: Playwright + Chromium on **ARM64**, headless, two workers.
+- Timestamps stored UTC; business logic in `America/New_York`.
+- Handlers read the clock with `run_clock()`, never `datetime.now()`.
+- Typed Python, `ruff` + `mypy` clean before anything is done.
+
+```bash
+uv run ruff format . && uv run ruff check . && uv run mypy app && uv run pytest -q
+```
+
+## Where things are
+
+| | |
+|---|---|
+| `app/domain/states.py` | The two lanes, as a transition table. |
+| `app/services/manual_companies.py` | The fail-closed gate. |
+| `app/ats/driver.py` | Extract, fill, and the one submit path. |
+| `app/ats/fields.py` | What may be answered, and from what. |
+| `app/worker/handlers.py` | Discovery → screen → score → select → materials. |
+| `app/worker/browser.py` | The only code that drives a browser. |
+| `app/web/` | The dashboard. `queries.py` holds the read models. |
+| `app/cli/main.py` | Everything an operator does by hand. |
+
+## Getting the auto lane to actually fire
+
+Two things gate it in practice, and both are easy to miss:
+
+- **A company needs a domain.** The gate keys on it and fails closed without one,
+  and the Greenhouse, Lever and Ashby APIs mostly do not publish one — only about
+  15% of boards yield a domain, the ones fronted by the employer's own hostname.
+  The GitHub feed is the real supplier, and `dedupe` backfills `Company.domain`
+  when a later feed names one. **Running ATS feeds alone gives you a manual lane
+  and nothing else.**
+- **The locked facts have to exist.** Any required question with no locked fact
+  behind it blocks the whole application. `auth.citizenship` and the three
+  `background.*` keys are *not* auto-locked — set them by hand.
+
+## Known stale documentation
+
+`docs/spec/` was written for the prepare-only product. Sections §7.8–§7.11, §8,
+§13, §15, §22 and §29 describe machinery that no longer exists: live review,
+replay packages, prepared-application TTLs, recruiter outreach, Gmail drafts.
+Read the code, not the spec, for anything in that list.
