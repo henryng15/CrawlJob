@@ -173,6 +173,60 @@ class TestRetention:
         expire_artifacts(settings)
         assert resume.exists()
 
+    def test_a_browser_session_state_file_expires_after_a_week(self, settings: Settings):
+        """§23.6: "delete 7 days after submission". The security-relevant one.
+
+        This file is cookies and local storage for a logged-in ATS account — a
+        live credential. It lives outside the artifacts directory and is not
+        named "storage-state", so the rule that claimed to cover it matched
+        nothing and these were kept for ever while the settings screen promised
+        a week.
+        """
+        sessions = settings.data_dir / "browser-sessions" / "slot-1"
+        sessions.mkdir(parents=True)
+        state = sessions / "1f0c4e2a-0000-4000-8000-000000000000.json"
+        state.write_text('{"cookies": [{"name": "session", "value": "secret"}]}')
+        stale = time.time() - RETENTION["storage-state"].total_seconds() - 86400
+        os.utime(state, (stale, stale))
+
+        expire_artifacts(settings)
+        assert not state.exists()
+
+    def test_a_fresh_session_state_file_is_kept(self, settings: Settings):
+        """Deleting these early costs a login, so the window is real."""
+        sessions = settings.data_dir / "browser-sessions" / "slot-1"
+        sessions.mkdir(parents=True)
+        state = sessions / "1f0c4e2a-0000-4000-8000-000000000000.json"
+        state.write_text("{}")
+
+        expire_artifacts(settings)
+        assert state.exists()
+
+    def test_an_old_replay_package_is_deleted(self, settings: Settings):
+        """Every answer that went into the form, in plain JSON.
+
+        The most sensitive file in the tree, and it used to be kept for ever.
+        """
+        directory = settings.artifacts_dir / "app-1"
+        directory.mkdir(parents=True)
+        replay = directory / "replay.json"
+        replay.write_text('{"answers": [{"k": "candidate.address_line"}]}')
+        stale = time.time() - RETENTION["replay"].total_seconds() - 86400
+        os.utime(replay, (stale, stale))
+
+        expire_artifacts(settings)
+        assert not replay.exists()
+
+    def test_a_recent_replay_package_is_kept(self, settings: Settings):
+        """Restoring an expired application needs it, well past the 24h TTL."""
+        directory = settings.artifacts_dir / "app-1"
+        directory.mkdir(parents=True)
+        replay = directory / "replay.json"
+        replay.write_text("{}")
+
+        expire_artifacts(settings)
+        assert replay.exists()
+
     def test_it_reports_what_it_deleted(self, settings: Settings):
         settings.artifacts_dir.mkdir(parents=True)
         removed = expire_artifacts(settings, now=datetime.now(UTC))

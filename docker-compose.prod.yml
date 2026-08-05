@@ -24,10 +24,17 @@ x-common: &common
       max-size: "10m"
       max-file: "3"
 
+# Memory limits total 2 + 0.5 + 1 + 2 + 2 + 0.128 = 7.6 GB of the 12 GB
+# instance, leaving ~4 GB for the host, Docker itself, and page cache. Two
+# browser slots share the `&browser` anchor, so each carries the 2 GB.
 services:
   postgres:
     <<: *common
     image: postgres:16-bookworm
+    # 12 GB box, and nothing here had a limit: one leak took the whole
+    # machine down rather than one container. Postgres gets the largest
+    # share because it is the only service that must not be killed.
+    mem_limit: 2g
     environment:
       POSTGRES_DB: internship_ops
       POSTGRES_USER: internship_ops
@@ -57,6 +64,7 @@ services:
 
   web:
     <<: *common
+    mem_limit: 512m
     build:
       context: .
       dockerfile: docker/web.Dockerfile
@@ -80,6 +88,10 @@ services:
 
   worker:
     <<: *common
+    # Was the process most likely to OOM the box: the nightly artifact
+    # backup held the whole tree in memory. It streams now, but a limit is
+    # what makes the next such regression kill one container instead.
+    mem_limit: 1g
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
@@ -102,6 +114,9 @@ services:
 
   browser-slot-1: &browser
     <<: *common
+    # Chromium plus its renderers, and the 1 GB shm below is charged
+    # against the same budget.
+    mem_limit: 2g
     build:
       context: .
       dockerfile: docker/browser-arm64.Dockerfile
@@ -141,6 +156,7 @@ services:
   caddy:
     <<: *common
     image: caddy:2
+    mem_limit: 128m
     depends_on: [web, browser-slot-1, browser-slot-2]
     # Loopback only. Tailscale Serve publishes it; nothing reaches this from the
     # public internet (§23.1).
