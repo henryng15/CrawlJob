@@ -327,6 +327,8 @@ def _import_resume(args: argparse.Namespace) -> int:
 
     print("\nSet BASE_RESUME_STATUS=READY to let the pipeline use it.")
     return 0
+
+
 def _import_manual_companies(args: argparse.Namespace) -> int:
     from app.db.session import session_scope
     from app.services.manual_companies import import_csv, preview_import

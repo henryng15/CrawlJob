@@ -78,9 +78,7 @@ def make_application(db: Session) -> Application:
     )
     db.add(job)
     db.flush()
-    application = Application(
-        job_id=job.id, application_url=url, status=ApplicationState.CREATED
-    )
+    application = Application(job_id=job.id, application_url=url, status=ApplicationState.CREATED)
     db.add(application)
     db.commit()
     return application
@@ -106,9 +104,7 @@ class TestWhatIsRecorded:
         assert path.is_relative_to(resume_dir(settings, application.id))
         assert path.read_bytes() == base_pdf.read_bytes()
 
-    def test_the_checksum_is_of_the_copy_on_disk(
-        self, db: Session, settings: Settings
-    ):
+    def test_the_checksum_is_of_the_copy_on_disk(self, db: Session, settings: Settings):
         """The whole point of storing it: proof that the PDF in the folder is the
         one the employer received."""
         application = make_application(db)
@@ -168,9 +164,7 @@ class TestTheCopyIsASnapshot:
 
 
 class TestExactlyOneSelectedRow:
-    def test_attaching_twice_does_not_produce_a_second_row(
-        self, db: Session, settings: Settings
-    ):
+    def test_attaching_twice_does_not_produce_a_second_row(self, db: Session, settings: Settings):
         """A retried task, or two workers, must not leave two rows both claiming
         to be the thing that will be uploaded."""
         application = make_application(db)
@@ -181,9 +175,7 @@ class TestExactlyOneSelectedRow:
         assert first.id == second.id
         assert len(versions(db, application)) == 1
 
-    def test_two_applications_get_separate_copies(
-        self, db: Session, settings: Settings
-    ):
+    def test_two_applications_get_separate_copies(self, db: Session, settings: Settings):
         one, two = make_application(db), make_application(db)
         first = attach_base(db, settings, application=one, now=NOW)
         second = attach_base(db, settings, application=two, now=NOW)
@@ -208,7 +200,7 @@ class TestRefusingRatherThanInventing:
     def test_a_configured_path_that_is_gone_returns_nothing(
         self, db: Session, settings: Settings, base_pdf: Path
     ):
-        """"Unavailable" is not "use whatever else is around"."""
+        """ "Unavailable" is not "use whatever else is around"."""
         base_pdf.unlink()
         application = make_application(db)
         assert attach_base(db, settings, application=application, now=NOW) is None

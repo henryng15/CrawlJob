@@ -123,7 +123,7 @@ def version(db: Session, application: Application, pdf: Path) -> ResumeVersion:
 
 def record(db: Session, application: Application, report: Report) -> None:
     """The glue the browser worker runs after a fill pass."""
-    from app.worker.browser_slot import _mark_resume_uploaded
+    from app.worker.browser import _mark_resume_uploaded
 
     _mark_resume_uploaded(db, application, report, now=LATER)
 

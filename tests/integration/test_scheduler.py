@@ -131,34 +131,26 @@ class TestCadence:
 
 
 class TestTick:
-    def test_the_periodic_jobs_are_queued(
+    def test_the_nightly_jobs_are_queued(
         self, db: Session, settings: Settings, base_resume: ResumeVersion
     ):
-        assert tick(db, settings, now=at_local(settings, hour=12)) >= 3
+        """Everything periodic is gone. What is left protects data, not pipeline
+        state: an application either got submitted or it is waiting for you, and
+        neither needs a sweep to notice."""
+        assert tick(db, settings, now=at_local(settings, hour=12)) == 2
 
         types = {t.task_type for t in queued(db)}
-        assert "RECONCILE_GMAIL" in types
-        assert "RECONCILE_SUBMISSION" in types
-        assert "SCHEDULE_OUTREACH" in types
+        assert types == {"BACKUP_DATABASE", "BACKUP_ARTIFACTS"}
 
-    def test_reconciliation_runs_even_while_paused(
-        self, db: Session, paused_settings: Settings
-    ):
-        """Reconciliation observes; it does not push anything towards a recruiter.
-
-        If you submitted a prepared application by hand and then paused the
-        system, the record of that submission must still be picked up — pausing
-        stops new work, not the truth about work already done.
-        """
+    def test_backups_run_even_while_paused(self, db: Session, paused_settings: Settings):
+        """Pausing stops new work. It must never stop the jobs that protect the
+        work already done, or "paused" becomes a way to lose it."""
         tick(db, paused_settings, now=at_local(paused_settings, hour=12))
         types = {t.task_type for t in queued(db)}
-        assert "RECONCILE_SUBMISSION" in types
-        assert "RECONCILE_GMAIL" in types
-        assert "SCHEDULE_OUTREACH" not in types
+        assert types == {"BACKUP_DATABASE", "BACKUP_ARTIFACTS"}
+        assert "DISCOVER_SOURCE" not in types
 
-    def test_ticking_twice_in_one_window_queues_nothing_new(
-        self, db: Session, settings: Settings
-    ):
+    def test_ticking_twice_in_one_window_queues_nothing_new(self, db: Session, settings: Settings):
         """The property the whole design rests on."""
         moment = at_local(settings, hour=12)
         first = tick(db, settings, now=moment)
@@ -180,26 +172,23 @@ class TestTick:
 
         with committing_db() as session:
             total = session.scalar(select(func.count()).select_from(ScheduledTask))
-            distinct = session.scalar(
-                select(func.count(func.distinct(ScheduledTask.dedupe_key)))
-            )
+            distinct = session.scalar(select(func.count(func.distinct(ScheduledTask.dedupe_key))))
             assert total == distinct
 
-    def test_a_new_window_queues_again(self, db: Session, settings: Settings):
+    def test_a_new_day_queues_again(self, db: Session, settings: Settings):
+        """The nightly jobs are daily, so the next bucket is tomorrow's."""
         moment = at_local(settings, hour=12)
         tick(db, settings, now=moment)
-        assert tick(db, settings, now=moment + timedelta(hours=1)) > 0
+        assert tick(db, settings, now=moment + timedelta(days=1)) > 0
 
-    def test_a_nightly_job_is_not_queued_before_its_hour(
-        self, db: Session, settings: Settings
-    ):
+    def test_a_nightly_job_is_not_queued_before_its_hour(self, db: Session, settings: Settings):
         tick(db, settings, now=at_local(settings, hour=1))
         assert queued(db, TaskType.BACKUP_DATABASE) == []
 
     def test_nightly_jobs_are_queued_after_their_hour(self, db: Session, settings: Settings):
         tick(db, settings, now=at_local(settings, hour=4))
         assert len(queued(db, TaskType.BACKUP_DATABASE)) == 1
-        assert len(queued(db, TaskType.CLEANUP_EXPIRED_SESSION)) == 1
+        assert len(queued(db, TaskType.BACKUP_ARTIFACTS)) == 1
 
     def test_a_worker_started_at_noon_still_runs_the_night_backup(
         self, db: Session, settings: Settings
@@ -224,11 +213,9 @@ class TestPipelineGate:
     def test_the_default_is_paused(self, db: Session, paused_settings: Settings):
         tick(db, paused_settings, now=at_local(paused_settings, hour=15))
         assert queued(db, TaskType.DISCOVER_SOURCE) == []
-        assert queued(db, TaskType.SCHEDULE_OUTREACH) == []
+        assert queued(db, TaskType.PREPARE_APPLICATION) == []
 
-    def test_pausing_does_not_stop_backups_or_cleanup(
-        self, db: Session, paused_settings: Settings
-    ):
+    def test_pausing_does_not_stop_backups_or_cleanup(self, db: Session, paused_settings: Settings):
         """The whole point of the exemption.
 
         If pausing the pipeline also paused the jobs that protect existing data,
@@ -238,7 +225,7 @@ class TestPipelineGate:
         tick(db, paused_settings, now=at_local(paused_settings, hour=4))
         assert len(queued(db, TaskType.BACKUP_DATABASE)) == 1
         assert len(queued(db, TaskType.BACKUP_ARTIFACTS)) == 1
-        assert len(queued(db, TaskType.CLEANUP_EXPIRED_SESSION)) == 1
+        assert len(queued(db, TaskType.BACKUP_ARTIFACTS)) == 1
 
     def test_pausing_does_not_stop_prepared_applications_expiring(
         self, db: Session, paused_settings: Settings
@@ -247,11 +234,9 @@ class TestPipelineGate:
         queue the user last saw would sit there claiming to be current for as
         long as the pause lasted."""
         tick(db, paused_settings, now=at_local(paused_settings, hour=4))
-        assert len(queued(db, TaskType.EXPIRE_PREPARED_APPLICATIONS)) == 1
+        assert len(queued(db, TaskType.BACKUP_DATABASE)) == 1
 
-    def test_the_flag_alone_does_not_open_the_gate(
-        self, db: Session, settings: Settings
-    ):
+    def test_the_flag_alone_does_not_open_the_gate(self, db: Session, settings: Settings):
         """No ``base_resume`` fixture here, so the database disagrees with the flag.
 
         BASE_RESUME_STATUS=READY is a claim by whoever edited the env file. If
@@ -263,9 +248,7 @@ class TestPipelineGate:
         tick(db, settings, now=at_local(settings, hour=15))
         assert queued(db, TaskType.DISCOVER_SOURCE) == []
 
-    def test_a_tailored_resume_does_not_count_as_a_base(
-        self, db: Session, settings: Settings
-    ):
+    def test_a_tailored_resume_does_not_count_as_a_base(self, db: Session, settings: Settings):
         """Otherwise the pipeline's own output could open the gate for it."""
         db.add(
             ResumeVersion(
@@ -282,9 +265,7 @@ class TestPipelineGate:
         tick(db, settings, now=at_local(settings, hour=15))
         assert queued(db, TaskType.DISCOVER_SOURCE) == []
 
-    def test_a_fallback_row_does_not_count_as_a_base_either(
-        self, db: Session, settings: Settings
-    ):
+    def test_a_fallback_row_does_not_count_as_a_base_either(self, db: Session, settings: Settings):
         """The circularity §7.7's fallback introduced.
 
         When a tailored build cannot reach one page, it records a ``BASE`` row
@@ -340,9 +321,7 @@ class TestPipelineGate:
         tick(db, settings, now=at_local(settings, hour=15))
         assert queued(db, TaskType.DISCOVER_SOURCE) == []
 
-    def test_both_halves_open_it(
-        self, db: Session, settings: Settings, base_resume: ResumeVersion
-    ):
+    def test_both_halves_open_it(self, db: Session, settings: Settings, base_resume: ResumeVersion):
         db.add(SourceRegistry(kind="greenhouse", identifier="stripe"))
         db.flush()
 

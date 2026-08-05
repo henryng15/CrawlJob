@@ -1,12 +1,13 @@
-"""One job, start to finish (spec §6, §32).
+"""One job, start to finish.
 
 Walks a single posting through every stage the system owns, exercising the web
 screens and the worker against the same database — the path the user actually
 takes, rather than each stage in isolation.
 
-The two moments that matter are the ones where nothing happens automatically:
-the application waits at ``READY_FOR_REVIEW`` until a person submits, and the
-email waits as a Gmail draft until a person sends it.
+Two runs, because the product is two lanes. An ordinary employer is scored,
+selected, prepared and handed to a browser with nobody pressing anything. An
+employer on the manual-only list stops before the browser and waits, and the
+dashboard says why.
 """
 
 from __future__ import annotations
@@ -28,17 +29,12 @@ from app.db.models import (
     Company,
     Job,
     JobScore,
-    OutreachTask,
-    Recruiter,
     ResumeVersion,
-    SponsorshipAssessment,
 )
 from app.domain.normalization import canonicalize_url, url_hash
-from app.domain.states import ApplicationState, JobState, OutreachState
+from app.domain.states import ApplicationState, JobState
 from app.domain.tasks import TaskType, idempotency_key
 from app.services.candidate import Actor, set_fact
-from app.services.llm.base import NullProvider
-from app.services.outreach_policy import next_send_window
 from app.services.queue import enqueue
 from app.web.app import create_app
 from app.web.deps import get_config, get_db
@@ -91,9 +87,7 @@ def password_hash() -> str:
 
 
 @pytest.fixture
-def settings(
-    password_hash: str, tmp_path: Path, sample_resume: Path
-) -> Settings:
+def settings(password_hash: str, tmp_path: Path, sample_resume: Path) -> Settings:
     pdf = sample_resume
     return Settings(
         app_env="development",
@@ -109,12 +103,6 @@ def settings(
 
 
 @pytest.fixture
-def provider() -> NullProvider:
-    """Every model call this run will make, in the order it will make them."""
-    return NullProvider([SILENT_SPONSORSHIP, JUDGMENT, HOOK])
-
-
-@pytest.fixture
 def db(committing_db: sessionmaker[Session]) -> Iterator[Session]:
     session = committing_db()
     try:
@@ -124,15 +112,11 @@ def db(committing_db: sessionmaker[Session]) -> Iterator[Session]:
 
 
 @pytest.fixture
-def worker(
-    committing_db: sessionmaker[Session], settings: Settings, provider: NullProvider
-) -> Worker:
+def worker(committing_db: sessionmaker[Session], settings: Settings) -> Worker:
     return Worker(
         session_factory=committing_db,
         worker_id="e2e",
-        registry=register_pipeline(
-            Registry(), settings=settings, provider_factory=lambda _: provider
-        ),
+        registry=register_pipeline(Registry(), settings=settings),
         poll_interval=0.0,
     )
 
@@ -197,35 +181,25 @@ def seed_job(db: Session) -> Job:
         normalized_location="remote",
     )
     db.add(job)
-    db.add(
-        Recruiter(
-            full_name="Alice Nguyen",
-            raw_company="Acme Inc",
-            email="alice@acme.com",
-            email_domain="acme.com",
-            company_id=company.id,
-            title="University Recruiter",
-        )
-    )
     db.commit()
     return job
 
 
-def test_one_job_from_discovery_to_a_gmail_draft(
+def test_one_job_from_scoring_to_a_browser(
     db: Session,
     client: TestClient,
     worker: Worker,
     settings: Settings,
-    provider: NullProvider,
 ) -> None:
+    """The auto lane. Nobody presses anything until the form itself needs them."""
     seed_profile(db)
     job = seed_job(db)
 
-    # --- 1. The machine assesses the posting -------------------------------
+    # --- 1. The machine scores the posting ---------------------------------
     enqueue(
         db,
-        task_type=TaskType.ANALYZE_SPONSORSHIP,
-        dedupe_key=idempotency_key(TaskType.ANALYZE_SPONSORSHIP, str(job.id)),
+        task_type=TaskType.SCORE_JOB,
+        dedupe_key=idempotency_key(TaskType.SCORE_JOB, str(job.id)),
         payload={"job_id": str(job.id)},
         run_at=NOW,
     )
@@ -233,35 +207,16 @@ def test_one_job_from_discovery_to_a_gmail_draft(
     drain(worker, now=NOW + timedelta(minutes=1))
 
     db.expire_all()
-    assert not_none(
-        db.scalars(select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id))
-        .first()
-    ).classification == "SPONSORSHIP_NOT_MENTIONED"
     score = not_none(db.scalars(select(JobScore).where(JobScore.job_id == job.id)).first())
     assert float(score.total_score) > 0
+
+    # --- 2. and starts an application itself -------------------------------
     db.refresh(job)
-    assert job.status == JobState.SCORED
-
-    # No application yet. A good score is an invitation, not a decision (§0.2).
-    assert db.scalars(select(Application)).all() == []
-
-    # --- 2. The user selects it --------------------------------------------
-    page = client.get(f"/jobs/{job.id}")
-    assert page.status_code == 200
-    assert "Software Engineer Intern" in page.text
-
-    selected = client.post(
-        f"/jobs/{job.id}/select", data={"csrf_token": csrf(client, settings)}
-    )
-    assert selected.status_code == 303
-    db.expire_all()
+    assert job.status == JobState.SELECTED, "a good score selects the job outright"
     application = not_none(db.scalars(select(Application)).first())
-    assert application.status == ApplicationState.CREATED
 
-    # --- 3. The machine prepares materials ---------------------------------
-    drain(worker, now=NOW + timedelta(minutes=2))
+    # --- 3. Materials, then the browser queue ------------------------------
     db.refresh(application)
-
     resume = not_none(
         db.scalars(
             select(ResumeVersion).where(ResumeVersion.application_id == application.id)
@@ -270,22 +225,23 @@ def test_one_job_from_discovery_to_a_gmail_draft(
     assert Path(resume.pdf_path).is_file()
     assert application.status == ApplicationState.BROWSER_QUEUED
 
-    # A browser slot would fill the form here. Standing in for it, because the
-    # point of this test is the handoffs either side of that step.
+    # The browser worker runs in its own process with its own Chromium, so this
+    # stands in for it. What is being tested here is the handoffs either side.
     application.status = ApplicationState.BROWSER_FILLING
-    application.status = ApplicationState.READY_FOR_REVIEW
-    application.ready_for_review_at = NOW
+    application.status = ApplicationState.NEEDS_ME
+    application.needs_me_at = NOW
+    application.needs_me_reason = "2 required questions had no locked fact behind them"
+    application.missing_fields = ["Expected salary", "Type your full name to sign"]
     application.resume_version_id = resume.id
     db.commit()
 
-    # --- 4. It stops. The user reviews and submits --------------------------
-    review = client.get(f"/applications/{application.id}")
-    assert review.status_code == 200
-    assert "never presses Submit" in review.text
-
+    # --- 4. The dashboard tells the user what is left ----------------------
     dashboard = client.get("/")
     assert "waiting on you" in dashboard.text
+    assert "Expected salary" in dashboard.text
+    assert job.canonical_url in dashboard.text, "the link to finish it by hand"
 
+    # --- 5. They finish it and say so --------------------------------------
     assert (
         client.post(
             f"/applications/{application.id}/submitted",
@@ -298,28 +254,37 @@ def test_one_job_from_discovery_to_a_gmail_draft(
     assert application.status == ApplicationState.SUBMITTED
     assert application.submission_detection_method == "USER_CONFIRMED"
 
-    # --- 5. Outreach, two business days later -------------------------------
-    outreach_time = next_send_window(NOW + timedelta(days=9))
-    drain(worker, now=outreach_time)
+
+def test_a_manual_only_employer_never_reaches_a_browser(
+    db: Session,
+    client: TestClient,
+    worker: Worker,
+) -> None:
+    """The other lane. These are the employers the user reserved for themselves."""
+    from app.db.models import ManualOnlyCompany
+
+    seed_profile(db)
+    job = seed_job(db)
+    db.add(ManualOnlyCompany(domain="acme.com", company_name="Acme Inc", source="seed_manual.csv"))
+    db.commit()
+
+    enqueue(
+        db,
+        task_type=TaskType.SCORE_JOB,
+        dedupe_key=idempotency_key(TaskType.SCORE_JOB, str(job.id)),
+        payload={"job_id": str(job.id)},
+        run_at=NOW,
+    )
+    db.commit()
+    drain(worker, now=NOW + timedelta(minutes=1))
 
     db.expire_all()
-    outreach = not_none(db.scalars(select(OutreachTask)).first())
-    assert outreach.status == OutreachState.READY_FOR_REVIEW
-    assert outreach.gmail_draft_id, "a draft should exist"
-    assert not_none(outreach.recruiter_id)
-
-    body = not_none(outreach.body)
-    assert "Alice" in body
-    assert "Software Engineer Intern" in body
-    assert "Hoan" in body
-    assert "{{" not in body
-
-    # --- 6. It stops again. Sending is the user's ---------------------------
-    page = client.get(f"/outreach/{outreach.id}")
-    assert page.status_code == 200
-    assert "Open draft in Gmail" in page.text
-    assert outreach.sent_at is None, "nothing in this system sends"
-
-    # Every model call was one this test queued; none was invented. Three, not
-    # four: preparing a resume copies a file and calls nothing.
-    assert len(provider.calls) == 3
+    application = not_none(db.scalars(select(Application)).first())
+    assert application.status == ApplicationState.NEEDS_ME
+    assert "manual-only list" in (application.needs_me_reason or "")
+    assert not_none(
+        db.scalars(
+            select(ResumeVersion).where(ResumeVersion.application_id == application.id)
+        ).first()
+    ), "it still gets its resume"
+    assert job.canonical_url in client.get("/").text

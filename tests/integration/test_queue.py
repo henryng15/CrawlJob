@@ -59,8 +59,8 @@ class TestIdempotentEnqueue:
 
     def test_idempotency_key_distinguishes_prompt_versions(self, db: Session):
         """A prompt change must produce new work, not silently reuse the old result."""
-        v1 = idempotency_key(TaskType.ANALYZE_SPONSORSHIP, "job-1", "hash", "v1")
-        v2 = idempotency_key(TaskType.ANALYZE_SPONSORSHIP, "job-1", "hash", "v2")
+        v1 = idempotency_key(TaskType.SCORE_JOB, "job-1", "hash", "v1")
+        v2 = idempotency_key(TaskType.SCORE_JOB, "job-1", "hash", "v2")
         assert add(db, v1) is not None
         assert add(db, v2) is not None
 
@@ -93,8 +93,10 @@ class TestClaim:
 
     def test_can_filter_by_task_type(self, db: Session):
         add(db, "score", task_type=TaskType.SCORE_JOB)
-        add(db, "draft", task_type=TaskType.CREATE_GMAIL_DRAFT)
-        task = not_none(claim(db, worker_id="w", task_types=[TaskType.CREATE_GMAIL_DRAFT], now=NOW))
+        add(db, "draft", task_type=TaskType.PREPARE_APPLICATION)
+        task = not_none(
+            claim(db, worker_id="w", task_types=[TaskType.PREPARE_APPLICATION], now=NOW)
+        )
         assert task is not None
         assert task.dedupe_key == "draft"
 

@@ -73,9 +73,7 @@ def resume(tmp_path: Path) -> Path:
 
 
 def resume_field() -> tuple[FieldSpec, Answer]:
-    spec = FieldSpec(
-        question_text="Resume", name="resume", field_type=FieldType.FILE
-    )
+    spec = FieldSpec(question_text="Resume", name="resume", field_type=FieldType.FILE)
     answer = Answer(
         semantic_key="documents.resume",
         value=None,

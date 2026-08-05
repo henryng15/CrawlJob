@@ -100,7 +100,6 @@ class TestValidation:
     def test_timezone_property_resolves(self):
         assert build().timezone.key == "America/New_York"
 
-
     def test_the_daily_submit_cap_is_bounded(self):
         """A ceiling on the ceiling: a typo in the cap must not become a bad night."""
         with pytest.raises(ValidationError):
@@ -137,8 +136,6 @@ class TestProductionHardening:
     def test_production_requires_https(self):
         with pytest.raises(ValidationError, match="HTTPS"):
             build(**{**PROD, "app_base_url": "http://internship-ops.example.ts.net"})
-
-
 
     def test_production_requires_an_admin_password(self):
         """An instance with no password would be open to anyone on the tailnet."""

@@ -69,9 +69,7 @@ class TestTheResolver:
             raise AssertionError("the default database was consulted")
 
         assert (
-            resolve_url(
-                x_arguments={X_ARGUMENT: "postgresql://x/named"}, default=explode
-            )
+            resolve_url(x_arguments={X_ARGUMENT: "postgresql://x/named"}, default=explode)
             == "postgresql://x/named"
         )
 
@@ -87,9 +85,7 @@ class TestTheResolver:
         )
 
     def test_the_default_is_used_when_nothing_is_named(self):
-        assert resolve_url(default=lambda: "postgresql://x/default") == (
-            "postgresql://x/default"
-        )
+        assert resolve_url(default=lambda: "postgresql://x/default") == ("postgresql://x/default")
 
     def test_an_empty_x_argument_does_not_count_as_a_target(self):
         """An empty value is a mistake on the command line, not an instruction to

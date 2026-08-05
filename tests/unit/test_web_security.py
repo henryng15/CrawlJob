@@ -84,6 +84,7 @@ class TestAuthenticate:
         The bound is loose on purpose — this asserts the dummy verification
         happens at all, not a precise timing budget on a shared CI box.
         """
+
         def elapsed(user: str, password: str) -> float:
             start = time.perf_counter()
             authenticate(user, password, settings)

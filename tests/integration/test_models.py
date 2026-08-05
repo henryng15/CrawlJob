@@ -7,7 +7,7 @@ layer avoids writing it. Application code has bugs; a unique index does not.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -166,8 +166,6 @@ class TestApplicationUniqueness:
         make_application(db, job, ApplicationState.FAILED)
         make_application(db, job, ApplicationState.FAILED)
         db.flush()  # must not raise
-
-
 
 
 class TestScheduledTask:

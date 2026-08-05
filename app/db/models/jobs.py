@@ -172,8 +172,6 @@ class SponsorshipAssessment(UUIDMixin, CreatedAtMixin, Base):
     confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
     recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
     reasoning_summary: Mapped[str | None] = mapped_column(Text)
-    model_name: Mapped[str | None] = mapped_column(Text)
-    prompt_version: Mapped[str | None] = mapped_column(Text)
 
     job: Mapped[Job] = relationship(back_populates="sponsorship")
 

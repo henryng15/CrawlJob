@@ -23,6 +23,7 @@ from app.services.sponsorship import (
 NOW = datetime(2026, 7, 28, tzinfo=UTC)
 GRADUATION = date(2028, 5, 1)
 
+
 def job(title: str = "Software Engineer Intern, Summer 2027", **kw: object) -> ScoreInput:
     defaults = {
         "normalized_title": normalize_title(title),

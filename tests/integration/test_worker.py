@@ -79,7 +79,7 @@ class TestDispatch:
     ):
         ran: list[str] = []
 
-        for task_type in (TaskType.SCORE_JOB, TaskType.CREATE_GMAIL_DRAFT):
+        for task_type in (TaskType.SCORE_JOB, TaskType.PREPARE_APPLICATION):
 
             @registry.register(task_type)
             def handle(session, task, _t=task_type) -> HandlerResult:
@@ -87,11 +87,11 @@ class TestDispatch:
                 return HandlerResult()
 
         add(committing_db, "score", task_type=TaskType.SCORE_JOB)
-        add(committing_db, "draft", task_type=TaskType.CREATE_GMAIL_DRAFT)
+        add(committing_db, "prepare", task_type=TaskType.PREPARE_APPLICATION)
 
-        worker.task_types = [TaskType.CREATE_GMAIL_DRAFT]
+        worker.task_types = [TaskType.PREPARE_APPLICATION]
         worker.run_once(now=NOW)
-        assert ran == ["CREATE_GMAIL_DRAFT"]
+        assert ran == [TaskType.PREPARE_APPLICATION.value]
 
     def test_a_handler_may_return_none(self, worker: Worker, registry: Registry, committing_db):
         @registry.register(TaskType.SCORE_JOB)
@@ -126,7 +126,7 @@ class TestUnknownTaskTypes:
 
         missing = registry.missing()
         assert TaskType.SCORE_JOB not in missing
-        assert TaskType.CREATE_GMAIL_DRAFT in missing
+        assert TaskType.PREPARE_APPLICATION in missing
 
     def test_registering_twice_is_an_error(self, registry: Registry):
         @registry.register(TaskType.SCORE_JOB)
@@ -197,13 +197,13 @@ class TestFollowUps:
     def test_a_handler_can_enqueue_the_next_stage(
         self, worker: Worker, registry: Registry, committing_db
     ):
-        @registry.register(TaskType.ANALYZE_SPONSORSHIP)
+        @registry.register(TaskType.SCORE_JOB)
         def handle(session: Session, task: ScheduledTask) -> HandlerResult:
             return HandlerResult(
                 follow_ups=((TaskType.SCORE_JOB, "score:job-1", {"job_id": "job-1"}),)
             )
 
-        add(committing_db, "sponsorship:job-1", task_type=TaskType.ANALYZE_SPONSORSHIP)
+        add(committing_db, "sponsorship:job-1", task_type=TaskType.SCORE_JOB)
         worker.run_once(now=NOW)
 
         with committing_db() as session:
@@ -215,11 +215,11 @@ class TestFollowUps:
     ):
         """The work and its consequences commit together, or not at all."""
 
-        @registry.register(TaskType.ANALYZE_SPONSORSHIP)
+        @registry.register(TaskType.SCORE_JOB)
         def handle(session: Session, task: ScheduledTask) -> HandlerResult:
             raise RuntimeError("failed after deciding to fan out")
 
-        add(committing_db, "sponsorship:job-1", task_type=TaskType.ANALYZE_SPONSORSHIP)
+        add(committing_db, "sponsorship:job-1", task_type=TaskType.SCORE_JOB)
         worker.run_once(now=NOW)
 
         with committing_db() as session:

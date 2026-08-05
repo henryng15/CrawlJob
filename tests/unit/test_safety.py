@@ -7,8 +7,6 @@ failure here as a stop-the-line event.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
-
 import pytest
 from pydantic import ValidationError
 
@@ -125,9 +123,7 @@ class TestAssertSafeToSubmit:
     def test_the_most_specific_reason_wins(self):
         """The user reads this on the dashboard, so it has to name the thing to fix."""
         with pytest.raises(SubmitRefused, match="CAPTCHA"):
-            assert_safe_to_submit(
-                **self._ok(captcha_detected=True, blocked=True, enabled=False)
-            )
+            assert_safe_to_submit(**self._ok(captcha_detected=True, blocked=True, enabled=False))
 
     def test_a_refusal_is_not_a_safety_violation(self):
         """A violation kills the process; a refusal is an ordinary outcome."""

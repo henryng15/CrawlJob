@@ -106,9 +106,7 @@ class TestTheStepThatCausedIt:
         ahead = int(CLOCK_SKEW_GRACE.total_seconds()) + 60
         assert read(sign_ahead(monkeypatch, settings, ahead), settings) is None
 
-    def test_a_one_second_backwards_step_keeps_the_session(
-        self, settings: Settings, cookie: str
-    ):
+    def test_a_one_second_backwards_step_keeps_the_session(self, settings: Settings, cookie: str):
         """The same thing said through the injected clock, which is what the rest
         of this file uses."""
         signed_at = datetime.now(UTC)
@@ -125,9 +123,7 @@ class TestTheStepThatCausedIt:
         now = datetime.now(UTC) - timedelta(seconds=seconds)
         assert read(cookie, settings, now=now) is not None
 
-    def test_the_csrf_token_survives_the_step_too(
-        self, settings: Settings, cookie: str
-    ):
+    def test_the_csrf_token_survives_the_step_too(self, settings: Settings, cookie: str):
         """The other half of the symptom: ``csrf()`` returning ``None``."""
         back = datetime.now(UTC) - timedelta(seconds=1)
         session = read(cookie, settings, now=back)
@@ -136,9 +132,7 @@ class TestTheStepThatCausedIt:
 
 
 class TestTheGraceIsBounded:
-    def test_a_wildly_wrong_clock_is_still_refused(
-        self, settings: Settings, cookie: str
-    ):
+    def test_a_wildly_wrong_clock_is_still_refused(self, settings: Settings, cookie: str):
         """Beyond the grace the clock is wrong by more than a correction explains,
         and refusing is the safer reading."""
         far_back = datetime.now(UTC) - CLOCK_SKEW_GRACE - timedelta(seconds=1)
@@ -156,26 +150,18 @@ class TestTheGraceIsBounded:
 class TestTheIdleTimeoutStillWorks:
     """The check this replaced still has to do its actual job."""
 
-    def test_a_cookie_older_than_the_timeout_is_refused(
-        self, settings: Settings, cookie: str
-    ):
+    def test_a_cookie_older_than_the_timeout_is_refused(self, settings: Settings, cookie: str):
         later = datetime.now(UTC) + idle_timeout(settings) + timedelta(seconds=30)
         assert read(cookie, settings, now=later) is None
 
-    def test_a_cookie_just_inside_the_timeout_is_accepted(
-        self, settings: Settings, cookie: str
-    ):
+    def test_a_cookie_just_inside_the_timeout_is_accepted(self, settings: Settings, cookie: str):
         later = datetime.now(UTC) + idle_timeout(settings) - timedelta(seconds=30)
         assert read(cookie, settings, now=later) is not None
 
-    def test_a_forged_cookie_is_refused_whatever_the_clock_says(
-        self, settings: Settings
-    ):
+    def test_a_forged_cookie_is_refused_whatever_the_clock_says(self, settings: Settings):
         assert read("made.up.value", settings, now=NOW) is None
 
-    def test_another_keys_cookie_is_refused_whatever_the_clock_says(
-        self, settings: Settings
-    ):
+    def test_another_keys_cookie_is_refused_whatever_the_clock_says(self, settings: Settings):
         other = issue(Session("hoan", "t"), Settings(app_secret_key="a-different-key"))
         assert read(other, settings, now=datetime.now(UTC)) is None
 

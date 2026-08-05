@@ -151,6 +151,7 @@ def register_pipeline(
         """Fetch one feed and store what is new (§7.2)."""
         from app.services.discovery.ingest import ingest_all
         from app.services.sponsorship import (
+            Classification,
             RecommendedAction,
             SponsorshipAnalysis,
             WorkAuthRestriction,
@@ -223,12 +224,15 @@ def register_pipeline(
             # a job here — see app.services.sponsorship for why the wording
             # matters more than the confidence.
             hit = deterministic_prepass(job.description_text or "", source_url=job.canonical_url)
-            if hit.classification is None:
+            # Either half is decisive on its own. "Must be a U.S. citizen" sets a
+            # restriction and no classification at all — reading only the
+            # classification would send an unauthorised applicant straight at it.
+            if hit.classification is None and hit.restriction is None:
                 follow_ups.append(_score_next(job))
                 continue
 
             analysis = SponsorshipAnalysis(
-                classification=hit.classification,
+                classification=hit.classification or Classification.SPONSORSHIP_NOT_MENTIONED,
                 work_authorization_restriction=(
                     hit.restriction or WorkAuthRestriction.NO_EXPLICIT_RESTRICTION
                 ),
@@ -244,16 +248,25 @@ def register_pipeline(
             session.add(
                 SponsorshipAssessment(
                     job_id=job.id,
-                    classification=hit.classification.value,
-                    evidence_quotes=[e.model_dump(mode="json") for e in hit.evidence],
+                    classification=analysis.classification.value,
+                    work_authorization_restriction=(analysis.work_authorization_restriction.value),
+                    evidence=[e.model_dump(mode="json") for e in hit.evidence],
                     recommended_action=action.value,
+                    # A regex match is not a probability. The quote is either in
+                    # the posting or it is not, and verify_evidence checks that.
                     confidence=1.0,
                 )
             )
             # The user's own facts decide this, not the posting alone: "US
             # citizens only" is a rejection for one person and irrelevant to
             # the next.
-            if action is RecommendedAction.SKIP:
+            #
+            # MANUAL_REVIEW stops the job too. It used to mean "put this in front
+            # of a human", and there is no longer a human in this lane — so the
+            # choice is between spending an application on a posting that says it
+            # cannot hire this candidate, and not. The job keeps its row and its
+            # quote, so it is still visible on the jobs screen.
+            if action is not RecommendedAction.CONTINUE:
                 quote = hit.evidence[0].quote if hit.evidence else "sponsorship is not offered"
                 _move(
                     job,
@@ -278,6 +291,11 @@ def register_pipeline(
     def score_job(session: Session, task: ScheduledTask) -> HandlerResult:
         """Score a job out of 100, and start an application if it clears the bar."""
         job = _require(session.get(Job, _payload_uuid(task, "job_id")), "job")
+        if job.status == JobState.SELECTED:
+            # Already applied to. Re-scoring is something an operator does by
+            # hand, and it must not walk the job backwards or apply twice.
+            return HandlerResult(detail="already selected")
+
         values = _candidate_facts(session)
 
         # Discovery ordinarily moves the job on. Doing it here too lets a job be
@@ -326,9 +344,6 @@ def register_pipeline(
 
         if result.total < config.minimum_fit_score:
             return HandlerResult(detail=f"{detail}, below the {config.minimum_fit_score} bar")
-
-        if job.status == JobState.SELECTED:
-            return HandlerResult(detail=f"{detail}, already selected")
 
         refusal = _cannot_start_application(session, job, config, now=run_clock())
         if refusal:

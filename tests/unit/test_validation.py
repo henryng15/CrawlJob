@@ -95,9 +95,12 @@ class TestAFeedThatIsFine:
         assert check(FakeAdapter(), settings).ok
 
     def test_it_counts_what_it_saw(self, settings: Settings):
-        report = check(FakeAdapter([[posting(), posting(
-            application_url="https://boards.greenhouse.io/acme/jobs/2"
-        )]]), settings)
+        report = check(
+            FakeAdapter(
+                [[posting(), posting(application_url="https://boards.greenhouse.io/acme/jobs/2")]]
+            ),
+            settings,
+        )
         assert report.fetched == 2
         assert report.stats["with_posted_at"] == 2
         assert report.stats["with_description"] == 2
@@ -147,9 +150,7 @@ class TestTheChecksCatchWhatTheyClaim:
         assert "future" in checks(report, "posted_at")[0]
 
     def test_a_naive_timestamp_is_a_blocker(self, settings: Settings):
-        report = check(
-            FakeAdapter([[posting(posted_at=datetime(2026, 7, 1))]]), settings
-        )
+        report = check(FakeAdapter([[posting(posted_at=datetime(2026, 7, 1))]]), settings)
         assert not report.ok
         assert "naive" in checks(report, "posted_at")[0]
 
@@ -164,9 +165,7 @@ class TestTheChecksCatchWhatTheyClaim:
         assert "sponsorship" in checks(report, "description")[0]
 
     def test_html_left_in_a_description_is_a_warning(self, settings: Settings):
-        report = check(
-            FakeAdapter([[posting(description_text="<p>Hello</p> " * 40)]]), settings
-        )
+        report = check(FakeAdapter([[posting(description_text="<p>Hello</p> " * 40)]]), settings)
         assert any("HTML" in d for d in checks(report, "description"))
 
     def test_a_missing_location_is_a_warning(self, settings: Settings):
@@ -177,9 +176,7 @@ class TestTheChecksCatchWhatTheyClaim:
         report = check(FakeAdapter([[posting(external_id=None)]]), settings)
         assert checks(report, "external_id")
 
-    def test_an_empty_feed_is_reported_rather_than_passing_silently(
-        self, settings: Settings
-    ):
+    def test_an_empty_feed_is_reported_rather_than_passing_silently(self, settings: Settings):
         report = check(FakeAdapter([[]]), settings)
         assert report.fetched == 0
         assert checks(report, "fetch")
@@ -266,9 +263,8 @@ class TestItStaysOutsideThePipeline:
         import app.services.validation.stage_one as one
         import app.services.validation.stage_two as two
 
-        return (
-            Path(one.__file__).read_text(encoding="utf-8")
-            + Path(two.__file__).read_text(encoding="utf-8")
+        return Path(one.__file__).read_text(encoding="utf-8") + Path(two.__file__).read_text(
+            encoding="utf-8"
         )
 
     @pytest.mark.parametrize(

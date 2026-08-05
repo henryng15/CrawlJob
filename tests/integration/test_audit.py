@@ -99,24 +99,20 @@ class TestUserDecisionsAreAttributed:
     def test_marking_submitted_is_recorded_as_the_user(
         self, client: TestClient, db: Session, settings: Settings
     ):
-        application = _make_application(db, ApplicationState.READY_FOR_REVIEW)
+        application = _make_application(db, ApplicationState.NEEDS_ME)
         client.post(
             f"/applications/{application.id}/submitted",
             data={"csrf_token": _csrf(client, settings)},
         )
 
-        events = db.scalars(
-            select(AuditEvent).where(AuditEvent.entity_id == application.id)
-        ).all()
+        events = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == application.id)).all()
         submitted = [e for e in events if e.event_metadata.get("now") == "SUBMITTED"]
         assert submitted, [e.event_metadata for e in events]
         assert submitted[0].actor_type == "USER"
         assert submitted[0].actor_id == "hoan"
         assert submitted[0].event_metadata["method"] == "USER_CONFIRMED"
 
-    def test_selecting_a_job_is_recorded(
-        self, client: TestClient, db: Session, settings: Settings
-    ):
+    def test_selecting_a_job_is_recorded(self, client: TestClient, db: Session, settings: Settings):
         job = _make_job(db, status=JobState.SCORED)
         client.post(f"/jobs/{job.id}/select", data={"csrf_token": _csrf(client, settings)})
 
@@ -126,9 +122,7 @@ class TestUserDecisionsAreAttributed:
         assert event.event_metadata["now"] == "SELECTED"
         assert event.actor_type == "USER"
 
-    def test_skipping_a_job_is_recorded(
-        self, client: TestClient, db: Session, settings: Settings
-    ):
+    def test_skipping_a_job_is_recorded(self, client: TestClient, db: Session, settings: Settings):
         job = _make_job(db)
         client.post(f"/jobs/{job.id}/skip", data={"csrf_token": _csrf(client, settings)})
 
@@ -149,9 +143,7 @@ class TestUserDecisionsAreAttributed:
             data={"csrf_token": _csrf(client, settings)},
         )
         assert response.status_code == 400
-        events = db.scalars(
-            select(AuditEvent).where(AuditEvent.entity_id == application.id)
-        ).all()
+        events = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == application.id)).all()
         assert events == []
 
 

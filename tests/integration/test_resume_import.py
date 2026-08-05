@@ -78,9 +78,7 @@ class TestWhatImportingDoes:
         expected = hashlib.sha256(result.stored_at.read_bytes()).hexdigest()
         assert result.resume.sha256 == expected
 
-    def test_it_counts_the_pages(
-        self, db: Session, settings: Settings, source_pdf: Path
-    ):
+    def test_it_counts_the_pages(self, db: Session, settings: Settings, source_pdf: Path):
         assert import_resume(db, settings, path=source_pdf).pages == 1
 
     def test_it_remembers_where_the_file_came_from(
@@ -111,9 +109,7 @@ class TestWhatTheGateLooksFor:
     def test_nothing_imported_means_no_base_version(self, db: Session):
         assert base_version(db) is None
 
-    def test_importing_makes_one_findable(
-        self, db: Session, settings: Settings, source_pdf: Path
-    ):
+    def test_importing_makes_one_findable(self, db: Session, settings: Settings, source_pdf: Path):
         result = import_resume(db, settings, path=source_pdf)
         db.commit()
 
@@ -148,8 +144,6 @@ class TestWhatTheGateLooksFor:
         import_resume(db, settings, path=source_pdf)
         db.commit()
 
-        rows = db.scalars(
-            select(ResumeVersion).where(ResumeVersion.application_id.is_(None))
-        ).all()
+        rows = db.scalars(select(ResumeVersion).where(ResumeVersion.application_id.is_(None))).all()
         assert len(rows) == 2
         assert base_version(db) is not None

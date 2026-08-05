@@ -143,9 +143,7 @@ class TestDeciding:
         assert decision.needs_human
 
     def test_sponsorship_for_this_role_comes_from_its_own_fact(self):
-        decision = decide(
-            "Will you require visa sponsorship?", facts=FACTS, locked_keys=LOCKED
-        )
+        decision = decide("Will you require visa sponsorship?", facts=FACTS, locked_keys=LOCKED)
         assert decision.value is False
         assert decision.fact_key == SPONSORSHIP_NOW
 

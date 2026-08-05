@@ -70,18 +70,26 @@ def settings(tmp_path: Path, sample_resume: Path) -> Settings:
     # whatever resume the developer had configured would pass or fail for
     # reasons outside the test.
     return Settings(
+        _env_file=None,
         app_env="development",
         app_secret_key="handler-tests",
         data_dir=tmp_path / "data",
         base_resume_pdf=pdf,
+        # Pinned, not inherited. These decide what the screen rejects, whether
+        # the pipeline runs at all, and when an application is started — and a
+        # developer's own .env or shell would otherwise silently change what
+        # every test in this file asserts.
+        pipeline_enabled=True,
+        base_resume_status="READY",
+        max_role_age_days=7,
+        minimum_fit_score=72.0,
+        max_prepared_applications_per_day=10,
     )
 
 
 @pytest.fixture
 def registry(settings: Settings) -> Registry:
-    return register_pipeline(
-        Registry(), settings=settings
-    )
+    return register_pipeline(Registry(), settings=settings)
 
 
 @pytest.fixture
@@ -254,9 +262,7 @@ class TestPreSpendScreen:
         job = make_job(db, posted_at=None, discovered_at=NOW, location_text="Austin, TX")
         assert [t.payload["job_id"] for t in self._run(worker, db)] == [str(job.id)]
 
-    def test_an_untargeted_title_is_screened_out(
-        self, worker: Worker, db: Session, no_feed: None
-    ):
+    def test_an_untargeted_title_is_screened_out(self, worker: Worker, db: Session, no_feed: None):
         make_job(
             db,
             title="Marketing Intern",
@@ -278,9 +284,7 @@ class TestPreSpendScreen:
         )
         assert self._run(worker, db) == []
 
-    def test_a_remote_us_role_survives_the_screen(
-        self, worker: Worker, db: Session, no_feed: None
-    ):
+    def test_a_remote_us_role_survives_the_screen(self, worker: Worker, db: Session, no_feed: None):
         job = make_job(
             db,
             posted_at=NOW - timedelta(hours=2),
@@ -303,9 +307,9 @@ class TestPreSpendScreen:
         entries = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == job.id)).all()
         reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
         assert any("older than 168h" in r for r in reasons), reasons
-        assert any(
-            e.event_metadata.get("stage") == "pre_spend_screen" for e in entries
-        ), "the audit trail must say which gate turned it away"
+        assert any(e.event_metadata.get("stage") == "pre_spend_screen" for e in entries), (
+            "the audit trail must say which gate turned it away"
+        )
 
     def test_a_probable_duplicate_is_never_screened_or_spent_on(
         self, worker: Worker, db: Session, no_feed: None
@@ -343,13 +347,11 @@ class TestSponsorship:
         queue(db, TaskType.DISCOVER_SOURCE, kind="greenhouse", name="acme")
         drain(worker)
 
-    def test_a_citizens_only_posting_is_rejected(
-        self, worker: Worker, db: Session, no_feed: None
-    ):
+    def test_a_citizens_only_posting_is_rejected(self, worker: Worker, db: Session, no_feed: None):
         """A citizenship requirement the candidate does not meet is the one
         sponsorship case with a decisive answer; everything softer is left
         alone (see the next test)."""
-        job = make_job(db, description=CITIZENS_ONLY_JD)
+        job = make_job(db, description=CITIZENS_ONLY_JD, location_text="Austin, TX")
         self._discover(worker, db)
         db.refresh(job)
 
@@ -358,10 +360,11 @@ class TestSponsorship:
     def test_no_sponsorship_wording_stops_the_job_before_it_costs_anything(
         self, worker: Worker, db: Session, no_feed: None
     ):
-        """"We cannot sponsor" is the employer's policy. For a candidate who
-        needs sponsorship it is decisive, and applying anyway wastes both
-        sides' time."""
-        job = make_job(db, description=NO_SPONSORSHIP_JD)
+        """The old system sent this wording to a human to judge. There is no human
+        in this lane, so it stops the job instead: spending an application on a
+        posting that says it cannot hire this candidate helps nobody. The row and
+        its quote survive, so it is still visible on the jobs screen."""
+        job = make_job(db, description=NO_SPONSORSHIP_JD, location_text="Austin, TX")
         self._discover(worker, db)
 
         assessment = not_none(
@@ -369,15 +372,13 @@ class TestSponsorship:
                 select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id)
             ).first()
         )
-        assert assessment.recommended_action == "SKIP"
+        assert assessment.recommended_action == "MANUAL_REVIEW"
         assert tasks(db, TaskType.SCORE_JOB) == []
 
-    def test_the_quote_is_stored_as_evidence(
-        self, worker: Worker, db: Session, no_feed: None
-    ):
+    def test_the_quote_is_stored_as_evidence(self, worker: Worker, db: Session, no_feed: None):
         """A restrictive classification with no quote is an assertion, not a
         finding — and the user reads this sentence on the job page."""
-        job = make_job(db, description=NO_SPONSORSHIP_JD)
+        job = make_job(db, description=NO_SPONSORSHIP_JD, location_text="Austin, TX")
         self._discover(worker, db)
 
         assessment = not_none(
@@ -385,13 +386,11 @@ class TestSponsorship:
                 select(SponsorshipAssessment).where(SponsorshipAssessment.job_id == job.id)
             ).first()
         )
-        assert assessment.evidence_quotes
-        assert "unable to sponsor" in assessment.evidence_quotes[0]["quote"].lower()
+        assert assessment.evidence
+        assert "unable to sponsor" in assessment.evidence[0]["quote"].lower()
 
-    def test_a_silent_posting_reaches_scoring(
-        self, worker: Worker, db: Session, no_feed: None
-    ):
-        job = make_job(db)
+    def test_a_silent_posting_reaches_scoring(self, worker: Worker, db: Session, no_feed: None):
+        job = make_job(db, location_text="Austin, TX")
         self._discover(worker, db)
 
         assert [t.payload["job_id"] for t in tasks(db, TaskType.SCORE_JOB)] == [str(job.id)]
@@ -399,7 +398,7 @@ class TestSponsorship:
     def test_re_running_does_not_duplicate_the_assessment(
         self, worker: Worker, db: Session, no_feed: None
     ):
-        job = make_job(db, description=NO_SPONSORSHIP_JD)
+        job = make_job(db, description=NO_SPONSORSHIP_JD, location_text="Austin, TX")
         self._discover(worker, db)
         enqueue(
             db,
@@ -433,9 +432,7 @@ class TestScoringRefusesBadInput:
 
 
 class TestScoring:
-    def test_a_scored_job_gets_a_row_and_a_status(
-        self, worker: Worker, db: Session
-    ):
+    def test_a_scored_job_gets_a_row_and_a_status(self, worker: Worker, db: Session):
         job = make_job(db)
         set_fact(db, "education.graduation_date", "2028-05-15", actor=Actor.USER)
         db.commit()
@@ -445,12 +442,10 @@ class TestScoring:
         db.refresh(job)
 
         stored = not_none(db.scalars(select(JobScore).where(JobScore.job_id == job.id)).first())
-        assert job.status == JobState.SCORED
+        assert job.status == JobState.SELECTED, "a good score selects the job outright"
         assert 0 < float(stored.total_score) <= 100
 
-    def test_an_ineligible_job_scores_zero(
-        self, worker: Worker, db: Session
-    ):
+    def test_an_ineligible_job_scores_zero(self, worker: Worker, db: Session):
         """§7.6: a high AI score may never override a hard ineligibility, and the
         cheapest way to guarantee that is not to ask."""
         job = make_job(db, title="Senior Staff Engineer", normalized_title="senior staff engineer")
@@ -462,9 +457,7 @@ class TestScoring:
         assert float(stored.total_score) == 0
         assert job.status == JobState.ELIGIBILITY_REJECTED
 
-    def test_the_breakdown_is_stored_for_the_review_screen(
-        self, worker: Worker, db: Session
-    ):
+    def test_the_breakdown_is_stored_for_the_review_screen(self, worker: Worker, db: Session):
         job = make_job(db)
         queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
         drain(worker)
@@ -472,9 +465,7 @@ class TestScoring:
         stored = not_none(db.scalars(select(JobScore).where(JobScore.job_id == job.id)).first())
         assert "internship_level_fit" in stored.components
 
-    def test_a_good_score_starts_an_application(
-        self, worker: Worker, db: Session
-    ):
+    def test_a_good_score_starts_an_application(self, worker: Worker, db: Session):
         """The change that makes this an auto-apply system: nobody presses a
         button between a job scoring well and an application existing."""
         job = make_job(db)
@@ -488,15 +479,18 @@ class TestScoring:
         ]
 
     def test_a_poor_score_starts_nothing(self, worker: Worker, db: Session):
-        job = make_job(db, title="Senior Staff Engineer", location_text="Boise, ID")
+        job = make_job(
+            db,
+            title="Senior Staff Engineer",
+            normalized_title="senior staff engineer",
+            posted_at=NOW - timedelta(days=6),
+        )
         queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
         drain(worker)
 
         assert db.scalars(select(Application)).all() == []
 
-    def test_a_second_application_for_one_job_is_refused(
-        self, worker: Worker, db: Session
-    ):
+    def test_a_second_application_for_one_job_is_refused(self, worker: Worker, db: Session):
         """Re-scoring must not apply twice to the same posting."""
         job = make_job(db)
         queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
@@ -527,7 +521,7 @@ class TestPreparingTheResume:
         application = Application(
             job_id=job.id,
             application_url=job.canonical_url,
-            status=ApplicationState.MATERIALS_PREPARING,
+            status=ApplicationState.CREATED,
         )
         db.add(application)
         db.commit()
@@ -541,7 +535,7 @@ class TestPreparingTheResume:
 
         application = self._application(db)
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
@@ -549,7 +543,7 @@ class TestPreparingTheResume:
         row = not_none(selected_version(db, application.id))
         assert Path(row.pdf_path).is_file()
         assert application.status == ApplicationState.BROWSER_QUEUED
-        assert tasks(db, TaskType.PREPARE_APPLICATION), "the browser was queued"
+        assert tasks(db, TaskType.SUBMIT_APPLICATION), "the browser was queued"
 
     def test_the_attached_file_is_a_copy_in_the_applications_folder(
         self, worker: Worker, db: Session, settings: Settings
@@ -558,47 +552,40 @@ class TestPreparingTheResume:
 
         application = self._application(db)
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
         row = not_none(selected_version(db, application.id))
         assert Path(row.pdf_path).is_relative_to(resume_dir(settings, application.id))
 
-    def test_it_does_not_claim_the_resume_was_uploaded(
-        self, worker: Worker, db: Session
-    ):
+    def test_it_does_not_claim_the_resume_was_uploaded(self, worker: Worker, db: Session):
         """Selected is intent; uploaded is what a browser actually did."""
         from app.services.resume_artifacts import selected_version, uploaded_version
 
         application = self._application(db)
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
         assert selected_version(db, application.id) is not None
         assert uploaded_version(db, application.id) is None
 
-    def test_it_calls_no_model(
-        self, worker: Worker, db: Session
-    ):
+    def test_it_calls_no_model(self, worker: Worker, db: Session):
         """There is nothing here to ask a model about, and asking would cost money."""
         application = self._application(db)
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
-
-    def test_running_it_twice_does_not_produce_a_second_resume(
-        self, worker: Worker, db: Session
-    ):
+    def test_running_it_twice_does_not_produce_a_second_resume(self, worker: Worker, db: Session):
         application = self._application(db)
 
         for suffix in ("first", "second"):
             queue(
                 db,
-                TaskType.PREPARE_RESUME,
+                TaskType.PREPARE_APPLICATION,
                 application_id=str(application.id),
                 key=suffix,
             )
@@ -626,57 +613,52 @@ class TestCompaniesYouHandleYourself:
         application = Application(
             job_id=job.id,
             application_url=job.canonical_url,
-            status=ApplicationState.MATERIALS_PREPARING,
+            status=ApplicationState.CREATED,
         )
         db.add(application)
         db.commit()
         return application
 
-    def _listed(self, db: Session, domain: str) -> None:
+    def _listed(self, db: Session, domain: str, *, name: str = "Acme Inc") -> None:
         from app.db.models import ManualOnlyCompany
 
-        db.add(
-            ManualOnlyCompany(
-                domain=domain, company_name="Acme Inc", source="test"
-            )
-        )
+        db.add(ManualOnlyCompany(domain=domain, company_name=name, source="test"))
         db.commit()
 
-    def test_a_listed_employer_is_handed_over_without_a_browser(
-        self, worker: Worker, db: Session
-    ):
+    def test_a_listed_employer_is_handed_over_without_a_browser(self, worker: Worker, db: Session):
         from app.services.resume_artifacts import selected_version
 
         self._listed(db, "acme.com")
         application = self._application(db, domain="acme.com")
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
         db.refresh(application)
-        assert application.status == ApplicationState.READY_FOR_REVIEW
+        assert application.status == ApplicationState.NEEDS_ME
         assert selected_version(db, application.id) is not None, "still gets its resume"
-        assert tasks(db, TaskType.PREPARE_APPLICATION) == [], "no browser was queued"
+        assert tasks(db, TaskType.SUBMIT_APPLICATION) == [], "no browser was queued"
 
-    def test_an_unlisted_employer_still_goes_to_a_browser(
-        self, worker: Worker, db: Session
-    ):
-        """The control: the policy must turn away only what is on the list."""
-        self._listed(db, "somewhere-else.com")
+    def test_an_unlisted_employer_still_goes_to_a_browser(self, worker: Worker, db: Session):
+        """The control: the policy must turn away only what is on the list.
+
+        The listed row needs a different *name* as well as a different domain —
+        a matching name is itself enough to route an employer to manual, which
+        is the fail-closed half of the gate.
+        """
+        self._listed(db, "somewhere-else.com", name="Somewhere Else Ltd")
         application = self._application(db, domain="acme.com")
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
         db.refresh(application)
         assert application.status == ApplicationState.BROWSER_QUEUED
-        assert tasks(db, TaskType.PREPARE_APPLICATION), "the browser was queued"
+        assert tasks(db, TaskType.SUBMIT_APPLICATION), "the browser was queued"
 
-    def test_the_reason_is_recorded_where_the_user_will_read_it(
-        self, worker: Worker, db: Session
-    ):
+    def test_the_reason_is_recorded_where_the_user_will_read_it(self, worker: Worker, db: Session):
         """An application that skipped the browser looks identical to one the
         browser failed on, unless it says why."""
         from app.db.models import AuditEvent
@@ -684,30 +666,27 @@ class TestCompaniesYouHandleYourself:
         self._listed(db, "acme.com")
         application = self._application(db, domain="acme.com")
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
-        entries = db.scalars(
-            select(AuditEvent).where(AuditEvent.entity_id == application.id)
-        ).all()
+        entries = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == application.id)).all()
         reasons = [str(e.event_metadata.get("reason", "")) for e in entries]
         assert any("manual-only" in r for r in reasons), reasons
 
-    def test_it_waits_for_you_rather_than_expiring_immediately(
-        self, worker: Worker, db: Session
-    ):
-        """It is still a prepared application, so the TTL still applies."""
+    def test_the_user_is_told_what_to_do_with_it(self, worker: Worker, db: Session):
+        """The dashboard renders this sentence verbatim, so it has to be one."""
         self._listed(db, "acme.com")
         application = self._application(db, domain="acme.com")
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
         db.expire_all()
         db.refresh(application)
-        assert application.expires_at is not None
-        assert application.ready_for_review_at is not None
+        assert application.needs_me_at is not None
+        assert "manual-only list" in (application.needs_me_reason or "")
+        assert application.missing_fields == []
 
 
 class TestPreparingRefusesWithoutAResume:
@@ -724,28 +703,25 @@ class TestPreparingRefusesWithoutAResume:
         worker = Worker(
             session_factory=committing_db,
             worker_id="no-resume",
-            registry=register_pipeline(
-                Registry(), settings=settings, provider_factory=lambda _: provider
-            ),
+            registry=register_pipeline(Registry(), settings=settings),
             poll_interval=0.0,
         )
         job = make_job(db)
         application = Application(
             job_id=job.id,
             application_url=job.canonical_url,
-            status=ApplicationState.MATERIALS_PREPARING,
+            status=ApplicationState.CREATED,
         )
         db.add(application)
         db.commit()
 
-        queue(db, TaskType.PREPARE_RESUME, application_id=str(application.id))
+        queue(db, TaskType.PREPARE_APPLICATION, application_id=str(application.id))
         worker.run_once(now=NOW)
 
-        task = tasks(db, TaskType.PREPARE_RESUME)[0]
+        task = tasks(db, TaskType.PREPARE_APPLICATION)[0]
         assert task.status == TaskStatus.DEAD
         assert "BASE_RESUME_PDF" in not_none(task.last_error)
-        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
-
+        assert tasks(db, TaskType.SUBMIT_APPLICATION) == []
 
 
 class TestTransactionality:
@@ -754,4 +730,4 @@ class TestTransactionality:
         queue(db, TaskType.SCORE_JOB, job_id=str(uuid.uuid4()))
         worker.run_once(now=NOW)
 
-        assert tasks(db, TaskType.PREPARE_APPLICATION) == []
+        assert tasks(db, TaskType.SUBMIT_APPLICATION) == []

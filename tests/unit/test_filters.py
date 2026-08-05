@@ -62,9 +62,7 @@ class TestFreshness:
         """
         old = NOW - timedelta(days=90)
         assert age_reference(old, hours_ago(0.01)) == old
-        assert not is_fresh(
-            posted_at=old, discovered_at=hours_ago(0.01), now=NOW, max_age_hours=24
-        )
+        assert not is_fresh(posted_at=old, discovered_at=hours_ago(0.01), now=NOW, max_age_hours=24)
 
     def test_the_reference_is_never_the_later_of_the_two(self):
         recent, old = hours_ago(1), NOW - timedelta(days=90)
@@ -135,7 +133,7 @@ class TestTitle:
         assert not title_matches(normalize_title(title))
 
     def test_a_reject_term_does_not_match_inside_a_longer_word(self):
-        """"Lead" must not reject "Leadership", nor "contract" "Contractor"."""
+        """ "Lead" must not reject "Leadership", nor "contract" "Contractor"."""
         assert title_matches(normalize_title("Software Engineer Intern, Leadership Program"))
 
     def test_the_variant_list_is_configurable(self):
@@ -243,7 +241,7 @@ class TestTitle:
         ],
     )
     def test_words_that_only_mean_software_in_context_do_not_leak(self, title: str):
-        """"front", "back" and "development" are ordinary English.
+        """ "front", "back" and "development" are ordinary English.
 
         Matching them as bare words is what turns a screen for software
         internships into a screen for internships — every one of these is a real
@@ -297,7 +295,7 @@ class TestLocation:
         assert not location_is_us("Remote - US or Canada")
 
     def test_a_lowercase_english_word_is_not_a_state_code(self):
-        """"Remote or Hybrid" is not Oregon; "Work in office" is not Indiana."""
+        """ "Remote or Hybrid" is not Oregon; "Work in office" is not Indiana."""
         assert not location_is_us("Remote or Hybrid")
         assert not location_is_us("Work in office")
 
