@@ -298,6 +298,61 @@ class TestDisclosureQuestions:
             assert answer.is_fillable, "a No must fill the field, not read as unanswered"
 
 
+class TestCheckboxesAreNotQuestions:
+    """A checkbox is one answer, and its label is that answer's name.
+
+    Found on a real Chicago Trading Company form: under "How did you hear about
+    us?" the options included "GitHub" and "CTC Website", both of which matched
+    the link patterns, and both of which had a stored fact behind them. The
+    system was about to tick two boxes claiming a referral source the user never
+    had.
+    """
+
+    @pytest.mark.parametrize("option", ["GitHub", "CTC Website", "LinkedIn", "Glassdoor"])
+    def test_an_option_label_does_not_get_ticked_from_a_url(self, option):
+        answer = resolve(
+            ask(option, field_type=FieldType.CHECKBOX),
+            facts={
+                "candidate.github": "https://github.com/henryng15",
+                "candidate.portfolio": "https://hoanng.netlify.app/",
+                "candidate.linkedin": "https://linkedin.com/in/hoanng15",
+            },
+        )
+        # "Glassdoor" matches nothing and is UNRESOLVED; the other three match a
+        # link pattern and are refused by the guard. Either way nobody ticks it.
+        assert answer.needs_human
+        assert answer.value is None
+        assert not answer.is_fillable
+
+    def test_a_real_yes_no_checkbox_still_works(self):
+        """The consent box on the same form must keep working."""
+        answer = resolve(
+            ask(
+                "I certify that the information provided is accurate", field_type=FieldType.CHECKBOX
+            ),
+            facts={"legal.attestation": True},
+            locked_keys=frozenset({"legal.attestation"}),
+        )
+        assert answer.source_type is SourceType.LOCKED_FACT
+        assert answer.value is True
+        assert answer.is_fillable
+
+    def test_an_unticked_box_is_still_an_answer(self):
+        """False means "leave it unticked", not "we have no answer"."""
+        answer = resolve(
+            ask("Do you have any relatives employed here?", field_type=FieldType.CHECKBOX),
+            facts={"background.related_to_employee": False},
+            locked_keys=frozenset({"background.related_to_employee"}),
+        )
+        assert answer.value is False
+        assert answer.is_fillable
+
+    def test_the_same_label_as_a_text_field_is_unaffected(self):
+        """The guard is about what ticking a box asserts, not about the label."""
+        answer = resolve(ask("GitHub"), facts={"candidate.github": "https://github.com/henryng15"})
+        assert answer.is_fillable
+
+
 class TestTheTerm:
     """ "Which term are you applying for" is a question about the posting.
 

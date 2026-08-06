@@ -424,6 +424,47 @@ def resolve(
         derived: values computed from this application by code, keyed by semantic
             key. Ignored for anything outside :data:`_DERIVABLE_KEYS`.
     """
+    return _tickable(spec, _resolve(spec, facts, locked_keys, ai_answers, derived))
+
+
+def _tickable(spec: FieldSpec, answer: Answer) -> Answer:
+    """Refuse to tick a checkbox from anything that is not a yes or a no.
+
+    A checkbox is not a question, it is one *answer* to a question, and the
+    label on it is the answer's name. So the pattern table reads that label as
+    though it were the question and matches whatever it can.
+
+    On a real Greenhouse form this ticked "GitHub" and "CTC Website" under "How
+    did you hear about us?", because those two labels matched the GitHub and
+    portfolio patterns and both facts exist. The user heard about the role on
+    LinkedIn. The system would have stated otherwise, on two boxes, silently.
+
+    Filling a checkbox means asserting the thing written next to it. A stored
+    URL is not that assertion, so only a genuine boolean gets through and
+    everything else becomes the user's to tick.
+    """
+    if spec.field_type is not FieldType.CHECKBOX or answer.value is None:
+        return answer
+    if isinstance(answer.value, bool):
+        return answer
+    return Answer(
+        answer.semantic_key,
+        None,
+        SourceType.MANUAL_REQUIRED,
+        note=(
+            "this is one option in a group, not a question; ticking it would "
+            "assert what is written beside it"
+        ),
+    )
+
+
+def _resolve(
+    spec: FieldSpec,
+    facts: dict[str, Any],
+    locked_keys: frozenset[str],
+    ai_answers: dict[str, str] | None,
+    derived: dict[str, Any] | None,
+) -> Answer:
     # Work authorization is settled before anything else, including pattern
     # matching. A combined "authorized to work *without sponsorship*" question
     # matches the sponsorship pattern, and answering it from the sponsorship fact
