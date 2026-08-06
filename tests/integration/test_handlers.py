@@ -505,9 +505,17 @@ class TestScoring:
         db.refresh(job)
         assert job.status == JobState.ELIGIBILITY_REJECTED
 
-        # Now one that lands in SCORED, and score it a second time.
+        # Now one already SCORED, carrying a stale number from older code.
         other = make_job(db, posted_at=NOW - timedelta(days=6))
         other.status = JobState.SCORED
+        db.add(
+            JobScore(
+                job_id=other.id,
+                total_score=37.5,
+                components={"internship_level_fit": 20.0},
+                hard_filter_result="PASS",
+            )
+        )
         db.commit()
 
         enqueue(
@@ -521,7 +529,13 @@ class TestScoring:
         drain(worker)
 
         assert tasks(db, TaskType.SCORE_JOB)[-1].status == TaskStatus.SUCCEEDED
-        assert len(db.scalars(select(JobScore).where(JobScore.job_id == other.id)).all()) == 1
+
+        # One row, updated in place. ``job_scores.job_id`` is unique, so adding a
+        # second raised UniqueViolation and buried the task — the score is the
+        # job's current number, not a history of numbers.
+        rows = db.scalars(select(JobScore).where(JobScore.job_id == other.id)).all()
+        assert len(rows) == 1
+        assert float(rows[0].total_score) != 37.5
 
     def test_a_second_application_for_one_job_is_refused(self, worker: Worker, db: Session):
         """Re-scoring must not apply twice to the same posting."""

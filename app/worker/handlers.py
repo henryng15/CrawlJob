@@ -326,14 +326,25 @@ def register_pipeline(
             now=run_clock(),
         )
 
-        session.add(
-            JobScoreRow(
-                job_id=job.id,
-                total_score=result.total,
-                components=dict(result.components),
-                hard_filter_result=result.hard_filter_result.value,
+        # One row per job — ``job_scores.job_id`` is unique, and it should be:
+        # the score is the job's current number, not a history. So a re-score
+        # updates it. Adding a second row raised UniqueViolation and buried the
+        # task, which is the other half of why an already-scored job could never
+        # be given a current score.
+        existing = session.scalars(select(JobScoreRow).where(JobScoreRow.job_id == job.id)).first()
+        if existing is not None:
+            existing.total_score = result.total
+            existing.components = dict(result.components)
+            existing.hard_filter_result = result.hard_filter_result.value
+        else:
+            session.add(
+                JobScoreRow(
+                    job_id=job.id,
+                    total_score=result.total,
+                    components=dict(result.components),
+                    hard_filter_result=result.hard_filter_result.value,
+                )
             )
-        )
 
         if result.hard_filter_result is Verdict.REJECT:
             _move(job, JobState.ELIGIBILITY_REJECTED)
