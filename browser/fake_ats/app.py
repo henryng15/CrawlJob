@@ -288,6 +288,20 @@ def create_app() -> FastAPI:
             "<a href='/shapes/no-form-element'>Apply for this job online</a>",
         )
 
+    @app.get("/shapes/radio-options", response_class=HTMLResponse)
+    def radio_options() -> HTMLResponse:
+        """Lever: each radio carries the option text as its label, so the
+        question itself never appears as a field."""
+        return _page(
+            "Application",
+            "<form>"
+            "<input id='yes' type='radio' name='applied'>"
+            "<label for='yes'>Yes</label>"
+            "<input id='no' type='radio' name='applied'>"
+            "<label for='no'>No</label>"
+            "</form>",
+        )
+
     @app.get("/shapes/recaptcha-badge", response_class=HTMLResponse)
     def recaptcha_badge() -> HTMLResponse:
         """Greenhouse: a visible 256x60 "protected by reCAPTCHA" badge.

@@ -563,6 +563,14 @@ def _apply(target: Locator, spec: FieldSpec, answer: Answer, resume_path: Path |
         case FieldType.SELECT | FieldType.MULTISELECT:
             target.select_option(_option_for(answer.value, spec.options))
         case FieldType.RADIO:
+            # A radio's label is the *option*, not the question — a Lever form
+            # arrived as three fields called "Yes", "No" and "Type your
+            # response". Checking unconditionally selected whichever one the
+            # classifier happened to resolve, so an answer of No could tick Yes.
+            # The label has to agree with the answer before anything is chosen.
+            label = spec.question_text.strip()
+            if _option_for(answer.value, (label,)) != label:
+                raise ValueError(f"the answer does not select the option {label!r}")
             target.check()
         case _:
             target.fill(str(answer.value))

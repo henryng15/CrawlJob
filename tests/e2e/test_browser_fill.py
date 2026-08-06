@@ -563,3 +563,31 @@ class TestAChallengeIsNotThePresenceOfTooling:
         outsources or evades a challenge that is actually shown."""
         page.goto(f"{ats_url}/greenhouse/jobs/1?fault=captcha")
         assert detect_captcha(page)
+
+
+class TestARadioLabelIsTheOptionNotTheQuestion:
+    """A Lever form arrived as three fields named "Yes", "No" and "Type your
+    response", because each radio carries the option text as its label.
+
+    Checking a radio unconditionally meant an answer of *No* could tick *Yes*.
+    """
+
+    def test_the_option_must_agree_with_the_answer(self, page: Page, ats_url: str):
+        page.goto(f"{ats_url}/shapes/radio-options")
+        specs = [s for s in extract_form(page) if s.field_type is FieldType.RADIO]
+        assert {s.question_text for s in specs} == {"Yes", "No"}
+
+        no = next(s for s in specs if s.question_text == "No")
+        yes = next(s for s in specs if s.question_text == "Yes")
+        answer = resolve(
+            FieldSpec(question_text="Have you previously applied?", field_type=FieldType.RADIO),
+            facts={"background.previously_applied": False},
+            locked_keys=frozenset({"background.previously_applied"}),
+        )
+        assert answer.value is False
+
+        report = fill_form(page, [no, yes], [answer, answer], resume_path=None)
+
+        assert page.is_checked("#no")
+        assert not page.is_checked("#yes"), "an answer of No must never tick Yes"
+        assert "Yes" in report.not_found
