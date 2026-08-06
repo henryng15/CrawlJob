@@ -190,13 +190,62 @@ def _confirm_attachment(target: Any, resume_path: Path) -> str:
     return ""
 
 
-def detect_captcha(page: SupportsQuery) -> bool:
-    """Whether the page carries a challenge a human must solve.
+#: A challenge that is presented regardless of what is on the page. Cloudflare's
+#: interstitial replaces the document, so there is nothing else to look at.
+_INTERSTITIAL = "#cf-challenge-running"
 
-    A positive result sends the application to the manual queue. The system does
-    not attempt, outsource, or work around it.
+#: The "protected by reCAPTCHA" badge. It is an iframe matching
+#: ``iframe[src*='recaptcha']``, it is visible, and it asks the user for
+#: nothing — it is a legal notice with a logo on it.
+_BADGE = ".grecaptcha-badge"
+
+
+def detect_captcha(page: SupportsQuery) -> bool:
+    """Whether a challenge is being **presented** to a human on this page.
+
+    Not the same question as "does this page use anti-abuse tooling", and the
+    difference decides whether the auto lane exists at all. Measured on the three
+    boards that make up 63% of it:
+
+    * Ashby — an invisible reCAPTCHA iframe. Not visible, no challenge shown.
+    * Lever — invisible hCaptcha frames. Not visible, no challenge shown.
+    * Greenhouse — the visible 256x60 "protected by reCAPTCHA" badge.
+
+    A human fills in all three and is never asked to identify a bus. Treating
+    the presence of the tooling as a challenge refused every one of them, which
+    is not caution — it is answering a different question than the one asked.
+
+    This changes nothing about the rule in AGENTS.md. A challenge that *is*
+    shown still ends the attempt, and the system still has no code that solves,
+    outsources or evades one: no stealth flags, no solver, no token injection.
+    If an invisible check scores us badly, the employer's form rejects the
+    submission and :func:`submit_form` reads that off the page — the verdict
+    rests on the confirmation, never on having clicked.
     """
-    return any(page.query_selector(marker) is not None for marker in CAPTCHA_MARKERS)
+    if page.query_selector(_INTERSTITIAL) is not None:
+        return True
+    for marker in CAPTCHA_MARKERS:
+        if marker == _INTERSTITIAL:
+            continue
+        found: list[Any] = _quiet(lambda m=marker: page.query_selector_all(m), [])
+        if any(_is_a_challenge(element) for element in found):
+            return True
+    return False
+
+
+def _is_a_challenge(element: Any) -> bool:
+    """Whether this marker is something a person is being asked to solve."""
+    if not _quiet(element.is_visible, False):
+        return False
+    # The badge is visible on every Greenhouse form and asks for nothing.
+    if _quiet(lambda: element.evaluate(f"el => !!el.closest('{_BADGE}')"), False):
+        return False
+    # A zero-height container is a placeholder the widget was never drawn into;
+    # Lever renders two of them on a form nobody is challenged on.
+    box: Any = _quiet(element.bounding_box, None)
+    if box is None:
+        return False
+    return bool(box["height"] > 0)
 
 
 #: How long to wait for a form to appear before deciding there is not one.

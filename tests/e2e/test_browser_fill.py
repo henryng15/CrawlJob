@@ -525,3 +525,41 @@ class TestPageShapesThatCostRealApplications:
 
         assert "no-form-element" in page.url
         assert len(extract_form(page)) == 4
+
+
+class TestAChallengeIsNotThePresenceOfTooling:
+    """Every modern ATS ships anti-abuse tooling. Almost none of it challenges
+    anyone.
+
+    Measured on the three boards that make up 63% of the auto lane: Ashby has an
+    invisible reCAPTCHA, Lever invisible hCaptcha frames, Greenhouse the visible
+    "protected by reCAPTCHA" badge. A person fills in all three without ever
+    being asked to identify a bus. Refusing all three is not caution — it is
+    answering a different question than the one asked, and it left the auto lane
+    with nothing in it.
+    """
+
+    def test_the_greenhouse_badge_is_not_a_challenge(self, page: Page, ats_url: str):
+        page.goto(f"{ats_url}/shapes/recaptcha-badge")
+        assert not detect_captcha(page)
+
+    def test_an_invisible_widget_is_not_a_challenge(self, page: Page, ats_url: str):
+        page.goto(f"{ats_url}/shapes/invisible-captcha")
+        assert not detect_captcha(page)
+
+    def test_a_form_behind_a_badge_is_still_filled(self, page: Page, ats_url: str, resume: Path):
+        """The point of the distinction: this application proceeds."""
+        page.goto(f"{ats_url}/shapes/recaptcha-badge")
+        specs = extract_form(page)
+        answers = [resolve(s, facts=FACTS, locked_keys=LOCKED) for s in specs]
+        report = fill_form(page, specs, answers, resume_path=resume)
+
+        assert not report.captcha_detected
+        assert not report.blocked
+        assert report.resume_uploaded == resume
+
+    def test_a_real_challenge_still_stops_everything(self, page: Page, ats_url: str):
+        """Unchanged, and it must stay that way. Nothing here solves,
+        outsources or evades a challenge that is actually shown."""
+        page.goto(f"{ats_url}/greenhouse/jobs/1?fault=captcha")
+        assert detect_captcha(page)

@@ -288,6 +288,40 @@ def create_app() -> FastAPI:
             "<a href='/shapes/no-form-element'>Apply for this job online</a>",
         )
 
+    @app.get("/shapes/recaptcha-badge", response_class=HTMLResponse)
+    def recaptcha_badge() -> HTMLResponse:
+        """Greenhouse: a visible 256x60 "protected by reCAPTCHA" badge.
+
+        It asks the applicant for nothing. A human fills the form and is never
+        challenged.
+        """
+        return _page(
+            "Application",
+            "<form>"
+            "<label for='n'>First Name</label><input id='n'>"
+            "<label for='e'>Email</label><input id='e'>"
+            "<label for='f'>Resume</label><input id='f' type='file'>"
+            "<div class='grecaptcha-badge' style='width:256px;height:60px'>"
+            "<iframe src='https://www.google.com/recaptcha/api2/anchor?size=invisible'"
+            " style='width:256px;height:60px'></iframe>"
+            "</div>"
+            "</form>",
+        )
+
+    @app.get("/shapes/invisible-captcha", response_class=HTMLResponse)
+    def invisible_captcha() -> HTMLResponse:
+        """Ashby and Lever: the widget exists but is never drawn."""
+        return _page(
+            "Application",
+            "<form>"
+            "<label for='n'>Name</label><input id='n'>"
+            "<label for='e'>Email</label><input id='e'>"
+            "<input id='f' type='file'>"
+            "<div class='h-captcha' data-sitekey='x' style='height:0'></div>"
+            "<iframe src='https://hcaptcha.com/frame' style='display:none'></iframe>"
+            "</form>",
+        )
+
     @app.get("/shapes/form-in-iframe", response_class=HTMLResponse)
     def form_in_iframe() -> HTMLResponse:
         """iCIMS serves the application inside an iframe and leaves a search box
