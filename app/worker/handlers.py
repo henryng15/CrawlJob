@@ -339,7 +339,14 @@ def register_pipeline(
             _move(job, JobState.ELIGIBILITY_REJECTED)
             return HandlerResult(detail=f"rejected: {'; '.join(result.eligibility_reasons)}")
 
-        _move(job, JobState.SCORED)
+        # Already SCORED means this is a re-score, and the state machine has no
+        # SCORED -> SCORED edge because a job does not move by being looked at
+        # again. Without this, every job scored under an older version of the
+        # scoring code was stuck with the number that version produced: the
+        # weights changed when the model components were removed, and 176 jobs
+        # sat below the bar carrying totals nothing could recompute.
+        if job.status != JobState.SCORED:
+            _move(job, JobState.SCORED)
         detail = f"{result.total:.1f}/100"
 
         if result.total < config.minimum_fit_score:

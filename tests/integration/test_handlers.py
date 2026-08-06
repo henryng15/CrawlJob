@@ -490,6 +490,39 @@ class TestScoring:
 
         assert db.scalars(select(Application)).all() == []
 
+    def test_a_job_below_the_bar_can_be_scored_again(self, worker: Worker, db: Session):
+        """Re-scoring is how a job scored under older code gets a current number.
+
+        The state machine has no SCORED -> SCORED edge, and it should not: a job
+        does not move by being looked at twice. But that made every SCORED job
+        permanently stuck with whatever the scoring code produced the first time,
+        which is exactly what happened when the model components were removed and
+        the weights changed underneath 176 already-scored rows.
+        """
+        job = make_job(db, title="Senior Staff Engineer", normalized_title="senior staff engineer")
+        queue(db, TaskType.SCORE_JOB, job_id=str(job.id))
+        drain(worker)
+        db.refresh(job)
+        assert job.status == JobState.ELIGIBILITY_REJECTED
+
+        # Now one that lands in SCORED, and score it a second time.
+        other = make_job(db, posted_at=NOW - timedelta(days=6))
+        other.status = JobState.SCORED
+        db.commit()
+
+        enqueue(
+            db,
+            task_type=TaskType.SCORE_JOB,
+            dedupe_key="rescore",
+            payload={"job_id": str(other.id)},
+            run_at=NOW,
+        )
+        db.commit()
+        drain(worker)
+
+        assert tasks(db, TaskType.SCORE_JOB)[-1].status == TaskStatus.SUCCEEDED
+        assert len(db.scalars(select(JobScore).where(JobScore.job_id == other.id)).all()) == 1
+
     def test_a_second_application_for_one_job_is_refused(self, worker: Worker, db: Session):
         """Re-scoring must not apply twice to the same posting."""
         job = make_job(db)
