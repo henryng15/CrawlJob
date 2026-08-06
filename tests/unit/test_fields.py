@@ -194,9 +194,108 @@ _LOCKED_FACT_FOR: dict[str, dict[str, object]] = {
     "eeo.gender": {"eeo.gender": "Decline to self-identify"},
     "background.age_18_or_over": {"background.age_18_or_over": True},
     "background.previously_applied": {"background.previously_applied": False},
+    "background.related_to_employee": {"background.related_to_employee": False},
+    "background.referred_by_someone": {"background.referred_by_someone": False},
+    "background.business_relationship": {"background.business_relationship": False},
     "legal.attestation": {"legal.attestation": True},
     "legal.signature": {"legal.signature": "Viet Hoan Nguyen"},
 }
+
+
+class TestDisclosureQuestions:
+    """ "Is there anyone already connecting you to us?" — asked three ways.
+
+    The operator's standing answer to all three is No, which is exactly why they
+    have to stay distinguishable: three keys answered from three locked facts,
+    not one pattern quietly answering questions it was not written for.
+    """
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            # Relatives, friends, anyone already inside.
+            (
+                "Do you have any relatives currently employed by the Company?",
+                "background.related_to_employee",
+            ),
+            (
+                "Are you related to any employee, officer, or director of the firm?",
+                "background.related_to_employee",
+            ),
+            (
+                "Do you have a close personal relationship with anyone here?",
+                "background.related_to_employee",
+            ),
+            (
+                "Is your spouse or domestic partner employed by us?",
+                "background.related_to_employee",
+            ),
+            # Someone put you forward.
+            (
+                "Were you referred to this role by a recruiting agency?",
+                "background.referred_by_someone",
+            ),
+            (
+                "Are you currently represented by a third-party recruiter?",
+                "background.referred_by_someone",
+            ),
+            ("Were you recruited by EY?", "background.referred_by_someone"),
+            (
+                "Have you been submitted for this position by a staffing agency?",
+                "background.referred_by_someone",
+            ),
+            # A prior commercial tie, through us or through anyone attached to us.
+            (
+                "Have you ever been employed by a partner firm or affiliate?",
+                "background.business_relationship",
+            ),
+            (
+                "Do you have a financial interest in the Company?",
+                "background.business_relationship",
+            ),
+            (
+                "Have you worked as a contractor for one of our vendors?",
+                "background.business_relationship",
+            ),
+        ],
+    )
+    def test_they_are_recognised(self, question, expected):
+        assert classify(ask(question)) == expected
+        assert expected in LOCKED_FACT_ANSWERABLE_KEYS
+
+    def test_a_relative_question_is_not_filed_under_prior_employment(self):
+        """Two different questions, and answering one from the other's fact
+        would be answering something the form did not ask."""
+        assert (
+            classify(ask("Have you or a family member ever worked for us?"))
+            == "background.related_to_employee"
+        )
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Describe your experience working with a partner team",
+            "Tell us about a business problem you solved",
+            "What is your search strategy for a hard bug?",
+        ],
+    )
+    def test_free_text_is_not_swallowed(self, question):
+        """The disclosure patterns answer Yes/No questions. Writing "No" into a
+        "describe your experience" box would be nonsense on a real application,
+        so anything they are not sure about stays unrecognised."""
+        assert classify(ask(question)) not in LOCKED_FACT_ANSWERABLE_KEYS
+
+    def test_the_standing_answer_is_no(self):
+        facts = {
+            "background.related_to_employee": False,
+            "background.referred_by_someone": False,
+            "background.business_relationship": False,
+        }
+        for key in facts:
+            answer = resolve(ask(_question_for(key)), facts=facts, locked_keys=frozenset(facts))
+            assert answer.source_type is SourceType.LOCKED_FACT
+            assert answer.value is False
+            assert answer.is_fillable, "a No must fill the field, not read as unanswered"
 
 
 class TestTheManualOnlySplit:
@@ -293,6 +392,15 @@ def _question_for(key: str) -> str:
         "legal.signature": "Type your full name to sign",
         "background.age_18_or_over": "Are you at least 18 years of age?",
         "background.previously_applied": "Have you previously applied to this company?",
+        "background.related_to_employee": (
+            "Do you have any relatives currently employed by the Company?"
+        ),
+        "background.referred_by_someone": (
+            "Were you referred to this role by a recruiting agency?"
+        ),
+        "background.business_relationship": (
+            "Do you have a business relationship with the Company?"
+        ),
     }[key]
 
 

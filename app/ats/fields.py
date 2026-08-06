@@ -104,6 +104,15 @@ LOCKED_FACT_ANSWERABLE_KEYS: frozenset[str] = frozenset(
         "eeo.gender",
         "background.age_18_or_over",
         "background.previously_applied",
+        # The disclosure block. Every large employer asks some version of "is
+        # there anyone or anything connecting you to us already" — a relative on
+        # staff, an agency that put you forward, a prior engagement through an
+        # affiliate. They are three separate questions with three separate
+        # standing answers, kept apart so the dashboard can say which one a form
+        # actually asked.
+        "background.related_to_employee",
+        "background.referred_by_someone",
+        "background.business_relationship",
         "legal.attestation",
         "legal.signature",
     }
@@ -174,6 +183,52 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "background.criminal_history",
         re.compile(r"\b(convicted|criminal|felony|misdemeanor)\b", re.I),
+    ),
+    # --- disclosures --------------------------------------------------------
+    # Ordered before the employment and conflict-of-interest patterns below,
+    # which are broader and would otherwise swallow them: "have you previously
+    # been employed by a partner firm" is a question about the partner firm, and
+    # filing it under "did you work here" would answer the wrong one.
+    (
+        "background.related_to_employee",
+        re.compile(
+            r"\b(relatives?|family members?|immediate family|spouse|domestic partner"
+            r"|household member)\b[^?]{0,60}\b(employ|work|officer|director)"
+            r"|\b(related to|relationship with|acquainted with)\b[^?]{0,60}"
+            r"\b(employee|officer|director|board member|anyone (who works|employed))\b"
+            r"|\bclose personal (relationship|friend)",
+            re.I,
+        ),
+    ),
+    (
+        "background.referred_by_someone",
+        re.compile(
+            r"\b(recruit(ing|ment)?|staffing|search|placement|employment)\s+"
+            r"(agenc(y|ies)|firm|consultant)\b"
+            r"|\b(head-?hunter|third[- ]party recruiter)\b"
+            r"|\b(referred|referral|introduced|represented|submitted)\b[^?]{0,50}"
+            r"\b(agenc(y|ies)|recruiter|third[- ]party|current employee)\b"
+            r"|\bwere you (referred|recruited|contacted)\b",
+            re.I,
+        ),
+    ),
+    (
+        "background.business_relationship",
+        re.compile(
+            r"\b(business|financial|contractual|commercial)\s+"
+            r"(relationship|interest|arrangement|dealings?|ties)\b"
+            # "Partner", "vendor" and "worked" are ordinary words in an ordinary
+            # essay prompt — "describe your experience working with a partner
+            # team" matched this until the yes/no opener was required, and
+            # answering it would have typed "No" into a textarea. A disclosure is
+            # always asked as a question with two possible answers.
+            r"|^\s*(have|has|had|are|is|was|were|do|does|did|will|would)\b[^?]{0,80}"
+            r"\b(employed|work(ed|ing)?|consult(ed|ing|ant)?|contract(ed|or)?)\b"
+            r"[^?]{0,60}\b(?<!domestic )(partner|affiliate|subsidiary|member firm"
+            r"|parent company|vendor|supplier)s?\b"
+            r"|\b(own|hold)\b[^?]{0,40}\b(shares|equity|stock|financial interest)\b",
+            re.I,
+        ),
     ),
     (
         "background.previously_employed",

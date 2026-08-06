@@ -118,8 +118,10 @@ Two things gate it in practice, and both are easy to miss:
   when a later feed names one. **Running ATS feeds alone gives you a manual lane
   and nothing else.**
 - **The locked facts have to exist.** Any required question with no locked fact
-  behind it blocks the whole application. `auth.citizenship` and the three
-  `background.*` keys are *not* auto-locked — set them by hand.
+  behind it blocks the whole application, and `LOCKED_FACT_ANSWERABLE_KEYS` will
+  not accept an unlocked value. Every prefix in that set is now covered by
+  `ALWAYS_LOCKED_PREFIXES`, so setting the fact is enough — but a fact that was
+  never set at all still stops every form that asks for it.
 
 ## Known stale documentation
 
