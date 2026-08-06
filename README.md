@@ -1,158 +1,52 @@
-# InternshipOps
+# Internship Sheet Sync
 
-Private, single-user system that **prepares** U.S. SWE internship applications and
-recruiter outreach — and stops before every irreversible action.
+Một tool nhỏ, chỉ làm một việc: đọc các public GitHub internship trackers, giữ các
+role SWE liên quan, xoá duplicate theo `Link Apply`, và append job mới vào một Google
+Sheet với đúng bốn cột:
 
-The system discovers roles, deduplicates them, checks sponsorship language against
-your locked profile facts, attaches your resume, fills the employer's application
-form in a cloud browser, and then **stops before Submit**. You review and submit.
-Two business days later it prepares a recruiter email as a **Gmail draft**. You
-send it.
+`Company | Role | Link Apply | Date Posted`
 
-It automates repetition — never judgment, legal truth, or irreversible actions.
+Không có browser automation, database, AI, queue, email hay web dashboard.
 
-## What runs today
+## Role được lấy
 
-| Stage | Where |
-|---|---|
-| Discovery from Greenhouse, Lever, Ashby and GitHub feeds | [app/services/discovery/](app/services/discovery/) |
-| Deduplication by requisition, URL, then fingerprint | [app/services/dedupe.py](app/services/dedupe.py) |
-| Eligibility filter, then sponsorship classification with quoted evidence | [app/services/sponsorship.py](app/services/sponsorship.py) |
-| Fit scoring, 8 components out of 100 | [app/services/scoring.py](app/services/scoring.py) |
-| Resume snapshot per application, hashed | [app/services/resume_artifacts.py](app/services/resume_artifacts.py) |
-| Form filling in a live browser, never Submit | [app/worker/browser_slot.py](app/worker/browser_slot.py) |
-| Outreach scheduling, recruiter matching, Gmail drafts | [app/worker/handlers.py](app/worker/handlers.py) |
-| Review screens for every decision | [app/web/](app/web/) |
+Mỗi role phải có `intern`, `internship`, `co-op`, `placement` hoặc `student`, và khớp
+một trong các nhóm sau: software engineering/engineer/developer/dev/SWE/SDE;
+frontend, backend, full-stack, web, mobile, iOS, Android; platform, infrastructure,
+production infrastructure, developer experience; cloud/cloud operations, DevOps, SRE,
+build/release, MLOps; embedded, firmware, systems, application; FDE/forward deployed;
+ML/data platform engineer; quantitative developer. Danh sách regex nằm tại
+`job_sync/roles.py`, nên có thể thêm/bớt dễ dàng mà không đổi pipeline.
 
-Recurring work — discovery, Gmail reconciliation, submission reconciliation,
-backups and cleanup — runs on the schedule in §16.2. Every worker may tick; the
-idempotency key carries the time bucket, so concurrent ticks collapse rather than
-double-firing.
+## Nguồn và ngày đăng
 
-Not yet exercised against a real ATS: the browser slot fills and replays forms
-correctly on the local fake ATS, but Greenhouse and Lever in production have
-iframes, multi-page flows and SSO that no fixture reproduces.
+`sources.toml` chứa các tracker public được kiểm tra còn hoạt động: Simplify/Pitt CSC,
+sndsh404, speedyapply và zshah101. Đây là danh sách baseline có thể cấu hình, không có
+cách đáng tin cậy để khẳng định đã bao phủ “tất cả” repo trên GitHub. Parser dùng cột
+`Added`/`Posted` của nguồn khi có; nếu nguồn chỉ có age thì quy đổi sang ngày; nếu không
+có cả hai, `Date Posted` là ngày tool lần đầu quan sát job đó. Sheet được đọc trước mỗi
+lần ghi nên chạy lại không tạo duplicate.
 
-## Getting started
-
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Docker.
+## Chạy local
 
 ```bash
-cp .env.example .env && chmod 600 .env
-python -c "import secrets; print(secrets.token_urlsafe(48))"   # for the two keys
-docker compose up -d                     # Postgres on 5442, test Postgres on 5443
-uv sync --all-extras --group dev
-uv run internship-ops migrate
-uv run internship-ops hash-password      # paste the result into ADMIN_PASSWORD_HASH
-uv run internship-ops serve --reload     # http://localhost:8000
+uv venv && uv pip install -e .
+set -a; source .env; set +a
+internship-sync
 ```
 
-Then, in another terminal:
+Tạo Google service account, bật Google Sheets API, chia sẻ spreadsheet cho email của
+service account, rồi đặt ba biến trong `.env` theo `.env.example`. Không commit JSON
+credentials. `GOOGLE_SHEET_TAB` mặc định là `Jobs`.
 
-```bash
-uv run internship-ops worker
-```
+## Tự chạy cloud
 
-### Putting your own data in
+Workflow GitHub Actions tại `.github/workflows/sync.yml` chạy lúc 08:00, 10:00, 12:00,
+14:00 và 16:00 `America/New_York`. GitHub cron dùng UTC, vì vậy workflow được đánh thức
+mỗi giờ trong cửa sổ 12–21 UTC và command tự bỏ qua giờ không đúng, nên vẫn đúng qua
+chuyển đổi EST/EDT.
 
-```bash
-# Your resume. One PDF, uploaded to every application unchanged.
-uv run internship-ops import-resume ~/Documents/resume.pdf
-uv run internship-ops check-base-resume   # path, pages, checksum
-
-# Your name, which every email is signed with.
-uv run internship-ops set-fact candidate.preferred_name '"Hoan"'
-
-# Recruiters. Preview first; --commit writes.
-uv run internship-ops import-recruiters recruiters.csv
-uv run internship-ops import-recruiters recruiters.csv --commit
-
-# Find some roles.
-uv run internship-ops discover greenhouse stripe figma --now
-```
-
-The resume is never rewritten. Each application gets a copy of that PDF in its
-own artifact folder, hashed there, so "which resume went to this employer" stays
-answerable after you edit the original. Point `BASE_RESUME_PDF` at the file and
-re-run `import-resume` whenever you change it.
-
-### Model access
-
-`LLM_PROVIDER=null` is the default and makes no API calls: the whole pipeline runs
-without a key, using the deterministic paths and skipping the model-judged parts.
-Set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` for full behaviour. The
-monthly cap in `LLM_MONTHLY_BUDGET_USD` is enforced before each request, not after.
-
-### Gmail
-
-Run [scripts/gmail_authorize.py](scripts/gmail_authorize.py) on your own machine.
-It opens *your* browser, you approve in your own Google session, and the refresh
-token comes back to localhost encrypted. No password passes through anything but
-Google's own login page.
-
-The requested scopes are `gmail.compose` and `gmail.readonly`. `gmail.send` is
-never requested, so the credential this produces **cannot send email** — and the
-`GmailService` interface has no `send` method for it to call.
-
-One thing is easy to miss: in the Google Cloud console, set **Publishing status →
-In production**. Left in "Testing", Google expires refresh tokens after seven days
-and outreach breaks every week with an error that reads like a bug in this code.
-
-## Deployment
-
-```bash
-cd infra/terraform && terraform init && terraform apply   # builds the machine
-# then, on the instance:
-docker compose -f docker-compose.prod.yml up -d --build
-sudo tailscale serve --bg 8080
-```
-
-Only Caddy publishes a port, and only on host loopback. Postgres, the web app and
-every browser port exist on the internal Docker network alone. The worker does
-**not** mount the Docker socket — see the note at the top of
-[docker-compose.prod.yml](docker-compose.prod.yml).
-
-On Oracle Cloud, A1 (ARM) capacity is usually unavailable to Always Free tenancies.
-Upgrading the tenancy to Pay-As-You-Go improves the odds substantially and leaves
-free-tier resources still costing $0 — the spec's §17 does not mention this.
-
-## Documentation
-
-| | |
-|---|---|
-| [docs/HUONG-DAN.md](docs/HUONG-DAN.md) | **Bắt đầu ở đây.** Hướng dẫn từng bước, tiếng Việt. |
-| [AGENTS.md](AGENTS.md) | Rules for anyone (human or agent) writing code here. Read first. |
-| [docs/spec/](docs/spec/README.md) | Full specification, one file per section. |
-| [docs/RUN-LOCALLY.md](docs/RUN-LOCALLY.md) | Running the whole system on this laptop, without Docker. |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when something is wrong. Read before debugging. |
-| [infra/terraform/README.md](infra/terraform/README.md) | Building the OCI machine, step by step. |
-| [docs/spec/README.md](docs/spec/README.md#known-defects-in-this-spec) | Known defects in the spec — fix before implementing the affected section. |
-
-## Development
-
-```bash
-uv run pytest -q -m "not db and not browser"   # fast loop, no services
-uv run pytest -q                               # everything, needs Docker
-uv run ruff check . && uv run mypy app
-```
-
-## Safety
-
-Four settings are permanently disabled and the application refuses to start if the
-environment tries to enable them:
-
-```
-AUTO_SUBMIT_ENABLED  AUTO_SEND_EMAIL_ENABLED  CAPTCHA_BYPASS_ENABLED  LINKEDIN_AUTOMATION_ENABLED
-```
-
-These are not the whole guarantee, only the visible part of it. The application
-state machine has no edge from any filling state to `SUBMITTED`; the Gmail
-interface has no `send` method; and the resume that reaches an employer is a
-byte-for-byte copy of your own file, so nothing can put words in it. See
-[app/safety.py](app/safety.py) and
-[tests/unit/test_states.py](tests/unit/test_states.py), which proves the
-unreachability by graph search rather than by inspection.
-
-## License and provenance
-
-Private project. Third-party code provenance is recorded in `THIRD_PARTY.md`.
+Thêm GitHub Actions secrets: `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB`,
+`GOOGLE_SERVICE_ACCOUNT_JSON`, sau đó bật Actions schedule hoặc chạy `workflow_dispatch`
+lần đầu. Đây là giải pháp cloud gọn nhất: không cần VM, Terraform, database, hay cron
+server.

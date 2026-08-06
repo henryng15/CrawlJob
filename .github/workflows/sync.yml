@@ -1,0 +1,26 @@
+name: Sync internships to Google Sheet
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub Actions only accepts UTC. Run hourly across both EST/EDT windows;
+    # the command itself accepts precisely 08:00, 10:00, 12:00, 14:00, 16:00 ET.
+    - cron: "0 12-21 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: internship-sync --scheduled
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

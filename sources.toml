@@ -1,0 +1,17 @@
+# Each URL is a public raw Markdown tracker. Add another [[sources]] block to
+# extend the pipeline; no code change is needed.
+[[sources]]
+name = "Simplify / Pitt CSC — Summer 2027"
+url = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md"
+
+[[sources]]
+name = "sndsh404 — Summer 2027"
+url = "https://raw.githubusercontent.com/sndsh404/summer-2027-internships/main/README.md"
+
+[[sources]]
+name = "speedyapply — 2027 SWE College Jobs"
+url = "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md"
+
+[[sources]]
+name = "zshah101 — 2027 / Fall 2026 Tech Internships"
+url = "https://raw.githubusercontent.com/zshah101/Automated-List-Of-Summer-2027-and-Fall-2026-Tech-Internships/main/README.md"
