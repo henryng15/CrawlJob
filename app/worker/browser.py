@@ -91,6 +91,7 @@ def register_browser_handlers(
         reason: a question no locked fact answers, a CAPTCHA, the daily cap, a
         dry run, or a click that went through without the page ever saying so.
         """
+        from app.ats.apply_url import apply_url
         from app.ats.driver import extract_form, fill_form, submit_form
         from app.ats.fields import resolve
 
@@ -118,7 +119,8 @@ def register_browser_handlers(
             else None
         )
 
-        with _page(config, application.application_url) as page:
+        with _page(config, apply_url(application.application_url)) as page:
+            _open_the_form(page)
             specs = extract_form(page)
             # Both are computed once for the whole form. ``_drafts`` makes a
             # network call, and putting it inside the comprehension would make
@@ -230,6 +232,80 @@ def register_browser_handlers(
         )
 
     return target
+
+
+# ------------------------------------------------------------------ the form
+
+
+#: Buttons that open the application form. Deliberately narrow: "Apply" appears
+#: on a lot of things, and the GDIT posting offered a "Search and Apply" that
+#: navigated to a different website entirely. A control is only pressed when the
+#: page it is on has no fields to begin with, and only if it keeps us on the
+#: same host.
+_APPLY_CONTROLS: tuple[str, ...] = (
+    # Workday names its controls; iCIMS puts "Apply for this job online" in a
+    # link. Both are specific enough to be safe.
+    "[data-automation-id='adventureButton']",
+    "[data-automation-id='applyButton']",
+    "a:has-text('Apply for this job')",
+    "a[href*='/apply']",
+    "a:has-text('Apply Now')",
+    "button:has-text('Apply Now')",
+    "button:has-text('Apply')",
+)
+
+
+def _open_the_form(page: Any) -> None:
+    """Get from wherever we landed to a page that has fields on it.
+
+    Two things stop the form appearing, and both looked identical to the caller
+    before this: the page renders its fields from JavaScript after the document
+    is ready, and some boards keep the form behind a button. So wait first, and
+    only press something if waiting produced nothing.
+    """
+    from app.ats.driver import wait_for_form
+
+    if wait_for_form(page):
+        return
+
+    host = _host(page.url)
+    for selector in _APPLY_CONTROLS:
+        control = _quietly(lambda s=selector: page.query_selector(s))
+        if control is None:
+            continue
+        _quietly(control.click)
+        page.wait_for_timeout(3_000)
+        if _host(page.url) != host:
+            # It was an "Apply on our website" link. Going back is cheaper than
+            # filling a form on a site we did not intend to be on — and we have
+            # no idea what that form is.
+            log.info("apply control left %s for %s; going back", host, _host(page.url))
+            _quietly(page.go_back)
+            page.wait_for_timeout(2_000)
+            continue
+        if wait_for_form(page):
+            return
+
+    log.info("no form appeared at %s", page.url)
+
+
+def _host(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    return urlsplit(url).netloc.lower()
+
+
+def _quietly(call: Any) -> Any:
+    """Run a page interaction, treating any failure as "it did not work".
+
+    Every caller here is trying something optional on a page we do not control.
+    A selector that matches a detached node raises, and that is not a reason to
+    fail an application.
+    """
+    try:
+        return call()
+    except Exception:  # pragma: no cover - depends on the page
+        return None
 
 
 # ------------------------------------------------------------------ answers

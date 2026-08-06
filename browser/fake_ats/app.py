@@ -229,6 +229,75 @@ def create_app() -> FastAPI:
             f"/{flavour.value}/jobs/{job_id}/confirmation?id={submission_id}", status_code=303
         )
 
+    # ---- pages that reproduce how real boards actually behave -------------
+    #
+    # Each of these cost real applications. Nine of the first eleven were handed
+    # back to the user because the browser read a page shaped like one of them
+    # and concluded the employer was asking nothing.
+
+    @app.get("/shapes/no-form-element", response_class=HTMLResponse)
+    def no_form_element() -> HTMLResponse:
+        """Ashby: 35 inputs, 2 file pickers, and no ``<form>`` anywhere."""
+        return _page(
+            "Application",
+            "<div class='app'>"
+            "<div><label for='n'>Name</label><input id='n' required></div>"
+            "<div><label for='e'>Email</label><input id='e' type='email' required></div>"
+            "<div><label for='p'>Phone Number</label><input id='p' type='tel'></div>"
+            "<div><label for='r'>Resume</label><input id='r' type='file'></div>"
+            "</div>",
+        )
+
+    @app.get("/shapes/late-render", response_class=HTMLResponse)
+    def late_render() -> HTMLResponse:
+        """Lever, Ashby and Workday build the form after the document is ready."""
+        return _page(
+            "Application",
+            "<div id='root'></div>"
+            "<script>setTimeout(() => {"
+            "document.getElementById('root').innerHTML = "
+            "\"<form><label for='a'>Full name</label><input id='a' required>\""
+            "+ \"<label for='b'>Email</label><input id='b' type='email'>\""
+            "+ \"<label for='c'>Phone</label><input id='c'>\""
+            "+ \"<input id='d' type='file'></form>\";"
+            "}, 900);</script>",
+        )
+
+    @app.get("/shapes/labels-by-container", response_class=HTMLResponse)
+    def labels_by_container() -> HTMLResponse:
+        """Lever: one field in 19 gets a ``<label for>``. The rest need the
+        container's first line, which is the question."""
+        return _page(
+            "Application",
+            "<form>"
+            "<li><div>Full name ✱</div><input name='q1' required></li>"
+            "<li><div>Email ✱</div><input name='q2' type='email' required></li>"
+            "<li><div>Current location ✱</div><input name='q3' required></li>"
+            "<li><div>Resume/CV</div><input name='q4' type='file'></li>"
+            "</form>",
+        )
+
+    @app.get("/shapes/search-box-only", response_class=HTMLResponse)
+    def search_box_only() -> HTMLResponse:
+        """iCIMS: a description page whose only input is a site search, with the
+        application behind an Apply link."""
+        return _page(
+            "Software Engineering Co-op",
+            "<form><input type='search' aria-label='Search sri.com'></form>"
+            "<h1>Software Engineering Co-op</h1>"
+            "<a href='/shapes/no-form-element'>Apply for this job online</a>",
+        )
+
+    @app.get("/shapes/form-in-iframe", response_class=HTMLResponse)
+    def form_in_iframe() -> HTMLResponse:
+        """iCIMS serves the application inside an iframe and leaves a search box
+        on the outer page."""
+        return _page(
+            "Careers",
+            "<form><input type='search' aria-label='Search'></form>"
+            "<iframe src='/shapes/no-form-element' width='900' height='600'></iframe>",
+        )
+
     @app.get("/{flavour}/jobs/{job_id}/confirmation", response_class=HTMLResponse)
     def confirmation(flavour: ATSFlavour, job_id: str, id: str = "") -> HTMLResponse:
         return _page(

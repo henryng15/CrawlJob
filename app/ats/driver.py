@@ -199,19 +199,113 @@ def detect_captcha(page: SupportsQuery) -> bool:
     return any(page.query_selector(marker) is not None for marker in CAPTCHA_MARKERS)
 
 
+#: How long to wait for a form to appear before deciding there is not one.
+#: Ashby, Lever and Workday render theirs from JavaScript after the document is
+#: ready, and reading the page at ``domcontentloaded`` found zero fields on nine
+#: of eleven real applications.
+FORM_RENDER_TIMEOUT_MS = 15_000
+
+_FIELD_SELECTOR = "input, select, textarea"
+
+
+#: How many real fields make a page an application form rather than a page that
+#: happens to contain an input. An iCIMS description page carries a "Search
+#: sri.com" box and nothing else; treating that as the form meant the Apply
+#: button was never pressed, and the application was reported as having one
+#: unanswerable question called "Search sri.com".
+MINIMUM_FORM_FIELDS = 4
+
+
+def looks_like_a_form(page: Any) -> bool:
+    """Whether this document is plausibly an application form.
+
+    A file input settles it on its own — a page asking for a document is asking
+    for a résumé. Otherwise it takes several fields, because one or two is a
+    search box, a newsletter signup or a cookie preference.
+    """
+    if _quiet(lambda: len(page.query_selector_all("input[type=file]")), 0):
+        return True
+    fields: list[Any] = _quiet(lambda: page.query_selector_all(_FIELD_SELECTOR), [])
+    real = [
+        f
+        for f in fields
+        if (f.get_attribute("type") or "text").lower()
+        not in {"hidden", "submit", "button", "image", "reset", "search"}
+    ]
+    return len(real) >= MINIMUM_FORM_FIELDS
+
+
+def wait_for_form(page: Page, *, timeout_ms: int = FORM_RENDER_TIMEOUT_MS) -> bool:
+    """Wait for a form to render. ``False`` if none ever does.
+
+    Not an error: a posting page with no form is the ordinary case for Ashby and
+    Lever, whose apply form lives at a different URL, and for Workday, whose
+    form is behind a button. The caller decides what to do about it.
+    """
+    deadline = timeout_ms
+    while deadline > 0:
+        if any(looks_like_a_form(document) for document in _documents(page)):
+            # One more beat: the first input appearing does not mean the last
+            # one has.
+            page.wait_for_timeout(1_500)
+            return True
+        page.wait_for_timeout(500)
+        deadline -= 500
+    return False
+
+
 def extract_form(page: Page, *, form_selector: str = "form") -> list[FieldSpec]:
     """Read every question on a form into :class:`FieldSpec` objects.
 
     Labels are resolved from ``<label for>``, then ``aria-label``, then the
     placeholder — the same order a screen reader would use, and the order that
     gives a stable question text for the field taxonomy to classify.
-    """
-    specs: list[FieldSpec] = []
-    form = page.query_selector(form_selector)
-    if form is None:
-        return specs
 
-    for element in form.query_selector_all("input, select, textarea"):
+    ``form_selector`` is a preference, not a requirement. Ashby renders 35
+    inputs and two file pickers with no ``<form>`` element anywhere on the page,
+    so insisting on one read that application as having no questions at all.
+    Falling back to the whole document is what makes Ashby and every other
+    React-rendered board readable; the field taxonomy is what keeps the extra
+    inputs from being answered.
+    """
+    documents = _documents(page)
+    specs: list[FieldSpec] = []
+    for document in documents:
+        specs.extend(_extract_one(document, form_selector))
+    return specs
+
+
+def _documents(page: Page) -> list[Any]:
+    """The page, plus any frame that holds a form.
+
+    iCIMS serves the application inside an ``<iframe>`` and leaves the outer
+    page holding a site search box. Reading only the top document found one
+    field there — the search box — and called it the application.
+    """
+    documents: list[Any] = [page]
+    frames: list[Any] = _quiet(lambda: list(page.frames), [])
+    main = _quiet(lambda: page.main_frame, None)
+    for frame in frames:
+        if frame is main:
+            continue
+        if _quiet(lambda f=frame: len(f.query_selector_all(_FIELD_SELECTOR)), 0):
+            documents.append(frame)
+    return documents
+
+
+def _quiet[T](call: Any, default: T) -> T:
+    """A cross-frame read that fails is a frame we cannot see into, not an error."""
+    try:
+        return call()  # type: ignore[no-any-return]
+    except Exception:  # pragma: no cover - depends on the page
+        return default
+
+
+def _extract_one(page: Any, form_selector: str) -> list[FieldSpec]:
+    specs: list[FieldSpec] = []
+    root: Any = page.query_selector(form_selector) or page
+
+    for element in root.query_selector_all(_FIELD_SELECTOR):
         input_type = (element.get_attribute("type") or "text").lower()
         if input_type in {"hidden", "submit", "button", "image", "reset"}:
             continue
@@ -252,15 +346,61 @@ def extract_form(page: Page, *, form_selector: str = "form") -> list[FieldSpec]:
     return specs
 
 
+#: Read the question text the way a screen reader would, in the browser rather
+#: than over five round trips from Python.
+#:
+#: The last clause is the one that matters in practice. Lever renders 19 fields
+#: and gives exactly one of them a ``<label for>``: the rest are wrapped in an
+#: ``<li>`` whose first line of text is the question. Without it a Lever
+#: application is 18 unlabelled fields, which is to say 18 unanswerable ones.
+_LABEL_JS = """
+el => {
+  const clean = s => (s || '').replace(/\\s+/g, ' ').trim();
+  if (el.id) {
+    const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+    if (l && clean(l.innerText)) return clean(l.innerText);
+  }
+  const by = el.getAttribute('aria-labelledby');
+  if (by) {
+    const text = by.split(/\\s+/)
+      .map(i => document.getElementById(i))
+      .filter(Boolean)
+      .map(n => clean(n.innerText))
+      .join(' ');
+    if (clean(text)) return clean(text);
+  }
+  const wrapper = el.closest('label');
+  if (wrapper && clean(wrapper.innerText)) return clean(wrapper.innerText);
+  for (const a of ['aria-label', 'placeholder', 'title']) {
+    const v = el.getAttribute(a);
+    if (clean(v)) return clean(v);
+  }
+  // Boards that group a question and its inputs in one container, with the
+  // question as the container's first line.
+  const group = el.closest('li, fieldset, [class*="question"], [class*="field"]');
+  if (group) {
+    const first = clean((group.innerText || '').split('\\n')[0]);
+    // A container holding the whole form would return the form's first line,
+    // which is a heading rather than this field's question.
+    if (first && first.length <= 160) return first;
+  }
+  return '';
+}
+"""
+
+
 def _label_for(page: Page, element: Any, element_id: str | None) -> str:
-    if element_id:
-        label = page.query_selector(f'label[for="{element_id}"]')
-        if label is not None:
-            return str(label.inner_text()).strip()
-    for attribute in ("aria-label", "placeholder", "title"):
-        if value := element.get_attribute(attribute):
-            return str(value).strip()
-    return ""
+    """The question text for one field, or "" when the page gives none.
+
+    ``page`` and ``element_id`` are unused now that the lookup happens inside
+    the browser; they stay in the signature because callers pass them and the
+    parameters document what the JS above has access to.
+    """
+    del page, element_id
+    try:
+        return str(element.evaluate(_LABEL_JS) or "").strip()
+    except Exception:  # pragma: no cover - a detached node during a re-render
+        return ""
 
 
 def _resolve_locator(page: Page, locator: LocatorStrategy) -> Locator | None:

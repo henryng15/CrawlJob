@@ -27,9 +27,12 @@ from app.ats.driver import (
     extract_form,
     fill_form,
     find_submit_control,
+    looks_like_a_form,
     submit_form,
+    wait_for_form,
 )
-from app.ats.fields import FieldSpec, SourceType, resolve
+from app.ats.fields import FieldSpec, FieldType, SourceType, resolve
+from app.worker.browser import _open_the_form
 from browser.fake_ats.app import create_app, submissions
 
 pytest.importorskip("playwright.sync_api", reason="playwright is an optional extra")
@@ -455,3 +458,70 @@ class TestAllFlavours:
                     SourceType.LOCKED_FACT,
                     SourceType.MANUAL_REQUIRED,
                 }, answer
+
+
+class TestPageShapesThatCostRealApplications:
+    """Nine of the first eleven real applications were handed back to the user
+    because the browser read a page and concluded the employer asked nothing.
+
+    Each page here reproduces one of those, so the fix cannot quietly regress.
+    """
+
+    def test_a_form_with_no_form_element_is_still_read(self, page: Page, ats_url: str):
+        """Ashby renders 35 inputs and two file pickers with no ``<form>`` tag.
+
+        Insisting on one read that application as having zero questions.
+        """
+        page.goto(f"{ats_url}/shapes/no-form-element")
+        specs = extract_form(page)
+
+        assert len(specs) == 4
+        assert {s.question_text for s in specs} >= {"Name", "Email", "Resume"}
+        assert any(s.field_type is FieldType.FILE for s in specs)
+
+    def test_a_form_built_after_load_is_waited_for(self, page: Page, ats_url: str):
+        """Lever, Ashby and Workday all build theirs from JavaScript."""
+        page.goto(f"{ats_url}/shapes/late-render", wait_until="domcontentloaded")
+
+        assert extract_form(page) == [], "nothing has rendered yet — this is the old bug"
+        assert wait_for_form(page)
+        assert len(extract_form(page)) == 4
+
+    def test_labels_come_from_the_container_when_there_is_no_label_element(
+        self, page: Page, ats_url: str
+    ):
+        """Lever gives one field in nineteen a ``<label for>``. Without this,
+        eighteen questions arrive unlabelled, which is to say unanswerable."""
+        page.goto(f"{ats_url}/shapes/labels-by-container")
+        labels = {s.question_text for s in extract_form(page)}
+
+        assert "Full name ✱" in labels
+        assert "Current location ✱" in labels
+        assert "" not in labels
+
+    def test_a_search_box_is_not_an_application_form(self, page: Page, ats_url: str):
+        """An iCIMS description page carries one input: a site search.
+
+        Treating it as the form meant the Apply link was never followed, and the
+        application was reported as having one unanswerable question called
+        "Search sri.com".
+        """
+        page.goto(f"{ats_url}/shapes/search-box-only")
+        assert not looks_like_a_form(page)
+
+    def test_a_form_inside_an_iframe_is_found(self, page: Page, ats_url: str):
+        """iCIMS serves the application in an iframe and leaves a search box on
+        the outer page. Reading only the top document found the search box."""
+        page.goto(f"{ats_url}/shapes/form-in-iframe")
+        page.wait_for_timeout(1_000)
+        labels = {s.question_text for s in extract_form(page)}
+
+        assert {"Name", "Email", "Resume"} <= labels
+
+    def test_an_apply_link_is_followed_to_the_form(self, page: Page, ats_url: str):
+        """The whole point: land on a description page, end up on the form."""
+        page.goto(f"{ats_url}/shapes/search-box-only")
+        _open_the_form(page)
+
+        assert "no-form-element" in page.url
+        assert len(extract_form(page)) == 4

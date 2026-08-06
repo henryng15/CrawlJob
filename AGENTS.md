@@ -34,7 +34,13 @@ dashboard. There is no route back into ours.
    citizenship, graduation date, GPA, employment history, EEO answers or export
    control eligibility. These come from locked candidate facts or a human. Never
    from a model, never from a default.
-4. **Never automate LinkedIn**, and never scrape login-gated pages.
+4. **Never automate LinkedIn.** Never scrape login-gated pages — with one
+   exception the operator authorised on 2026-08-06: an **employer's own ATS**
+   (Workday) may be signed into with the operator's own account, because
+   creating one is how that employer accepts applications and 19% of the auto
+   lane is behind it. This does not extend to job boards, aggregators, LinkedIn,
+   or any site where the account is not the operator's own and the purpose is
+   not submitting their application.
 5. **Never put secrets** in git, images, Terraform state, logs or screenshots.
 6. **Never expose a port publicly.** Tailscale only; Funnel stays off.
 
@@ -53,7 +59,30 @@ employer:
   not click. The application lands in `NEEDS_ME` marked `was_dry_run`, never in
   `SUBMITTED`, because "we would have sent this" and "we sent this" must never
   look the same on the dashboard.
-- `MAX_AUTO_SUBMITS_PER_DAY` (default 20) — a ceiling on what one bad night costs.
+- `MAX_AUTO_SUBMITS_PER_DAY` (default 20) — a ceiling on what one bad night
+  costs. Set to **3** in `.env` for the first days of real submissions, so the
+  operator can check the confirmation email for every one before it goes up.
+
+## Where the form actually is
+
+`app/ats/apply_url.py` is a lookup, not a heuristic: each entry was checked by
+pointing a headless browser at a live posting and counting inputs. Nine of the
+first eleven real applications were handed back because the browser opened a
+description page. Measured coverage of the auto lane:
+
+| Board | Share | Fields read | How |
+|---|---|---|---|
+| Ashby | 37% | 35 | posting → `/application` |
+| Workday | 19% | 0 | behind a button, needs an account |
+| Greenhouse | 16% | 27 | form is on the posting |
+| Lever | 10% | 23 | posting → `/apply` |
+| iCIMS | 3% | — | form is in an `<iframe>` |
+
+Three things make a page readable, and all three were needed:
+`wait_for_form` (Ashby, Lever and Workday render from JavaScript), the
+`<form>`-optional fallback in `extract_form` (Ashby has 35 inputs and no `<form>`
+element), and the label lookup in `_LABEL_JS` (Lever gives one field in 19 a
+`<label for>`; the rest need the container's first line).
 
 ## Always
 
