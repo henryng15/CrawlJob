@@ -57,7 +57,6 @@ class TestCategorising:
         [
             "Do you require visa sponsorship?",
             "Do you require sponsorship for this position?",
-            "What is your current visa status?",
             "Do you hold an H-1B?",
             "Will you need a work permit?",
         ],
@@ -287,3 +286,51 @@ class TestTheFactIsAlwaysLocked:
 
         for key in AUTHORIZATION_FACT_KEYS + SPONSORSHIP_FACT_KEYS:
             assert is_always_locked(key), key
+
+
+class TestAStatusQuestionIsNotAYesNoQuestion:
+    """Regression: "What is your current visa status?" was answered ``False``.
+
+    It carries a sponsorship marker, so it categorised as a sponsorship question
+    and the stored boolean filled it — writing a false statement about
+    immigration status into a legal document, confidently and silently.
+    """
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Visa status",
+            "Immigration status",
+            "What type of visa do you hold?",
+            "Which visa category applies to you?",
+        ],
+    )
+    def test_a_question_asking_which_status_is_never_answered(self, question):
+        assert categorize(question) is Category.STATUS_QUERY
+        decision = decide(
+            question,
+            facts={"work_authorization.requires_future_sponsorship": False},
+            locked_keys=frozenset({"work_authorization.requires_future_sponsorship"}),
+        )
+        assert not decision.answered
+        assert "which immigration status" in decision.reason
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            # The status noun phrase at the end must not capture this one: it is
+            # among the most common questions on any Greenhouse form.
+            (
+                "Will you now or in the future require sponsorship for employment visa status?",
+                Category.SPONSORSHIP_FUTURE,
+            ),
+            ("Do you require sponsorship for this role?", Category.SPONSORSHIP_NOW),
+            ("Will you require visa sponsorship at any time?", Category.SPONSORSHIP_FUTURE),
+            (
+                "Are you legally authorized to work in the United States?",
+                Category.AUTHORIZATION,
+            ),
+        ],
+    )
+    def test_a_yes_no_opener_still_wins(self, question, expected):
+        assert categorize(question) is expected

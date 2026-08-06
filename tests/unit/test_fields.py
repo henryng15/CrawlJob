@@ -99,8 +99,7 @@ class TestManualOnlyQuestions:
             ("Are you a protected veteran?", "eeo.veteran_status"),
             ("Race / Ethnicity", "eeo.race_ethnicity"),
             ("Gender", "eeo.gender"),
-            ("What are your salary expectations?", "compensation.expected"),
-            ("Are you willing to relocate?", "commitment.relocation"),
+            ("Are you at least 18 years of age?", "background.age_18_or_over"),
             ("I certify that the information provided is accurate", "legal.attestation"),
             ("Type your full name to sign", "legal.signature"),
         ],
@@ -193,6 +192,8 @@ _LOCKED_FACT_FOR: dict[str, dict[str, object]] = {
     "eeo.veteran_status": {"eeo.veteran_status": "Decline to self-identify"},
     "eeo.race_ethnicity": {"eeo.race_ethnicity": "Decline to self-identify"},
     "eeo.gender": {"eeo.gender": "Decline to self-identify"},
+    "background.age_18_or_over": {"background.age_18_or_over": True},
+    "legal.attestation": {"legal.attestation": True},
 }
 
 
@@ -209,21 +210,23 @@ class TestTheManualOnlySplit:
         assert not (LOCKED_FACT_ANSWERABLE_KEYS & ALWAYS_MANUAL_KEYS)
 
     def test_the_always_manual_set_is_exactly_what_policy_names(self):
+        """Salary, relocation and the attestation used to be here.
+
+        The operator gave a standing answer to each, which makes them facts
+        about the operator rather than judgements about the role. They stopped
+        every form that carried one, which for the attestation is most of them.
+        """
         assert set(ALWAYS_MANUAL_KEYS) == {
-            "compensation.expected",
-            "commitment.relocation",
             "auth.security_clearance",
             "auth.export_control",
-            "legal.attestation",
             "legal.signature",
         }
 
     @pytest.mark.parametrize("key", sorted(ALWAYS_MANUAL_KEYS))
     def test_a_locked_fact_does_not_unlock_an_always_manual_question(self, key):
-        """Salary and relocation change per application; a signature is an act.
-
-        A stored answer to any of them would be an answer to a different question
-        than the one on this form.
+        """A clearance or export-control answer depends on which employer asks,
+        and a signature is an act rather than a fact. A stored answer to any of
+        them would be an answer to a different question than the one on the form.
         """
         answer = resolve(ask(_question_for(key)), facts={key: "Yes"}, locked_keys=frozenset({key}))
         assert answer.source_type is SourceType.MANUAL_REQUIRED
@@ -287,6 +290,7 @@ def _question_for(key: str) -> str:
         "commitment.relocation": "Are you willing to relocate?",
         "legal.attestation": "I certify that the information provided is accurate",
         "legal.signature": "Type your full name to sign",
+        "background.age_18_or_over": "Are you at least 18 years of age?",
     }[key]
 
 

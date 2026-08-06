@@ -56,7 +56,6 @@ class TestFixtureCoversTheManualOnlyPolicy:
             "eeo.veteran_status",
             "eeo.disability",
             "legal.attestation",
-            "compensation.expected",
         } <= covered
 
     def test_the_forms_also_include_ordinary_fillable_questions(self):

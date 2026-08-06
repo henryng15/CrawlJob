@@ -102,23 +102,26 @@ LOCKED_FACT_ANSWERABLE_KEYS: frozenset[str] = frozenset(
         "eeo.veteran_status",
         "eeo.race_ethnicity",
         "eeo.gender",
+        "background.age_18_or_over",
+        "legal.attestation",
     }
 )
 
 #: Manual-only keys that stop the application even when a locked fact exists,
-#: because a stored answer would not be the answer to *this* question:
+#: because a stored answer would not be the answer to *this* question: a
+#: clearance or export-control answer depends on which employer is asking, and a
+#: signature is a legal act only the person signing may perform.
 #:
-#: * salary expectation and relocation are per-application judgements;
-#: * clearance and export control depend on the employer and the role asking;
-#: * a signature or an attestation is a legal act, not a fact — only the person
-#:   making the statement may make it.
+#: Salary expectation, relocation and the "I confirm the above is true"
+#: attestation used to be here. The operator supplied a standing answer to each,
+#: which makes them facts about the operator rather than judgements about the
+#: role — and leaving them here meant every form carrying one stopped forever.
+#: The attestation stays a *locked* fact (see ALWAYS_LOCKED_PREFIXES): ticking it
+#: is still a statement, so it may never come from a model or an unlocked value.
 ALWAYS_MANUAL_KEYS: frozenset[str] = frozenset(
     {
-        "compensation.expected",
-        "commitment.relocation",
         "auth.security_clearance",
         "auth.export_control",
-        "legal.attestation",
         "legal.signature",
     }
 )
@@ -170,16 +173,32 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "background.previously_employed",
         re.compile(
-            r"\b(previously (worked|employed)|former employee|worked (here|for us))\b", re.I
+            r"\b(previously\s+(been\s+)?(worked|employed)|former employee|worked (here|for us))\b",
+            re.I,
         ),
     ),
     (
         "background.noncompete",
         re.compile(r"\b(non-?compete|conflict of interest|restrictive covenant)\b", re.I),
     ),
+    (
+        "background.age_18_or_over",
+        re.compile(
+            r"\b(at least|over|above|older than)\s*18\b|\b18 years (of age|or older)\b", re.I
+        ),
+    ),
     # --- EEO --------------------------------------------------------------
-    ("eeo.disability", re.compile(r"\bdisabilit(y|ies)\b", re.I)),
-    ("eeo.veteran_status", re.compile(r"\bveteran\b|\bprotected veteran\b", re.I)),
+    (
+        "eeo.disability",
+        re.compile(r"\bdisabilit(y|ies)\b|\b(reasonable )?accommodations?\b", re.I),
+    ),
+    (
+        "eeo.veteran_status",
+        re.compile(
+            r"\bveteran\b|\b(military service|armed forces|served in the (u\.?s\.?\s*)?military)\b",
+            re.I,
+        ),
+    ),
     ("eeo.race_ethnicity", re.compile(r"\b(race|ethnicity|hispanic|latino)\b", re.I)),
     ("eeo.gender", re.compile(r"\b(gender|sex)\b", re.I)),
     # --- compensation and commitment --------------------------------------
@@ -187,7 +206,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "compensation.expected",
         re.compile(
             r"\b(salary|compensation|hourly rate|pay).{0,25}(expectation|requirement|desired)"
-            r"|\bexpected (salary|compensation)\b",
+            r"|\b(expected|desired|required)\s+(salary|compensation|pay|rate)\b"
+            r"|\bsalary (expectations?|requirements?)\b",
             re.I,
         ),
     ),
@@ -425,6 +445,7 @@ def _init_auth_keys() -> None:
             Category.SPONSORSHIP_NOW: "auth.requires_sponsorship_now",
             Category.SPONSORSHIP_FUTURE: "auth.requires_sponsorship",
             Category.COMBINED: "auth.work_authorized_without_sponsorship",
+            Category.STATUS_QUERY: "auth.visa_status",
         }
     )
 

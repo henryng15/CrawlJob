@@ -63,6 +63,9 @@ class Category(StrEnum):
     SPONSORSHIP_FUTURE = "SPONSORSHIP_FUTURE"
     #: Both in one question. Never answered.
     COMBINED = "COMBINED"
+    #: "What is your current visa status." Asks for a value, not a yes or no, so
+    #: no stored boolean answers it. Never answered.
+    STATUS_QUERY = "STATUS_QUERY"
     UNRELATED = "UNRELATED"
 
 
@@ -146,6 +149,33 @@ class Decision:
         return self.value is None
 
 
+#: Asks *which* status the candidate holds, not *whether* sponsorship is needed.
+#: "What is your current visa status", "Visa type", "Immigration status" — each
+#: carries a sponsorship marker, and each takes a value rather than a yes or no.
+#:
+#: Without this the sponsorship fact answers them: a form asking "current visa
+#: status" was filled with ``False``. That is not a near miss, it is a false
+#: statement about immigration status written confidently into a legal document.
+#:
+#: What separates the two is the *opening* word, not the words further in.
+#: "Will you now or in the future require sponsorship for employment visa
+#: status?" ends in a status noun phrase and is still a yes/no question — a
+#: version of this guard that read the whole string blocked it, and it is one of
+#: the most common questions on any Greenhouse form. So a yes/no opener wins
+#: outright, and only then is the rest considered.
+_YES_NO_OPENER = re.compile(
+    r"^\s*(are|is|was|do|does|did|will|would|have|has|had|can|could|may|must|should)\b",
+    re.I,
+)
+
+_ASKS_FOR_A_VALUE = re.compile(
+    r"^\s*(what|which|describe|specify|list|select your|choose your)\b"
+    r"|\b(type|kind|category)\s+of\s+(visa|work\s+permit|authorization|status)\b"
+    r"|\b(visa|immigration|work\s+permit|work\s+authorization)\s+(status|type|category)\b"
+    r"|\bstatus\s+of\s+your\s+(visa|work\s+permit)\b",
+    re.I,
+)
+
 #: Separators used in field names. Replaced with spaces before matching, because
 #: ``_`` is a word character to ``\b`` — so ``sponsorship_required`` would not
 #: match ``\bsponsorship\b``, and ATS field names are written almost entirely in
@@ -167,6 +197,15 @@ def categorize(*texts: str | None) -> Category:
 
     authorization = bool(_AUTHORIZATION.search(haystack))
     sponsorship = bool(_SPONSORSHIP.search(haystack))
+
+    # A question that asks which status the candidate holds is not a question any
+    # yes/no fact answers, however many sponsorship words it contains.
+    if (
+        (authorization or sponsorship)
+        and not _YES_NO_OPENER.match(haystack)
+        and _ASKS_FOR_A_VALUE.search(haystack)
+    ):
+        return Category.STATUS_QUERY
 
     if authorization and sponsorship:
         return Category.COMBINED
@@ -195,6 +234,15 @@ def decide(
             locked fact or a human, and nothing else.
     """
     category = categorize(*texts)
+
+    if category is Category.STATUS_QUERY:
+        return Decision(
+            category,
+            reason=(
+                "this asks which immigration status you hold, not whether you need "
+                "sponsorship; no stored yes/no answers it"
+            ),
+        )
 
     if category is Category.COMBINED:
         return Decision(

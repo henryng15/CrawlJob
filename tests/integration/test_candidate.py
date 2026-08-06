@@ -42,6 +42,7 @@ LEGALLY_SENSITIVE = [
     "education.graduation_date",
     "eeo.gender",
     "employment.history",
+    "legal.attestation",
     "export_control.eligible",
     "work_authorization.requires_future_sponsorship",
 ]
