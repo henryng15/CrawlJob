@@ -193,7 +193,9 @@ _LOCKED_FACT_FOR: dict[str, dict[str, object]] = {
     "eeo.race_ethnicity": {"eeo.race_ethnicity": "Decline to self-identify"},
     "eeo.gender": {"eeo.gender": "Decline to self-identify"},
     "background.age_18_or_over": {"background.age_18_or_over": True},
+    "background.previously_applied": {"background.previously_applied": False},
     "legal.attestation": {"legal.attestation": True},
+    "legal.signature": {"legal.signature": "Viet Hoan Nguyen"},
 }
 
 
@@ -210,16 +212,15 @@ class TestTheManualOnlySplit:
         assert not (LOCKED_FACT_ANSWERABLE_KEYS & ALWAYS_MANUAL_KEYS)
 
     def test_the_always_manual_set_is_exactly_what_policy_names(self):
-        """Salary, relocation and the attestation used to be here.
+        """Salary, relocation, the attestation and the signature used to be here.
 
-        The operator gave a standing answer to each, which makes them facts
-        about the operator rather than judgements about the role. They stopped
-        every form that carried one, which for the attestation is most of them.
+        The operator was asked about each and gave a standing answer, which makes
+        them facts about the operator rather than judgements about the role. What
+        is left depends on the employer asking, not on the candidate.
         """
         assert set(ALWAYS_MANUAL_KEYS) == {
             "auth.security_clearance",
             "auth.export_control",
-            "legal.signature",
         }
 
     @pytest.mark.parametrize("key", sorted(ALWAYS_MANUAL_KEYS))
@@ -291,6 +292,7 @@ def _question_for(key: str) -> str:
         "legal.attestation": "I certify that the information provided is accurate",
         "legal.signature": "Type your full name to sign",
         "background.age_18_or_over": "Are you at least 18 years of age?",
+        "background.previously_applied": "Have you previously applied to this company?",
     }[key]
 
 

@@ -91,7 +91,7 @@ ALWAYS_LOCKED_PREFIXES: tuple[str, ...] = (
     "education.graduation_date",
     "eeo.",
     "employment.",
-    "legal.attestation",
+    "legal.",
     "export_control",
     "work_authorization",
 )

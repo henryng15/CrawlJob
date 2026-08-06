@@ -103,26 +103,31 @@ LOCKED_FACT_ANSWERABLE_KEYS: frozenset[str] = frozenset(
         "eeo.race_ethnicity",
         "eeo.gender",
         "background.age_18_or_over",
+        "background.previously_applied",
         "legal.attestation",
+        "legal.signature",
     }
 )
 
 #: Manual-only keys that stop the application even when a locked fact exists,
-#: because a stored answer would not be the answer to *this* question: a
-#: clearance or export-control answer depends on which employer is asking, and a
-#: signature is a legal act only the person signing may perform.
+#: because a stored answer would not be the answer to *this* question. Both
+#: survivors depend on who is asking: whether a clearance is held, and whether
+#: the role is export-controlled, are facts about the employer's requirement as
+#: much as about the candidate.
 #:
-#: Salary expectation, relocation and the "I confirm the above is true"
-#: attestation used to be here. The operator supplied a standing answer to each,
-#: which makes them facts about the operator rather than judgements about the
-#: role — and leaving them here meant every form carrying one stopped forever.
-#: The attestation stays a *locked* fact (see ALWAYS_LOCKED_PREFIXES): ticking it
-#: is still a statement, so it may never come from a model or an unlocked value.
+#: Salary, relocation, the truth attestation and the e-signature used to be here.
+#: The operator was asked about each and gave a standing answer, which makes them
+#: facts about the operator rather than judgements about the role — and leaving
+#: them here meant every form carrying one stopped forever. They stay *locked*
+#: facts (see ALWAYS_LOCKED_PREFIXES): typing a signature is still a statement,
+#: so it may never come from a model or from an unlocked value.
+#:
+#: If you are reading this and about to move the signature back: it was moved
+#: deliberately, by the person whose signature it is. Ask them, do not assume.
 ALWAYS_MANUAL_KEYS: frozenset[str] = frozenset(
     {
         "auth.security_clearance",
         "auth.export_control",
-        "legal.signature",
     }
 )
 
@@ -180,6 +185,12 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "background.noncompete",
         re.compile(r"\b(non-?compete|conflict of interest|restrictive covenant)\b", re.I),
+    ),
+    (
+        # Distinct from previously_employed: "applied" and "worked" are different
+        # facts, and the employed pattern was quietly answering both.
+        "background.previously_applied",
+        re.compile(r"\bpreviously\s+applied\b|\bapplied\s+(to|for a role at)\b", re.I),
     ),
     (
         "background.age_18_or_over",
