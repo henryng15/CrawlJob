@@ -71,7 +71,18 @@ class Sensitivity(StrEnum):
 #:
 #: A wrong value in any of these is a false statement on an application, which is
 #: the one failure mode this project must never have.
+#:
+#: This list has to cover every key in
+#: :data:`app.ats.fields.LOCKED_FACT_ANSWERABLE_KEYS`, and that is not a style
+#: rule. Those keys may *only* be answered from a locked fact — so a key that
+#: policy never locks can never be answered at all, and every form asking it
+#: stops the application forever, no matter how carefully the user filled the
+#: value in. ``auth.`` and ``background.`` were missing here for exactly that
+#: reason: "have you been convicted of a felony" is a question every large ATS
+#: asks and none of them could ever be answered.
 ALWAYS_LOCKED_PREFIXES: tuple[str, ...] = (
+    "auth.",
+    "background.",
     "candidate.legal_name",
     "candidate.date_of_birth",
     "candidate.graduation_date",

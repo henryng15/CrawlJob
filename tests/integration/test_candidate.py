@@ -29,6 +29,11 @@ pytestmark = pytest.mark.db
 
 #: Representative always-locked keys, one per policy prefix.
 LEGALLY_SENSITIVE = [
+    # Locked because app.ats.fields will only answer these from a locked fact.
+    # An unlocked one is not merely unprotected, it is unanswerable — and the
+    # application it appears on stops forever.
+    "auth.citizenship",
+    "background.criminal_history",
     "candidate.legal_name",
     "candidate.date_of_birth",
     "candidate.graduation_date",
