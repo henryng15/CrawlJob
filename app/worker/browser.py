@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import Application, ApplicationField, ResumeVersion, ScheduledTask
+from app.db.models import Application, ApplicationField, Job, ResumeVersion, ScheduledTask
 from app.domain.states import ApplicationState, assert_transition
 from app.domain.tasks import TaskType
 from app.safety import SubmitRefused, assert_safe_to_submit
@@ -111,6 +111,7 @@ def register_browser_handlers(
 
         stored = {f.key: f.value for f in facts.list_facts(session)}
         locked = frozenset(f.key for f in facts.list_facts(session) if f.is_locked)
+        job = session.get(Job, application.job_id)
         resume = (
             session.get(ResumeVersion, application.resume_version_id)
             if application.resume_version_id
@@ -119,7 +120,21 @@ def register_browser_handlers(
 
         with _page(config, application.application_url) as page:
             specs = extract_form(page)
-            answers = [resolve(spec, facts=stored, locked_keys=locked) for spec in specs]
+            # Both are computed once for the whole form. ``_drafts`` makes a
+            # network call, and putting it inside the comprehension would make
+            # one per field on the page.
+            derived = _derived(job, stored)
+            drafts = _drafts(specs, job, resume, stored, config)
+            answers = [
+                resolve(
+                    spec,
+                    facts=stored,
+                    locked_keys=locked,
+                    derived=derived,
+                    ai_answers=drafts,
+                )
+                for spec in specs
+            ]
             report = fill_form(
                 page,
                 specs,
@@ -215,6 +230,86 @@ def register_browser_handlers(
         )
 
     return target
+
+
+# ------------------------------------------------------------------ answers
+
+
+def _derived(job: Job | None, stored: dict[str, Any]) -> dict[str, Any]:
+    """Answers computed from this posting rather than stored on the profile.
+
+    Only the term so far. "Which term are you applying for" is a question about
+    the role, so the posting's own season wins — a Fall 2027 posting is answered
+    "Fall 2027" even though the user's standing answer is Summer 2027. The
+    standing answer covers the common case, where the title says "Intern" and
+    nothing else.
+    """
+    from app.domain.normalization import season_label
+
+    term = season_label(job.season) if job is not None else None
+    term = term or stored.get("logistics.default_term")
+    return {"logistics.term": term} if term else {}
+
+
+def _drafts(
+    specs: list[Any],
+    job: Job | None,
+    resume: ResumeVersion | None,
+    stored: dict[str, Any],
+    settings: Settings,
+) -> dict[str, str]:
+    """Draft the free-text answers this form actually asks for.
+
+    Gated on the question being present, which is the whole cost control: most
+    forms never ask, and a model call per application regardless would spend the
+    free tier on paragraphs nobody reads. A failure returns nothing and the field
+    goes to the user — see :mod:`app.services.why_company`.
+    """
+    from app.ats.fields import classify
+    from app.services.why_company import Posting, draft_why_company
+
+    if job is None or not any(classify(spec) == "open.why_company" for spec in specs):
+        return {}
+
+    company = job.company.canonical_name if job.company is not None else ""
+    paragraph = draft_why_company(
+        Posting(
+            company=company,
+            title=job.title,
+            description=job.description_text or "",
+            location=job.location_text or "",
+        ),
+        resume_text=_resume_source(resume),
+        about=_about(stored),
+        settings=settings,
+    )
+    return {"open.why_company": paragraph} if paragraph else {}
+
+
+def _about(stored: dict[str, Any]) -> str:
+    """A one-line profile summary for the draft prompt.
+
+    Only the facts that belong in a paragraph about wanting a job. Nothing from
+    the legally sensitive set goes near the model, whatever the profile holds.
+    """
+    wanted = (
+        ("education.school", "School"),
+        ("education.degree", "Degree"),
+        ("education.major", "Major"),
+        ("education.graduation_date", "Graduating"),
+    )
+    return "; ".join(f"{label}: {stored[key]}" for key, label in wanted if stored.get(key))
+
+
+def _resume_source(resume: ResumeVersion | None) -> str:
+    """The résumé as text, or an empty string. Never a reason to fail."""
+    if resume is None:
+        return ""
+    try:
+        return Path(resume.source_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        log.info("could not read the resume source for drafting; continuing without it")
+        return ""
 
 
 # ------------------------------------------------------------------ helpers

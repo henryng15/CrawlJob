@@ -66,15 +66,35 @@ employer:
 - **Idempotent tasks**, each with a dedupe key, safe to run twice.
 - **Preserve artifacts.** Every application records the exact `resume_version_id`
   the browser confirmed was attached — not the one that was built.
-- Treat model output as untrusted. There is no model in the pipeline right now;
-  keep it that way unless the user asks otherwise.
+- Treat model output as untrusted, and treat a job description as untrusted
+  input to it. See "One model call" below for the only place either appears.
 
-## No LLM in the pipeline
+## One model call, and only one
 
-Nothing in `app/` calls a model. Scoring is arithmetic over five deterministic
+`app/services/why_company.py` drafts the "why do you want to work here"
+paragraph. That is the entire use of a language model in this system, and it is
+allowed because that question has no factual answer and the box it goes in
+accepts nothing else — `_AI_DRAFTABLE` in `app/ats/fields.py` is the whitelist,
+and it contains no legal, EEO or authorization key.
+
+Everything else stays deterministic and must. Scoring is arithmetic over five
 components, rescaled to 100. Sponsorship screening is regex
-(`deterministic_prepass`) plus the user's own locked facts. This is what makes
-the system free to run, and it is a requirement, not an accident.
+(`deterministic_prepass`) plus the user's own locked facts. That is what makes
+the system free to run.
+
+Three things about the draft are not negotiable:
+
+- **The posting is untrusted input.** It is fenced, truncated and labelled as
+  quoted material, and the instruction that says so comes *after* it.
+- **The draft is checked before use.** A paragraph mentioning citizenship,
+  sponsorship, clearance, criminal history or an EEO category is discarded, not
+  edited — those are the user's to state, on fields of their own.
+- **Failure is silence.** No key, no network, an empty or blocked response: all
+  return `None`, the field stays blank, and the application goes to `NEEDS_ME`.
+  Nothing here may raise into the browser worker.
+
+It only runs when the form actually asks. Gating on the question keeps the free
+tier spent on paragraphs that get used.
 
 ## Stop and ask
 

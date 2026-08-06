@@ -326,12 +326,33 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"\b(available|availability|earliest start)\b", re.I),
     ),
     ("logistics.how_did_you_hear", re.compile(r"\bhow did you hear\b|\breferral source\b", re.I)),
+    (
+        # Answered from the posting, not from a stored preference: the term is a
+        # property of the role being applied for. See ``_DERIVABLE_KEYS``.
+        "logistics.term",
+        re.compile(
+            r"\b(which|what)\s+(\w+\s+){0,2}(term|semester|season|session|cohort|intake)\b"
+            r"|\b(term|semester|season|session|cohort)\b[^?]{0,30}\bapplying\b"
+            r"|\bapplying\b[^?]{0,30}\b(term|semester|season|session|cohort)\b"
+            r"|\binternship\s+(term|season|session|period)\b",
+            re.I,
+        ),
+    ),
 )
 
 #: Semantic keys that free text may reasonably be drafted for (§7.8).
 _AI_DRAFTABLE: frozenset[str] = frozenset(
     {"open.why_company", "open.additional_info", "logistics.how_did_you_hear"}
 )
+
+#: Keys whose answer is computed from *this* application rather than stored. A
+#: profile fact cannot answer "which term are you applying for", because the term
+#: belongs to the posting; the caller works it out and passes it in ``derived``.
+#:
+#: Kept as a whitelist for the same reason ``_AI_DRAFTABLE`` is: the derived
+#: channel is a second way for a value to reach a form, and it must not become a
+#: way around the locked-fact rule. Nothing legally sensitive may appear here.
+_DERIVABLE_KEYS: frozenset[str] = frozenset({"logistics.term"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +411,7 @@ def resolve(
     facts: dict[str, Any],
     locked_keys: frozenset[str] = frozenset(),
     ai_answers: dict[str, str] | None = None,
+    derived: dict[str, Any] | None = None,
 ) -> Answer:
     """Decide the answer for one field and record where it came from.
 
@@ -399,6 +421,8 @@ def resolve(
         locked_keys: which of those facts the user locked.
         ai_answers: model-drafted free text, keyed by semantic key. Ignored for
             anything in :data:`MANUAL_ONLY_KEYS`.
+        derived: values computed from this application by code, keyed by semantic
+            key. Ignored for anything outside :data:`_DERIVABLE_KEYS`.
     """
     # Work authorization is settled before anything else, including pattern
     # matching. A combined "authorized to work *without sponsorship*" question
@@ -441,6 +465,17 @@ def resolve(
             None,
             SourceType.MANUAL_REQUIRED,
             note="policy requires a locked candidate fact for this, and none is set",
+        )
+
+    # Before the stored facts, because a value computed from this posting is more
+    # specific than a stored default — the caller has already decided which of
+    # the two it is sending.
+    if derived and key in _DERIVABLE_KEYS and derived.get(key) is not None:
+        return Answer(
+            key,
+            derived[key],
+            SourceType.DERIVED_DETERMINISTIC,
+            note="computed from this posting",
         )
 
     if key in facts:

@@ -28,6 +28,7 @@ __all__ = [
     "normalize_company",
     "normalize_location",
     "normalize_title",
+    "season_label",
     "url_hash",
 ]
 
@@ -167,6 +168,23 @@ def extract_season(text: str) -> str | None:
         return None
     season = "fall" if season == "autumn" else season
     return f"{season.upper()}_{year.group()}"
+
+
+def season_label(season: str | None) -> str | None:
+    """Turn the stored ``"SUMMER_2027"`` back into the ``"Summer 2027"`` a form wants.
+
+    The inverse of :func:`extract_season`, and deliberately strict: anything that
+    is not exactly ``SEASON_YEAR`` returns ``None`` rather than a best guess. This
+    answers "which term are you applying for" on a real application, so a garbled
+    label is worse than no label — an empty field asks the user, a wrong one does
+    not.
+    """
+    if not season or season.count("_") != 1:
+        return None
+    word, _, year = season.partition("_")
+    if not word.isalpha() or not (year.isdigit() and len(year) == 4):
+        return None
+    return f"{word.capitalize()} {year}"
 
 
 # ----------------------------------------------------------------- location

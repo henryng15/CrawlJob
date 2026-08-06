@@ -298,6 +298,54 @@ class TestDisclosureQuestions:
             assert answer.is_fillable, "a No must fill the field, not read as unanswered"
 
 
+class TestTheTerm:
+    """ "Which term are you applying for" is a question about the posting.
+
+    No profile fact answers it, because the answer changes with the role. The
+    caller works it out and passes it in, and the review screen says so.
+    """
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Which term are you applying for?",
+            "What semester are you applying for?",
+            "Which internship season are you interested in?",
+            "Internship term",
+            "Please select the term you are applying for",
+        ],
+    )
+    def test_it_is_recognised(self, question):
+        assert classify(ask(question)) == "logistics.term"
+
+    def test_a_derived_value_fills_it(self):
+        answer = resolve(
+            ask("Which term are you applying for?"),
+            facts={},
+            derived={"logistics.term": "Fall 2027"},
+        )
+        assert answer.source_type is SourceType.DERIVED_DETERMINISTIC
+        assert answer.value == "Fall 2027"
+        assert answer.is_fillable
+
+    def test_without_one_it_asks_the_user(self):
+        answer = resolve(ask("Which term are you applying for?"), facts={})
+        assert answer.source_type is SourceType.MANUAL_REQUIRED
+
+    @pytest.mark.parametrize("key", sorted(MANUAL_ONLY_KEYS))
+    def test_the_derived_channel_cannot_answer_a_manual_only_question(self, key):
+        """A second route for values into a form is a second route around the
+        locked-fact rule, so the whitelist is what makes it safe rather than the
+        good intentions of whoever populates the dict."""
+        answer = resolve(
+            ask(_question_for(key)),
+            facts={},
+            derived={key: "Yes"},
+        )
+        assert answer.source_type is SourceType.MANUAL_REQUIRED
+        assert answer.value is None
+
+
 class TestTheManualOnlySplit:
     """Which manual-only questions a locked fact may answer, and which it may not.
 

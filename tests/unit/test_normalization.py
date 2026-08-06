@@ -16,6 +16,7 @@ from app.domain.normalization import (
     normalize_company,
     normalize_location,
     normalize_title,
+    season_label,
     url_hash,
 )
 
@@ -109,6 +110,32 @@ class TestExtractSeason:
     )
     def test_returns_none_without_both_parts(self, raw):
         assert extract_season(raw) is None
+
+
+class TestSeasonLabel:
+    """The inverse, used to answer "which term are you applying for" on a form."""
+
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            ("SUMMER_2027", "Summer 2027"),
+            ("FALL_2026", "Fall 2026"),
+            ("WINTER_2027", "Winter 2027"),
+        ],
+    )
+    def test_it_reads_back(self, stored, expected):
+        assert season_label(stored) == expected
+
+    def test_it_round_trips(self):
+        assert season_label(extract_season("SWE Intern, Summer 2027")) == "Summer 2027"
+
+    @pytest.mark.parametrize(
+        "stored", [None, "", "SUMMER", "2027", "SUMMER_20277", "SUMMER_2027_B", "S3ASON_2027"]
+    )
+    def test_anything_malformed_gives_nothing(self, stored):
+        """No best guess. This value is typed onto a real application, and a
+        blank field asks the user while a garbled one does not."""
+        assert season_label(stored) is None
 
 
 class TestNormalizeLocation:

@@ -124,6 +124,16 @@ class Settings(BaseSettings):
     #: the business timezone, across every worker.
     max_auto_submits_per_day: int = Field(default=20, ge=0, le=200)
 
+    # ---- the one model call (§7.8) ----------------------------------------
+    #: Drafts the "why do you want to work here" paragraph, and nothing else in
+    #: this system. Unset is a supported configuration: the field is then left
+    #: for the user, which is what happens on any failure anyway.
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    #: Short on purpose. A form is open in a browser while this runs, and a
+    #: paragraph that takes a minute to write is worth less than the session.
+    gemini_timeout_seconds: float = Field(default=20.0, ge=1, le=120)
+
     # ---- orchestration ----------------------------------------------------
     #: Local wall-clock times, comma-separated. Each is a separate run with its
     #: own idempotency key; the daily quota is shared across all of them.
