@@ -277,7 +277,15 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             re.I,
         ),
     ),
-    ("commitment.relocation", re.compile(r"\b(willing to relocate|relocation)\b", re.I)),
+    (
+        # "Willing to relocate" was the only phrasing this matched. A real Ashby
+        # form asked "Are you open to relocating?" and blocked the application
+        # over a fact that was set, locked and correct.
+        "commitment.relocation",
+        re.compile(
+            r"\b(willing|open|able|prepared)\s+to\s+relocate\b|\brelocat(e|ion|ing)\b", re.I
+        ),
+    ),
     # --- contact ----------------------------------------------------------
     ("candidate.first_name", re.compile(r"\bfirst name\b|\bgiven name\b", re.I)),
     ("candidate.last_name", re.compile(r"\blast name\b|\bfamily name\b|\bsurname\b", re.I)),
