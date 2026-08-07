@@ -19,7 +19,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install .
-      - run: internship-sync --scheduled
+      # The ET window only filters the hourly cron. A manual run is a deliberate
+      # request to sync now, so it skips the window and always crawls.
+      - run: internship-sync ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}
