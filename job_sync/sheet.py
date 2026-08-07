@@ -48,7 +48,22 @@ def _sorted_rows(rows: list[list[str]]) -> list[list[str]]:
     return sorted(rows, key=_sort_key, reverse=True)
 
 
-def append_new_jobs(settings: Settings, jobs: list[Job]) -> int:
+def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
+    """The sheet is deduped on the way in, but rows written before the key knew
+    to ignore tracking params are already there. Keep the first of each."""
+    seen: set[str] = set()
+    unique: list[list[str]] = []
+    for row in rows:
+        key = _key(row)
+        if key is not None and key in seen:
+            continue
+        if key is not None:
+            seen.add(key)
+        unique.append(row)
+    return unique
+
+
+def append_new_jobs(settings: Settings, jobs: list[Job], rebuild: bool = False) -> int:
     service = _service(settings)
     values_api = service.spreadsheets().values()
     tab = _quote_tab(settings.sheet_tab)
@@ -71,24 +86,39 @@ def append_new_jobs(settings: Settings, jobs: list[Job]) -> int:
     header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
     if header[:4] != HEADERS:
         raise RuntimeError(f"Expected {HEADERS} in {settings.sheet_tab}!A1:D1; found {header[:4]}")
+    if rebuild:
+        # Rows written by an earlier, buggier parse cannot be repaired in place —
+        # the company they should carry is only knowable from the source.
+        header, data = HEADERS, []
+    data = _drop_duplicate_rows(data)
     known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
-    if not fresh and existing:
+    if not fresh and existing and not rebuild:
         return 0
     data = _sorted_rows(
         data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
     )
-    _write(values_api, settings, tab, [header] + data)
+    _write(values_api, settings, tab, [header] + data, clear_to_row=len(existing))
     return len(fresh)
 
 
-def _write(values_api, settings: Settings, tab: str, rows: list[list[str]]) -> None:
+def _write(
+    values_api, settings: Settings, tab: str, rows: list[list[str]], clear_to_row: int
+) -> None:
     """Rewriting beats appending because the whole sheet has to end up sorted.
     Every row is padded to one width so a sorted row can never leave a stale cell
-    behind from the longer row that used to sit in its place."""
+    behind from the longer row that used to sit in its place. A rebuild or a
+    duplicate purge shortens the sheet, so whatever sat below the new last row is
+    cleared first — otherwise the tail of the old, longer sheet survives."""
     width = max(len(row) for row in rows)
     padded = [row + [""] * (width - len(row)) for row in rows]
     last_column = chr(ord("A") + width - 1)
+    if clear_to_row > len(padded):
+        values_api.clear(
+            spreadsheetId=settings.sheet_id,
+            range=f"{tab}!A{len(padded) + 1}:{last_column}{clear_to_row}",
+            body={},
+        ).execute()
     values_api.update(
         spreadsheetId=settings.sheet_id,
         range=f"{tab}!A1:{last_column}{len(padded)}",

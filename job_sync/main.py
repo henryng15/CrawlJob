@@ -29,6 +29,11 @@ def main() -> None:
         "--scheduled", action="store_true", help="exit outside 08:00–16:59 ET even hours"
     )
     parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="discard existing rows and write the sheet from the sources alone",
+    )
+    parser.add_argument(
         "--since",
         type=date.fromisoformat,
         default=EARLIEST_POSTED,
@@ -56,7 +61,7 @@ def main() -> None:
     cutoff = args.since.isoformat()
     recent = [job for job in jobs if job.date_posted >= cutoff]
     print(f"{len(recent)} of {len(jobs)} deduped roles posted on or after {cutoff}")
-    appended = append_new_jobs(load_settings(), recent)
+    appended = append_new_jobs(load_settings(), recent, rebuild=args.rebuild)
     print(f"Appended {appended} new jobs; {len(recent) - appended} already in the sheet.")
     for failure in failures:
         print(f"WARNING: {failure}")

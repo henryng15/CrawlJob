@@ -6,9 +6,28 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from time import strptime
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from job_sync.roles import is_target_role
+
+# Only params that identify who sent the click, never the posting. Anything that
+# names the job itself (gh_jid, lever's posting id) has to survive normalization.
+TRACKING_PARAMS = frozenset(
+    {"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "ref", "gh_src", "src"}
+)
+# Trackers decorate the company cell: 🔥 for hot, ✅/🛂 for sponsorship, and ↳ for
+# "same company as the row above". None of them are part of a company's name.
+MARKERS = re.compile(
+    "["
+    "\U0001f000-\U0001faff"  # emoji: 🔥 🆕 🛂
+    "←-⇿"  # arrows: ↳ ⤷
+    "⌀-➿"  # symbols and dingbats: ✅ ✓ ⏳
+    "⬀-⯿"  # more arrows and stars
+    "️‍"  # variation selector and zero-width joiner
+    "*_`"  # markdown emphasis
+    "]"
+)
 
 
 @dataclass(frozen=True)
@@ -19,8 +38,20 @@ class Source:
 
 def normalize_link(value: str) -> str:
     """The one definition of "the same posting". A row already in the sheet and a
-    row just parsed must normalize identically or the duplicate slips through."""
-    return value.strip().rstrip("/").casefold()
+    row just parsed must normalize identically or the duplicate slips through.
+
+    Two trackers list the same job under the same URL but tag it differently:
+    Simplify appends ?utm_source=Simplify&ref=Simplify, speedyapply appends
+    nothing. Dropping the tags is what makes those two rows one row."""
+    parts = urlsplit(value.strip())
+    query = [
+        (key, val)
+        for key, val in parse_qsl(parts.query, keep_blank_values=True)
+        if key.casefold() not in TRACKING_PARAMS
+    ]
+    host = parts.netloc.casefold().removeprefix("www.")
+    path = parts.path.rstrip("/").casefold()
+    return urlunsplit((parts.scheme.casefold(), host, path, urlencode(query), ""))
 
 
 @dataclass(frozen=True)
@@ -51,7 +82,14 @@ def clean_text(value: str) -> str:
         r"!?(?:\[[^]]*\])\([^)]*\)", lambda m: re.sub(r".*\[([^]]*)\].*", r"\1", m.group(0)), value
     )
     value = re.sub(r"<[^>]+>", "", value)
-    return re.sub(r"[*_`✅🆕🆁⏳🛂]", "", value).strip()
+    return re.sub(r"\s+", " ", MARKERS.sub("", value)).strip()
+
+
+def resolve_company(cell: str, previous: str) -> str:
+    """A cell holding only ↳ means "the company above". Left alone it files a
+    TikTok posting under the name "↳", and every such row from every company
+    collapses into one bogus employer."""
+    return clean_text(cell) or previous
 
 
 def extract_url(value: str) -> str | None:
@@ -120,13 +158,18 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
         date_i = _header_index(headers, "added", "posted", "date", "age")
         if None in (company_i, role_i, link_i):
             continue
+        last_company = ""
         for row in lines[index + 2 :]:
             if "|" not in row or row.lstrip().startswith("#"):
                 break
             cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
             if max(company_i, role_i, link_i) >= len(cells):
                 continue
-            company, role = clean_text(cells[company_i]), clean_text(cells[role_i])
+            company = resolve_company(cells[company_i], last_company)
+            # Carried forward before the role filter: a ↳ row often follows a row
+            # this pipeline drops, and it still means that dropped row's company.
+            last_company = company or last_company
+            role = clean_text(cells[role_i])
             link = extract_url(cells[link_i])
             if not company or not link or not is_target_role(role):
                 continue
@@ -159,10 +202,13 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
         date_i = _header_index(headers, "added", "posted", "date", "age")
         if None in (company_i, role_i, link_i):
             continue
+        last_company = ""
         for cells in cell_rows[1:]:
             if max(company_i, role_i, link_i) >= len(cells):
                 continue
-            company, role = clean_text(cells[company_i]), clean_text(cells[role_i])
+            company = resolve_company(cells[company_i], last_company)
+            last_company = company or last_company
+            role = clean_text(cells[role_i])
             link = extract_url(cells[link_i])
             if not company or not link or not is_target_role(role):
                 continue

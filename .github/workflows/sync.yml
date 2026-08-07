@@ -2,6 +2,11 @@ name: Sync internships to Google Sheet
 
 on:
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "Replace every row instead of only adding the new ones"
+        type: boolean
+        default: false
   schedule:
     # GitHub Actions only accepts UTC. Run hourly across both EST/EDT windows;
     # the command itself accepts precisely 08:00, 10:00, 12:00, 14:00, 16:00 ET.
@@ -21,7 +26,10 @@ jobs:
       - run: pip install .
       # The ET window only filters the hourly cron. A manual run is a deliberate
       # request to sync now, so it skips the window and always crawls.
-      - run: internship-sync ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
+      - run: >-
+          internship-sync
+          ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
+          ${{ inputs.rebuild && '--rebuild' || '' }}
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}
