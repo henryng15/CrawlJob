@@ -105,11 +105,14 @@ def extract_url(value: str) -> str | None:
 
 def posted_date(value: str, today: date) -> str:
     value = clean_text(value).strip()
-    for parser in (date.fromisoformat, _parse_month_date):
-        try:
-            return parser(value).isoformat()
-        except ValueError:
-            pass
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        pass
+    try:
+        return _parse_month_date(value, today).isoformat()
+    except ValueError:
+        pass
     age = re.search(r"\b(\d+)\s*(d|day|days|w|week|weeks|mo|month|months)\b", value, re.IGNORECASE)
     if age:
         amount, unit = int(age.group(1)), age.group(2).casefold()
@@ -119,13 +122,26 @@ def posted_date(value: str, today: date) -> str:
     return today.isoformat()
 
 
-def _parse_month_date(value: str) -> date:
+def _parse_month_date(value: str, today: date) -> date:
     for date_format in ("%b %d, %Y", "%B %d, %Y"):
         try:
             parsed = strptime(value, date_format)
             return date(parsed.tm_year, parsed.tm_mon, parsed.tm_mday)
         except ValueError:
             pass
+    # Jobright writes "Aug 06" with no year. A tracker lists postings that already
+    # exist, so a month still ahead of today has to belong to last year.
+    for date_format in ("%b %d", "%B %d"):
+        for year in (today.year, today.year - 1):
+            # The year is supplied rather than defaulted: strptime without one
+            # falls back to 1900, which cannot represent Feb 29.
+            try:
+                parsed = strptime(f"{value} {year}", f"{date_format} %Y")
+            except ValueError:
+                continue
+            candidate = date(parsed.tm_year, parsed.tm_mon, parsed.tm_mday)
+            if candidate <= today:
+                return candidate
     raise ValueError(f"Not a month-name date: {value}")
 
 
@@ -156,8 +172,10 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
         role_i = _header_index(headers, "role", "position", "title")
         link_i = _header_index(headers, "apply", "application", "link", "posting")
         date_i = _header_index(headers, "added", "posted", "date", "age")
-        if None in (company_i, role_i, link_i):
+        if None in (company_i, role_i):
             continue
+        # Jobright has no Apply column; the link lives inside the job title.
+        link_i = role_i if link_i is None else link_i
         last_company = ""
         for row in lines[index + 2 :]:
             if "|" not in row or row.lstrip().startswith("#"):
@@ -200,8 +218,10 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
         role_i = _header_index(headers, "role", "position", "title")
         link_i = _header_index(headers, "apply", "application", "link", "posting")
         date_i = _header_index(headers, "added", "posted", "date", "age")
-        if None in (company_i, role_i, link_i):
+        if None in (company_i, role_i):
             continue
+        # Jobright has no Apply column; the link lives inside the job title.
+        link_i = role_i if link_i is None else link_i
         last_company = ""
         for cells in cell_rows[1:]:
             if max(company_i, role_i, link_i) >= len(cells):

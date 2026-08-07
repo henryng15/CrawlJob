@@ -1,6 +1,13 @@
 from datetime import date
 
-from job_sync.sources import Job, clean_text, dedupe_jobs, normalize_link, parse_jobs
+from job_sync.sources import (
+    Job,
+    clean_text,
+    dedupe_jobs,
+    normalize_link,
+    parse_jobs,
+    posted_date,
+)
 
 
 def test_parse_and_filter_markdown_rows() -> None:
@@ -100,3 +107,30 @@ def test_normalize_link_ignores_host_case_www_and_trailing_slash() -> None:
         "https://jobs.example/a?utm_medium=email",
     ]
     assert len({normalize_link(v) for v in variants}) == 1
+
+
+def test_link_comes_from_the_title_when_there_is_no_apply_column() -> None:
+    """Jobright's header is Company | Job Title | Location | Work Model | Date
+    Posted. Requiring an Apply column would drop the whole table."""
+    markdown = """| Company | Job Title | Location | Work Model | Date Posted |
+| ----- | --------- | --------- | ---- | ------- |
+| **[PDT Partners](https://www.pdtpartners.com/)** | **[Summer 2027 Software Engineering Intern](https://jobright.ai/jobs/info/6a63c950?utm_source=git)** | New York, NY | On Site | Aug 06 |
+"""
+    jobs = parse_jobs(markdown, date(2026, 8, 7))
+    assert [(job.company, job.role) for job in jobs] == [
+        ("PDT Partners", "Summer 2027 Software Engineering Intern")
+    ]
+    assert jobs[0].apply_link.startswith("https://jobright.ai/jobs/info/6a63c950")
+    assert jobs[0].date_posted == "2026-08-06"
+
+
+def test_a_month_day_date_takes_the_year_that_is_already_past() -> None:
+    today = date(2026, 8, 7)
+    assert posted_date("Aug 06", today) == "2026-08-06"
+    assert posted_date("Jan 01", today) == "2026-01-01"
+    # December has not happened in 2026 yet, so the posting is last December.
+    assert posted_date("Dec 15", today) == "2025-12-15"
+
+
+def test_an_unreadable_date_falls_back_to_today_not_to_1900() -> None:
+    assert posted_date("whenever", date(2026, 8, 7)) == "2026-08-07"

@@ -15,3 +15,10 @@ url = "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/
 [[sources]]
 name = "zshah101 — 2027 / Fall 2026 Tech Internships"
 url = "https://raw.githubusercontent.com/zshah101/Automated-List-Of-Summer-2027-and-Fall-2026-Tech-Internships/main/README.md"
+
+# No Apply column: the link sits inside the Job Title cell, and it is a
+# jobright.ai redirect rather than the employer's own posting URL, so a role
+# listed here and on Simplify cannot be deduped by link.
+[[sources]]
+name = "Jobright — 2026 Software Engineer Internship"
+url = "https://raw.githubusercontent.com/jobright-ai/2026-Software-Engineer-Internship/master/README.md"
