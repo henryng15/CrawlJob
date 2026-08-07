@@ -36,13 +36,27 @@ def _key(row: list[str]) -> str | None:
     return None
 
 
+def _sort_key(row: list[str]) -> tuple[str, str]:
+    """Newest posting first. Dates are ISO-8601, so a plain string sort is a date
+    sort; the company breaks ties so that a run never reshuffles equal dates."""
+    date_posted = row[3].strip() if len(row) > 3 else ""
+    company = row[0].strip().casefold() if row else ""
+    return (date_posted, company)
+
+
+def _sorted_rows(rows: list[list[str]]) -> list[list[str]]:
+    return sorted(rows, key=_sort_key, reverse=True)
+
+
 def append_new_jobs(settings: Settings, jobs: list[Job]) -> int:
     service = _service(settings)
     values_api = service.spreadsheets().values()
-    range_name = f"{_quote_tab(settings.sheet_tab)}!A:D"
+    tab = _quote_tab(settings.sheet_tab)
+    # Read past column D so that any extra column an operator added travels with
+    # its own row when the sheet is re-sorted, instead of staying behind.
     try:
         existing = (
-            values_api.get(spreadsheetId=settings.sheet_id, range=range_name)
+            values_api.get(spreadsheetId=settings.sheet_id, range=f"{tab}!A:Z")
             .execute()
             .get("values", [])
         )
@@ -54,28 +68,30 @@ def append_new_jobs(settings: Settings, jobs: list[Job]) -> int:
         raise RuntimeError(
             f"No tab named {settings.sheet_tab!r} in the spreadsheet. Tabs found: {found}"
         ) from error
-    if not existing:
-        values_api.append(
-            spreadsheetId=settings.sheet_id,
-            range=range_name,
-            valueInputOption="RAW",
-            insertDataOption="INSERT_ROWS",
-            body={"values": [HEADERS]},
-        ).execute()
-        existing = [HEADERS]
-    if existing[0] != HEADERS:
-        raise RuntimeError(f"Expected {HEADERS} in {settings.sheet_tab}!A1:D1; found {existing[0]}")
-    known = {key for row in existing[1:] if (key := _key(row))}
+    header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
+    if header[:4] != HEADERS:
+        raise RuntimeError(f"Expected {HEADERS} in {settings.sheet_tab}!A1:D1; found {header[:4]}")
+    known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
-    if not fresh:
+    if not fresh and existing:
         return 0
-    values_api.append(
-        spreadsheetId=settings.sheet_id,
-        range=range_name,
-        valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
-        body={
-            "values": [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
-        },
-    ).execute()
+    data = _sorted_rows(
+        data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
+    )
+    _write(values_api, settings, tab, [header] + data)
     return len(fresh)
+
+
+def _write(values_api, settings: Settings, tab: str, rows: list[list[str]]) -> None:
+    """Rewriting beats appending because the whole sheet has to end up sorted.
+    Every row is padded to one width so a sorted row can never leave a stale cell
+    behind from the longer row that used to sit in its place."""
+    width = max(len(row) for row in rows)
+    padded = [row + [""] * (width - len(row)) for row in rows]
+    last_column = chr(ord("A") + width - 1)
+    values_api.update(
+        spreadsheetId=settings.sheet_id,
+        range=f"{tab}!A1:{last_column}{len(padded)}",
+        valueInputOption="RAW",
+        body={"values": padded},
+    ).execute()

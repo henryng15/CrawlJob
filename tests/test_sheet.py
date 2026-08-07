@@ -1,4 +1,4 @@
-from job_sync.sheet import HEADERS, _key, _quote_tab
+from job_sync.sheet import HEADERS, _key, _quote_tab, _sorted_rows
 from job_sync.sources import Job, dedupe_jobs, normalize_link
 
 
@@ -34,6 +34,39 @@ def test_sheet_key_skips_rows_without_a_link() -> None:
     assert _key(["Acme", "SWE Intern"]) is None
     assert _key(["Acme", "SWE Intern", "   ", "2026-08-01"]) is None
     assert _key(HEADERS) == normalize_link("Link Apply")
+
+
+def _row(company: str, date_posted: str, *extra: str) -> list[str]:
+    return [company, "SWE Intern", f"https://jobs.example/{company}", date_posted, *extra]
+
+
+def test_rows_sort_newest_posting_first() -> None:
+    rows = [
+        _row("Beta", "2026-07-04"),
+        _row("Acme", "2026-08-06"),
+        _row("Delta", "2026-07-20"),
+    ]
+    assert [row[3] for row in _sorted_rows(rows)] == ["2026-08-06", "2026-07-20", "2026-07-04"]
+
+
+def test_same_date_breaks_the_tie_on_company() -> None:
+    rows = [_row("Zeta", "2026-08-01"), _row("Acme", "2026-08-01"), _row("Mid", "2026-08-01")]
+    assert [row[0] for row in _sorted_rows(rows)] == ["Zeta", "Mid", "Acme"]
+
+
+def test_sorting_carries_extra_operator_columns_with_the_row() -> None:
+    """A note typed into column E must follow its own posting, not stay on the
+    line number it happened to occupy before the sort."""
+    rows = [_row("Beta", "2026-07-04", "applied"), _row("Acme", "2026-08-06", "rejected")]
+    assert _sorted_rows(rows) == [
+        _row("Acme", "2026-08-06", "rejected"),
+        _row("Beta", "2026-07-04", "applied"),
+    ]
+
+
+def test_sorting_tolerates_a_row_missing_its_date() -> None:
+    rows = [["Acme", "SWE Intern", "https://jobs.example/a"], _row("Beta", "2026-08-01")]
+    assert [row[0] for row in _sorted_rows(rows)] == ["Beta", "Acme"]
 
 
 def test_dedupe_keeps_first_occurrence_across_sources() -> None:
