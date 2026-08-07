@@ -4,6 +4,7 @@ import json
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
 from job_sync.sources import Job
@@ -18,6 +19,17 @@ def _service(settings: Settings):
     return build("sheets", "v4", credentials=credentials, cache_discovery=False)
 
 
+def _quote_tab(tab: str) -> str:
+    """A1 notation needs the sheet name quoted; anything with a space or a digit
+    at the front is otherwise unparseable. Inside quotes, ' doubles to ''."""
+    return "'" + tab.replace("'", "''") + "'"
+
+
+def _tab_names(service, sheet_id: str) -> list[str]:
+    meta = service.spreadsheets().get(spreadsheetId=sheet_id, fields="sheets.properties.title")
+    return [sheet["properties"]["title"] for sheet in meta.execute().get("sheets", [])]
+
+
 def _key(row: list[str]) -> str | None:
     if len(row) >= 3 and row[2].strip():
         return row[2].rstrip("/").casefold()
@@ -27,12 +39,21 @@ def _key(row: list[str]) -> str | None:
 def append_new_jobs(settings: Settings, jobs: list[Job]) -> int:
     service = _service(settings)
     values_api = service.spreadsheets().values()
-    range_name = f"{settings.sheet_tab}!A:D"
-    existing = (
-        values_api.get(spreadsheetId=settings.sheet_id, range=range_name)
-        .execute()
-        .get("values", [])
-    )
+    range_name = f"{_quote_tab(settings.sheet_tab)}!A:D"
+    try:
+        existing = (
+            values_api.get(spreadsheetId=settings.sheet_id, range=range_name)
+            .execute()
+            .get("values", [])
+        )
+    except HttpError as error:
+        if error.status_code != 400:
+            raise
+        # A quoted range only fails to parse when the tab is not there at all.
+        found = ", ".join(_tab_names(service, settings.sheet_id)) or "(none)"
+        raise RuntimeError(
+            f"No tab named {settings.sheet_tab!r} in the spreadsheet. Tabs found: {found}"
+        ) from error
     if not existing:
         values_api.append(
             spreadsheetId=settings.sheet_id,
