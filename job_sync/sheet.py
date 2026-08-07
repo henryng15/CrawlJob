@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
+from job_sync.liveness import dead_links
 from job_sync.sources import Job, normalize_link
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
@@ -63,7 +64,19 @@ def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
     return unique
 
 
-def append_new_jobs(settings: Settings, jobs: list[Job], rebuild: bool = False) -> int:
+def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
+    """Existing rows are checked too, not just the new ones: a posting that was
+    open last week is exactly the one that goes stale in the sheet."""
+    gone = dead_links([row[2] for row in rows if len(row) > 2 and row[2].strip()])
+    if not gone:
+        return rows, 0
+    live = [row for row in rows if not (len(row) > 2 and row[2] in gone)]
+    return live, len(rows) - len(live)
+
+
+def append_new_jobs(
+    settings: Settings, jobs: list[Job], rebuild: bool = False, verify_links: bool = True
+) -> tuple[int, int]:
     service = _service(settings)
     values_api = service.spreadsheets().values()
     tab = _quote_tab(settings.sheet_tab)
@@ -93,13 +106,18 @@ def append_new_jobs(settings: Settings, jobs: list[Job], rebuild: bool = False) 
     data = _drop_duplicate_rows(data)
     known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
-    if not fresh and existing and not rebuild:
-        return 0
-    data = _sorted_rows(
-        data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
-    )
-    _write(values_api, settings, tab, [header] + data, clear_to_row=len(existing))
-    return len(fresh)
+    data = data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
+    removed = 0
+    if verify_links:
+        data, removed = _drop_dead_rows(data)
+    if not fresh and not removed and existing and not rebuild:
+        return 0, 0
+    _write(values_api, settings, tab, [header] + _sorted_rows(data), clear_to_row=len(existing))
+    # A new job whose link is already dead is filtered out here, so the count has
+    # to be taken from what survived rather than from what was offered.
+    fresh_links = {job.apply_link for job in fresh}
+    appended = sum(1 for row in data if len(row) > 2 and row[2] in fresh_links)
+    return appended, removed
 
 
 def _write(

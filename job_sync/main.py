@@ -29,6 +29,11 @@ def main() -> None:
         "--scheduled", action="store_true", help="exit outside 08:00–16:59 ET even hours"
     )
     parser.add_argument(
+        "--skip-link-check",
+        action="store_true",
+        help="do not ask each board whether its posting is still open",
+    )
+    parser.add_argument(
         "--rebuild",
         action="store_true",
         help="discard existing rows and write the sheet from the sources alone",
@@ -61,8 +66,11 @@ def main() -> None:
     cutoff = args.since.isoformat()
     recent = [job for job in jobs if job.date_posted >= cutoff]
     print(f"{len(recent)} of {len(jobs)} deduped roles posted on or after {cutoff}")
-    appended = append_new_jobs(load_settings(), recent, rebuild=args.rebuild)
+    appended, removed = append_new_jobs(
+        load_settings(), recent, rebuild=args.rebuild, verify_links=not args.skip_link_check
+    )
     print(f"Appended {appended} new jobs; {len(recent) - appended} already in the sheet.")
+    print(f"Dropped {removed} rows whose posting the board reports as gone.")
     for failure in failures:
         print(f"WARNING: {failure}")
 
