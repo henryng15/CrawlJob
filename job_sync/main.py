@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -11,6 +11,10 @@ from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
 SCHEDULED_HOURS = {8, 10, 12, 14, 16}
+# The trackers carry a year of history. The first sync would otherwise backfill all
+# of it, so the sheet starts at July 2026. Later runs re-apply the same cutoff,
+# which costs nothing: anything newly posted is already past it.
+EARLIEST_POSTED = date(2026, 7, 1)
 
 
 def is_scheduled_slot(now: datetime) -> bool:
@@ -23,6 +27,12 @@ def main() -> None:
     parser.add_argument("--sources", type=Path, default=Path("sources.toml"))
     parser.add_argument(
         "--scheduled", action="store_true", help="exit outside 08:00–16:59 ET even hours"
+    )
+    parser.add_argument(
+        "--since",
+        type=date.fromisoformat,
+        default=EARLIEST_POSTED,
+        help=f"skip roles posted before this date (default: {EARLIEST_POSTED.isoformat()})",
     )
     args = parser.parse_args()
     now = datetime.now(NEW_YORK)
@@ -42,8 +52,12 @@ def main() -> None:
     if not jobs:
         raise RuntimeError("No jobs parsed. " + "; ".join(failures))
     jobs = dedupe_jobs(jobs)
-    appended = append_new_jobs(load_settings(), jobs)
-    print(f"Appended {appended} new jobs; {len(jobs)} matching rows read.")
+    # ISO-8601 dates compare correctly as strings, which is why date_posted is one.
+    cutoff = args.since.isoformat()
+    recent = [job for job in jobs if job.date_posted >= cutoff]
+    print(f"{len(recent)} of {len(jobs)} deduped roles posted on or after {cutoff}")
+    appended = append_new_jobs(load_settings(), recent)
+    print(f"Appended {appended} new jobs; {len(recent) - appended} already in the sheet.")
     for failure in failures:
         print(f"WARNING: {failure}")
 

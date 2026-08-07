@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
-from job_sync.sources import Job
+from job_sync.sources import Job, normalize_link
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -32,7 +32,7 @@ def _tab_names(service, sheet_id: str) -> list[str]:
 
 def _key(row: list[str]) -> str | None:
     if len(row) >= 3 and row[2].strip():
-        return row[2].rstrip("/").casefold()
+        return normalize_link(row[2])
     return None
 
 

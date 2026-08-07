@@ -17,6 +17,12 @@ class Source:
     url: str
 
 
+def normalize_link(value: str) -> str:
+    """The one definition of "the same posting". A row already in the sheet and a
+    row just parsed must normalize identically or the duplicate slips through."""
+    return value.strip().rstrip("/").casefold()
+
+
 @dataclass(frozen=True)
 class Job:
     company: str
@@ -26,7 +32,7 @@ class Job:
 
     @property
     def dedupe_key(self) -> str:
-        return self.apply_link.rstrip("/").casefold()
+        return normalize_link(self.apply_link)
 
 
 def load_sources(path: Path) -> list[Source]:
