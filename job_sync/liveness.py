@@ -66,11 +66,17 @@ def workday_api(url: str) -> str | None:
 
 
 def _fetch(url: str, method: str, accept: str, read_bytes: int) -> tuple[int, str] | None:
-    request = urllib.request.Request(
-        url, method=method, headers={"User-Agent": BROWSER_UA, "Accept": accept}
-    )
     try:
+        # Built inside the try because a malformed URL raises here, and one bad
+        # cell in the sheet must not end the sweep for every other row.
+        request = urllib.request.Request(
+            url, method=method, headers={"User-Agent": BROWSER_UA, "Accept": accept}
+        )
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS, context=_CONTEXT) as response:
+            # A scheme urllib serves without HTTP — file:, data: — answers with no
+            # status at all. No code means no answer, not an answer of "gone".
+            if not isinstance(response.status, int):
+                return None
             body = response.read(read_bytes).decode("utf-8", "ignore") if read_bytes else ""
             return response.status, body
     except urllib.error.HTTPError as error:
@@ -133,7 +139,9 @@ def dead_links(urls: list[str]) -> set[str]:
     time within a host, and anything that still looks dead is asked once more
     before a row is deleted over it.
     """
-    unique = list(dict.fromkeys(urls))
+    # A cell holding something other than a link — a note, a stray "." — is not a
+    # posting any host can be asked about, so it is never reported dead.
+    unique = [url for url in dict.fromkeys(urls) if urlsplit(url).scheme in ("http", "https")]
     if not unique:
         return set()
     by_host: dict[str, list[str]] = defaultdict(list)

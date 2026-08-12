@@ -107,3 +107,69 @@ def test_dead_links_deletes_only_what_stays_dead(monkeypatch) -> None:
 def test_no_links_means_no_requests(monkeypatch) -> None:
     monkeypatch.setattr(liveness, "_fetch", fake_fetch({}))
     assert dead_links([]) == set()
+
+
+def test_a_cell_that_is_not_a_link_is_left_alone(monkeypatch) -> None:
+    """A hand-typed cell like "." reached urllib and killed the whole sync. It is
+    not a posting, so it is neither asked about nor deleted."""
+    gone = "https://job-boards.greenhouse.io/acme/jobs/1"
+    monkeypatch.setattr(liveness, "_fetch", fake_fetch({gone: (404, "")}))
+    monkeypatch.setattr(liveness, "PER_HOST_DELAY_SECONDS", 0)
+    assert dead_links([".", "n/a", "see email", gone]) == {gone}
+
+
+def test_a_malformed_url_is_unknown_not_a_crash() -> None:
+    assert check(".") is None
+
+
+# A column of links is really a column of whatever anyone typed there.
+MALFORMED = [
+    ".",
+    "",
+    "   ",
+    "n/a",
+    "TBD",
+    "www.example.com",
+    "http://",
+    "://broken",
+    "http:/one-slash",
+    "file:///etc/passwd",
+    "data:text/html,hi",
+    "mailto:a@b.c",
+    "javascript:alert(1)",
+    "https://exa mple.com/x",
+    "https://éxample.com/a",
+    "#REF!",
+    '=HYPERLINK("x")',
+]
+
+
+def test_no_cell_however_typed_can_end_the_sweep(monkeypatch) -> None:
+    """One "." cost three scheduled syncs. Whatever the cell holds, the answer is
+    at worst "cannot tell" — never an exception, and never "gone"."""
+
+    def unreachable(*_args, **_kwargs):
+        raise OSError("no network in tests")
+
+    monkeypatch.setattr(liveness.urllib.request, "urlopen", unreachable)
+    assert [check(value) for value in MALFORMED] == [None] * len(MALFORMED)
+
+
+def test_a_reply_carrying_no_http_status_is_unknown(monkeypatch) -> None:
+    """file: and data: are served by urllib without any status. Comparing that
+    None against 200 raised TypeError from outside the fetch's own guard."""
+
+    class Statusless:
+        status = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size):
+            return b""
+
+    monkeypatch.setattr(liveness.urllib.request, "urlopen", lambda *a, **k: Statusless())
+    assert check("https://job-boards.greenhouse.io/acme/jobs/1") is None
