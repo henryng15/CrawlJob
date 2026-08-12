@@ -158,6 +158,67 @@ def test_an_annotated_row_outranks_the_duplicate_arriving_after_it() -> None:
     assert unique == [["Acme", "SWE Intern", "https://jobs.example/a", "2026-08-01", "applied"]]
 
 
+JOBRIGHT = "https://jobright.ai/jobs/info/6a7b2fc0"
+GREENHOUSE = "https://job-boards.greenhouse.io/acme/jobs/1"
+
+
+def test_the_employers_own_board_replaces_a_jobright_row_already_written() -> None:
+    """Arrival order alone froze whatever the sheet happened to hold first. A
+    jobright.ai row written last month has to lose to the greenhouse URL that
+    Simplify carries for the same posting, even though it arrives later."""
+    rows = [
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02"],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [GREENHOUSE]
+    assert removed == 1
+
+
+def test_the_better_link_wins_from_either_direction() -> None:
+    """Whichever order the two reach the dedupe, the employer's board is kept."""
+    rows = [
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02"],
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [GREENHOUSE]
+
+
+def test_an_annotation_is_worth_more_than_a_better_link() -> None:
+    """Whoever wrote "applied" applied through that link. Upgrading the URL under
+    them would drop the row carrying their note."""
+    rows = [
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "applied"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [JOBRIGHT]
+
+
+def test_two_aggregator_rows_still_fall_back_to_arrival() -> None:
+    rows = [
+        ["Acme", "SWE Intern", JOBRIGHT + "a", "2026-08-01"],
+        ["Acme", "SWE Intern", JOBRIGHT + "b", "2026-08-02"],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [JOBRIGHT + "a"]
+    assert removed == 1
+
+
+def test_choosing_a_later_row_does_not_reorder_the_survivors() -> None:
+    """The winner takes the loser's place in the sheet, so a run that only
+    upgrades a link does not also reshuffle everything around it."""
+    rows = [
+        ["Beta", "SWE Intern", GREENHOUSE + "b", "2026-08-01"],
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-02"],
+        ["Delta", "SWE Intern", GREENHOUSE + "d", "2026-08-03"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-04"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert [row[0] for row in unique] == ["Beta", "Delta", "Acme"]
+
+
 def test_dedupe_keeps_first_occurrence_across_sources() -> None:
     jobs = [
         _job("https://jobs.example/a", "2026-08-01"),

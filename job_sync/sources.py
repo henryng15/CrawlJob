@@ -34,6 +34,8 @@ MARKERS = re.compile(
 # next to the role patterns. Their boards also answer 200 for a requisition that
 # never existed, so a row from either could never be retired automatically.
 BLOCKED_COMPANIES = ("tiktok", "bytedance")
+# Hosts that republish someone else's posting under an id of their own.
+AGGREGATOR_HOSTS = frozenset({"jobright.ai"})
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,18 @@ def normalize_link(value: str) -> str:
     host = parts.netloc.casefold().removeprefix("www.")
     path = parts.path.rstrip("/").casefold()
     return urlunsplit((parts.scheme.casefold(), host, path, urlencode(query), ""))
+
+
+def is_aggregator_link(url: str) -> bool:
+    """A link that only redirects to the posting, rather than being it.
+
+    Jobright publishes its own /jobs/info/ id instead of the employer's board,
+    so the same job reaches this sheet as a jobright.ai link and, from Simplify
+    or speedyapply, as the greenhouse or workday URL the employer actually
+    reads. Between those two the employer's own board is the one worth keeping:
+    it outlives the aggregator's interest in the posting, and the liveness check
+    can read a 404 from it directly."""
+    return urlsplit(url.strip()).netloc.casefold().removeprefix("www.") in AGGREGATOR_HOSTS
 
 
 def name_key(value: str) -> str:

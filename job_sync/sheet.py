@@ -9,7 +9,13 @@ from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
 from job_sync.liveness import dead_links
-from job_sync.sources import Job, is_blocked_company, name_key, normalize_link
+from job_sync.sources import (
+    Job,
+    is_aggregator_link,
+    is_blocked_company,
+    name_key,
+    normalize_link,
+)
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -88,24 +94,52 @@ def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     return live, len(rows) - len(live)
 
 
+def _is_annotated(row: list[str]) -> bool:
+    """Someone has written past the four columns this tool owns — a status in
+    column E, a note in F."""
+    return any(cell.strip() for cell in row[len(HEADERS) :])
+
+
+def _preference(rows: list[list[str]], position: int) -> tuple[int, int, int]:
+    """Which of two rows describing one job to keep, smallest first.
+
+    An annotation outranks everything: whoever wrote "applied" in column E
+    applied through that link, and no better link is worth losing the note for.
+
+    Then the employer's own board over an aggregator's redirect, which is what
+    replaces a jobright.ai row already in the sheet with the greenhouse or
+    workday URL that Simplify carries for the same posting.
+
+    Then whichever came first, which is the sheet's existing rows before the
+    newly crawled ones, and among those the order the sources are listed in."""
+    row = rows[position]
+    link = row[2] if len(row) > 2 else ""
+    return (
+        0 if _is_annotated(row) else 1,
+        1 if is_aggregator_link(link) else 0,
+        position,
+    )
+
+
 def _drop_duplicate_identities(rows: list[list[str]]) -> tuple[list[list[str]], int]:
-    """One row per company and role. Rows already in the sheet are passed in
-    ahead of the new ones, so the row an operator has annotated is the one kept.
+    """One row per company and role, chosen by _preference rather than by
+    arrival, so that a better link found later still wins.
 
     A row missing either field is unjudgeable and always survives: the same rule
     the liveness check follows, that what cannot be read cannot be deleted."""
-    seen: set[tuple[str, str]] = set()
-    unique: list[list[str]] = []
-    for row in rows:
+    best: dict[tuple[str, str], int] = {}
+    unjudgeable: list[int] = []
+    for position, row in enumerate(rows):
         company, role = _identity(row)
         if not company or not role:
-            unique.append(row)
+            unjudgeable.append(position)
             continue
-        if (company, role) in seen:
-            continue
-        seen.add((company, role))
-        unique.append(row)
-    return unique, len(rows) - len(unique)
+        held = best.get((company, role))
+        if held is None or _preference(rows, position) < _preference(rows, held):
+            best[(company, role)] = position
+    # Kept in the order they were read, so the write is stable run to run.
+    kept = sorted(set(best.values()).union(unjudgeable))
+    return [rows[position] for position in kept], len(rows) - len(kept)
 
 
 def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
