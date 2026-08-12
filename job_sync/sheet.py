@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -8,10 +9,20 @@ from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
 from job_sync.liveness import dead_links
-from job_sync.sources import Job, normalize_link
+from job_sync.sources import Job, is_blocked_company, name_key, normalize_link
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    """What one run changed, so the log can say which rows left and why."""
+
+    appended: int = 0
+    dead: int = 0
+    blocked: int = 0
+    duplicate: int = 0
 
 
 def _service(settings: Settings):
@@ -64,6 +75,39 @@ def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
     return unique
 
 
+def _identity(row: list[str]) -> tuple[str, str]:
+    company = name_key(row[0]) if row else ""
+    role = name_key(row[1]) if len(row) > 1 else ""
+    return (company, role)
+
+
+def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
+    """An employer the tracker has stopped following leaves the sheet, rather
+    than merely being left out of what gets written next."""
+    live = [row for row in rows if not (row and is_blocked_company(row[0]))]
+    return live, len(rows) - len(live)
+
+
+def _drop_duplicate_identities(rows: list[list[str]]) -> tuple[list[list[str]], int]:
+    """One row per company and role. Rows already in the sheet are passed in
+    ahead of the new ones, so the row an operator has annotated is the one kept.
+
+    A row missing either field is unjudgeable and always survives: the same rule
+    the liveness check follows, that what cannot be read cannot be deleted."""
+    seen: set[tuple[str, str]] = set()
+    unique: list[list[str]] = []
+    for row in rows:
+        company, role = _identity(row)
+        if not company or not role:
+            unique.append(row)
+            continue
+        if (company, role) in seen:
+            continue
+        seen.add((company, role))
+        unique.append(row)
+    return unique, len(rows) - len(unique)
+
+
 def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     """Existing rows are checked too, not just the new ones: a posting that was
     open last week is exactly the one that goes stale in the sheet."""
@@ -76,7 +120,7 @@ def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
 
 def append_new_jobs(
     settings: Settings, jobs: list[Job], rebuild: bool = False, verify_links: bool = True
-) -> tuple[int, int]:
+) -> SyncResult:
     service = _service(settings)
     values_api = service.spreadsheets().values()
     tab = _quote_tab(settings.sheet_tab)
@@ -103,21 +147,29 @@ def append_new_jobs(
         # Rows written by an earlier, buggier parse cannot be repaired in place —
         # the company they should carry is only knowable from the source.
         header, data = HEADERS, []
+    before = len(data)
     data = _drop_duplicate_rows(data)
+    data, blocked = _drop_blocked_rows(data)
     known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
     data = data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
-    removed = 0
+    # After the new rows are appended rather than before, so that a new posting
+    # repeating a company and role already in the sheet is the one dropped.
+    data, duplicate = _drop_duplicate_identities(data)
+    dead = 0
     if verify_links:
-        data, removed = _drop_dead_rows(data)
-    if not fresh and not removed and existing and not rebuild:
-        return 0, 0
+        data, dead = _drop_dead_rows(data)
+    # Nothing added and nothing taken away, so the sheet already says all of this.
+    # Counted rather than inferred from `dead` alone: a run that only purges a
+    # blocked employer or a duplicate still has a write to make.
+    if not fresh and len(data) == before and existing and not rebuild:
+        return SyncResult()
     _write(values_api, settings, tab, [header] + _sorted_rows(data), clear_to_row=len(existing))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}
     appended = sum(1 for row in data if len(row) > 2 and row[2] in fresh_links)
-    return appended, removed
+    return SyncResult(appended=appended, dead=dead, blocked=blocked, duplicate=duplicate)
 
 
 def _write(

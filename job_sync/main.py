@@ -66,11 +66,14 @@ def main() -> None:
     cutoff = args.since.isoformat()
     recent = [job for job in jobs if job.date_posted >= cutoff]
     print(f"{len(recent)} of {len(jobs)} deduped roles posted on or after {cutoff}")
-    appended, removed = append_new_jobs(
+    result = append_new_jobs(
         load_settings(), recent, rebuild=args.rebuild, verify_links=not args.skip_link_check
     )
-    print(f"Appended {appended} new jobs; {len(recent) - appended} already in the sheet.")
-    print(f"Dropped {removed} rows whose posting the board reports as gone.")
+    already = len(recent) - result.appended
+    print(f"Appended {result.appended} new jobs; {already} already in the sheet.")
+    print(f"Dropped {result.dead} rows whose posting the board reports as gone.")
+    print(f"Dropped {result.blocked} rows from employers this tracker no longer follows.")
+    print(f"Merged {result.duplicate} rows repeating a company and role already listed.")
     for failure in failures:
         print(f"WARNING: {failure}")
 

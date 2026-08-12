@@ -1,4 +1,11 @@
-from job_sync.sheet import HEADERS, _key, _quote_tab, _sorted_rows
+from job_sync.sheet import (
+    HEADERS,
+    _drop_blocked_rows,
+    _drop_duplicate_identities,
+    _key,
+    _quote_tab,
+    _sorted_rows,
+)
 from job_sync.sources import Job, dedupe_jobs, normalize_link
 
 
@@ -67,6 +74,88 @@ def test_sorting_carries_extra_operator_columns_with_the_row() -> None:
 def test_sorting_tolerates_a_row_missing_its_date() -> None:
     rows = [["Acme", "SWE Intern", "https://jobs.example/a"], _row("Beta", "2026-08-01")]
     assert [row[0] for row in _sorted_rows(rows)] == ["Beta", "Acme"]
+
+
+def test_blocked_employers_are_removed_from_the_sheet() -> None:
+    """Not merely left out of new writes — rows written before the block have to
+    go too, under whichever name the tracker filed them."""
+    rows = [
+        _row("Acme", "2026-08-01"),
+        _row("TikTok", "2026-08-02"),
+        _row("ByteDance", "2026-08-03"),
+        _row("Bytedance Inc", "2026-08-04"),
+        _row("TikTok / ByteDance", "2026-08-05"),
+        _row("Beta", "2026-08-06"),
+    ]
+    live, removed = _drop_blocked_rows(rows)
+    assert [row[0] for row in live] == ["Acme", "Beta"]
+    assert removed == 4
+
+
+def test_one_row_survives_per_company_and_role() -> None:
+    """The same posting arrives under two links often enough that the link alone
+    cannot decide it: Lever's /apply suffix, a Jobright mirror of a company board."""
+    rows = [
+        ["Acme", "Software Engineer Intern", "https://jobs.lever.co/acme/1", "2026-08-01"],
+        ["Acme", "software engineer intern", "https://jobright.ai/jobs/info/xyz", "2026-08-02"],
+        ["Acme", "Data Engineer Intern", "https://jobs.lever.co/acme/2", "2026-08-03"],
+        ["Beta", "Software Engineer Intern", "https://jobs.lever.co/beta/1", "2026-08-04"],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert [(row[0], row[3]) for row in unique] == [
+        ("Acme", "2026-08-01"),
+        ("Acme", "2026-08-03"),
+        ("Beta", "2026-08-04"),
+    ]
+    assert removed == 1
+
+
+def test_punctuation_between_trackers_does_not_make_two_rows() -> None:
+    """Observed live: RTX, Figma and Zipline each reached the sheet twice, once
+    with a dash and once in parentheses. Medtronic used an en dash, Amazon a comma."""
+    rows = [
+        ["RTX", "Software Engineer Intern - Summer 2027", "https://a.example/1", "2026-08-01"],
+        ["RTX", "Software Engineer Intern (Summer 2027)", "https://b.example/2", "2026-08-02"],
+        [
+            "Medtronic",
+            "Software Engineering Intern – Summer 2027",
+            "https://c.example/3",
+            "2026-08-03",
+        ],
+        [
+            "Medtronic",
+            "Software Engineering Intern, Summer 2027",
+            "https://d.example/4",
+            "2026-08-04",
+        ],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert [row[0] for row in unique] == ["RTX", "Medtronic"]
+    assert removed == 2
+
+
+def test_a_row_missing_company_or_role_is_never_merged_away() -> None:
+    """What cannot be read cannot be deleted — the rule the liveness check follows."""
+    rows = [
+        ["", "", "https://jobs.example/a", "2026-08-01"],
+        ["", "", "https://jobs.example/b", "2026-08-02"],
+        ["Acme", "", "https://jobs.example/c", "2026-08-03"],
+        ["Acme", "", "https://jobs.example/d", "2026-08-04"],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert len(unique) == 4
+    assert removed == 0
+
+
+def test_an_annotated_row_outranks_the_duplicate_arriving_after_it() -> None:
+    """Existing rows are passed in ahead of new ones, so a note in column E is
+    never traded away for a fresh row describing the same job."""
+    rows = [
+        ["Acme", "SWE Intern", "https://jobs.example/a", "2026-08-01", "applied"],
+        ["Acme", "SWE Intern", "https://jobs.example/b", "2026-08-02"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert unique == [["Acme", "SWE Intern", "https://jobs.example/a", "2026-08-01", "applied"]]
 
 
 def test_dedupe_keeps_first_occurrence_across_sources() -> None:

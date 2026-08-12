@@ -47,13 +47,13 @@ def test_dedupe_across_sources_by_apply_link() -> None:
 def test_repeat_marker_inherits_the_company_above() -> None:
     markdown = """| Company | Role | Apply | Added |
 | --- | --- | --- | --- |
-| 🔥 TikTok | Software Engineer Intern | [Apply](https://jobs.example/a) | 2026-08-01 |
+| 🔥 Stripe | Software Engineer Intern | [Apply](https://jobs.example/a) | 2026-08-01 |
 | ↳ | Backend Software Engineer Intern | [Apply](https://jobs.example/b) | 2026-08-01 |
 | ↳ | Machine Learning Engineer Intern | [Apply](https://jobs.example/c) | 2026-08-01 |
 | Sargent & Lundy | Software Engineer Intern | [Apply](https://jobs.example/d) | 2026-08-01 |
 """
     jobs = parse_jobs(markdown, date(2026, 8, 6))
-    assert [job.company for job in jobs] == ["TikTok", "TikTok", "TikTok", "Sargent & Lundy"]
+    assert [job.company for job in jobs] == ["Stripe", "Stripe", "Stripe", "Sargent & Lundy"]
 
 
 def test_repeat_marker_survives_a_dropped_row_in_between() -> None:
@@ -61,11 +61,39 @@ def test_repeat_marker_survives_a_dropped_row_in_between() -> None:
     the company."""
     markdown = """| Company | Role | Apply | Added |
 | --- | --- | --- | --- |
-| TikTok | Product Manager Intern | [Apply](https://jobs.example/a) | 2026-08-01 |
+| Stripe | Product Manager Intern | [Apply](https://jobs.example/a) | 2026-08-01 |
 | ↳ | Software Engineer Intern | [Apply](https://jobs.example/b) | 2026-08-01 |
 """
     jobs = parse_jobs(markdown, date(2026, 8, 6))
-    assert [(job.company, job.role) for job in jobs] == [("TikTok", "Software Engineer Intern")]
+    assert [(job.company, job.role) for job in jobs] == [("Stripe", "Software Engineer Intern")]
+
+
+def test_blocked_employers_never_reach_the_sheet() -> None:
+    """Including through a ↳ row, which is how most of these arrive: the marker
+    resolves to the blocked name above it and must be refused with it."""
+    markdown = """| Company | Role | Apply | Added |
+| --- | --- | --- | --- |
+| 🔥 TikTok | Software Engineer Intern | [Apply](https://jobs.example/a) | 2026-08-01 |
+| ↳ | Backend Software Engineer Intern | [Apply](https://jobs.example/b) | 2026-08-01 |
+| ByteDance | Software Engineer Intern | [Apply](https://jobs.example/c) | 2026-08-01 |
+| Bytedance Inc | Software Engineer Intern | [Apply](https://jobs.example/d) | 2026-08-01 |
+| Acme | Software Engineer Intern | [Apply](https://jobs.example/e) | 2026-08-01 |
+"""
+    jobs = parse_jobs(markdown, date(2026, 8, 6))
+    assert [job.company for job in jobs] == ["Acme"]
+
+
+def test_a_blocked_name_does_not_swallow_an_unrelated_company() -> None:
+    assert [job.company for job in parse_jobs(_one_row("Tikton Labs"), date(2026, 8, 6))] == [
+        "Tikton Labs"
+    ]
+
+
+def _one_row(company: str) -> str:
+    return (
+        "| Company | Role | Apply | Added |\n| --- | --- | --- | --- |\n"
+        f"| {company} | Software Engineer Intern | [Apply](https://jobs.example/a) | 2026-08-01 |\n"
+    )
 
 
 def test_a_row_never_reaches_the_sheet_without_a_company() -> None:

@@ -30,6 +30,12 @@ MARKERS = re.compile(
 )
 
 
+# Employers this tracker deliberately does not follow. Kept visible and editable
+# next to the role patterns. Their boards also answer 200 for a requisition that
+# never existed, so a row from either could never be retired automatically.
+BLOCKED_COMPANIES = ("tiktok", "bytedance")
+
+
 @dataclass(frozen=True)
 class Source:
     name: str
@@ -54,6 +60,20 @@ def normalize_link(value: str) -> str:
     return urlunsplit((parts.scheme.casefold(), host, path, urlencode(query), ""))
 
 
+def name_key(value: str) -> str:
+    """A company or role with case and punctuation set aside. Two trackers write
+    one posting as "Intern - Summer 2027" and "Intern (Summer 2027)", Medtronic
+    uses an en dash for the same job, and Amazon a comma. All are one row."""
+    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+
+def is_blocked_company(company: str) -> bool:
+    """Matched on a substring of the condensed name so that "ByteDance",
+    "Bytedance Inc" and "TikTok / ByteDance" are all the same refusal."""
+    condensed = re.sub(r"[^a-z0-9]+", "", company.casefold())
+    return any(blocked in condensed for blocked in BLOCKED_COMPANIES)
+
+
 @dataclass(frozen=True)
 class Job:
     company: str
@@ -64,6 +84,14 @@ class Job:
     @property
     def dedupe_key(self) -> str:
         return normalize_link(self.apply_link)
+
+    @property
+    def identity_key(self) -> tuple[str, str]:
+        """One row per company and role, whatever URL each tracker gave it. The
+        same posting reaches this sheet under two links often enough — Lever's
+        /apply suffix, a Jobright mirror of an employer's own board — that the
+        link alone is not what makes two rows the same job."""
+        return (name_key(self.company), name_key(self.role))
 
 
 def load_sources(path: Path) -> list[Source]:
@@ -191,6 +219,8 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
             link = extract_url(cells[link_i])
             if not company or not link or not is_target_role(role):
                 continue
+            if is_blocked_company(company):
+                continue
             date_value = cells[date_i] if date_i is not None and date_i < len(cells) else ""
             job = Job(
                 company=company,
@@ -231,6 +261,8 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
             role = clean_text(cells[role_i])
             link = extract_url(cells[link_i])
             if not company or not link or not is_target_role(role):
+                continue
+            if is_blocked_company(company):
                 continue
             date_value = cells[date_i] if date_i is not None and date_i < len(cells) else ""
             job = Job(

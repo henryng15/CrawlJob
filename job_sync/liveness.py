@@ -10,9 +10,9 @@ alone decides almost nothing, and three different questions have to be asked:
     falls back to the bare site name.
   * Everything else — Greenhouse, Lever, Ashby, workatastartup — 404s honestly.
 
-TikTok and ByteDance answer 200 for an id that never existed, so nothing here
-can judge them. They come back UNKNOWN and are kept: a link this module cannot
-read is not a link it may delete.
+A board that answers 200 for an id that never existed cannot be judged at all.
+Those links come back UNKNOWN and are kept: a link this module cannot read is
+not a link it may delete.
 """
 
 from __future__ import annotations
