@@ -36,6 +36,11 @@ class SyncResult:
     duplicate: int = 0
     ticked_link: int = 0
     ticked_name: int = 0
+    # The state of the Applied column once this run is done. `open_` is the count
+    # that matters day to day: the postings still to be applied to.
+    applied: int = 0
+    unticked: int = 0
+    open_: int = 0
 
 
 def _service(settings: Settings):
@@ -199,6 +204,22 @@ def _already_applied(values_api, settings: Settings) -> tuple[set[str], set[tupl
     return links, identities
 
 
+def _census(rows: list[list[str]]) -> tuple[int, int, int]:
+    """How the Applied column reads: ticked, unticked by hand, and never set.
+
+    The third number is the one to watch. A checkbox that has never been clicked
+    can read back as an empty cell or as FALSE depending on how the validation was
+    put there, and _mark_applied only ever fills a blank — so a column that is all
+    FALSE and no blanks is a column nothing can ever be ticked in."""
+    applied = sum(
+        1 for row in rows if len(row) > APPLIED and row[APPLIED].strip().casefold() == "true"
+    )
+    unticked = sum(
+        1 for row in rows if len(row) > APPLIED and row[APPLIED].strip().casefold() == "false"
+    )
+    return applied, unticked, len(rows) - applied - unticked
+
+
 def _mark_applied(
     rows: list[list[str]], links: set[str], identities: set[tuple[str, str]]
 ) -> tuple[int, int]:
@@ -273,12 +294,16 @@ def append_new_jobs(
     # After the dedupe rather than before: a row ticked here is protected from being
     # merged away from the next run onward, once the sheet has been read back.
     ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
+    applied, unticked, blank = _census(data)
     # Nothing added, nothing taken away and nothing ticked, so the sheet already says
     # all of this. Counted rather than inferred from `dead` alone: a run that only
     # purges a blocked employer or a duplicate still has a write to make.
+    # Reported even on the run that writes nothing: how much is left to apply to is
+    # worth knowing whether or not the sheet changed.
+    standing = {"applied": applied, "unticked": unticked, "open_": unticked + blank}
     unchanged = not fresh and not ticked_link and not ticked_name and len(data) == before
     if unchanged and existing and not rebuild:
-        return SyncResult()
+        return SyncResult(**standing)
     _write(values_api, settings, tab, [header] + _sorted_rows(data), clear_to_row=len(existing))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
@@ -291,6 +316,7 @@ def append_new_jobs(
         duplicate=duplicate,
         ticked_link=ticked_link,
         ticked_name=ticked_name,
+        **standing,
     )
 
 
