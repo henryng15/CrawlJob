@@ -7,6 +7,10 @@ on:
         description: "Replace every row instead of only adding the new ones"
         type: boolean
         default: false
+      audit_app:
+        description: "Report what is wrong with the App tab, and sync nothing"
+        type: boolean
+        default: false
   schedule:
     # GitHub Actions only accepts UTC. Run hourly across both EST/EDT windows;
     # the command itself accepts precisely 08:00, 10:00, 12:00, 14:00, 16:00 ET.
@@ -30,6 +34,7 @@ jobs:
           internship-sync
           ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
           ${{ inputs.rebuild && '--rebuild' || '' }}
+          ${{ inputs.audit_app && '--audit-app' || '' }}
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}

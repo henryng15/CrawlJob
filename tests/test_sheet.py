@@ -5,12 +5,13 @@ from job_sync.sheet import (
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _key,
+    _loose_identity,
     _mark_applied,
     _quote_tab,
     _sorted_rows,
     _write,
 )
-from job_sync.sources import Job, dedupe_jobs, normalize_link
+from job_sync.sources import Job, dedupe_jobs, normalize_link, role_key, role_tokens
 
 
 def _job(link: str, date_posted: str = "2026-08-01") -> Job:
@@ -325,7 +326,7 @@ def test_the_tail_of_a_shortened_sheet_is_cleared_before_the_write() -> None:
 
 
 APPLIED_LINK = "https://jobs.example/Acme"
-APPLIED_NAME = ("acme", "swe intern")
+APPLIED_NAME = _loose_identity("Acme", "SWE Intern")
 
 
 def test_a_row_whose_link_is_in_the_tracker_is_ticked() -> None:
@@ -390,3 +391,73 @@ def test_a_half_filled_tracker_row_does_not_tick_everything() -> None:
     rows = [["Acme", "", "https://jobs.example/a", "2026-08-01"]]
     assert _mark_applied(rows, set(), {("acme", "")}) == (0, 0)
     assert rows[0][APPLIED] == ""
+
+
+def test_the_apply_form_and_the_posting_it_belongs_to_are_one_link() -> None:
+    """Simplify links Ashby's /application and Lever's /apply; the other trackers
+    link the posting a segment above. Two Replit rows in the sheet were this."""
+    posting = "https://jobs.ashbyhq.com/replit/7e0dafe8-3eec-442e-aa76-a4d84d779fb1"
+    form = posting + "/application?embed=true&utm_source=Simplify&ref=Simplify"
+    assert normalize_link(form) == normalize_link(posting)
+    lever = "https://jobs.lever.co/belvederetrading/10746b3d"
+    assert normalize_link(lever + "/apply") == normalize_link(lever)
+
+
+def test_a_path_that_is_only_an_apply_segment_is_left_alone() -> None:
+    """Stripping the segment must not empty the path of a URL that is nothing else."""
+    assert normalize_link("https://example.com/apply") == "https://example.com/apply"
+
+
+def test_greenhouse_repeating_the_id_in_the_query_is_not_a_second_posting() -> None:
+    """gh_jid names the posting only where the path does not; Greenhouse writes it
+    in both, and the copy is what made one SpaceX role look like two."""
+    bare = "https://boards.greenhouse.io/spacex/jobs/8621757002"
+    assert normalize_link(bare + "?gh_jid=8621757002") == normalize_link(bare)
+
+
+def test_gh_jid_still_survives_where_the_path_does_not_carry_it() -> None:
+    """The embedded Greenhouse form has no id in the path, so dropping gh_jid there
+    would collapse every posting on that board into one row."""
+    embedded = "https://boards.greenhouse.io/embed/job_app?for=acme&gh_jid="
+    assert normalize_link(embedded + "111") != normalize_link(embedded + "222")
+
+
+def test_engineer_and_engineering_are_one_role() -> None:
+    assert role_key("Software Engineer Intern") == role_key("Software Engineering Intern")
+    assert role_key("Software Development Intern") == role_key("Software Developer Intern")
+
+
+def test_the_intake_stays_part_of_the_role_for_the_sheet() -> None:
+    """Notion runs a Summer and a Winter posting. Merging them would delete an
+    opening that is genuinely still to be applied to."""
+    assert role_key("SWE Intern (Summer 2027)") != role_key("SWE Intern (Winter 2027)")
+
+
+def test_two_intakes_are_not_merged_out_of_the_sheet() -> None:
+    rows = [
+        ["Notion", "Software Engineer Intern (Summer 2027)", "https://a.example/1", "2026-08-01"],
+        ["Notion", "Software Engineer Intern (Winter 2027)", "https://a.example/2", "2026-08-02"],
+    ]
+    unique, removed = _drop_duplicate_identities(rows)
+    assert removed == 0
+    assert len(unique) == 2
+
+
+def test_the_tracker_and_the_sheet_may_write_the_role_in_any_order() -> None:
+    """Virtu: the App tab says "2027 Internship - Software Engineer" and the Jobs
+    row says "Software Engineer Intern". Word order is the last thing they agree on."""
+    assert role_tokens("2027 Internship - Software Engineer") == role_tokens(
+        "Software Engineer Intern"
+    )
+
+
+def test_a_role_with_a_word_the_other_lacks_is_a_different_job() -> None:
+    """The loose reading is unordered, not indiscriminate."""
+    assert role_tokens("Frontend Developer Internship") != role_tokens("Software Engineer Intern")
+
+
+def test_the_virtu_row_is_ticked_from_the_tracker() -> None:
+    rows = [["Virtu Financial", "Software Engineer Intern - Software Engineer", "https://v/1", "x"]]
+    tracked = {_loose_identity("Virtu Financial", "2027 Internship - Software Engineer")}
+    assert _mark_applied(rows, set(), tracked) == (0, 1)
+    assert rows[0][APPLIED] == "TRUE"

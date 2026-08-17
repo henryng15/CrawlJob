@@ -16,6 +16,24 @@ from job_sync.roles import is_target_role
 TRACKING_PARAMS = frozenset(
     {"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "ref", "gh_src", "src"}
 )
+# Params that change how the page draws itself rather than which posting it is.
+DISPLAY_PARAMS = frozenset({"embed", "mobile", "needsredirect"})
+# Last path segment of an apply form rather than of a posting.
+APPLY_SEGMENTS = frozenset({"application", "apply"})
+# Word endings two trackers disagree on while describing one posting.
+ROLE_SYNONYMS = {
+    "engineering": "engineer",
+    "engineers": "engineer",
+    "internship": "intern",
+    "internships": "intern",
+    "interns": "intern",
+    "development": "developer",
+    "developers": "developer",
+}
+# Which intake a posting is for. Part of the role in the Jobs sheet, but not part
+# of how an application already sent gets recognised.
+ROLE_NOISE = frozenset({"summer", "fall", "winter", "spring", "program", "programs"})
+YEAR = re.compile(r"20\d\d")
 # Trackers decorate the company cell: 🔥 for hot, ✅/🛂 for sponsorship, and ↳ for
 # "same company as the row above". None of them are part of a company's name.
 MARKERS = re.compile(
@@ -52,14 +70,51 @@ def normalize_link(value: str) -> str:
     Simplify appends ?utm_source=Simplify&ref=Simplify, speedyapply appends
     nothing. Dropping the tags is what makes those two rows one row."""
     parts = urlsplit(value.strip())
+    host = parts.netloc.casefold().removeprefix("www.")
+    path = parts.path.rstrip("/").casefold()
+    # Some trackers link the apply form, others the posting it belongs to. Ashby
+    # hangs the form off /application and Lever off /apply, one segment under the
+    # same id, so the two are one posting written two ways.
+    head, _, tail = path.rpartition("/")
+    if head and tail in APPLY_SEGMENTS:
+        path = head
+    identifier = path.rsplit("/", 1)[-1]
     query = [
         (key, val)
         for key, val in parse_qsl(parts.query, keep_blank_values=True)
         if key.casefold() not in TRACKING_PARAMS
+        and key.casefold() not in DISPLAY_PARAMS
+        # gh_jid names the posting only where the path does not. Greenhouse writes
+        # it both places, and the copy in the query is what makes one URL two.
+        and not (key.casefold() == "gh_jid" and val.casefold() == identifier)
     ]
-    host = parts.netloc.casefold().removeprefix("www.")
-    path = parts.path.rstrip("/").casefold()
     return urlunsplit((parts.scheme.casefold(), host, path, urlencode(query), ""))
+
+
+def role_key(role: str) -> str:
+    """A role with its word endings settled, in the order it was written.
+
+    "Software Engineer Intern" and "Software Engineering Intern" are one posting
+    that two trackers typed differently, and name_key alone keeps them apart.
+
+    The order and the intake are deliberately kept: Notion's Summer 2027 and
+    Winter 2027 postings share every other word, and a rule loose enough to merge
+    them would delete an opening that is genuinely still to be applied to."""
+    return " ".join(ROLE_SYNONYMS.get(word, word) for word in name_key(role).split())
+
+
+def role_tokens(role: str) -> frozenset[str]:
+    """A role as an unordered bag of words, without the intake it belongs to.
+
+    Only for asking whether an application has already been sent, never for
+    deciding what leaves the sheet. The two tabs describe one job from opposite
+    ends — "2027 Internship - Software Engineer" against "Software Engineer
+    Intern" — and word order is the last thing they agree on."""
+    return frozenset(
+        word
+        for word in role_key(role).split()
+        if word not in ROLE_NOISE and not YEAR.fullmatch(word)
+    )
 
 
 def is_aggregator_link(url: str) -> bool:

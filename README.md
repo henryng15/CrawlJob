@@ -62,6 +62,32 @@ tick lại ở lượt sau. Dòng nào được tick nhờ khớp tên đều in
 Hàm `backfillTicksFromApp` trong `apps_script/sync_applied_to_app.gs` làm đúng việc này
 nhưng chạy tay, dùng khi không muốn chờ lượt cron kế tiếp.
 
+## Chống trùng
+
+Ba lớp, cố tình đặt chặt dần theo mức thiệt hại nếu sai. Gộp nhầm ở tab Jobs là **mất
+một job thật**, nên hai lớp đầu chỉ gộp khi chắc chắn:
+
+1. **Theo link** — `normalize_link` bỏ tham số tracking, bỏ tham số chỉ đổi cách render
+   (`embed`), bỏ đoạn `/application` (Ashby) và `/apply` (Lever) vì đó là form nộp của
+   chính posting nằm trên nó, và bỏ `gh_jid` khi nó lặp lại đúng id đã có trong path.
+2. **Theo `(company, role)`** — `role_key` gộp `engineering`/`engineer`,
+   `internship`/`intern`, `development`/`developer`. **Giữ nguyên thứ tự từ và đợt tuyển**:
+   Notion có cả `Summer 2027` lẫn `Winter 2027`, gộp lại là xoá mất một cơ hội thật.
+3. **Theo tập từ** — `role_tokens`, bỏ thứ tự và bỏ năm/mùa. **Chỉ dùng để đối chiếu với
+   tab App**, không bao giờ dùng để xoá dòng. Đây là thứ khớp được
+   `"2027 Internship - Software Engineer"` ở App với `"Software Engineer Intern"` ở Jobs.
+
+## Soát tab App
+
+```bash
+internship-sync --audit-app
+```
+
+Không sync gì, chỉ đọc từng dòng của tab App và báo: thiếu field, hai dòng cùng một link,
+hai dòng cùng một job, giá trị `Process` lạ, và link đã chết. Tách riêng khỏi lượt sync vì
+hỏi từng board mất khoảng một phút. Trên GitHub Actions thì chạy bằng `workflow_dispatch`
+với input `audit_app`.
+
 ## Chạy local
 
 ```bash

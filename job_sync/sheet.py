@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -15,6 +16,8 @@ from job_sync.sources import (
     is_blocked_company,
     name_key,
     normalize_link,
+    role_key,
+    role_tokens,
 )
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
@@ -93,9 +96,18 @@ def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
 
 
 def _identity(row: list[str]) -> tuple[str, str]:
+    """One posting, for deciding what leaves the sheet. Strict on purpose: merging
+    two rows here deletes an opening, so the intake stays part of the role."""
     company = name_key(row[0]) if row else ""
-    role = name_key(row[1]) if len(row) > 1 else ""
+    role = role_key(row[1]) if len(row) > 1 else ""
     return (company, role)
+
+
+def _loose_identity(company: str, role: str) -> tuple[str, frozenset[str]]:
+    """One posting, for asking whether it has already been applied to. Loose on
+    purpose: a wrong answer here ticks a checkbox, which a note in column F undoes,
+    while the strict reading misses a job the App tab plainly records."""
+    return (name_key(company), role_tokens(role))
 
 
 def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
@@ -167,7 +179,9 @@ def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     return live, len(rows) - len(live)
 
 
-def _already_applied(values_api, settings: Settings) -> tuple[set[str], set[tuple[str, str]]]:
+def _already_applied(
+    values_api, settings: Settings
+) -> tuple[set[str], set[tuple[str, frozenset[str]]]]:
     """What the application tracker says has already been sent, read two ways.
 
     By link first, which is exact. Then by company and role, because the two tabs
@@ -190,16 +204,18 @@ def _already_applied(values_api, settings: Settings) -> tuple[set[str], set[tupl
         print(f"WARNING: no tab named {settings.app_tab!r}; skipping the applied check.")
         return set(), set()
     links: set[str] = set()
-    identities: set[tuple[str, str]] = set()
+    identities: set[tuple[str, frozenset[str]]] = set()
     for row in rows[1:]:
         link = row[APP_LINK] if len(row) > APP_LINK else ""
         if link.strip():
             links.add(normalize_link(link))
-        company = name_key(row[APP_COMPANY]) if len(row) > APP_COMPANY else ""
-        role = name_key(row[APP_ROLE]) if len(row) > APP_ROLE else ""
+        identity = _loose_identity(
+            row[APP_COMPANY] if len(row) > APP_COMPANY else "",
+            row[APP_ROLE] if len(row) > APP_ROLE else "",
+        )
         # A half-filled row would otherwise match every row missing the same field.
-        if company and role:
-            identities.add((company, role))
+        if all(identity):
+            identities.add(identity)
     return links, identities
 
 
@@ -219,7 +235,7 @@ def _noted(row: list[str]) -> bool:
 
 
 def _mark_applied(
-    rows: list[list[str]], links: set[str], identities: set[tuple[str, str]]
+    rows: list[list[str]], links: set[str], identities: set[tuple[str, frozenset[str]]]
 ) -> tuple[int, int]:
     """Tick the checkbox on a job already in the tracker, so what is left unticked
     is exactly what there is still to apply to.
@@ -240,7 +256,7 @@ def _mark_applied(
         row.extend([""] * (APPLIED + 1 - len(row)))
         if row[APPLIED].strip().casefold() == "true" or _noted(row):
             continue
-        identity = _identity(row)
+        identity = _loose_identity(row[0] if row else "", row[1] if len(row) > 1 else "")
         if _key(row) in links:
             row[APPLIED] = "TRUE"
             by_link += 1
@@ -251,6 +267,80 @@ def _mark_applied(
             # claimed in order for a wrong match to be findable.
             print(f"Ticked by company and role: {row[0]} — {row[1]}")
     return by_link, by_name
+
+
+APP_FIELDS = ("Property", "Company", "Application Link", "Date Applied", None, "Process", "Role")
+# The pipeline setup_process_dropdown.gs writes into the Process column.
+PROCESS_STAGES = frozenset({"applied", "oa", "interview", "offer", "rejected"})
+
+
+def audit_app(settings: Settings) -> int:
+    """Read every row of the application tracker and say what is wrong with it.
+
+    Four questions, none of which the sheet can ask itself: is a field missing, do
+    two rows describe one application, is the Process outside the pipeline, and
+    does the link still lead anywhere. The last one is why this is a separate
+    command — asking every board costs a minute, and the sync must not pay it."""
+    values_api = _service(settings).spreadsheets().values()
+    rows = (
+        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:H")
+        .execute()
+        .get("values", [])
+    )
+    if not rows:
+        print(f"{settings.app_tab} is empty.")
+        return 0
+
+    findings: list[str] = []
+    seen_link: dict[str, int] = {}
+    seen_identity: dict[tuple[str, frozenset[str]], int] = {}
+    for offset, row in enumerate(rows[1:]):
+        number = offset + 2  # The sheet's own row number, so a finding is clickable.
+        cell = [(row[i] if len(row) > i else "").strip() for i in range(8)]
+        empty = [name for i, name in enumerate(APP_FIELDS) if name and not cell[i]]
+        if len(empty) == len(list(filter(None, APP_FIELDS))):
+            findings.append(f"  row {number:<4} EMPTY      nothing but formatting")
+            continue
+        if empty:
+            findings.append(f"  row {number:<4} MISSING    {', '.join(empty)}")
+
+        link = cell[APP_LINK]
+        if link:
+            key = normalize_link(link)
+            if urlsplit(link).scheme not in ("http", "https"):
+                findings.append(f"  row {number:<4} NOT A LINK {link[:60]}")
+            elif key in seen_link:
+                findings.append(f"  row {number:<4} SAME LINK  as row {seen_link[key]}")
+            else:
+                seen_link[key] = number
+        identity = _loose_identity(cell[APP_COMPANY], cell[APP_ROLE])
+        if all(identity):
+            if identity in seen_identity:
+                findings.append(
+                    f"  row {number:<4} SAME JOB   as row {seen_identity[identity]} "
+                    f"({cell[APP_COMPANY]} — {cell[APP_ROLE]})"
+                )
+            else:
+                seen_identity[identity] = number
+        stage = cell[5].casefold()
+        if stage and stage not in PROCESS_STAGES:
+            findings.append(f"  row {number:<4} STAGE?     {cell[5]!r} is not in the pipeline")
+
+    live = {row[APP_LINK] for row in rows[1:] if len(row) > APP_LINK and row[APP_LINK].strip()}
+    for url in sorted(dead_links(sorted(live))):
+        rows_with = [
+            offset + 2
+            for offset, row in enumerate(rows[1:])
+            if len(row) > APP_LINK and row[APP_LINK].strip() == url
+        ]
+        for number in rows_with:
+            findings.append(f"  row {number:<4} DEAD LINK  the board reports it as gone")
+
+    print(f"{settings.app_tab}: {len(rows) - 1} rows")
+    for finding in sorted(findings, key=lambda text: int(text.split()[1])):
+        print(finding)
+    print(f"{len(findings)} findings across {len(rows) - 1} rows.")
+    return len(findings)
 
 
 def append_new_jobs(

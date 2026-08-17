@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from job_sync.config import load_settings
-from job_sync.sheet import append_new_jobs
+from job_sync.sheet import append_new_jobs, audit_app
 from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -39,12 +39,20 @@ def main() -> None:
         help="discard existing rows and write the sheet from the sources alone",
     )
     parser.add_argument(
+        "--audit-app",
+        action="store_true",
+        help="report what is wrong with the application tracker, and sync nothing",
+    )
+    parser.add_argument(
         "--since",
         type=date.fromisoformat,
         default=EARLIEST_POSTED,
         help=f"skip roles posted before this date (default: {EARLIEST_POSTED.isoformat()})",
     )
     args = parser.parse_args()
+    if args.audit_app:
+        audit_app(load_settings())
+        return
     now = datetime.now(NEW_YORK)
     if args.scheduled and not is_scheduled_slot(now):
         print("Outside scheduled 2-hour ET window; nothing to do.")
