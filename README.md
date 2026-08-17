@@ -50,9 +50,12 @@ rồi theo `(company, role)`. Lượt thứ hai là bắt buộc chứ không ph
 thường đi qua career site của chính công ty, trong khi dòng ở `Jobs` vẫn đang mang link
 aggregator mà tracker công bố, nên khớp link không thôi thì trượt gần hết.
 
-Chỉ ô còn trống mới được điền. Ô `FALSE` là ô đã được tick rồi bị untick bằng tay, tức
-là bạn không đồng ý với match đó; tool chạy 2 tiếng/lần nên tick lại là cãi nhau với
-bạn. Dòng nào được tick nhờ khớp tên đều in ra log của Actions để soát lại.
+Ô chưa tick thì đều được tick, dù nó đọc ra `FALSE` hay rỗng — `requireCheckbox()` ghi
+`FALSE` vào cả dải một lượt nên `FALSE` là trạng thái mặc định, không mang ý nghĩa gì.
+
+Muốn giữ một dòng không bị tick, **ghi bất cứ ghi chú gì vào cột F**. Đó là cách duy
+nhất để nói "match này sai", vì một ô checkbox tự nó không nói được — untick suông sẽ bị
+tick lại ở lượt sau. Dòng nào được tick nhờ khớp tên đều in ra log của Actions để soát.
 
 `GOOGLE_SHEET_APP_TAB` mặc định là `App`, chỉ cần đặt nếu bạn đổi tên tab.
 

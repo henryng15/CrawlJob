@@ -367,11 +367,19 @@ def test_a_row_already_ticked_is_not_counted_again() -> None:
     assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, set()) == (0, 0)
 
 
-def test_an_untick_is_never_undone() -> None:
-    """FALSE is a box that was ticked and then unticked by hand: the operator
-    disagreed with the match. A sync running every two hours must not argue back.
-    An untouched row is blank, not FALSE, so nothing is lost by leaving it."""
+def test_a_box_reading_false_is_still_ticked() -> None:
+    """Applying checkbox validation writes FALSE across the whole range at once, so
+    FALSE is the resting state of every row rather than a tick someone took back.
+    Sparing it made a function that could never tick anything."""
     rows = [_row("Acme", "2026-08-01", "FALSE")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, set()) == (1, 0)
+    assert rows[0][APPLIED] == "TRUE"
+
+
+def test_a_note_on_the_row_leaves_its_checkbox_alone() -> None:
+    """The deliberate act FALSE was mistaken for. Somebody disagreeing with a match
+    needs a way to say so that survives a sync running every two hours."""
+    rows = [_row("Acme", "2026-08-01", "FALSE", "not this req")]
     assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, {APPLIED_NAME}) == (0, 0)
     assert rows[0][APPLIED] == "FALSE"
 

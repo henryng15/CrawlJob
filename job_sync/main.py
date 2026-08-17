@@ -78,10 +78,7 @@ def main() -> None:
         f"Ticked Applied on {result.ticked_link} rows matching a tracked link "
         f"and {result.ticked_name} matching a tracked company and role."
     )
-    print(
-        f"Applied column now reads {result.applied} ticked, {result.unticked} unticked "
-        f"by hand; {result.open_} postings still to apply to."
-    )
+    print(f"{result.applied} rows ticked Applied; {result.open_} postings still to apply to.")
     for failure in failures:
         print(f"WARNING: {failure}")
 

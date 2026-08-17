@@ -39,7 +39,6 @@ class SyncResult:
     # The state of the Applied column once this run is done. `open_` is the count
     # that matters day to day: the postings still to be applied to.
     applied: int = 0
-    unticked: int = 0
     open_: int = 0
 
 
@@ -204,20 +203,19 @@ def _already_applied(values_api, settings: Settings) -> tuple[set[str], set[tupl
     return links, identities
 
 
-def _census(rows: list[list[str]]) -> tuple[int, int, int]:
-    """How the Applied column reads: ticked, unticked by hand, and never set.
-
-    The third number is the one to watch. A checkbox that has never been clicked
-    can read back as an empty cell or as FALSE depending on how the validation was
-    put there, and _mark_applied only ever fills a blank — so a column that is all
-    FALSE and no blanks is a column nothing can ever be ticked in."""
+def _census(rows: list[list[str]]) -> tuple[int, int]:
+    """How the Applied column reads: ticked, and everything else."""
     applied = sum(
         1 for row in rows if len(row) > APPLIED and row[APPLIED].strip().casefold() == "true"
     )
-    unticked = sum(
-        1 for row in rows if len(row) > APPLIED and row[APPLIED].strip().casefold() == "false"
-    )
-    return applied, unticked, len(rows) - applied - unticked
+    return applied, len(rows) - applied
+
+
+def _noted(row: list[str]) -> bool:
+    """The operator has written on this row past the checkbox — a note in column F
+    or beyond. It is the only way to tell the sync to leave a checkbox alone, since
+    an unticked box cannot say so on its own."""
+    return any(cell.strip() for cell in row[APPLIED + 1 :])
 
 
 def _mark_applied(
@@ -226,16 +224,21 @@ def _mark_applied(
     """Tick the checkbox on a job already in the tracker, so what is left unticked
     is exactly what there is still to apply to.
 
-    Only a blank cell is ever filled in. A ticked box is already right, and a box
-    reading FALSE was ticked and then unticked by hand — the operator disagreed with
-    a match, and this runs every two hours, so re-ticking it is an argument they
-    would lose. A row this tool wrote and nobody has touched is blank, which is the
-    only state it may claim."""
+    An unticked box is fair game, whether it reads FALSE or reads empty. Sparing
+    FALSE was the first attempt, on the theory that it meant a tick someone had
+    taken back — but applying checkbox validation writes FALSE across the whole
+    range at once, so it is the resting state of every row and carries no intent.
+    A column with no blanks in it would have made this a function that can never
+    tick anything, which is exactly what the first run reported.
+
+    So a row is skipped only when it is already ticked, or when it carries a note
+    past the checkbox. The note is the deliberate act FALSE was mistaken for: write
+    anything in column F and this stops touching the row."""
     by_link = 0
     by_name = 0
     for row in rows:
         row.extend([""] * (APPLIED + 1 - len(row)))
-        if row[APPLIED].strip():
+        if row[APPLIED].strip().casefold() == "true" or _noted(row):
             continue
         identity = _identity(row)
         if _key(row) in links:
@@ -294,13 +297,13 @@ def append_new_jobs(
     # After the dedupe rather than before: a row ticked here is protected from being
     # merged away from the next run onward, once the sheet has been read back.
     ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
-    applied, unticked, blank = _census(data)
+    applied, still_open = _census(data)
     # Nothing added, nothing taken away and nothing ticked, so the sheet already says
     # all of this. Counted rather than inferred from `dead` alone: a run that only
     # purges a blocked employer or a duplicate still has a write to make.
     # Reported even on the run that writes nothing: how much is left to apply to is
     # worth knowing whether or not the sheet changed.
-    standing = {"applied": applied, "unticked": unticked, "open_": unticked + blank}
+    standing = {"applied": applied, "open_": still_open}
     unchanged = not fresh and not ticked_link and not ticked_name and len(data) == before
     if unchanged and existing and not rebuild:
         return SyncResult(**standing)
