@@ -1,7 +1,9 @@
 from job_sync.config import Settings
 from job_sync.sheet import (
     APPLIED,
+    EXPIRED,
     HEADERS,
+    _census,
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _key,
@@ -355,10 +357,10 @@ def test_a_job_nobody_has_applied_to_is_left_alone() -> None:
     assert rows[0][APPLIED] == ""
 
 
-def test_a_row_is_padded_so_the_checkbox_column_always_exists() -> None:
+def test_a_row_is_padded_so_both_checkbox_columns_always_exist() -> None:
     rows = [_row("Zeta", "2026-08-01")]
     _mark_applied(rows, set(), set())
-    assert len(rows[0]) == APPLIED + 1
+    assert len(rows[0]) == EXPIRED + 1
 
 
 def test_a_row_already_ticked_is_not_counted_again() -> None:
@@ -379,10 +381,38 @@ def test_a_box_reading_false_is_still_ticked() -> None:
 
 def test_a_note_on_the_row_leaves_its_checkbox_alone() -> None:
     """The deliberate act FALSE was mistaken for. Somebody disagreeing with a match
-    needs a way to say so that survives a sync running every two hours."""
-    rows = [_row("Acme", "2026-08-01", "FALSE", "not this req")]
+    needs a way to say so that survives a sync running every two hours. The note
+    lives in column G, past both checkboxes."""
+    rows = [_row("Acme", "2026-08-01", "FALSE", "FALSE", "not this req")]
     assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, {APPLIED_NAME}) == (0, 0)
     assert rows[0][APPLIED] == "FALSE"
+
+
+def test_the_expired_column_is_not_read_as_a_note() -> None:
+    """Column F is a checkbox now, so it reads FALSE on every row it covers. Counting
+    that as a note would freeze the auto-tick across the whole sheet — the same fault
+    that made the first version of this tick nothing at all."""
+    rows = [_row("Acme", "2026-08-01", "FALSE", "FALSE")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, set()) == (1, 0)
+    assert rows[0][APPLIED] == "TRUE"
+
+
+def test_an_expired_posting_is_not_ticked_applied() -> None:
+    """Expired says the posting is not there to apply to, so there is nothing left
+    for the tick to claim about it."""
+    rows = [_row("Acme", "2026-08-01", "", "TRUE")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, {APPLIED_NAME}) == (0, 0)
+    assert rows[0][APPLIED] == ""
+
+
+def test_expired_rows_are_not_counted_as_still_to_apply_to() -> None:
+    rows = [
+        _row("Acme", "2026-08-01", "TRUE", "FALSE"),
+        _row("Beta", "2026-08-02", "FALSE", "TRUE"),
+        _row("Zeta", "2026-08-03", "FALSE", "FALSE"),
+        _row("Iota", "2026-08-04", "TRUE", "TRUE"),
+    ]
+    assert _census(rows) == (2, 2, 1)
 
 
 def test_a_half_filled_tracker_row_does_not_tick_everything() -> None:

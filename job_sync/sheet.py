@@ -22,8 +22,10 @@ from job_sync.sources import (
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-# Column E, the first one past the four this tool owns.
+# Columns E and F, the first two past the four this tool owns. Both are checkboxes
+# the operator ticks; a free-text note starts at G, past both of them.
 APPLIED = len(HEADERS)
+EXPIRED = APPLIED + 1
 # The application tracker: Property | Company | Application Link | Date Applied |
 # Location (State) | Process | Role | Note.
 APP_COMPANY, APP_LINK, APP_ROLE = 1, 2, 6
@@ -42,6 +44,7 @@ class SyncResult:
     # The state of the Applied column once this run is done. `open_` is the count
     # that matters day to day: the postings still to be applied to.
     applied: int = 0
+    expired: int = 0
     open_: int = 0
 
 
@@ -219,19 +222,29 @@ def _already_applied(
     return links, identities
 
 
-def _census(rows: list[list[str]]) -> tuple[int, int]:
-    """How the Applied column reads: ticked, and everything else."""
-    applied = sum(
-        1 for row in rows if len(row) > APPLIED and row[APPLIED].strip().casefold() == "true"
-    )
-    return applied, len(rows) - applied
+def _census(rows: list[list[str]]) -> tuple[int, int, int]:
+    """Applied, Expired, and what is left — the postings still worth an application.
+
+    A row can carry both ticks, so the third number is counted from neither being
+    set rather than by subtracting the first two."""
+    applied = sum(1 for row in rows if _ticked(row, APPLIED))
+    expired = sum(1 for row in rows if _ticked(row, EXPIRED))
+    open_ = sum(1 for row in rows if not _ticked(row, APPLIED) and not _ticked(row, EXPIRED))
+    return applied, expired, open_
+
+
+def _ticked(row: list[str], column: int) -> bool:
+    return len(row) > column and row[column].strip().casefold() == "true"
 
 
 def _noted(row: list[str]) -> bool:
-    """The operator has written on this row past the checkbox — a note in column F
-    or beyond. It is the only way to tell the sync to leave a checkbox alone, since
-    an unticked box cannot say so on its own."""
-    return any(cell.strip() for cell in row[APPLIED + 1 :])
+    """The operator has written on this row past both checkboxes — a note in column
+    G or beyond. It is the only way to tell the sync to leave a checkbox alone,
+    since an unticked box cannot say so on its own.
+
+    Past *both*: a checkbox column reads FALSE on every row it covers, so counting
+    column F as a note would freeze the whole sheet the moment Expired exists."""
+    return any(cell.strip() for cell in row[EXPIRED + 1 :])
 
 
 def _mark_applied(
@@ -247,14 +260,15 @@ def _mark_applied(
     A column with no blanks in it would have made this a function that can never
     tick anything, which is exactly what the first run reported.
 
-    So a row is skipped only when it is already ticked, or when it carries a note
-    past the checkbox. The note is the deliberate act FALSE was mistaken for: write
-    anything in column F and this stops touching the row."""
+    So a row is skipped when it is already ticked, when Expired says the posting is
+    not there to apply to, or when it carries a note past both checkboxes. The note
+    is the deliberate act FALSE was mistaken for: write anything in column G and
+    this stops touching the row."""
     by_link = 0
     by_name = 0
     for row in rows:
-        row.extend([""] * (APPLIED + 1 - len(row)))
-        if row[APPLIED].strip().casefold() == "true" or _noted(row):
+        row.extend([""] * (EXPIRED + 1 - len(row)))
+        if _ticked(row, APPLIED) or _ticked(row, EXPIRED) or _noted(row):
             continue
         identity = _loose_identity(row[0] if row else "", row[1] if len(row) > 1 else "")
         if _key(row) in links:
@@ -387,13 +401,13 @@ def append_new_jobs(
     # After the dedupe rather than before: a row ticked here is protected from being
     # merged away from the next run onward, once the sheet has been read back.
     ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
-    applied, still_open = _census(data)
+    applied, expired, still_open = _census(data)
     # Nothing added, nothing taken away and nothing ticked, so the sheet already says
     # all of this. Counted rather than inferred from `dead` alone: a run that only
     # purges a blocked employer or a duplicate still has a write to make.
     # Reported even on the run that writes nothing: how much is left to apply to is
     # worth knowing whether or not the sheet changed.
-    standing = {"applied": applied, "open_": still_open}
+    standing = {"applied": applied, "expired": expired, "open_": still_open}
     unchanged = not fresh and not ticked_link and not ticked_name and len(data) == before
     if unchanged and existing and not rebuild:
         return SyncResult(**standing)

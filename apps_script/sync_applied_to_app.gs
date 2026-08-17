@@ -4,19 +4,21 @@
  * Cách chạy:
  *   1. Mở Google Sheet, Extensions → Apps Script
  *   2. Thêm file mới, dán toàn bộ file này vào
- *   3. Chọn hàm setupAppliedCheckbox ở thanh trên, bấm Run
+ *   3. Chọn hàm setupJobsCheckboxes ở thanh trên, bấm Run
  *   4. Lần đầu Google sẽ hỏi quyền → Review permissions → chọn account
  *      → Advanced → Go to (project name) → Allow
  *
  * Không cần cài trigger: onEdit là simple trigger, Google tự gọi.
  *
  * Sync một chiều Jobs → App. App là source of truth — script này không bao giờ
- * sửa hay xoá một dòng đã sang App, kể cả khi bạn untick lại ở Jobs.
+ * sửa hay xoá một dòng đã sang App, kể cả khi bạn untick lại ở Jobs, và kể cả khi
+ * sau đó bạn tick Expired. Expired chỉ chặn dòng đi sang, không gọi dòng nào về.
  */
 
 var JOBS_TAB    = 'Jobs';
 var APP_TAB     = 'App';
 var APPLIED_COL = 5;    // Jobs cột E
+var EXPIRED_COL = 6;    // Jobs cột F — tick vào đây thì dòng không sang App
 var FIRST_ROW   = 2;    // dòng 1 là header
 var LAST_ROW    = 500;  // chừa sẵn chỗ, khớp với setup_process_dropdown.gs
 
@@ -78,18 +80,25 @@ function identity(company, role) {
 }
 
 
-/** Chạy tay một lần: dựng header và checkbox cho cột E của tab Jobs. */
-function setupAppliedCheckbox() {
+/**
+ * Chạy tay một lần: dựng header và checkbox cho cột E và F của tab Jobs.
+ *
+ * Ghi chú tự do bắt đầu từ cột G, không phải F. Một cột checkbox đọc ra FALSE ở
+ * mọi dòng nó phủ, nên nếu F được coi là chỗ ghi chú thì phía Python sẽ thấy cả
+ * sheet đã có ghi chú và ngừng tick tự động.
+ */
+function setupJobsCheckboxes() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var jobs = ss.getSheetByName(JOBS_TAB);
   if (!jobs) throw new Error('Không tìm thấy tab "' + JOBS_TAB + '".');
   if (!ss.getSheetByName(APP_TAB)) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
 
   jobs.getRange(1, APPLIED_COL).setValue('Applied');
-  jobs.getRange(FIRST_ROW, APPLIED_COL, LAST_ROW - FIRST_ROW + 1, 1)
+  jobs.getRange(1, EXPIRED_COL).setValue('Expired');
+  jobs.getRange(FIRST_ROW, APPLIED_COL, LAST_ROW - FIRST_ROW + 1, 2)
       .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
-  ss.toast('Cột E (E2:E' + LAST_ROW + ') đã thành checkbox. Tick thử một dòng.', 'Xong', 5);
+  ss.toast('Cột E và F (dòng 2–' + LAST_ROW + ') đã thành checkbox.', 'Xong', 5);
 }
 
 
@@ -168,12 +177,23 @@ function onEdit(e) {
 
   // Fill-down và paste sửa nhiều dòng một lúc, nên đọc cả khối chứ không chỉ ô đầu.
   var count = lastRow - firstRow + 1;
-  var ticks = jobs.getRange(firstRow, APPLIED_COL, count, 1).getValues();
+  var flags = jobs.getRange(firstRow, APPLIED_COL, count, 2).getValues();
   var picked = [];
+  var expired = 0;
   for (var i = 0; i < count; i++) {
-    if (ticks[i][0] === true) picked.push(i);  // untick không làm gì cả
+    if (flags[i][0] !== true) continue;  // untick không làm gì cả
+    // Expired thắng Applied: bạn đã nói posting này không còn để mà nộp, nên dù
+    // ô Applied có tick thì cũng không có gì đáng ghi sang App.
+    if (flags[i][1] === true) { expired++; continue; }
+    picked.push(i);
   }
-  if (!picked.length) return;
+  if (!picked.length) {
+    if (expired) {
+      var ss0 = e.source;
+      ss0.toast('Bỏ qua ' + expired + ' dòng đã tick Expired.', 'Jobs → App', 6);
+    }
+    return;
+  }
 
   var ss = e.source;
   var app = ss.getSheetByName(APP_TAB);
@@ -213,7 +233,7 @@ function onEdit(e) {
          .copyTo(written, SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
     }
   }
-  ss.toast(report(fresh.length, skipped), 'Jobs → App', 6);
+  ss.toast(report(fresh.length, skipped, expired), 'Jobs → App', 6);
 }
 
 
@@ -280,9 +300,10 @@ function lastEntry(app) {
 }
 
 
-function report(added, skipped) {
-  if (!added) return 'Không thêm gì: ' + skipped + ' dòng đã có ở App hoặc thiếu link.';
-  var text = 'Đã thêm ' + added + ' dòng vào ' + APP_TAB + '.';
-  if (skipped) text += ' Bỏ qua ' + skipped + ' dòng đã có ở App hoặc thiếu link.';
-  return text;
+function report(added, skipped, expired) {
+  var tail = '';
+  if (skipped) tail += ' Bỏ qua ' + skipped + ' dòng đã có ở App hoặc thiếu link.';
+  if (expired) tail += ' Bỏ qua ' + expired + ' dòng đã tick Expired.';
+  if (!added) return 'Không thêm dòng nào vào ' + APP_TAB + '.' + tail;
+  return 'Đã thêm ' + added + ' dòng vào ' + APP_TAB + '.' + tail;
 }

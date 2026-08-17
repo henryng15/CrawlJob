@@ -27,11 +27,22 @@ cách đáng tin cậy để khẳng định đã bao phủ “tất cả” rep
 có cả hai, `Date Posted` là ngày tool lần đầu quan sát job đó. Sheet được đọc trước mỗi
 lần ghi nên chạy lại không tạo duplicate.
 
-## Cột Applied (E)
+## Hai cột checkbox: Applied (E) và Expired (F)
 
-Cột E của tab `Jobs` là checkbox. Tick vào đó thì `apps_script/sync_applied_to_app.gs`
-(Apps Script, chạy phía Google) copy dòng sang tab `App` ngay lập tức. Xem header file
-đó để biết cách cài. Tool chỉ ghi vào ô còn trống của cột này, xem mục bên dưới.
+Tick `Applied` thì `apps_script/sync_applied_to_app.gs` (Apps Script, chạy phía Google)
+copy dòng sang tab `App` ngay lập tức. Xem header file đó để biết cách cài.
+
+Tick `Expired` thì dòng đó **không sang `App`**, kể cả khi `Applied` cũng được tick trên
+cùng dòng — dùng cho posting đã đóng mà board vẫn trả 200 nên liveness check không xoá
+được. Nó chỉ chặn chiều đi: một dòng đã sang `App` rồi thì tick `Expired` sau đó không
+gọi nó về, vì `App` là source of truth và không bao giờ bị script này sửa.
+
+Dòng đã tick `Expired` vẫn ở lại `Jobs` làm tombstone, cùng lý do với dòng đã Applied:
+xoá đi thì lượt sync sau append lại. Ẩn bằng filter view.
+
+**Ghi chú tự do bắt đầu từ cột G, không phải F.** Một cột checkbox đọc ra `FALSE` ở mọi
+dòng nó phủ, nên nếu `F` được coi là chỗ ghi chú thì `_noted` sẽ thấy cả sheet đã có ghi
+chú và auto-tick ngừng hoạt động hoàn toàn.
 
 Hai chỗ trong `job_sync/sheet.py` phụ thuộc vào cột này. `_is_annotated` coi `FALSE` là
 ô trống, vì checkbox chưa tick đọc ra `"FALSE"` chứ không phải rỗng, và nếu không thì
@@ -53,9 +64,12 @@ aggregator mà tracker công bố, nên khớp link không thôi thì trượt g
 Ô chưa tick thì đều được tick, dù nó đọc ra `FALSE` hay rỗng — `requireCheckbox()` ghi
 `FALSE` vào cả dải một lượt nên `FALSE` là trạng thái mặc định, không mang ý nghĩa gì.
 
-Muốn giữ một dòng không bị tick, **ghi bất cứ ghi chú gì vào cột F**. Đó là cách duy
-nhất để nói "match này sai", vì một ô checkbox tự nó không nói được — untick suông sẽ bị
-tick lại ở lượt sau. Dòng nào được tick nhờ khớp tên đều in ra log của Actions để soát.
+Dòng đã tick `Expired` không được tick `Applied`: bạn đã nói posting đó không còn để mà
+nộp, nên không còn gì để khẳng định về nó.
+
+Muốn giữ một dòng không bị tick, **ghi bất cứ ghi chú gì vào cột G**. Đó là cách duy nhất
+để nói "match này sai", vì một ô checkbox tự nó không nói được — untick suông sẽ bị tick
+lại ở lượt sau. Dòng nào được tick nhờ khớp tên đều in ra log của Actions để soát.
 
 `GOOGLE_SHEET_APP_TAB` mặc định là `App`, chỉ cần đặt nếu bạn đổi tên tab.
 
