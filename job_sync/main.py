@@ -74,6 +74,10 @@ def main() -> None:
     print(f"Dropped {result.dead} rows whose posting the board reports as gone.")
     print(f"Dropped {result.blocked} rows from employers this tracker no longer follows.")
     print(f"Merged {result.duplicate} rows repeating a company and role already listed.")
+    print(
+        f"Ticked Applied on {result.ticked_link} rows matching a tracked link "
+        f"and {result.ticked_name} matching a tracked company and role."
+    )
     for failure in failures:
         print(f"WARNING: {failure}")
 

@@ -19,6 +19,11 @@ from job_sync.sources import (
 
 HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+# Column E, the first one past the four this tool owns.
+APPLIED = len(HEADERS)
+# The application tracker: Property | Company | Application Link | Date Applied |
+# Location (State) | Process | Role | Note.
+APP_COMPANY, APP_LINK, APP_ROLE = 1, 2, 6
 
 
 @dataclass(frozen=True)
@@ -29,6 +34,8 @@ class SyncResult:
     dead: int = 0
     blocked: int = 0
     duplicate: int = 0
+    ticked_link: int = 0
+    ticked_name: int = 0
 
 
 def _service(settings: Settings):
@@ -95,9 +102,13 @@ def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
 
 
 def _is_annotated(row: list[str]) -> bool:
-    """Someone has written past the four columns this tool owns — a status in
-    column E, a note in F."""
-    return any(cell.strip() for cell in row[len(HEADERS) :])
+    """Someone has written past the four columns this tool owns — a tick in the
+    Applied checkbox in column E, a note in F.
+
+    An unticked checkbox reads back as "FALSE" rather than as an empty cell, and
+    an unticked box is precisely the absence of an annotation. Without this every
+    row in the sheet would count as annotated and the tier would say nothing."""
+    return any(cell.strip().casefold() not in ("", "false") for cell in row[len(HEADERS) :])
 
 
 def _preference(rows: list[list[str]], position: int) -> tuple[int, int, int]:
@@ -152,6 +163,72 @@ def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     return live, len(rows) - len(live)
 
 
+def _already_applied(values_api, settings: Settings) -> tuple[set[str], set[tuple[str, str]]]:
+    """What the application tracker says has already been sent, read two ways.
+
+    By link first, which is exact. Then by company and role, because the two tabs
+    routinely hold different URLs for one job: an application was sent through the
+    employer's own board months ago, while the Jobs row still carries whichever
+    aggregator link the trackers last published. Without the second reading those
+    rows never match and the checkbox stays empty on a job already applied to."""
+    try:
+        rows = (
+            values_api.get(
+                spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:H"
+            )
+            .execute()
+            .get("values", [])
+        )
+    except HttpError as error:
+        if error.status_code != 400:
+            raise
+        # No such tab. Nothing to compare against is not a reason to fail the sync.
+        print(f"WARNING: no tab named {settings.app_tab!r}; skipping the applied check.")
+        return set(), set()
+    links: set[str] = set()
+    identities: set[tuple[str, str]] = set()
+    for row in rows[1:]:
+        link = row[APP_LINK] if len(row) > APP_LINK else ""
+        if link.strip():
+            links.add(normalize_link(link))
+        company = name_key(row[APP_COMPANY]) if len(row) > APP_COMPANY else ""
+        role = name_key(row[APP_ROLE]) if len(row) > APP_ROLE else ""
+        # A half-filled row would otherwise match every row missing the same field.
+        if company and role:
+            identities.add((company, role))
+    return links, identities
+
+
+def _mark_applied(
+    rows: list[list[str]], links: set[str], identities: set[tuple[str, str]]
+) -> tuple[int, int]:
+    """Tick the checkbox on a job already in the tracker, so what is left unticked
+    is exactly what there is still to apply to.
+
+    Only a blank cell is ever filled in. A ticked box is already right, and a box
+    reading FALSE was ticked and then unticked by hand — the operator disagreed with
+    a match, and this runs every two hours, so re-ticking it is an argument they
+    would lose. A row this tool wrote and nobody has touched is blank, which is the
+    only state it may claim."""
+    by_link = 0
+    by_name = 0
+    for row in rows:
+        row.extend([""] * (APPLIED + 1 - len(row)))
+        if row[APPLIED].strip():
+            continue
+        identity = _identity(row)
+        if _key(row) in links:
+            row[APPLIED] = "TRUE"
+            by_link += 1
+        elif all(identity) and identity in identities:
+            row[APPLIED] = "TRUE"
+            by_name += 1
+            # The looser of the two readings, so the Actions log has to name what it
+            # claimed in order for a wrong match to be findable.
+            print(f"Ticked by company and role: {row[0]} — {row[1]}")
+    return by_link, by_name
+
+
 def append_new_jobs(
     settings: Settings, jobs: list[Job], rebuild: bool = False, verify_links: bool = True
 ) -> SyncResult:
@@ -193,17 +270,43 @@ def append_new_jobs(
     dead = 0
     if verify_links:
         data, dead = _drop_dead_rows(data)
-    # Nothing added and nothing taken away, so the sheet already says all of this.
-    # Counted rather than inferred from `dead` alone: a run that only purges a
-    # blocked employer or a duplicate still has a write to make.
-    if not fresh and len(data) == before and existing and not rebuild:
+    # After the dedupe rather than before: a row ticked here is protected from being
+    # merged away from the next run onward, once the sheet has been read back.
+    ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
+    # Nothing added, nothing taken away and nothing ticked, so the sheet already says
+    # all of this. Counted rather than inferred from `dead` alone: a run that only
+    # purges a blocked employer or a duplicate still has a write to make.
+    unchanged = not fresh and not ticked_link and not ticked_name and len(data) == before
+    if unchanged and existing and not rebuild:
         return SyncResult()
     _write(values_api, settings, tab, [header] + _sorted_rows(data), clear_to_row=len(existing))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}
     appended = sum(1 for row in data if len(row) > 2 and row[2] in fresh_links)
-    return SyncResult(appended=appended, dead=dead, blocked=blocked, duplicate=duplicate)
+    return SyncResult(
+        appended=appended,
+        dead=dead,
+        blocked=blocked,
+        duplicate=duplicate,
+        ticked_link=ticked_link,
+        ticked_name=ticked_name,
+    )
+
+
+def _column(index: int) -> str:
+    """The A1 letter for a zero-based column. Four owned columns plus a handful of
+    operator ones never reaches AA, so one letter is enough."""
+    return chr(ord("A") + index)
+
+
+def _update(values_api, settings: Settings, cells: str, rows: list[list[str]], parse: str) -> None:
+    values_api.update(
+        spreadsheetId=settings.sheet_id,
+        range=cells,
+        valueInputOption=parse,
+        body={"values": rows},
+    ).execute()
 
 
 def _write(
@@ -213,19 +316,36 @@ def _write(
     Every row is padded to one width so a sorted row can never leave a stale cell
     behind from the longer row that used to sit in its place. A rebuild or a
     duplicate purge shortens the sheet, so whatever sat below the new last row is
-    cleared first — otherwise the tail of the old, longer sheet survives."""
+    cleared first — otherwise the tail of the old, longer sheet survives.
+
+    The write splits at the four columns this tool owns, because the halves need
+    opposite parsing. A:D goes in RAW: Date Posted is an ISO string and the sort
+    reads it as one, which USER_ENTERED would turn into a date serial. E onward
+    goes in USER_ENTERED so the "TRUE" of a ticked Applied checkbox is stored as
+    the boolean the checkbox reads, rather than as text laid over it. The split
+    costs one extra API call per run."""
     width = max(len(row) for row in rows)
     padded = [row + [""] * (width - len(row)) for row in rows]
-    last_column = chr(ord("A") + width - 1)
+    last_column = _column(width - 1)
+    owned = len(HEADERS)
     if clear_to_row > len(padded):
         values_api.clear(
             spreadsheetId=settings.sheet_id,
             range=f"{tab}!A{len(padded) + 1}:{last_column}{clear_to_row}",
             body={},
         ).execute()
-    values_api.update(
-        spreadsheetId=settings.sheet_id,
-        range=f"{tab}!A1:{last_column}{len(padded)}",
-        valueInputOption="RAW",
-        body={"values": padded},
-    ).execute()
+    _update(
+        values_api,
+        settings,
+        f"{tab}!A1:{_column(owned - 1)}{len(padded)}",
+        [row[:owned] for row in padded],
+        "RAW",
+    )
+    if width > owned:
+        _update(
+            values_api,
+            settings,
+            f"{tab}!{_column(owned)}1:{last_column}{len(padded)}",
+            [row[owned:] for row in padded],
+            "USER_ENTERED",
+        )

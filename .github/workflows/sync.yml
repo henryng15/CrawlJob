@@ -33,4 +33,7 @@ jobs:
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}
+          # No secret needed unless the tab was renamed: an unset secret arrives as
+          # an empty string, and the command falls back to "App" on empty.
+          GOOGLE_SHEET_APP_TAB: ${{ secrets.GOOGLE_SHEET_APP_TAB }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

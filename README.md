@@ -27,6 +27,38 @@ cách đáng tin cậy để khẳng định đã bao phủ “tất cả” rep
 có cả hai, `Date Posted` là ngày tool lần đầu quan sát job đó. Sheet được đọc trước mỗi
 lần ghi nên chạy lại không tạo duplicate.
 
+## Cột Applied (E)
+
+Cột E của tab `Jobs` là checkbox. Tick vào đó thì `apps_script/sync_applied_to_app.gs`
+(Apps Script, chạy phía Google) copy dòng sang tab `App` ngay lập tức. Xem header file
+đó để biết cách cài. Tool chỉ ghi vào ô còn trống của cột này, xem mục bên dưới.
+
+Hai chỗ trong `job_sync/sheet.py` phụ thuộc vào cột này. `_is_annotated` coi `FALSE` là
+ô trống, vì checkbox chưa tick đọc ra `"FALSE"` chứ không phải rỗng, và nếu không thì
+mọi dòng đều thành "đã annotate" và tầng ưu tiên đó mất tác dụng. `_write` ghi `A:D` bằng
+`RAW` còn `E` trở đi bằng `USER_ENTERED`, vì `Date Posted` phải giữ nguyên chuỗi ISO cho
+việc sort, còn `"TRUE"` thì phải được parse thành boolean mà checkbox đọc được.
+
+Đừng xoá dòng khỏi `Jobs` sau khi đã apply: dòng đó chính là thứ giữ cho job không bị
+append lại ở run kế tiếp. Muốn giấu thì dùng filter view ẩn `E = TRUE`.
+
+## Tick tự động những job đã nộp
+
+Mỗi lần sync, tool đọc tab `App` rồi tick sẵn cột Applied ở `Jobs` cho job đã nộp, để
+những dòng còn trống đúng bằng danh sách còn phải nộp. Khớp hai lượt: theo link trước,
+rồi theo `(company, role)`. Lượt thứ hai là bắt buộc chứ không phải cho chắc — đơn nộp
+thường đi qua career site của chính công ty, trong khi dòng ở `Jobs` vẫn đang mang link
+aggregator mà tracker công bố, nên khớp link không thôi thì trượt gần hết.
+
+Chỉ ô còn trống mới được điền. Ô `FALSE` là ô đã được tick rồi bị untick bằng tay, tức
+là bạn không đồng ý với match đó; tool chạy 2 tiếng/lần nên tick lại là cãi nhau với
+bạn. Dòng nào được tick nhờ khớp tên đều in ra log của Actions để soát lại.
+
+`GOOGLE_SHEET_APP_TAB` mặc định là `App`, chỉ cần đặt nếu bạn đổi tên tab.
+
+Hàm `backfillTicksFromApp` trong `apps_script/sync_applied_to_app.gs` làm đúng việc này
+nhưng chạy tay, dùng khi không muốn chờ lượt cron kế tiếp.
+
 ## Chạy local
 
 ```bash

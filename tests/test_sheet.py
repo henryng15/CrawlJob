@@ -1,10 +1,14 @@
+from job_sync.config import Settings
 from job_sync.sheet import (
+    APPLIED,
     HEADERS,
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _key,
+    _mark_applied,
     _quote_tab,
     _sorted_rows,
+    _write,
 )
 from job_sync.sources import Job, dedupe_jobs, normalize_link
 
@@ -227,3 +231,154 @@ def test_dedupe_keeps_first_occurrence_across_sources() -> None:
         _job("https://jobs.example/b", "2026-08-04"),
     ]
     assert [job.date_posted for job in dedupe_jobs(jobs)] == ["2026-08-01", "2026-08-04"]
+
+
+def test_an_unticked_checkbox_is_not_an_annotation() -> None:
+    """Once the checkbox is set up every row carries column E, so reading "FALSE"
+    as a note would make the annotation tier say nothing about any row and quietly
+    hand every contest back to the link comparison."""
+    rows = [
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "FALSE"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02", "FALSE"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [GREENHOUSE]
+
+
+def test_a_ticked_checkbox_protects_the_link_it_was_ticked_on() -> None:
+    """The tick means the application went through that URL, so the aggregator row
+    keeps its place even though the employer's own board is otherwise preferred."""
+    rows = [
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "TRUE"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02", "FALSE"],
+    ]
+    unique, _ = _drop_duplicate_identities(rows)
+    assert [row[2] for row in unique] == [JOBRIGHT]
+
+
+class _Request:
+    def execute(self) -> None:
+        return None
+
+
+class _FakeValues:
+    """Stands in for spreadsheets().values(), recording what would have been sent."""
+
+    def __init__(self) -> None:
+        self.updates: list[tuple[str, str, list[list[str]]]] = []
+        self.cleared: list[str] = []
+
+    def update(self, spreadsheetId: str, range: str, valueInputOption: str, body: dict) -> _Request:
+        self.updates.append((range, valueInputOption, body["values"]))
+        return _Request()
+
+    def clear(self, spreadsheetId: str, range: str, body: dict) -> _Request:
+        self.cleared.append(range)
+        return _Request()
+
+
+def _written(rows: list[list[str]], clear_to_row: int = 0) -> _FakeValues:
+    values_api = _FakeValues()
+    settings = Settings(
+        sheet_id="sheet-1", sheet_tab="Jobs", app_tab="App", service_account_json="{}"
+    )
+    _write(values_api, settings, "'Jobs'", rows, clear_to_row=clear_to_row)
+    return values_api
+
+
+def test_a_sheet_nobody_has_annotated_is_still_one_write() -> None:
+    api = _written([HEADERS, _row("Acme", "2026-08-01")])
+    assert [(cells, parse) for cells, parse, _ in api.updates] == [("'Jobs'!A1:D2", "RAW")]
+
+
+def test_the_checkbox_column_is_written_where_sheets_will_parse_it() -> None:
+    """RAW stores the string "TRUE" over the checkbox rather than ticking it, and
+    the box would read back unticked on the next run."""
+    api = _written([HEADERS + ["Applied"], _row("Acme", "2026-08-01", "TRUE")])
+    assert [(cells, parse) for cells, parse, _ in api.updates] == [
+        ("'Jobs'!A1:D2", "RAW"),
+        ("'Jobs'!E1:E2", "USER_ENTERED"),
+    ]
+    assert api.updates[1][2] == [["Applied"], ["TRUE"]]
+
+
+def test_the_iso_date_is_never_offered_to_the_value_parser() -> None:
+    """USER_ENTERED across the whole row would turn Date Posted into a date serial,
+    and _sort_key reads it as a string."""
+    api = _written([HEADERS + ["Applied"], _row("Acme", "2026-08-01", "TRUE")])
+    owned = next(rows for _, parse, rows in api.updates if parse == "RAW")
+    assert owned[1] == ["Acme", "SWE Intern", "https://jobs.example/Acme", "2026-08-01"]
+
+
+def test_a_row_appended_this_run_gets_an_empty_checkbox_cell() -> None:
+    """A newly crawled row arrives four cells wide. Padding keeps the block
+    rectangular, and an empty cell under checkbox validation is an unticked box."""
+    api = _written(
+        [HEADERS + ["Applied"], _row("Acme", "2026-08-02", "TRUE"), _row("Zeta", "2026-08-01")]
+    )
+    assert api.updates[1][2] == [["Applied"], ["TRUE"], [""]]
+
+
+def test_the_tail_of_a_shortened_sheet_is_cleared_before_the_write() -> None:
+    api = _written([HEADERS, _row("Acme", "2026-08-01")], clear_to_row=9)
+    assert api.cleared == ["'Jobs'!A3:D9"]
+
+
+APPLIED_LINK = "https://jobs.example/Acme"
+APPLIED_NAME = ("acme", "swe intern")
+
+
+def test_a_row_whose_link_is_in_the_tracker_is_ticked() -> None:
+    rows = [_row("Acme", "2026-08-01")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, set()) == (1, 0)
+    assert rows[0][APPLIED] == "TRUE"
+
+
+def test_a_link_the_tracker_wrote_with_tracking_params_still_matches() -> None:
+    rows = [_row("Acme", "2026-08-01")]
+    tracked = normalize_link(APPLIED_LINK + "/?utm_source=Simplify&ref=Simplify")
+    assert _mark_applied(rows, {tracked}, set()) == (1, 0)
+
+
+def test_a_job_applied_to_through_a_different_url_is_ticked_by_name() -> None:
+    """The whole reason the second reading exists: the application went through the
+    employer's own board, while the Jobs row still carries the aggregator's link."""
+    rows = [["Acme", "SWE Intern", JOBRIGHT, "2026-08-01"]]
+    assert _mark_applied(rows, set(), {APPLIED_NAME}) == (0, 1)
+    assert rows[0][APPLIED] == "TRUE"
+
+
+def test_a_job_nobody_has_applied_to_is_left_alone() -> None:
+    rows = [_row("Zeta", "2026-08-01")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, {APPLIED_NAME}) == (0, 0)
+    assert rows[0][APPLIED] == ""
+
+
+def test_a_row_is_padded_so_the_checkbox_column_always_exists() -> None:
+    rows = [_row("Zeta", "2026-08-01")]
+    _mark_applied(rows, set(), set())
+    assert len(rows[0]) == APPLIED + 1
+
+
+def test_a_row_already_ticked_is_not_counted_again() -> None:
+    """This runs every two hours. Counting the same row each time would report work
+    that never happened and force a write on a sheet nothing changed in."""
+    rows = [_row("Acme", "2026-08-01", "TRUE")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, set()) == (0, 0)
+
+
+def test_an_untick_is_never_undone() -> None:
+    """FALSE is a box that was ticked and then unticked by hand: the operator
+    disagreed with the match. A sync running every two hours must not argue back.
+    An untouched row is blank, not FALSE, so nothing is lost by leaving it."""
+    rows = [_row("Acme", "2026-08-01", "FALSE")]
+    assert _mark_applied(rows, {normalize_link(APPLIED_LINK)}, {APPLIED_NAME}) == (0, 0)
+    assert rows[0][APPLIED] == "FALSE"
+
+
+def test_a_half_filled_tracker_row_does_not_tick_everything() -> None:
+    """An App row missing its role reads as identity ("acme", ""), which would match
+    every Jobs row that is also missing one — so neither side may be empty."""
+    rows = [["Acme", "", "https://jobs.example/a", "2026-08-01"]]
+    assert _mark_applied(rows, set(), {("acme", "")}) == (0, 0)
+    assert rows[0][APPLIED] == ""
