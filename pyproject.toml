@@ -12,6 +12,12 @@ dependencies = [
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+# Named rather than discovered. apps_script/ holds the Apps Script halves of this
+# tool, which are not Python; left to auto-discovery setuptools sees two top-level
+# packages in a flat layout and refuses to build at all.
+[tool.setuptools]
+packages = ["job_sync"]
+
 [project.scripts]
 internship-sync = "job_sync.main:main"
 
