@@ -23,9 +23,13 @@ dòng cũ.
 **Việc còn phải làm nổi lên trên, việc đã xong chìm xuống dưới.** Dòng đã tick `Applied`
 **hoặc** `Expired` bị đẩy xuống cuối; trong mỗi nửa thì bài đăng mới nhất đứng trước.
 
-Nghĩa là phần trên cùng của tab `Jobs` đúng bằng danh sách bạn cần làm, không cần filter
-gì cả. Dòng đã xong vẫn nằm nguyên đó làm tombstone, chỉ là không chắn đường nữa — và nằm
-**liền ngay sau**, không có khoảng trống ở giữa.
+Giữa hai nửa là **một dòng trống bôi vàng** làm mốc. Phía trên nó là việc cần làm, phía
+dưới là việc đã xong — không có khoảng trống nào khác.
+
+Dòng mốc đó không phải dữ liệu: nó rỗng, nên lượt đọc sau không phân biệt được nó với các
+dòng chỉ-có-checkbox và xoá luôn. Mỗi lượt nó được dựng lại từ đầu, và đó chính là cách nó
+luôn nằm đúng chỗ khi hai nửa thay đổi kích thước. Ô màu cũng được dời theo, bằng cùng cơ
+chế xoá-có-chọn-lọc dùng cho alumni.
 
 Khoảng trống đó từng có thật. `setupJobsCheckboxes` phủ validation lên `E2:F500` bất kể
 dòng đó có job hay không, mà ô checkbox chưa tick đọc ra `FALSE` chứ không phải rỗng — nên

@@ -26,6 +26,7 @@ from job_sync.sources import company_tokens, same_employer
 
 ALUMNI_COMPANY = 0
 ALUMNI_WIDTH = 6
+JOBS_WIDTH = 7
 APP_WIDTH = 8
 # Column I of App, the first past the eight that tab uses.
 RECRUITER_COLUMN = 8
@@ -160,7 +161,7 @@ def _requests(
     return requests
 
 
-def highlight(settings: Settings) -> HighlightResult:
+def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> HighlightResult:
     """Paint both marks, in one batch.
 
     Company names are compared with the loose reading from sources.company_tokens:
@@ -209,6 +210,15 @@ def highlight(settings: Settings) -> HighlightResult:
             app_recruiter.add(index)
 
     requests: list[dict] = []
+    # The divider between what is still to do and what is done. Painted here rather
+    # than where the row is written, because only this module knows how to clear the
+    # last one: the halves change size, so the row moves under it every few runs.
+    if jobs_rows:
+        state = _painted(service, settings, settings.sheet_tab, jobs_rows, "A", HIGHLIGHT)
+        if state is not None:
+            sheet_id, already = state
+            wanted = {separator - 1} if separator else set()
+            requests += _requests(sheet_id, wanted, already, (0, JOBS_WIDTH), HIGHLIGHT)
     marks = (
         (settings.alumni_tab, alumni, alumni_rows, "A", (0, ALUMNI_WIDTH), HIGHLIGHT),
         (settings.app_tab, app, app_alumni, "A", (0, APP_WIDTH), HIGHLIGHT),

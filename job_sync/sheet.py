@@ -47,6 +47,10 @@ class SyncResult:
     applied: int = 0
     expired: int = 0
     open_: int = 0
+    # 1-based sheet row of the blank divider, or 0 where there is nothing to
+    # divide. The colour on it is painted later, by highlight.
+    separator: int = 0
+    written_rows: int = 0
     # Whether the sheet was actually written. A run that changes nothing looks the
     # same in every other count, and a silent no-op is the failure worth naming.
     wrote: bool = False
@@ -95,6 +99,34 @@ def _sort_key(row: list[str]) -> tuple[int, str, str]:
 
 def _sorted_rows(rows: list[list[str]]) -> list[list[str]]:
     return sorted(rows, key=_sort_key, reverse=True)
+
+
+def _divided(rows: list[list[str]]) -> tuple[list[list[str]], int]:
+    """One blank row between what is still to do and what has been dealt with.
+
+    Part of the layout rather than of the data: it holds nothing, so the next read
+    cannot tell it from the checkbox-only rows and drops it either way. Rebuilding
+    it every run is also what keeps it in place as the two halves change size."""
+    settled = sum(1 for row in rows if _ticked(row, APPLIED) or _ticked(row, EXPIRED))
+    if not settled or settled == len(rows):
+        return rows, 0
+    split = len(rows) - settled
+    width = max(len(row) for row in rows)
+    # +2 for the header row and for 1-based row numbering.
+    return rows[:split] + [[""] * width] + rows[split:], split + 2
+
+
+def _trimmed(rows: list[list[str]]) -> list[list[str]]:
+    """Rows with trailing blank cells removed, which is how the API hands them back.
+    Comparing this way lets a run tell "already correct" from "not written yet"
+    without guessing which columns the last write happened to fill."""
+    trimmed = []
+    for row in rows:
+        cells = list(row)
+        while cells and not cells[-1].strip():
+            cells.pop()
+        trimmed.append(cells)
+    return trimmed
 
 
 def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
@@ -413,9 +445,6 @@ def append_new_jobs(
         # the company they should carry is only knowable from the source.
         header, data = HEADERS, []
     data, empty = _drop_empty_rows(data)
-    # Counted after the blanks go, so the "nothing changed" test below compares
-    # like with like on the next run rather than seeing them vanish every time.
-    before = len(data)
     data = _drop_duplicate_rows(data)
     data, blocked = _drop_blocked_rows(data)
     known = {key for row in data if (key := _key(row))}
@@ -431,16 +460,24 @@ def append_new_jobs(
     # merged away from the next run onward, once the sheet has been read back.
     ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
     applied, expired, still_open = _census(data)
-    # Nothing added, nothing taken away and nothing ticked, so the sheet already says
-    # all of this. Counted rather than inferred from `dead` alone: a run that only
-    # purges a blocked employer or a duplicate still has a write to make.
     # Reported even on the run that writes nothing: how much is left to apply to is
     # worth knowing whether or not the sheet changed.
-    standing = {"applied": applied, "expired": expired, "open_": still_open}
-    unchanged = not fresh and not ticked_link and not ticked_name and len(data) == before
-    if unchanged and existing and not rebuild:
+    laid_out, separator = _divided(_sorted_rows(data))
+    standing = {
+        "applied": applied,
+        "expired": expired,
+        "open_": still_open,
+        "separator": separator,
+        "written_rows": len(laid_out) + 1,
+    }
+    # The whole intended layout against what the sheet already holds, rather than a
+    # list of the things that might have changed. Every earlier version of this test
+    # named some of them and missed others — first a new sort order, then a divider
+    # row — and each time the answer was computed, thrown away, and reported green.
+    unchanged = _trimmed([header] + laid_out) == _trimmed(existing)
+    if unchanged and not rebuild:
         return SyncResult(**standing)
-    _write(values_api, settings, tab, [header] + _sorted_rows(data), clear_to_row=len(existing))
+    _write(values_api, settings, tab, [header] + laid_out, clear_to_row=len(existing))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}

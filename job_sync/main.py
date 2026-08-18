@@ -93,7 +93,9 @@ def main() -> None:
         f"{result.open_} postings still to apply to."
     )
     print("Rewrote the sheet." if result.wrote else "Sheet already correct; nothing written.")
-    marks = highlight(load_settings())
+    if result.separator:
+        print(f"Row {result.separator} divides what is left from what is done.")
+    marks = highlight(load_settings(), result.separator, result.written_rows)
     print(
         f"Highlighted {marks.alumni_lit} of {marks.alumni_rows} alumni rows; of "
         f"{marks.app_rows} applications, {marks.app_lit} have an alumnus and "

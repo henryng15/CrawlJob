@@ -4,6 +4,7 @@ from job_sync.sheet import (
     EXPIRED,
     HEADERS,
     _census,
+    _divided,
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _drop_empty_rows,
@@ -12,6 +13,7 @@ from job_sync.sheet import (
     _mark_applied,
     _quote_tab,
     _sorted_rows,
+    _trimmed,
     _write,
 )
 from job_sync.sources import Job, dedupe_jobs, normalize_link, role_key, role_tokens
@@ -564,3 +566,68 @@ def test_the_settled_rows_end_up_last_with_nothing_after_them() -> None:
     ]
     live, _ = _drop_empty_rows(rows)
     assert [row[0] for row in _sorted_rows(live)] == ["Open", "Done"]
+
+
+def test_a_blank_row_divides_the_two_halves() -> None:
+    rows = [
+        _row("Open", "2026-08-18", "FALSE", "FALSE"),
+        _row("Done", "2026-08-17", "TRUE", "FALSE"),
+    ]
+    laid_out, separator = _divided(_sorted_rows(rows))
+    assert [row[0] for row in laid_out] == ["Open", "", "Done"]
+    # Row 1 is the header, one open row follows, so the divider is row 3.
+    assert separator == 3
+
+
+def test_nothing_to_divide_gets_no_divider() -> None:
+    """A sheet with only open rows, or only settled ones, must not grow a stray
+    blank line at one end of it."""
+    open_only = [_row("A", "2026-08-02", "FALSE"), _row("B", "2026-08-01", "FALSE")]
+    done_only = [_row("A", "2026-08-02", "TRUE"), _row("B", "2026-08-01", "TRUE")]
+    for rows in (open_only, done_only):
+        laid_out, separator = _divided(_sorted_rows(rows))
+        assert separator == 0
+        assert len(laid_out) == 2
+
+
+def test_the_divider_is_as_wide_as_the_sheet() -> None:
+    """A short row would leave the cells beside it holding whatever sat there before
+    the sort moved everything up."""
+    rows = [
+        _row("Open", "2026-08-18", "FALSE", "FALSE", "a note"),
+        _row("Done", "2026-08-17", "TRUE"),
+    ]
+    laid_out, _ = _divided(_sorted_rows(rows))
+    assert laid_out[1] == [""] * 7
+
+
+def test_the_divider_is_dropped_when_the_sheet_is_read_back() -> None:
+    """It holds nothing, so it comes back as one more checkbox-only row and is
+    rebuilt from scratch — which is what keeps it in place as the halves resize."""
+    laid_out, _ = _divided(
+        _sorted_rows([_row("Open", "2026-08-18", "FALSE"), _row("Done", "2026-08-17", "TRUE")])
+    )
+    live, dropped = _drop_empty_rows(laid_out)
+    assert dropped == 1
+    assert [row[0] for row in live] == ["Open", "Done"]
+
+
+def test_a_layout_already_on_the_sheet_is_not_written_again() -> None:
+    """The API drops trailing blank cells from every row it returns. Without
+    allowing for that, an unchanged sheet reads as changed and gets rewritten five
+    times a day; a padded note column is enough to trigger it."""
+    written = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "FALSE", "FALSE", ""]]
+    as_read = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "FALSE", "FALSE"]]
+    assert _trimmed(written) == _trimmed(as_read)
+
+
+def test_the_divider_written_and_the_divider_read_back_are_the_same_row() -> None:
+    """It goes out as seven blanks and comes back as nothing at all."""
+    assert _trimmed([[""] * 7]) == _trimmed([[]])
+
+
+def test_a_real_change_still_reads_as_a_change() -> None:
+    """The trimming must not be so eager that it hides a row that actually moved."""
+    before = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "FALSE"]]
+    after = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "TRUE"]]
+    assert _trimmed(before) != _trimmed(after)
