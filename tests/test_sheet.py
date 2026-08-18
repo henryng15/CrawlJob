@@ -283,7 +283,11 @@ class _FakeValues:
 def _written(rows: list[list[str]], clear_to_row: int = 0) -> _FakeValues:
     values_api = _FakeValues()
     settings = Settings(
-        sheet_id="sheet-1", sheet_tab="Jobs", app_tab="App", service_account_json="{}"
+        sheet_id="sheet-1",
+        sheet_tab="Jobs",
+        app_tab="App",
+        alumni_tab="Alumni",
+        service_account_json="{}",
     )
     _write(values_api, settings, "'Jobs'", rows, clear_to_row=clear_to_row)
     return values_api

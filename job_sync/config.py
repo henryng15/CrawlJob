@@ -9,6 +9,7 @@ class Settings:
     sheet_id: str
     sheet_tab: str
     app_tab: str
+    alumni_tab: str
     service_account_json: str
 
 
@@ -23,5 +24,6 @@ def load_settings() -> Settings:
         sheet_id=os.environ["GOOGLE_SHEET_ID"],
         sheet_tab=os.getenv("GOOGLE_SHEET_TAB") or "Jobs",
         app_tab=os.getenv("GOOGLE_SHEET_APP_TAB") or "App",
+        alumni_tab=os.getenv("GOOGLE_SHEET_ALUMNI_TAB") or "Alumni",
         service_account_json=os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"],
     )

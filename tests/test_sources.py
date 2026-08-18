@@ -3,10 +3,12 @@ from datetime import date
 from job_sync.sources import (
     Job,
     clean_text,
+    company_tokens,
     dedupe_jobs,
     normalize_link,
     parse_jobs,
     posted_date,
+    same_employer,
 )
 
 
@@ -162,3 +164,32 @@ def test_a_month_day_date_takes_the_year_that_is_already_past() -> None:
 
 def test_an_unreadable_date_falls_back_to_today_not_to_1900() -> None:
     assert posted_date("whenever", date(2026, 8, 7)) == "2026-08-07"
+
+
+def test_an_alumni_directory_and_an_application_name_one_employer() -> None:
+    """The directory writes the registered name, the application writes what the
+    careers page called it."""
+    pairs = [
+        ("Chicago Trading Company (CTC)", "Chicago Trading Company"),
+        ("Hakkōda, an IBM Company", "IBM"),
+        ("Altamira Technologies", "Altamira"),
+        ("Google Cloud", "Google"),
+        ("Jane Street Capital", "Jane Street"),
+    ]
+    for directory, application in pairs:
+        assert same_employer(company_tokens(directory), company_tokens(application))
+
+
+def test_sharing_a_prefix_is_not_sharing_an_employer() -> None:
+    """Containment is over whole words. Substrings would put Dice at Dicerna and
+    HP at Champion, and the alumni tab would go yellow everywhere."""
+    apart = [("Dicerna Pharmaceuticals", "Dice"), ("Champion Sports", "HP"), ("Apple", "Google")]
+    for left, right in apart:
+        assert not same_employer(company_tokens(left), company_tokens(right))
+
+
+def test_a_name_that_is_only_legal_form_matches_nothing() -> None:
+    """ "The Company" reduces to no words at all, and an empty set is contained in
+    everything — which would paint the entire directory."""
+    assert company_tokens("The Company Ltd") == frozenset()
+    assert not same_employer(company_tokens("The Company Ltd"), company_tokens("Google"))

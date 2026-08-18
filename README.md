@@ -34,6 +34,7 @@ chỉ chảy vào nó, không có chiều ngược lại.
 | Dùng sheet hàng ngày, muốn biết mỗi cột nghĩa là gì | [docs/spreadsheet.md](docs/spreadsheet.md) |
 | Thắc mắc vì sao hai dòng bị gộp, hoặc vì sao một job không được tick | [docs/matching.md](docs/matching.md) |
 | Muốn biết job từ đâu ra và khi nào một dòng bị xoá | [docs/crawling.md](docs/crawling.md) |
+| Muốn biết alumni nào làm ở công ty mình đã nộp | [docs/alumni.md](docs/alumni.md) |
 | Đang vận hành: soát lỗi, đọc log, rebuild | [docs/operations.md](docs/operations.md) |
 
 ## Chạy thử nhanh

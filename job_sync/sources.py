@@ -30,6 +30,35 @@ ROLE_SYNONYMS = {
     "development": "developer",
     "developers": "developer",
 }
+# Legal-form words that are part of a registered name but not of a company's
+# identity. "Chicago Trading Company (CTC)" and "Chicago Trading Company" are one
+# employer, and so are "Altamira Technologies" and "Altamira".
+COMPANY_NOISE = frozenset(
+    {
+        "inc",
+        "llc",
+        "ltd",
+        "limited",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "companies",
+        "group",
+        "holdings",
+        "plc",
+        "gmbh",
+        "ag",
+        "nv",
+        "bv",
+        "sa",
+        "technologies",
+        "technology",
+        "the",
+        "an",
+        "and",
+    }
+)
 # Which intake a posting is for. Part of the role in the Jobs sheet, but not part
 # of how an application already sent gets recognised.
 ROLE_NOISE = frozenset({"summer", "fall", "winter", "spring", "program", "programs"})
@@ -355,3 +384,25 @@ def dedupe_jobs(jobs: list[Job]) -> list[Job]:
             seen.add(job.dedupe_key)
             unique.append(job)
     return unique
+
+
+def company_tokens(company: str) -> frozenset[str]:
+    """An employer as the words that actually name it, legal form dropped.
+
+    Used only to ask whether two lists are talking about the same employer, never
+    to delete anything, so it leans towards finding a match."""
+    return frozenset(word for word in name_key(company).split() if word not in COMPANY_NOISE)
+
+
+def same_employer(left: frozenset[str], right: frozenset[str]) -> bool:
+    """Either name being contained in the other is enough: an alumni directory
+    writes "Google Cloud" and "Hakkoda, an IBM Company" where the application says
+    "Google" and "IBM".
+
+    Containment is over whole words, not substrings, so "Dice" does not match
+    "Dicerna" and "HP" does not match "Champion". Two companies that genuinely
+    share a word still get flagged — that is the cost of the looser reading, and
+    the log names every pair for review."""
+    if not left or not right:
+        return False
+    return left <= right or right <= left
