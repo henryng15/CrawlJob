@@ -463,7 +463,16 @@ def append_new_jobs(
     # Reported even on the run that writes nothing: how much is left to apply to is
     # worth knowing whether or not the sheet changed.
     laid_out, separator = _divided(_sorted_rows(data))
+    # Every count, not just the standing ones. The early return below reports these
+    # too: the work of filtering still happened on a run that had nothing to write,
+    # and a log that zeroes it is a log that cannot be read.
     standing = {
+        "dead": dead,
+        "blocked": blocked,
+        "duplicate": duplicate,
+        "empty": empty,
+        "ticked_link": ticked_link,
+        "ticked_name": ticked_name,
         "applied": applied,
         "expired": expired,
         "open_": still_open,
@@ -482,17 +491,7 @@ def append_new_jobs(
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}
     appended = sum(1 for row in data if len(row) > 2 and row[2] in fresh_links)
-    return SyncResult(
-        appended=appended,
-        dead=dead,
-        blocked=blocked,
-        duplicate=duplicate,
-        empty=empty,
-        ticked_link=ticked_link,
-        ticked_name=ticked_name,
-        wrote=True,
-        **standing,
-    )
+    return SyncResult(appended=appended, wrote=True, **standing)
 
 
 def _column(index: int) -> str:
