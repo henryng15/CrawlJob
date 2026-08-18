@@ -1,0 +1,727 @@
+# Employers with at least one verified recruiter contact.
+# Names only. The contacts themselves stay in the ColdEmail project; this
+# file exists so the sync can mark an application without carrying anyone's
+# name or address into this repo.
+#
+# Regenerate:
+#   python scripts/recruiter_companies.py <path to seed_recruiters.csv>
+1Password
+2nd Order Solutions
+3M
+Abacus Insights
+Abbott
+ABC Fitness
+Abnormal Security
+Abridge
+Accenture
+Achievers
+ACI Worldwide
+Actian
+Adobe
+AECOM
+AEG
+AeroVect
+AffiniPay
+Affirm
+AGCO
+Agility Robotics
+AHEAD
+Airbnb
+Airtable
+Akamai
+Akuna Capital
+Alcon
+Aledade
+Alexion
+AlixPartners
+Alo Yoga
+Altasciences
+Alteryx
+Amazon
+AMC Networks
+Amcor
+AMD
+Ameresco
+American Cancer Society
+American Express
+American Heart Association
+American Tower
+Amgen
+Amp Robotics
+Amplitude
+Anduril
+Anomali
+Anthropic
+Apex Companies
+APL Logistics
+Appian
+Apple
+Apptronik
+Aprio
+Aptiv
+AQR Capital Management
+Aquabyte
+Aquatic
+Arcadis
+Arcellx
+Arch Capital Group
+Arconic
+Arctic Wolf
+Armada
+ARRAY Technologies
+Arrow International
+Arrowhead Pharmaceuticals
+Artisan Partners
+Asana
+Ascensus
+ASML
+AssetMark
+Astera Labs
+AstraZeneca
+Astronomer
+AT&T
+Atlas Energy Solutions
+Atlassian
+Atomic Semi
+Atos
+Aura Frames
+Aurora
+Auth0
+Autodesk
+automotiveMastermind
+AVEVA
+Axiom Space
+Axos Bank
+AXS
+Aypa Power
+BAE Systems
+Bain
+Baird
+Baker Hughes
+Bank of America
+Bank of Montreal
+Banner Health
+BCforward
+BECU
+Belden
+Belvedere Trading
+Benchling
+Berkshire Grey
+Betterment
+Beyondsoft
+Biogen
+Blackboard
+BlackRock
+BlackSky
+Block
+Bloomberg
+Bloomberg Industry Group
+Blue Cross Blue Shield of Michigan
+Blue Cross of Idaho
+Blue Origin
+BMO
+Boeing
+BorgWarner
+Boston Consulting Group
+Boston Medical Center
+Box
+Boys Town
+BP
+Brex
+Bristol Myers Squibb
+Broadcom
+Brooks Automation
+Businessolver
+ButcherBox
+By Light Professional IT Services
+ByteDance
+C3 AI
+Cable One
+CAE
+Cambia Health Solutions
+Cambium Learning Group
+Camlin
+Canva
+Capella
+Capital One
+Capital Rx
+Carbon Direct
+Cardinal Health
+Carrier Global
+Cart.com
+Carta
+Cboe
+CCC Intelligent Solutions
+CDW Corporation
+Cenovus Energy
+Centerfield
+Centific
+Cerebras
+Chainalysis
+Chanel
+Character AI
+ChargePoint
+Checkr
+CHEP
+Chewy
+Chime
+Chipotle Mexican Grill
+Choice Hotels
+CIBC
+Circle K
+Cisco
+Citadel
+Citadel Securities
+Citco
+City of Philadelphia
+Civil & Environmental Consultants
+Clarivate
+Clorox
+Cloudflare
+Coca-Cola
+Cockroach Labs
+Coda
+Cognex
+Cohere
+Coinbase
+Collaborative Robotics
+Comcast
+Compa
+Confluent
+Consensus Cloud Solutions
+Constellation Brands
+Cooper Standard
+CoorsTek
+Copart
+CoreWeave
+Cortland
+CoStar Group
+Costco
+Coupa Software
+CoxHealth
+Creative Artists Agency
+CrowdStrike
+Crowe
+Cruise
+Cursor
+CVS Health
+Daikin Applied
+Daimler Truck
+Daniels Health
+Databricks
+Datadog
+Datasite
+dbt Labs
+DE Shaw
+Deegit
+Deel
+DEKA Research & Development
+Dell Technologies
+Deloitte
+Dematic
+Dentsu
+Dexcom
+DH Pace
+DigitalOcean
+Diligent Corporation
+Discord
+Disney
+DNV
+DocuSign
+DoorDash
+Double Good
+Dover
+Dow Jones
+DraftKings
+Drivemode
+Dropbox
+DRW
+DXC Technology
+Dyson
+E2 Consulting Engineers
+Eataly
+eBay
+EBSCO
+Echo Global Logistics
+edmentum
+Edwards Lifesciences
+EisnerAmper
+Ekimetrics
+Elanco
+Elastic
+Electric Power Engineers
+Electronic Arts
+Elekta
+Eli Lilly and Company
+Emory University
+Employee Navigator
+Energy Vault
+ENOVIS
+Ensono
+Entrust
+Envista
+Epic Games
+Epicor
+Epiroc
+Equinix
+EquipmentShare
+Ernst & Young
+Esri
+Etsy
+EverCommerce
+Everlaw
+Exa Labs
+Exiger
+Expedia Group
+Expedition Technology
+Expeditors
+Extreme Networks
+ExxonMobil
+Faire
+Fairlife
+Faith Technologies
+Fanatics
+FanDuel
+Farmers Insurance
+Fastly
+Fidelity Investments
+Fifth Third Bank
+Figma
+Fireworks AI
+First American
+Five9
+Fivetran
+Flagship Pioneering
+Flexera
+Flexport
+Flock Safety
+Fluxergy
+FMC Corporation
+Foley Hoag
+Ford
+Fortinet
+Fortrea
+Four Hands
+FourKites
+Franklin Templeton
+Fujitsu
+Fulton Bank
+GAF
+GCI
+GE Appliances
+GE Healthcare
+GE Vernova
+Geisinger
+Gelber Group
+Gemini
+Genentech
+Generac
+General Motors
+Generate Biomedicines
+Genesys
+Gentex Corporation
+Geosyntec Consultants
+GitHub
+GitLab
+Glean
+GlobalFoundries
+Globus Medical
+GoDaddy
+Goldman Sachs
+Google
+Goosehead Insurance
+Gopuff
+Gordon Food Service
+Gorgias
+Grammarly
+Graybar
+Greene Tweed
+Groq
+Guardian Life
+Guidepoint
+Gusto
+GXO Logistics
+Halliburton
+Hancock Whitney
+Harvey
+HashiCorp
+Hayden AI
+Healthfirst
+HealthStream
+Hearst
+HeartFlow
+Heidelberg Materials
+HERE Technologies
+HF Sinclair
+Highlight Technologies
+Hippocratic AI
+Hitachi Energy
+Homebase
+Horace Mann
+Housecall Pro
+Howmet Aerospace
+HP
+HPE
+HUB
+HubSpot
+Hudl
+Hugging Face
+Humana
+Huron
+Hyundai AutoEver America
+IBM
+ibotta
+IDEX
+IFS
+iHeartMedia
+Illumio
+IMC Trading
+Imerys
+Impinj
+Infleqtion
+Infojini
+Inogen
+Insitro
+Insperity
+Instacart
+Insulet Corporation
+Intapp
+Integral Ad Science
+Integrated Resources
+Intel
+Interactive Brokers
+InterSystems
+Intertek
+Intuit
+Invenergy
+Invesco
+IQVIA
+Ironclad
+iTradeNetwork
+Jackson
+Jade Global
+Jane Street
+Johnson & Johnson
+Johnson Matthey
+Journal Technologies
+JPMorgan Chase
+Jumio
+Jump Trading
+Kairos Power
+Kapitus
+Kargo
+KeyBank
+Kikoff
+Kimley-Horn
+Kobo
+Kodak
+Koddi
+Kodiak Robotics
+Kontoor Brands
+KRAFTON
+Kraken
+Kroll
+Kymera Therapeutics
+L3Harris Technologies
+Labcorp
+LabCorp
+Labelbox
+Lamb Weston
+Lambda
+Lasko Products
+Lennar Corporation
+Lightmatter
+Lightspeed Systems
+Linear
+Link
+LinkedIn
+LivaNova
+Locus Robotics
+LogicGate
+Lonza
+Loom
+Loop
+Lowe's
+Lucid Motors
+Lumentum
+Lyft
+M&T Bank
+MaintainX
+Manhattan Associates
+Mark43
+Marmon Holdings
+Marqeta
+Mastercard
+McKinsey
+Mercedes-Benz
+Merck
+Mercury
+MerQube
+Meta
+Method
+Michelin
+Microsoft
+Midmark
+Millennium
+MillerKnoll
+Minitab
+Miro
+Mistral AI
+Mixpanel
+Modal
+Moderna
+Momentive
+MongoDB
+Morgan Stanley
+Motorola Solutions
+MRI Software
+MultiCare Health System
+Munters
+Myriad Genetics
+Nasuni
+NCR Voyix
+Nestle
+Netflix
+Netlify
+Netwrix
+Neurocrine Biosciences
+New Balance
+New Relic
+Newsela
+Nextiva
+Nike
+Nokia
+Nordson
+NRG Energy
+Nubank
+Nuro
+Nvidia
+NVIDIA
+NXP Semiconductors
+OCLC
+OfferUp
+Okta
+Omnicom Health
+Onto Innovation
+OpenAI
+Optiver
+Oracle
+Orthofix
+PA Consulting
+Palantir
+Palo Alto Networks
+Parachute Health
+Parallel Systems
+Patterson Companies
+PayPal
+PEAK6
+Penumbra Inc
+PepsiCo
+Perchwell
+Perplexity
+Persona
+Pfizer
+Philips
+Pinecone
+Pinterest
+Plaid
+Playfly Sports
+PNC Financial Services
+Podium
+Point72
+Polaris
+Poshmark
+PowerSchool
+Precisely
+Progyny
+Protiviti
+PTC
+Qorvo
+Qualcomm
+Quest Analytics
+QuidelOrtho
+QuinStreet
+Radiance Technologies
+Ramp
+Raymond James Financial
+Raytheon
+Reality Defender
+Realty Income
+Recursion
+Red Hat
+Reddit
+Redwood Materials
+Regal Rexnord
+Regions Bank
+Replit
+Resolve Tech Solutions
+Retool
+Revance
+Revvity
+Riot Games
+Ripple
+Rippling
+Rivian
+Robinhood
+Roblox
+Roku
+Royal Bank of Canada
+RTW Investments
+Rundoo
+Runway
+Ryder System
+S&P Global
+Salesforce
+Samsara
+Samsung Research America
+Sanofi
+Sarasota County
+Sargent & Lundy
+Scale AI
+Schneider Electric
+Schonfeld
+Schreiber Foods
+Scout Motors
+Securitas
+Segment
+SentinelOne
+Sentry Insurance
+ServiceNow
+Shake Shack
+Sharecare
+Shawmut Design and Construction
+Shopify
+Sierra
+Sierra Nevada Corporation
+SIG
+Signifyd
+Simple Technology Solutions
+SitusAMC
+skillz
+Skydio
+Smith+Nephew
+Smiths Detection Group
+SMX
+Snap
+Snap Finance
+Snorkel AI
+Snowflake
+Snyk
+Socure
+SoFi
+Solar Turbines
+SolarWinds
+Sonoco
+Splunk
+SpotHero
+Spotify
+Sprinklr
+SpyCloud
+Squarespace
+Stanford Health Care
+Stantec
+Stevens Institute of Technology
+Striim
+Stripe
+Sumitomo Mitsui Banking Corporation
+SumUp
+Supabase
+Synchrony Financial
+Syneos Health
+Synthego
+T-Mobile
+Takeda
+Talkspace
+Target
+tastytrade
+Tatari
+Tecovas
+TelevisaUnivision
+Temporal
+Tempus
+Tencent
+Terex
+Tesla
+Texas Capital Bank
+The Boeing Company
+The Exploration Company
+The Hartford
+The New School
+The Scion Group
+The Trade Desk
+The Voleon Group
+The Washington Post
+Thomson Reuters
+Thorlabs
+TikTok
+TMEIC
+Toast
+Together AI
+Tonal
+Tools for Humanity
+Torc Robotics
+Torch Technologies
+Travelers
+TriNet
+TripAdvisor
+TRUMPF
+Twilio
+Twitch
+Two Sigma
+Uber
+UiPath
+UL Solutions
+UMB
+Unilever
+UnitedMasters
+Unity
+University of Arkansas
+University of Rochester
+UT Southwestern Medical Center
+Vanta
+Veeam Software
+Vercel
+Verisign
+Verizon
+Verizon Communications
+Verkada
+Vertiv
+Viatris
+Virtu Financial
+Visa
+Vizient
+VMware
+Voloridge Investment Management
+Voya Financial
+W.W. Grainger
+Walleye Capital
+Walmart
+Warner Bros Discovery
+Wasabi
+Wavetronix
+Wayfair
+Wealthfront
+Wealthsimple
+Webster Bank
+Weights & Biases
+Wells Fargo
+WellSky
+WeRide
+Westinghouse
+WindBorne Systems
+Wisk
+Wix
+Wiz
+Worcester Polytechnic Institute
+Workato
+Workday
+World Kinect
+X
+X-energy
+Yes Energy
+Zayo
+Zello
+ZOLL Medical Corporation
+Zoom
+Zoox
+Zscaler

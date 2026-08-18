@@ -1,4 +1,4 @@
-# Alumni: ai có thể refer bạn
+# Ai có thể nói giúp bạn một câu
 
 Danh bạ alumni của trường được dán vào một tab riêng. Mỗi lượt sync, tool tô vàng **cả hai
 phía** của phần giao nhau:
@@ -7,6 +7,10 @@ phía** của phần giao nhau:
   xin referral.
 - Tab **`App`** — đơn ứng tuyển mà bạn *có người quen bên trong*. Nhìn tab App là biết ngay
   đơn nào còn đường đẩy thêm.
+
+Và một dấu thứ hai, màu đỏ ở **cột I của tab `App`**: công ty đó có sẵn recruiter trong
+danh sách liên hệ. Hai dấu độc lập — vàng cả dòng là "có alumni", đỏ ô I là "có recruiter";
+một đơn có thể mang cả hai.
 
 Tool **chỉ ghi màu**, không đụng vào một chữ nào trong hai tab đó.
 
@@ -67,8 +71,9 @@ ghim lại chuyện này.
 
 ## Tool chỉ xoá đúng màu vàng của chính nó
 
-Trước khi tô, tool đọc màu nền đang có của cột A từng dòng và so với vàng của nó
-(`#FFE599`). Chỉ những dòng mang đúng màu đó mới bị xoá.
+Trước khi tô, tool đọc màu nền đang có và so với đúng màu của nó — vàng `#FFE599` ở cột A,
+đỏ `#F4CCCC` ở cột I. Chỉ ô mang đúng màu đó mới bị xoá, và mỗi dấu chỉ dò ở cột của riêng
+nó nên không cái nào nhầm việc của cái kia là của mình.
 
 - Ô bạn tự tô tay — mấy ô xanh lá trong tab `App` chẳng hạn — **được giữ nguyên**.
 - Công ty bị gỡ khỏi `App` thì dòng alumni tương ứng tự hết vàng.
@@ -79,10 +84,29 @@ Một ngoại lệ cần biết: dòng **được** tô vàng thì cả dải A�
 đó đang có ô bạn tô tay thì màu cũ bị phủ. Chỉ xảy ra với dòng khớp, và bỏ tick sẽ trả về
 nền trắng chứ không trả về màu cũ.
 
+## Recruiter (ô đỏ cột I)
+
+Nguồn là project `ColdEmail`, file `web/db/seed_recruiters.csv` — 2269 liên hệ đã verify.
+Nhưng repo này **không mang theo tên hay email của ai**: chỉ danh sách công ty được chép
+sang, vào `data/recruiter_companies.txt` (720 dòng). Cần biết "có liên hệ", không cần biết
+"liên hệ là ai".
+
+Cập nhật lại khi ColdEmail có dữ liệu mới:
+
+```bash
+python scripts/recruiter_companies.py ../ColdEmail/web/db/seed_recruiters.csv
+```
+
+File nằm trong repo nên không tốn API call nào, và thiếu file thì chỉ là tính năng tắt.
+
+Khớp bằng đúng luật lỏng ở trên. Thử với các công ty đọc được từ tab App: trúng **32/54**,
+cao hơn hẳn alumni — danh sách recruiter phủ rộng hơn danh bạ trường nhiều.
+
 ## Chi phí
 
-Thêm 4 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền hiện có của hai tab,
-rồi một `batchUpdate` — và `batchUpdate` bị bỏ hẳn khi không có gì đổi. Các dòng liền nhau
+Thêm 6 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền ở ba chỗ (cột A của
+`Alumni`, cột A và cột I của `App`), rồi một `batchUpdate` — và `batchUpdate` bị bỏ hẳn khi
+không có gì đổi. Danh sách recruiter đọc từ đĩa, không tốn call nào. Các dòng liền nhau
 được gộp thành một request, nên 100 dòng khớp rải rác vẫn chỉ tốn vài request chứ không
 phải 100.
 

@@ -34,7 +34,7 @@ chỉ chảy vào nó, không có chiều ngược lại.
 | Dùng sheet hàng ngày, muốn biết mỗi cột nghĩa là gì | [docs/spreadsheet.md](docs/spreadsheet.md) |
 | Thắc mắc vì sao hai dòng bị gộp, hoặc vì sao một job không được tick | [docs/matching.md](docs/matching.md) |
 | Muốn biết job từ đâu ra và khi nào một dòng bị xoá | [docs/crawling.md](docs/crawling.md) |
-| Muốn biết alumni nào làm ở công ty mình đã nộp | [docs/alumni.md](docs/alumni.md) |
+| Muốn biết đơn nào có alumni hoặc recruiter để xin referral | [docs/alumni.md](docs/alumni.md) |
 | Đang vận hành: soát lỗi, đọc log, rebuild | [docs/operations.md](docs/operations.md) |
 
 ## Chạy thử nhanh
@@ -51,12 +51,14 @@ Cần một Google service account đã được share quyền vào spreadsheet.
 ## Bố cục repo
 
 ```
+data/              danh sách công ty có recruiter (tên công ty, không có PII)
 job_sync/          Python package
   main.py          CLI, cửa sổ giờ chạy, in kết quả
   sources.py       fetch + parse tracker, normalize link, chuẩn hoá tên role
   roles.py         regex quyết định role nào được giữ
   sheet.py         đọc/ghi Google Sheet, gộp trùng, tick Applied, audit
   liveness.py      hỏi từng board xem posting còn mở không
+  highlight.py     tô vàng alumni / tô đỏ recruiter trên hai tab
 apps_script/       chạy phía Google, dán vào Apps Script editor
 sources.toml       danh sách tracker
 tests/             pytest

@@ -5,8 +5,8 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from job_sync.alumni import highlight_alumni
 from job_sync.config import load_settings
+from job_sync.highlight import highlight
 from job_sync.sheet import append_new_jobs, audit_app
 from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
@@ -91,12 +91,12 @@ def main() -> None:
         f"{result.applied} rows ticked Applied and {result.expired} ticked Expired; "
         f"{result.open_} postings still to apply to."
     )
-    alumni = highlight_alumni(load_settings())
-    if alumni.alumni_rows:
-        print(
-            f"Highlighted {alumni.alumni_lit} of {alumni.alumni_rows} alumni rows, "
-            f"and {alumni.app_lit} of {alumni.app_rows} applications that have someone inside."
-        )
+    marks = highlight(load_settings())
+    print(
+        f"Highlighted {marks.alumni_lit} of {marks.alumni_rows} alumni rows; of "
+        f"{marks.app_rows} applications, {marks.app_lit} have an alumnus and "
+        f"{marks.recruiter_lit} have a recruiter contact."
+    )
     for failure in failures:
         print(f"WARNING: {failure}")
 
