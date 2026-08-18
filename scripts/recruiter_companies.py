@@ -13,7 +13,7 @@ import csv
 import sys
 from pathlib import Path
 
-TARGET = Path(__file__).resolve().parent.parent / "data" / "recruiter_companies.txt"
+TARGET = Path(__file__).resolve().parent.parent / "job_sync" / "data" / "recruiter_companies.txt"
 HEADER = """\
 # Employers with at least one verified recruiter contact.
 # Names only. The contacts themselves stay in the ColdEmail project; this

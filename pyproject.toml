@@ -18,6 +18,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["job_sync"]
 
+# The recruiter company list ships with the code. Without this the wheel carries
+# only .py files and the mark silently finds nothing on a runner.
+[tool.setuptools.package-data]
+job_sync = ["data/*.txt"]
+
 [project.scripts]
 internship-sync = "job_sync.main:main"
 

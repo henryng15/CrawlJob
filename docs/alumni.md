@@ -88,7 +88,7 @@ nền trắng chứ không trả về màu cũ.
 
 Nguồn là project `ColdEmail`, file `web/db/seed_recruiters.csv` — 2269 liên hệ đã verify.
 Nhưng repo này **không mang theo tên hay email của ai**: chỉ danh sách công ty được chép
-sang, vào `data/recruiter_companies.txt` (720 dòng). Cần biết "có liên hệ", không cần biết
+sang, vào `job_sync/data/recruiter_companies.txt` (720 dòng). Cần biết "có liên hệ", không cần biết
 "liên hệ là ai".
 
 Cập nhật lại khi ColdEmail có dữ liệu mới:
@@ -96,6 +96,11 @@ Cập nhật lại khi ColdEmail có dữ liệu mới:
 ```bash
 python scripts/recruiter_companies.py ../ColdEmail/web/db/seed_recruiters.csv
 ```
+
+File nằm **trong package** `job_sync/data/`, không phải ở gốc repo: `pip install .` chỉ
+chép `job_sync/` nên một file ở gốc sẽ có mặt khi chạy local và biến mất trên runner —
+lỗi im lặng, tô ra 0 dòng mà workflow vẫn xanh. `pyproject.toml` khai báo
+`[tool.setuptools.package-data]` để wheel mang theo nó.
 
 File nằm trong repo nên không tốn API call nào, và thiếu file thì chỉ là tính năng tắt.
 

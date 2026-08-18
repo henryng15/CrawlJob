@@ -35,7 +35,9 @@ RECRUITER = {"red": 0.957, "green": 0.8, "blue": 0.8}
 PLAIN = {"red": 1.0, "green": 1.0, "blue": 1.0}
 # Sheets returns the colour it stored, not the float that was sent.
 TOLERANCE = 0.02
-RECRUITER_COMPANIES = Path(__file__).resolve().parent.parent / "data" / "recruiter_companies.txt"
+# Inside the package, not beside it: pip install . copies job_sync/ and nothing
+# else, so a list at the repo root is present in a checkout and absent on a runner.
+RECRUITER_COMPANIES = Path(__file__).resolve().parent / "data" / "recruiter_companies.txt"
 
 
 @dataclass(frozen=True)

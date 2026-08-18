@@ -51,7 +51,6 @@ Cần một Google service account đã được share quyền vào spreadsheet.
 ## Bố cục repo
 
 ```
-data/              danh sách công ty có recruiter (tên công ty, không có PII)
 job_sync/          Python package
   main.py          CLI, cửa sổ giờ chạy, in kết quả
   sources.py       fetch + parse tracker, normalize link, chuẩn hoá tên role
@@ -59,6 +58,7 @@ job_sync/          Python package
   sheet.py         đọc/ghi Google Sheet, gộp trùng, tick Applied, audit
   liveness.py      hỏi từng board xem posting còn mở không
   highlight.py     tô vàng alumni / tô đỏ recruiter trên hai tab
+  data/            danh sách công ty có recruiter (tên công ty, không PII)
 apps_script/       chạy phía Google, dán vào Apps Script editor
 sources.toml       danh sách tracker
 tests/             pytest
