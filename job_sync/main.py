@@ -83,7 +83,8 @@ def main() -> None:
     print(f"Dropped {result.dead} rows whose posting the board reports as gone.")
     print(f"Dropped {result.blocked} rows from employers this tracker no longer follows.")
     print(f"Merged {result.duplicate} rows repeating a company and role already listed.")
-    print(f"Cleared {result.empty} rows holding a checkbox and no job.")
+    # One of these is usually last run's divider, which is rebuilt rather than junk.
+    print(f"Dropped {result.empty} blank rows before sorting.")
     print(
         f"Ticked Applied on {result.ticked_link} rows matching a tracked link "
         f"and {result.ticked_name} matching a tracked company and role."
