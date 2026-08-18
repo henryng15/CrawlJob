@@ -91,6 +91,7 @@ def main() -> None:
         f"{result.applied} rows ticked Applied and {result.expired} ticked Expired; "
         f"{result.open_} postings still to apply to."
     )
+    print("Rewrote the sheet." if result.wrote else "Sheet already correct; nothing written.")
     marks = highlight(load_settings())
     print(
         f"Highlighted {marks.alumni_lit} of {marks.alumni_rows} alumni rows; of "

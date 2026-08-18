@@ -495,3 +495,39 @@ def test_the_virtu_row_is_ticked_from_the_tracker() -> None:
     tracked = {_loose_identity("Virtu Financial", "2027 Internship - Software Engineer")}
     assert _mark_applied(rows, set(), tracked) == (0, 1)
     assert rows[0][APPLIED] == "TRUE"
+
+
+def test_a_ticked_row_sinks_below_everything_still_to_do() -> None:
+    """The point of the checkbox is that what is left unticked is the work, so the
+    top of the sheet has to be exactly that list."""
+    rows = [
+        _row("Applied", "2026-08-09", "TRUE", "FALSE"),
+        _row("Open", "2026-08-01", "FALSE", "FALSE"),
+        _row("Expired", "2026-08-08", "FALSE", "TRUE"),
+        _row("Newer", "2026-08-02", "FALSE", "FALSE"),
+    ]
+    assert [row[0] for row in _sorted_rows(rows)] == ["Newer", "Open", "Applied", "Expired"]
+
+
+def test_the_date_order_survives_inside_each_half() -> None:
+    rows = [
+        _row("OldOpen", "2026-08-01", "FALSE"),
+        _row("NewDone", "2026-08-09", "TRUE"),
+        _row("NewOpen", "2026-08-05", "FALSE"),
+        _row("OldDone", "2026-08-02", "TRUE"),
+    ]
+    assert [row[0] for row in _sorted_rows(rows)] == ["NewOpen", "OldOpen", "NewDone", "OldDone"]
+
+
+def test_a_row_with_no_checkbox_column_yet_counts_as_still_to_do() -> None:
+    """A newly crawled row arrives four cells wide, and it is certainly not done."""
+    rows = [
+        _row("Done", "2026-08-09", "TRUE"),
+        ["Fresh", "SWE Intern", "https://x/1", "2026-08-01"],
+    ]
+    assert [row[0] for row in _sorted_rows(rows)] == ["Fresh", "Done"]
+
+
+def test_a_row_carrying_both_ticks_sinks_once() -> None:
+    rows = [_row("Both", "2026-08-09", "TRUE", "TRUE"), _row("Open", "2026-08-01", "FALSE")]
+    assert [row[0] for row in _sorted_rows(rows)] == ["Open", "Both"]

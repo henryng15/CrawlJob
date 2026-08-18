@@ -14,9 +14,17 @@ Spreadsheet là giao diện của cả hệ thống. Hiểu ai sở hữu cột 
 | F | **Expired** ☑ | chỉ bạn |
 | G trở đi | ghi chú tự do | chỉ bạn |
 
-Mỗi lượt sync tool **ghi đè toàn bộ** A–D rồi sort lại theo ngày đăng. Cột E trở đi được
-đọc lên và ghi lại nguyên vẹn, nên ô tick của bạn luôn đi theo đúng dòng của nó chứ không
-nằm lại ở số dòng cũ.
+Mỗi lượt sync tool **ghi đè toàn bộ** A–D rồi sort lại. Cột E trở đi được đọc lên và ghi
+lại nguyên vẹn, nên ô tick của bạn luôn đi theo đúng dòng của nó chứ không nằm lại ở số
+dòng cũ.
+
+### Thứ tự sắp xếp
+
+**Việc còn phải làm nổi lên trên, việc đã xong chìm xuống dưới.** Dòng đã tick `Applied`
+**hoặc** `Expired` bị đẩy xuống cuối; trong mỗi nửa thì bài đăng mới nhất đứng trước.
+
+Nghĩa là phần trên cùng của tab `Jobs` đúng bằng danh sách bạn cần làm, không cần filter
+gì cả. Dòng đã xong vẫn nằm nguyên đó làm tombstone, chỉ là không chắn đường nữa.
 
 ### Cột E — `Applied`
 

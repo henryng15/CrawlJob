@@ -46,6 +46,9 @@ class SyncResult:
     applied: int = 0
     expired: int = 0
     open_: int = 0
+    # Whether the sheet was actually written. A run that changes nothing looks the
+    # same in every other count, and a silent no-op is the failure worth naming.
+    wrote: bool = False
 
 
 def _service(settings: Settings):
@@ -71,12 +74,22 @@ def _key(row: list[str]) -> str | None:
     return None
 
 
-def _sort_key(row: list[str]) -> tuple[str, str]:
-    """Newest posting first. Dates are ISO-8601, so a plain string sort is a date
-    sort; the company breaks ties so that a run never reshuffles equal dates."""
+def _sort_key(row: list[str]) -> tuple[int, str, str]:
+    """Everything still to do first, newest posting first within that.
+
+    A row ticked Applied or Expired has been dealt with, and the whole point of
+    the checkbox is that what is left unticked is the work. Sinking those rows to
+    the bottom makes the top of the sheet the list to work down, without hiding
+    anything: they are still there, still holding the link that stops the job
+    being appended again.
+
+    Dates are ISO-8601, so a plain string sort is a date sort; the company breaks
+    ties so that a run never reshuffles equal dates. Sorted in reverse, so the
+    leading flag is 1 for the rows that should come first."""
+    settled = _ticked(row, APPLIED) or _ticked(row, EXPIRED)
     date_posted = row[3].strip() if len(row) > 3 else ""
     company = row[0].strip().casefold() if row else ""
-    return (date_posted, company)
+    return (0 if settled else 1, date_posted, company)
 
 
 def _sorted_rows(rows: list[list[str]]) -> list[list[str]]:
@@ -423,6 +436,7 @@ def append_new_jobs(
         duplicate=duplicate,
         ticked_link=ticked_link,
         ticked_name=ticked_name,
+        wrote=True,
         **standing,
     )
 
