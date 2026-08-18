@@ -6,6 +6,7 @@ from job_sync.sheet import (
     _census,
     _drop_blocked_rows,
     _drop_duplicate_identities,
+    _drop_empty_rows,
     _key,
     _loose_identity,
     _mark_applied,
@@ -531,3 +532,35 @@ def test_a_row_with_no_checkbox_column_yet_counts_as_still_to_do() -> None:
 def test_a_row_carrying_both_ticks_sinks_once() -> None:
     rows = [_row("Both", "2026-08-09", "TRUE", "TRUE"), _row("Open", "2026-08-01", "FALSE")]
     assert [row[0] for row in _sorted_rows(rows)] == ["Open", "Both"]
+
+
+def test_a_row_holding_only_a_checkbox_is_not_a_job() -> None:
+    """Validation covers E2:F500 whether or not a job is on the row, and a cleared
+    checkbox reads back as FALSE — so A:Z returns every row down to 500."""
+    rows = [
+        _row("Acme", "2026-08-01", "FALSE", "FALSE"),
+        ["", "", "", "", "FALSE", "FALSE"],
+        ["", "", "", "", "FALSE", "FALSE"],
+    ]
+    live, dropped = _drop_empty_rows(rows)
+    assert [row[0] for row in live] == ["Acme"]
+    assert dropped == 2
+
+
+def test_a_job_missing_only_its_date_is_still_a_job() -> None:
+    """Emptiness is judged across all four owned columns, not on any one of them."""
+    live, dropped = _drop_empty_rows([["Acme", "SWE Intern", "https://x/1", ""]])
+    assert dropped == 0
+    assert len(live) == 1
+
+
+def test_the_settled_rows_end_up_last_with_nothing_after_them() -> None:
+    """The gap this closes: blank rows sorted as work still to do with no date, so
+    they sat between the open jobs and the settled ones."""
+    rows = [
+        _row("Done", "2026-08-17", "TRUE", "FALSE"),
+        ["", "", "", "", "FALSE", "FALSE"],
+        _row("Open", "2026-08-18", "FALSE", "FALSE"),
+    ]
+    live, _ = _drop_empty_rows(rows)
+    assert [row[0] for row in _sorted_rows(live)] == ["Open", "Done"]

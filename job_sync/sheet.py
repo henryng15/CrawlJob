@@ -39,6 +39,7 @@ class SyncResult:
     dead: int = 0
     blocked: int = 0
     duplicate: int = 0
+    empty: int = 0
     ticked_link: int = 0
     ticked_name: int = 0
     # The state of the Applied column once this run is done. `open_` is the count
@@ -124,6 +125,18 @@ def _loose_identity(company: str, role: str) -> tuple[str, frozenset[str]]:
     purpose: a wrong answer here ticks a checkbox, which a note in column F undoes,
     while the strict reading misses a job the App tab plainly records."""
     return (name_key(company), role_tokens(role))
+
+
+def _drop_empty_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
+    """A row with nothing in the four columns this tool owns is not a job.
+
+    The sheet is full of them and none were typed. Checkbox validation covers
+    E2:F500 whether or not there is a job on the row, and a cleared checkbox reads
+    back as FALSE, so a read of A:Z returns every row down to 500 with two FALSEs
+    and nothing else. Left in, they sorted as work still to do with no date — which
+    put a few hundred blank lines between the open jobs and the settled ones."""
+    live = [row for row in rows if any(cell.strip() for cell in row[: len(HEADERS)])]
+    return live, len(rows) - len(live)
 
 
 def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
@@ -399,6 +412,9 @@ def append_new_jobs(
         # Rows written by an earlier, buggier parse cannot be repaired in place —
         # the company they should carry is only knowable from the source.
         header, data = HEADERS, []
+    data, empty = _drop_empty_rows(data)
+    # Counted after the blanks go, so the "nothing changed" test below compares
+    # like with like on the next run rather than seeing them vanish every time.
     before = len(data)
     data = _drop_duplicate_rows(data)
     data, blocked = _drop_blocked_rows(data)
@@ -434,6 +450,7 @@ def append_new_jobs(
         dead=dead,
         blocked=blocked,
         duplicate=duplicate,
+        empty=empty,
         ticked_link=ticked_link,
         ticked_name=ticked_name,
         wrote=True,

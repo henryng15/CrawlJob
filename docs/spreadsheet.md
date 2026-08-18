@@ -24,7 +24,14 @@ dòng cũ.
 **hoặc** `Expired` bị đẩy xuống cuối; trong mỗi nửa thì bài đăng mới nhất đứng trước.
 
 Nghĩa là phần trên cùng của tab `Jobs` đúng bằng danh sách bạn cần làm, không cần filter
-gì cả. Dòng đã xong vẫn nằm nguyên đó làm tombstone, chỉ là không chắn đường nữa.
+gì cả. Dòng đã xong vẫn nằm nguyên đó làm tombstone, chỉ là không chắn đường nữa — và nằm
+**liền ngay sau**, không có khoảng trống ở giữa.
+
+Khoảng trống đó từng có thật. `setupJobsCheckboxes` phủ validation lên `E2:F500` bất kể
+dòng đó có job hay không, mà ô checkbox chưa tick đọc ra `FALSE` chứ không phải rỗng — nên
+một lần đọc `A:Z` trả về đủ cả 499 dòng, phần lớn chỉ có hai chữ `FALSE`. Chúng xếp vào
+nhóm "chưa làm" với ngày trống, tức là sau job thật nhưng trước đám đã tick. Giờ dòng nào
+không có gì ở A–D đều bị xoá hẳn trước khi sort.
 
 ### Cột E — `Applied`
 
