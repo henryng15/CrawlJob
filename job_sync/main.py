@@ -92,9 +92,10 @@ def main() -> None:
         f"{result.open_} postings still to apply to."
     )
     alumni = highlight_alumni(load_settings())
-    if alumni.rows:
+    if alumni.alumni_rows:
         print(
-            f"Highlighted {alumni.highlighted} of {alumni.rows} alumni rows at an employer applied to."
+            f"Highlighted {alumni.alumni_lit} of {alumni.alumni_rows} alumni rows, "
+            f"and {alumni.app_lit} of {alumni.app_rows} applications that have someone inside."
         )
     for failure in failures:
         print(f"WARNING: {failure}")

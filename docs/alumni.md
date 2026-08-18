@@ -1,10 +1,14 @@
 # Alumni: ai có thể refer bạn
 
-Danh bạ alumni của trường được dán vào một tab riêng. Mỗi lượt sync, tool tô vàng những
-dòng có công ty trùng với công ty bạn đã nộp ở tab `App` — người được tô vàng chính là
-người đáng hỏi xin referral.
+Danh bạ alumni của trường được dán vào một tab riêng. Mỗi lượt sync, tool tô vàng **cả hai
+phía** của phần giao nhau:
 
-Tool **chỉ ghi màu**, không đụng vào một chữ nào trong tab đó.
+- Tab **`Alumni`** — dòng của người đang làm ở công ty bạn đã nộp. Đây là người đáng hỏi
+  xin referral.
+- Tab **`App`** — đơn ứng tuyển mà bạn *có người quen bên trong*. Nhìn tab App là biết ngay
+  đơn nào còn đường đẩy thêm.
+
+Tool **chỉ ghi màu**, không đụng vào một chữ nào trong hai tab đó.
 
 ## Vì sao phải nằm trong spreadsheet
 
@@ -61,19 +65,25 @@ Một cái tên rút gọn xong chẳng còn từ nào (`The Company Ltd`) sẽ 
 tập rỗng nằm trong mọi tập, và nếu không chặn thì nó sẽ tô vàng toàn bộ danh bạ. Có test
 ghim lại chuyện này.
 
-## Màu là của tool
+## Tool chỉ xoá đúng màu vàng của chính nó
 
-Mỗi lượt chạy, tool **xoá sạch nền của cả vùng dữ liệu** rồi mới tô lại. Nghĩa là:
+Trước khi tô, tool đọc màu nền đang có của cột A từng dòng và so với vàng của nó
+(`#FFE599`). Chỉ những dòng mang đúng màu đó mới bị xoá.
 
-- Công ty bị gỡ khỏi tab `App` thì dòng alumni tương ứng tự hết vàng.
-- Màu nền bạn tự tô tay trong tab `Alumni` sẽ bị mất.
+- Ô bạn tự tô tay — mấy ô xanh lá trong tab `App` chẳng hạn — **được giữ nguyên**.
+- Công ty bị gỡ khỏi `App` thì dòng alumni tương ứng tự hết vàng.
+- Dòng đã đúng màu rồi thì không bị ghi lại. Một lượt không có gì đổi sẽ **không gửi
+  request nào**, dù chạy 5 lần mỗi ngày.
 
-Muốn đánh dấu riêng thì dùng cột khác (chữ, hoặc một cột phụ), đừng dùng màu nền.
+Một ngoại lệ cần biết: dòng **được** tô vàng thì cả dải A–H của nó thành vàng, nên nếu dòng
+đó đang có ô bạn tô tay thì màu cũ bị phủ. Chỉ xảy ra với dòng khớp, và bỏ tick sẽ trả về
+nền trắng chứ không trả về màu cũ.
 
 ## Chi phí
 
-Thêm 2 API call mỗi lượt sync: một lần đọc tab `Alumni`, một lần `batchUpdate` để tô. Các
-dòng liền nhau được gộp thành một request, nên 100 dòng khớp rải rác vẫn chỉ tốn vài
-request chứ không phải 100.
+Thêm 4 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền hiện có của hai tab,
+rồi một `batchUpdate` — và `batchUpdate` bị bỏ hẳn khi không có gì đổi. Các dòng liền nhau
+được gộp thành một request, nên 100 dòng khớp rải rác vẫn chỉ tốn vài request chứ không
+phải 100.
 
 Chưa tạo tab `Alumni` thì tool in một dòng thông báo rồi bỏ qua, sync vẫn chạy bình thường.
