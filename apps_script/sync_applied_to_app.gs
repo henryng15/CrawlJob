@@ -35,6 +35,11 @@ var PROCESS_COL = 6;   // App cột F — dropdown Process
 // vàng cả dòng và đỏ ở cột I — nhưng checkbox thì lọc và sort được, màu thì không.
 var ALUMNI_COL = 9, RECRUITER_COL = 10, UPDATE_COL = 11;
 
+// Hai cột checkbox chỉ cần đủ chỗ cho ô tick và chữ header — không có gì khác vào
+// đó bao giờ. Cột Update thì ngược lại: phải chứa được vài dòng kiểu
+// "Interview: Aug 12, 2026" xếp chồng mà không phải kéo tay.
+var ALUMNI_WIDTH_PX = 70, RECRUITER_WIDTH_PX = 90, UPDATE_WIDTH_PX = 300;
+
 // Đúng pipeline mà setup_process_dropdown.gs dựng, và cùng danh sách với
 // PROCESS_STAGES trong job_sync/sheet.py. Phần tử đầu là chặng mọi dòng bắt đầu.
 var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
@@ -136,6 +141,9 @@ function setupAppColumns() {
   app.getRange(1, ALUMNI_COL).setValue('Alumni');
   app.getRange(1, RECRUITER_COL).setValue('Recruiter');
   app.getRange(1, UPDATE_COL).setValue('Update');
+  app.setColumnWidth(ALUMNI_COL, ALUMNI_WIDTH_PX);
+  app.setColumnWidth(RECRUITER_COL, RECRUITER_WIDTH_PX);
+  app.setColumnWidth(UPDATE_COL, UPDATE_WIDTH_PX);
 
   var bottom = app.getLastRow();
   if (bottom < FIRST_ROW) {
@@ -146,8 +154,12 @@ function setupAppColumns() {
 
   // Chỉ phủ tới dòng cuối có thật, KHÔNG phủ tới LAST_ROW như bên Jobs. Validation
   // checkbox ghi vật lý FALSE vào mọi ô nó phủ, nên phủ tới dòng 500 thì
-  // app.getLastRow() thành 500 và onEdit sẽ append dòng mới ở dòng 501. Dòng thêm
-  // sau này nhận validation bằng đường khác: onEdit copy từ dòng entry cuối.
+  // app.getLastRow() thành 500 và onEdit sẽ append dòng mới ở dòng 501.
+  //
+  // Đổi lại, phạm vi này đứng yên còn tab thì dài ra theo từng đơn — nên dòng mới
+  // nhận validation bằng hai đường khác: onEdit copy từ dòng entry cuối, và mỗi
+  // lượt sync phía Python tự đặt lại rule đúng bằng phạm vi nó ghi. Thiếu cả hai
+  // thì ô mang boolean mà không có checkbox nào vẽ nó, và Sheets in ra chữ FALSE.
   app.getRange(FIRST_ROW, ALUMNI_COL, count, 2)
      .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 

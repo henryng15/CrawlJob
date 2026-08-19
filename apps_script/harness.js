@@ -9,6 +9,7 @@ function makeSheet(name, data) {
   const sheet = {
     grid,
     getName: () => name,
+    setColumnWidth(column, pixels) { widths.push([column, pixels]); return this; },
     getLastRow() {
       let last = 0;
       grid.forEach((row, i) => {
@@ -74,6 +75,7 @@ let toasts = [];
 let wrapped = [];
 let validated = [];
 let copiedWidth = 0;
+let widths = [];
 let jobs, app, ss;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -85,6 +87,7 @@ function load() {
   wrapped = [];
   validated = [];
   copiedWidth = 0;
+  widths = [];
   ss = {
     getSheetByName: (n) => (n === 'Jobs' ? jobs : n === 'App' ? app : null),
     toast: (msg) => toasts.push(msg),
@@ -457,6 +460,9 @@ console.log('setupAppColumns');
   run('dựng header cho hai cột checkbox', () => {
     assert.strictEqual(app.grid[0][8], 'Alumni');
     assert.strictEqual(app.grid[0][9], 'Recruiter');
+  });
+  run('cột checkbox hẹp, cột Update rộng', () => {
+    assert.deepStrictEqual(widths, [[9, 70], [10, 90], [11, 300]]);
   });
   run('checkbox chỉ phủ tới dòng cuối có thật, không tới LAST_ROW', () => {
     // Phủ tới 500 thì validation ghi vật lý FALSE xuống tận đó, getLastRow() thành

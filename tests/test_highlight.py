@@ -1,9 +1,12 @@
 from job_sync.config import Settings
 from job_sync.highlight import (
+    APP_ALUMNI,
+    APP_RECRUITER,
     HIGHLIGHT,
     PLAIN,
     RECRUITER,
     _boxes,
+    _checkbox,
     _is,
     _mark_contacts,
     _requests,
@@ -130,8 +133,7 @@ _SETTINGS = Settings(
 
 def _marked(held, alumni, recruiters, rows=3, heading=("Alumni", "Recruiter")):
     api = _FakeValues([list(heading)] + held)
-    changed = _mark_contacts(api, _SETTINGS, rows, alumni, recruiters)
-    return api, changed
+    return api, _mark_contacts(api, _SETTINGS, rows, alumni, recruiters)
 
 
 def test_an_unticked_box_reads_the_same_however_the_sheet_spells_it() -> None:
@@ -146,14 +148,14 @@ def test_an_unticked_box_reads_the_same_however_the_sheet_spells_it() -> None:
 
 
 def test_a_run_that_matches_what_the_sheet_says_writes_nothing() -> None:
-    api, changed = _marked([["TRUE", "FALSE"], ["FALSE", "FALSE"], ["FALSE", "TRUE"]], {1}, {3})
-    assert changed is False
+    api, ticks = _marked([["TRUE", "FALSE"], ["FALSE", "FALSE"], ["FALSE", "TRUE"]], {1}, {3})
+    assert (ticks.ready, ticks.wrote) == (True, False)
     assert api.updates == []
 
 
 def test_a_new_match_ticks_the_box_and_only_states_the_two_columns() -> None:
-    api, changed = _marked([["FALSE", "FALSE"]] * 3, {2}, set())
-    assert changed is True
+    api, ticks = _marked([["FALSE", "FALSE"]] * 3, {2}, set())
+    assert ticks.wrote is True
     cells, parse, values = api.updates[0]
     assert (cells, parse) == ("'App'!I2:J4", "USER_ENTERED")
     assert values == [["FALSE", "FALSE"], ["TRUE", "FALSE"], ["FALSE", "FALSE"]]
@@ -163,27 +165,27 @@ def test_the_tool_unticks_what_no_longer_matches() -> None:
     """The columns are computed, not typed. An alumnus who has moved on has to
     stop showing up, which means a run states both answers rather than only the
     ones it found."""
-    _, changed = _marked([["TRUE", "FALSE"]] * 3, set(), set())
-    assert changed is True
+    _, ticks = _marked([["TRUE", "FALSE"]] * 3, set(), set())
+    assert ticks.wrote is True
 
 
 def test_a_missing_source_leaves_its_column_exactly_as_it_stands() -> None:
     """A missing Alumni tab is not an empty one. Reading no matches out of a tab
     that is not there and writing that down would clear the column."""
-    api, changed = _marked([["TRUE", "FALSE"], ["TRUE", "TRUE"], ["FALSE", "TRUE"]], None, None)
-    assert changed is False
+    api, ticks = _marked([["TRUE", "FALSE"], ["TRUE", "TRUE"], ["FALSE", "TRUE"]], None, None)
+    assert ticks.wrote is False
     assert api.updates == []
 
 
 def test_one_missing_source_does_not_freeze_the_other_column() -> None:
-    api, changed = _marked([["TRUE", "FALSE"]] * 3, None, {2})
-    assert changed is True
+    api, ticks = _marked([["TRUE", "FALSE"]] * 3, None, {2})
+    assert ticks.wrote is True
     assert api.updates[0][2] == [["TRUE", "FALSE"], ["TRUE", "TRUE"], ["TRUE", "FALSE"]]
 
 
 def test_a_tab_with_no_applications_is_not_written_to() -> None:
-    api, changed = _marked([], set(), set(), rows=0)
-    assert changed is False
+    api, ticks = _marked([], set(), set(), rows=0)
+    assert ticks.wrote is False
     assert api.updates == []
 
 
@@ -197,12 +199,26 @@ def test_nothing_is_written_until_the_two_headers_are_there() -> None:
     """The sync runs on a cron. Before setupAppColumns has run, column J still
     holds whatever it held before — for one day, the Update history — and writing
     FALSE down it on the assumption it is a checkbox would erase that."""
-    api, changed = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=("", "Update"))
-    assert changed is False
+    api, ticks = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=("", "Update"))
+    assert (ticks.ready, ticks.wrote) == (False, False)
     assert api.updates == []
 
 
 def test_a_tab_that_has_never_had_the_columns_is_left_alone() -> None:
-    api, changed = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=())
-    assert changed is False
+    api, ticks = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=())
+    assert (ticks.ready, ticks.wrote) == (False, False)
     assert api.updates == []
+
+
+def test_the_checkbox_rule_covers_exactly_the_rows_the_ticks_go_into() -> None:
+    """The bare word FALSE is a boolean written past where the rule reaches. The
+    rule is set from the same row count as the write so the two cannot part."""
+    grid = _checkbox(sheet_id=7, rows=82)["setDataValidation"]["range"]
+    assert (grid["startRowIndex"], grid["endRowIndex"]) == (1, 83)
+    assert (grid["startColumnIndex"], grid["endColumnIndex"]) == (APP_ALUMNI, APP_RECRUITER + 1)
+
+
+def test_the_rule_is_a_checkbox_and_draws_one() -> None:
+    rule = _checkbox(sheet_id=7, rows=1)["setDataValidation"]["rule"]
+    assert rule["condition"]["type"] == "BOOLEAN"
+    assert rule["showCustomUi"] is True

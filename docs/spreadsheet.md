@@ -107,7 +107,13 @@ Hai checkbox **do tool tick**, không phải bạn. Cột I bật khi tab `Alumn
 được ghi lại từ đầu ở mỗi lượt sync, nên tick tay thì lượt sau bị gỡ — chỗ ghi thứ bạn muốn
 giữ là cột H `Note`. Chi tiết ở [alumni.md](alumni.md).
 
-Hai cột này là những ô **duy nhất** ngoài tab Jobs mà tool ghi vào.
+Hai cột này là những ô **duy nhất** ngoài tab Jobs mà tool ghi vào. Chúng được để hẹp
+(70px và 90px) vì không bao giờ có gì khác vào đó; cột K rộng 300px để chứa được vài dòng
+lịch sử xếp chồng.
+
+Dòng không khớp hiện ô tick trống, không phải ô rỗng — đó là hình dạng bình thường của một
+checkbox chưa tick. Nếu ô hiện ra chữ `FALSE` thì rule checkbox chưa với tới dòng đó; lượt
+sync sau tự sửa, xem [alumni.md](alumni.md#khi-ô-hiện-ra-chữ-false).
 
 ### Cột K — `Update`
 

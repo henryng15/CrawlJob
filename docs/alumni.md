@@ -92,6 +92,31 @@ không đi theo bản build, chứ không phải không công ty nào có recrui
 
 Lượt nào hai cột đã đúng thì **không gửi request nào**, dù chạy 5 lần mỗi ngày.
 
+### Khi ô hiện ra chữ `FALSE`
+
+Một ô checkbox thật ra là hai thứ: **giá trị** boolean, và **rule** vẽ nó thành cái ô
+vuông. Ghi giá trị vào chỗ rule không với tới thì Sheets không có gì để vẽ, nên nó in
+thẳng giá trị ra — đúng chữ `FALSE` bạn nhìn thấy.
+
+Chuyện đó xảy ra vì hai phạm vi lệch nhau. `setupAppColumns` phủ rule tới dòng cuối **có
+thật lúc bạn bấm Run**, mà tab App thì dài ra theo từng đơn nộp; còn Python thì ghi tới
+dòng cuối **lúc nó chạy**. Chạy setup một lần rồi nộp thêm 10 đơn là 10 dòng nằm ngoài
+rule.
+
+Giờ mỗi lượt sync Python tự soát: đọc rule của đúng dải nó sắp ghi, thiếu ô nào thì đặt
+lại cả dải trước khi ghi. Hai phạm vi không còn cách nào lệch nhau được nữa, vì cùng một
+con số sinh ra cả hai. Lượt nào phải sửa thì log nói rõ:
+
+```
+Repairing the checkbox rule over App!I2:J83.
+```
+
+Đây là đường thứ hai; đường thứ nhất là `onEdit` copy validation từ dòng entry cuối sang
+dòng nó vừa thêm. Cần cả hai: đường một lo dòng do script tạo, đường hai lo mọi dòng còn
+lại — bạn gõ tay, paste vào, hay import từ chỗ khác.
+
+### Chưa dựng cột thì không ghi gì
+
 Và một chốt nữa đứng trước tất cả: **ô I1 và J1 phải đọc ra đúng `Alumni` và `Recruiter`**
 thì tool mới ghi. Sync chạy theo cron 5 lần một ngày, còn `setupAppColumns` thì bạn chạy
 tay — chưa chạy mà sync đã tới thì cột J vẫn đang là chỗ cũ của lịch sử `Update`, và ghi
@@ -139,9 +164,9 @@ cao hơn hẳn alumni — danh sách recruiter phủ rộng hơn danh bạ trư�
 
 ## Chi phí
 
-Thêm 8 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền ở ba chỗ (cột A của
-`Alumni`, cột A và cột I của `App`), đọc hai cột checkbox, rồi một `batchUpdate` và một
-`update` — hai cái cuối bị bỏ hẳn khi không có gì đổi. Danh sách recruiter đọc từ đĩa, không tốn call nào. Các dòng liền nhau
+Thêm 9 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền ở ba chỗ (cột A của
+`Alumni`, cột A và cột I của `App`), đọc hai cột checkbox, đọc rule của hai cột đó, rồi
+một `batchUpdate` và một `update` — hai cái cuối bị bỏ hẳn khi không có gì đổi. Danh sách recruiter đọc từ đĩa, không tốn call nào. Các dòng liền nhau
 được gộp thành một request, nên 100 dòng khớp rải rác vẫn chỉ tốn vài request chứ không
 phải 100.
 

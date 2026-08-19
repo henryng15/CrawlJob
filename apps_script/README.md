@@ -31,7 +31,7 @@ node apps_script/harness.js
 
 Không cần cài gì và không đụng tới spreadsheet thật. `harness.js` stub `SpreadsheetApp`
 bằng một sheet giả trong bộ nhớ, nạp file `.gs` qua `vm`, rồi gọi thẳng `onEdit`,
-`backfillTicksFromApp`, `setupJobsCheckboxes` và `setupAppColumns`. 55 assertion, in
+`backfillTicksFromApp`, `setupJobsCheckboxes` và `setupAppColumns`. 56 assertion, in
 `ok` / `FAIL` từng dòng và trả exit code khác 0 nếu có cái nào hỏng.
 
 Sheet giả dựng theo đúng hình dạng dữ liệu thật, gồm cả những dòng rác chỉ có mỗi link mà

@@ -53,6 +53,18 @@ RECRUITER_COMPANIES = Path(__file__).resolve().parent / "data" / "recruiter_comp
 
 
 @dataclass(frozen=True)
+class _Ticks:
+    """What one pass at the two checkbox columns did.
+
+    `ready` is the headers being in place, which is the tool's permission to touch
+    the columns at all. It is separate from `wrote` because a run can be allowed to
+    write and have nothing to say."""
+
+    ready: bool = False
+    wrote: bool = False
+
+
+@dataclass(frozen=True)
 class HighlightResult:
     alumni_rows: int = 0
     alumni_lit: int = 0
@@ -62,6 +74,8 @@ class HighlightResult:
     # Whether the two checkbox columns had to be restated. A run that changes
     # nothing sends nothing, same as the sheet write.
     ticked: bool = False
+    # Whether the checkbox rule itself had to be repaired over those columns.
+    boxed: bool = False
 
 
 def recruiter_companies() -> list[frozenset[str]]:
@@ -213,7 +227,7 @@ def _mark_contacts(
     rows: int,
     alumni: set[int] | None,
     recruiters: set[int] | None,
-) -> bool:
+) -> _Ticks:
     """State both checkbox columns, and say whether anything had to be written.
 
     A None match set means that mark's source was not available this run — no
@@ -230,7 +244,7 @@ def _mark_contacts(
     USER_ENTERED, not RAW: written raw, the string "TRUE" is laid over the
     checkbox as text instead of ticking it, and reads back next run as untouched."""
     if not rows:
-        return False
+        return _Ticks()
     first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
     cells = f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"
     sheet = _values(values_api, settings, settings.app_tab, f"{first}1:{last}") or []
@@ -241,21 +255,80 @@ def _mark_contacts(
             f"{' and '.join(APP_HEADERS)}; run setupAppColumns in the Apps Script "
             "editor first. Leaving both columns as they stand."
         )
-        return False
+        return _Ticks()
     current = _boxes(sheet[FIRST_DATA_ROW:], rows)
     wanted = [
         [_state(alumni, index, held[0]), _state(recruiters, index, held[1])]
         for index, held in enumerate(current, start=FIRST_DATA_ROW)
     ]
     if wanted == current:
-        return False
+        return _Ticks(ready=True)
     values_api.update(
         spreadsheetId=settings.sheet_id,
         range=cells,
         valueInputOption="USER_ENTERED",
         body={"values": wanted},
     ).execute()
-    return True
+    return _Ticks(ready=True, wrote=True)
+
+
+def _boxed(service, settings: Settings, rows: int) -> tuple[int, bool] | None:
+    """The App tab's id, and whether every cell the ticks go into is a checkbox.
+
+    This is the question behind the bare word FALSE. A checkbox cell holds a
+    boolean and a rule that draws it as a box; write the boolean where the rule
+    does not reach and Sheets has nothing to draw, so it prints the value instead.
+    Every cell in the range is checked rather than the first, because the gap is
+    always at the bottom — the rule was applied when the tab was shorter."""
+    first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
+    result = (
+        service.spreadsheets()
+        .get(
+            spreadsheetId=settings.sheet_id,
+            ranges=[f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"],
+            includeGridData=True,
+            fields=(
+                "sheets(properties(sheetId),data(rowData(values(dataValidation(condition(type))))))"
+            ),
+        )
+        .execute()
+    )
+    sheets = result.get("sheets", [])
+    if not sheets:
+        return None
+    sheet_id = sheets[0]["properties"]["sheetId"]
+    grid = sheets[0].get("data", [{}])[0].get("rowData", [])
+    if len(grid) < rows:
+        return sheet_id, False
+    for row in grid:
+        cells = row.get("values", [])
+        if len(cells) < 2:
+            return sheet_id, False
+        for cell in cells[:2]:
+            if cell.get("dataValidation", {}).get("condition", {}).get("type") != "BOOLEAN":
+                return sheet_id, False
+    return sheet_id, True
+
+
+def _checkbox(sheet_id: int, rows: int) -> dict:
+    """The checkbox rule over exactly the range the ticks are written to.
+
+    Set from here rather than left to the Apps Script setup, because otherwise the
+    two have to agree on how far down the tab reaches — and they cannot. The setup
+    is run by hand, once; the tab grows every time an application is sent. Owning
+    both ends of it is what makes the mismatch unrepresentable."""
+    return {
+        "setDataValidation": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": FIRST_DATA_ROW,
+                "endRowIndex": rows + FIRST_DATA_ROW,
+                "startColumnIndex": APP_ALUMNI,
+                "endColumnIndex": APP_RECRUITER + 1,
+            },
+            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True},
+        }
+    }
 
 
 def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> HighlightResult:
@@ -353,24 +426,35 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
             continue
         sheet_id, already = state
         requests += _requests(sheet_id, matched, already, columns, colour)
-    if requests:
-        service.spreadsheets().batchUpdate(
-            spreadsheetId=settings.sheet_id, body={"requests": requests}
-        ).execute()
-
     applied_rows = max(len(app) - FIRST_DATA_ROW, 0)
-    ticked = _mark_contacts(
+    ticks = _mark_contacts(
         values_api,
         settings,
         applied_rows,
         app_alumni if known else None,
         app_recruiter if recruiters else None,
     )
+    # Only once the headers have said these columns are ours. Laying a checkbox
+    # rule over column J while it still holds the Update history would mark every
+    # line of it invalid.
+    boxed = False
+    if ticks.ready and applied_rows:
+        state = _boxed(service, settings, applied_rows)
+        if state is not None and not state[1]:
+            requests.append(_checkbox(state[0], applied_rows))
+            boxed = True
+            print(f"Repairing the checkbox rule over {settings.app_tab}!I2:J{applied_rows + 1}.")
+    if requests:
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=settings.sheet_id, body={"requests": requests}
+        ).execute()
+
     return HighlightResult(
         alumni_rows=max(len(alumni) - FIRST_DATA_ROW, 0),
         alumni_lit=len(alumni_rows),
         app_rows=applied_rows,
         app_lit=len(app_alumni),
         recruiter_lit=len(app_recruiter),
-        ticked=ticked,
+        ticked=ticks.wrote,
+        boxed=boxed,
     )
