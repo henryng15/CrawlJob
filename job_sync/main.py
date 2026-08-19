@@ -5,6 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from job_sync.boards import harvest, load_boards
 from job_sync.config import load_settings
 from job_sync.highlight import highlight
 from job_sync.sheet import append_new_jobs, audit_app
@@ -23,6 +24,18 @@ def is_scheduled_slot(now: datetime) -> bool:
     return local.hour in SCHEDULED_HOURS
 
 
+def wants_boards(scheduled: bool, now: datetime) -> bool:
+    """Whether this run should ask the ATS boards as well as the trackers.
+
+    Once a day, not five times. The shortlist is several hundred boards and each
+    is a request to somebody else's API; asking them again two hours later would
+    quadruple that for the sake of postings that are dated by the day anyway.
+
+    A manual run always asks, because a run someone typed is a deliberate request
+    for everything there is."""
+    return not scheduled or now.astimezone(NEW_YORK).hour == min(SCHEDULED_HOURS)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync target internships to a Google Sheet")
     parser.add_argument("--sources", type=Path, default=Path("sources.toml"))
@@ -33,6 +46,11 @@ def main() -> None:
         "--skip-link-check",
         action="store_true",
         help="do not ask each board whether its posting is still open",
+    )
+    parser.add_argument(
+        "--no-boards",
+        action="store_true",
+        help="skip the ATS job boards and read only the Markdown trackers",
     )
     parser.add_argument(
         "--rebuild",
@@ -70,6 +88,22 @@ def main() -> None:
             failures.append(f"{source.name}: {error}")
     if not jobs:
         raise RuntimeError("No jobs parsed. " + "; ".join(failures))
+
+    # After the check above, not before it: the trackers are the floor this stands
+    # on, and every tracker failing is an outage worth stopping for even if a few
+    # hundred boards happen to answer.
+    boards = [] if args.no_boards else load_boards()
+    if boards and wants_boards(args.scheduled, now):
+        found = harvest(boards)
+        print(
+            f"ATS boards: asked {found.asked}, {found.live} were advertising something, "
+            f"{found.quiet} had nothing open, {found.failed} did not answer; "
+            f"{len(found.jobs)} matching roles"
+        )
+        jobs.extend(found.jobs)
+    elif boards:
+        print(f"{len(boards)} ATS boards skipped; they are asked once a day, not every run.")
+
     jobs = dedupe_jobs(jobs)
     # ISO-8601 dates compare correctly as strings, which is why date_posted is one.
     cutoff = args.since.isoformat()

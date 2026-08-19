@@ -1,0 +1,43 @@
+name: Rebuild the ATS board shortlist
+
+# Separate from the sync, and weekly rather than daily, because it is a different
+# shape of job: fifteen thousand requests and about half an hour, against the
+# sync's few hundred and two minutes. Running it inside the sync would put that
+# cost on all five daily runs to learn something that changes once a week.
+on:
+  workflow_dispatch:
+  schedule:
+    # 06:00 UTC Sunday — 01:00/02:00 ET, nowhere near the sync's 08:00–16:00 ET
+    # window, so the two never contend for the same APIs.
+    - cron: "0 6 * * 0"
+
+# The point of the run is the file it writes back.
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    # A slug that neither resolves nor refuses can hold a worker for the full
+    # timeout, and there are thousands of them. Well clear of the ~35 minutes the
+    # run takes, well short of the 6-hour default that would burn a day's quota.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - run: python scripts/discover_boards.py
+      - name: Commit the shortlist if it moved
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- job_sync/data/ats_boards.json; then
+            echo "Shortlist unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add job_sync/data/ats_boards.json
+          git commit -m "chore(boards): rebuild the ATS shortlist"
+          git push

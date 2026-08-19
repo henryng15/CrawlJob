@@ -1,7 +1,8 @@
 # Internship Sheet Sync
 
-Đọc các public GitHub internship tracker, giữ lại role SWE liên quan, gộp các bản trùng
-của cùng một posting, rồi append vào tab `Jobs` của một Google Sheet. Tick một ô checkbox
+Đọc các public GitHub internship tracker **và job board ATS của chính công ty**
+(Greenhouse, Lever, Ashby), giữ lại role SWE liên quan, gộp các bản trùng của cùng một
+posting, rồi append vào tab `Jobs` của một Google Sheet. Tick một ô checkbox
 là dòng đó tự sang tab `App`; ngược lại, những job đã nộp rồi thì tự được tick sẵn.
 
 Không browser automation, không database, không AI, không queue, không web dashboard.
@@ -10,12 +11,16 @@ Một Python package, một GitHub Actions workflow, hai file Apps Script.
 ```mermaid
 flowchart LR
     T["5 public tracker<br/>(Markdown trên GitHub)"]
+    B["~15.900 ATS board<br/>Greenhouse · Lever · Ashby"]
+    D["discover_boards<br/>tuần · lọc ra shortlist"]
     P["job_sync<br/>GitHub Actions · 5 lượt/ngày"]
     J[("Tab Jobs<br/>việc còn phải nộp")]
     S["Apps Script<br/>onEdit · tức thì"]
     A[("Tab App<br/>đã nộp — source of truth")]
 
     T -->|crawl| P
+    B --> D
+    D -->|"shortlist board có intern"| P
     P -->|"ghi A–D, sort, gộp trùng"| J
     J -->|"bạn tick Applied"| S
     S -->|"copy nguyên dòng"| A
@@ -54,12 +59,14 @@ Cần một Google service account đã được share quyền vào spreadsheet.
 job_sync/          Python package
   main.py          CLI, cửa sổ giờ chạy, in kết quả
   sources.py       fetch + parse tracker, normalize link, chuẩn hoá tên role
+  boards.py        hỏi job board Greenhouse / Lever / Ashby
   roles.py         regex quyết định role nào được giữ
   sheet.py         đọc/ghi Google Sheet, gộp trùng, tick Applied, audit
   liveness.py      hỏi từng board xem posting còn mở không
   highlight.py     tick hai cột Alumni/Recruiter ở App, tô vàng dòng ở Alumni
-  data/            danh sách công ty có recruiter (tên công ty, không PII)
+  data/            danh sách công ty có recruiter + shortlist ATS board
 apps_script/       chạy phía Google, dán vào Apps Script editor
+scripts/           chạy tay: dựng lại các file trong data/
 sources.toml       danh sách tracker
 tests/             pytest
 ```

@@ -110,3 +110,47 @@ uv run ruff format --check job_sync tests
 Phần Apps Script không chạy được trong pytest. Cách kiểm là stub `SpreadsheetApp` rồi chạy
 `onEdit` và `backfillTicksFromApp` trên sheet giả bằng `node` — xem
 [`apps_script/README.md`](../apps_script/README.md).
+
+## Workflow thứ hai: dựng lại shortlist ATS board
+
+[`.github/workflows/boards.yml`](../.github/workflows/boards.yml) chạy **06:00 UTC chủ
+nhật**, hoặc bấm tay bằng **Run workflow**. Nó hỏi cả ~15.900 board một lượt, giữ lại
+những board đang đăng internship, rồi commit `job_sync/data/ats_boards.json` ngược vào
+repo — chỉ commit khi file thật sự đổi.
+
+Tách khỏi workflow sync vì đây là loại việc khác hẳn: ~20.000 request và khoảng nửa tiếng,
+so với 902 request và **36 giây** đo được ở lượt hàng ngày. Nhét nó vào sync là bắt cả 5 lượt mỗi ngày trả
+cái giá đó để biết một thứ mỗi tuần mới đổi.
+
+Giờ chạy 06:00 UTC là 01:00–02:00 ET, cách xa cửa sổ 08:00–16:00 ET của sync, nên hai bên
+không bao giờ tranh nhau cùng một API.
+
+`timeout-minutes: 90` không phải con số cho vui: một slug vừa không resolve vừa không bị từ
+chối sẽ giữ một worker đến hết timeout, mà loại đó có hàng nghìn. 90 phút là dư so với ~35
+phút thật, và ngắn hơn hẳn mức mặc định 6 tiếng vốn đủ đốt cả ngày quota.
+
+### Đọc log của nó
+
+Lần quét đầu, 19/08/2026:
+
+```
+  probed                       19899
+  answered with a job           9062   board còn sống
+  advertising any internship     902   <- ghi vào daily
+  with a matching SWE intern     177
+  matching roles right now       312
+```
+
+Con số hàng thứ ba là thứ đáng theo dõi. Nó tụt mạnh nghĩa là danh sách slug thượng nguồn
+có vấn đề, chứ không phải thị trường tuyển dụng đột nhiên đóng cửa.
+
+### Khi nào phải chạy tay
+
+- Vừa clone repo về mà `job_sync/data/ats_boards.json` chưa có.
+- Vừa sửa `roles.py` — tiêu chí lọc đổi thì shortlist phải dựng lại.
+- Đầu mùa tuyển (tháng 8–9), khi hàng loạt công ty mở chương trình intern cùng lúc và bạn
+  không muốn đợi tới chủ nhật.
+
+```bash
+uv run python scripts/discover_boards.py
+```
