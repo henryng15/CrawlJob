@@ -39,6 +39,8 @@ APP_WIDTH = 8
 # Columns I and J of App, the two checkboxes this module owns. Zero-based, and
 # adjacent so both are stated in one write.
 APP_ALUMNI, APP_RECRUITER = 8, 9
+# What those two cells have to say in row 1 before anything is written under them.
+APP_HEADERS = ("Alumni", "Recruiter")
 FIRST_DATA_ROW = 1  # zero-based; row 1 of the sheet is the header
 HIGHLIGHT = {"red": 1.0, "green": 0.898, "blue": 0.6}
 RECRUITER = {"red": 0.957, "green": 0.8, "blue": 0.8}
@@ -219,15 +221,28 @@ def _mark_contacts(
     column is not restated: the tool owns these cells, so computing "no matches"
     from a source that is missing rather than empty would untick the lot.
 
+    Nothing is written until the two headers say so. The sync runs on a cron five
+    times a day, and until setupAppColumns has run, column J is whatever it used to
+    be — which for one day was the Update history. Writing FALSE down a column on
+    that assumption would erase it. Reading the header costs nothing extra: it
+    arrives in the same call as the rows.
+
     USER_ENTERED, not RAW: written raw, the string "TRUE" is laid over the
     checkbox as text instead of ticking it, and reads back next run as untouched."""
     if not rows:
         return False
     first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
     cells = f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"
-    current = _boxes(
-        _values(values_api, settings, settings.app_tab, f"{first}2:{last}") or [], rows
-    )
+    sheet = _values(values_api, settings, settings.app_tab, f"{first}1:{last}") or []
+    heading = [cell.strip() for cell in (sheet[0] if sheet else [])]
+    if heading[: len(APP_HEADERS)] != list(APP_HEADERS):
+        print(
+            f"{settings.app_tab}!{first}1:{last}1 does not read "
+            f"{' and '.join(APP_HEADERS)}; run setupAppColumns in the Apps Script "
+            "editor first. Leaving both columns as they stand."
+        )
+        return False
+    current = _boxes(sheet[FIRST_DATA_ROW:], rows)
     wanted = [
         [_state(alumni, index, held[0]), _state(recruiters, index, held[1])]
         for index, held in enumerate(current, start=FIRST_DATA_ROW)

@@ -128,8 +128,8 @@ _SETTINGS = Settings(
 )
 
 
-def _marked(held, alumni, recruiters, rows=3):
-    api = _FakeValues(held)
+def _marked(held, alumni, recruiters, rows=3, heading=("Alumni", "Recruiter")):
+    api = _FakeValues([list(heading)] + held)
     changed = _mark_contacts(api, _SETTINGS, rows, alumni, recruiters)
     return api, changed
 
@@ -191,3 +191,18 @@ def test_the_state_of_a_box_with_nothing_to_say_is_what_it_already_said() -> Non
     assert _state(None, 1, "TRUE") == "TRUE"
     assert _state(set(), 1, "TRUE") == "FALSE"
     assert _state({1}, 1, "FALSE") == "TRUE"
+
+
+def test_nothing_is_written_until_the_two_headers_are_there() -> None:
+    """The sync runs on a cron. Before setupAppColumns has run, column J still
+    holds whatever it held before — for one day, the Update history — and writing
+    FALSE down it on the assumption it is a checkbox would erase that."""
+    api, changed = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=("", "Update"))
+    assert changed is False
+    assert api.updates == []
+
+
+def test_a_tab_that_has_never_had_the_columns_is_left_alone() -> None:
+    api, changed = _marked([["FALSE", "FALSE"]] * 3, {1}, {2}, heading=())
+    assert changed is False
+    assert api.updates == []

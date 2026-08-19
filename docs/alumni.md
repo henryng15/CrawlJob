@@ -92,6 +92,11 @@ không đi theo bản build, chứ không phải không công ty nào có recrui
 
 Lượt nào hai cột đã đúng thì **không gửi request nào**, dù chạy 5 lần mỗi ngày.
 
+Và một chốt nữa đứng trước tất cả: **ô I1 và J1 phải đọc ra đúng `Alumni` và `Recruiter`**
+thì tool mới ghi. Sync chạy theo cron 5 lần một ngày, còn `setupAppColumns` thì bạn chạy
+tay — chưa chạy mà sync đã tới thì cột J vẫn đang là chỗ cũ của lịch sử `Update`, và ghi
+FALSE xuống đó là xoá sạch. Header sai thì tool in một dòng nhắc rồi để yên cả hai cột.
+
 ## Tool chỉ xoá đúng màu vàng của chính nó
 
 Bên tab `Alumni`, trước khi tô, tool đọc màu nền đang có và so với đúng màu của nó — vàng
