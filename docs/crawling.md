@@ -33,6 +33,12 @@ khai không cần key.
 | Lever | `api.lever.co/v0/postings/{slug}?mode=json` | `createdAt` (epoch ms) |
 | Ashby | `api.ashbyhq.com/posting-api/job-board/{slug}` | `publishedAt` |
 
+Board được đọc **trước** tracker, và thứ tự đó có ý nghĩa: `dedupe_jobs` giữ bản sao đầu
+tiên nó gặp của mỗi link, nên bên nào đứng trước sẽ là bên mô tả mọi posting xuất hiện ở cả
+hai chỗ. Board mô tả tốt hơn ở đúng hai điểm đáng kể — ngày là lúc employer publish chứ
+không phải lúc một người tình nguyện để ý, và tên trong cột `Source` nói đúng nơi bài đăng
+đang sống.
+
 Ba thứ khiến chúng **tốt hơn** tracker chứ không chỉ nhiều hơn:
 
 - Link là board của chính employer, nên nó không mục đi như redirect aggregator.
@@ -176,11 +182,20 @@ chạy sync.
 Ngày luôn ở dạng ISO `YYYY-MM-DD` vì việc sort so sánh nó như chuỗi — cũng là lý do cột
 A–D phải được ghi bằng `RAW`, xem [spreadsheet.md](spreadsheet.md).
 
-Có một mốc chặn: job đăng trước **2026-07-01** bị bỏ qua. Các tracker mang theo cả một năm
-lịch sử, không có mốc này thì lượt sync đầu tiên sẽ nhồi hết vào sheet. Đổi bằng `--since`.
+Có một mốc chặn: job đăng trước **2026-01-01** bị bỏ qua. Đổi bằng `--since`.
 
-Mốc đó cũng lọc luôn phía ATS, và ở đó nó còn cần hơn: board giữ bài đăng cũ khá lâu — có
-posting Ashby từ giữa 2025 vẫn đang nằm đó. Ngày thật từ board là thứ khiến lọc được.
+Mốc này cần thật. Tracker và board giữ bài đăng cũ lâu hơn bạn tưởng nhiều — một lượt crawl
+thật moi ra role khớp đăng từ **tháng 10 năm 2016** mà link vẫn mở. Không có mốc thì sheet
+nhận cả một thập kỷ lịch sử.
+
+Nó từng là **2026-07-01** và như thế là quá chặt. Board ghi ngày từ lúc bài đăng lên, mà
+role của mùa này — Fall 2026, Spring 2027, Summer 2027 — bắt đầu xuất hiện từ mùa xuân. Ở
+mốc tháng 7 nó đang cắt Palantir, Optiver và Rippling đăng trong tuần cuối tháng 6, tất cả
+đều còn mở.
+
+Tháng 1 giữ trọn năm đăng 2026 và bỏ hẳn mùa trước. Đổi lại, nó nhận vào một số bài đăng mà
+board không bao giờ gỡ. Cột `Expired` sinh ra cho đúng loại đó — **một dòng cũ bạn tick đi
+vẫn hơn một role đang mở mà bạn không bao giờ thấy.**
 
 ## Khi nào một dòng bị xoá khỏi `Jobs`
 

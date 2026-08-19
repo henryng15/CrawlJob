@@ -23,10 +23,20 @@ SCHEDULED_HOURS = {8, 10, 12, 14, 16}
 # already takes three and a half. What it is not free in is requests to somebody
 # else's API — 902 of them per crawl.
 BOARD_HOURS = {8, 14}
-# The trackers carry a year of history. The first sync would otherwise backfill all
-# of it, so the sheet starts at July 2026. Later runs re-apply the same cutoff,
-# which costs nothing: anything newly posted is already past it.
-EARLIEST_POSTED = date(2026, 7, 1)
+# One posting year, not one month. The cutoff exists because the trackers carry a
+# decade of history — there are still-reachable listings here from 2016 — and the
+# first sync would otherwise pour all of it into the sheet.
+#
+# July was too tight. Boards date a posting from when it went up, and the roles
+# that matter for this cycle — Fall 2026, Spring 2027, Summer 2027 — start
+# appearing in the spring. At July it was cutting Palantir, Optiver and Rippling
+# internships posted in the last week of June, all of them still open.
+#
+# January keeps the whole 2026 posting year and drops everything from the previous
+# cycle. It admits some listings a board never took down; the Expired checkbox is
+# what those are for, and a stale row you can tick is better than an open role you
+# never saw.
+EARLIEST_POSTED = date(2026, 1, 1)
 
 
 def is_scheduled_slot(now: datetime) -> bool:
@@ -115,7 +125,13 @@ def main() -> None:
             f"{len(found.jobs)} matching roles in the US, "
             f"{len(found.foreign)} elsewhere"
         )
-        jobs.extend(found.jobs)
+        # In front of the trackers, not behind them. dedupe_jobs keeps whichever
+        # copy of a link it meets first, so this decides which of the two gets to
+        # describe every posting that appears in both — and the board is the better
+        # describer on both counts that matter. Its date is when the employer
+        # published the role rather than when a volunteer noticed it, and its name
+        # in the Source column says where the posting actually lives.
+        jobs = found.jobs + jobs
         abroad = found.foreign
     elif boards:
         hours = ", ".join(f"{hour:02d}:00" for hour in sorted(BOARD_HOURS))

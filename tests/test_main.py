@@ -18,24 +18,33 @@ def _filter(jobs: list[Job], since: date) -> list[Job]:
     return [job for job in jobs if job.date_posted >= cutoff]
 
 
-def test_cutoff_is_july_2026() -> None:
-    assert EARLIEST_POSTED == date(2026, 7, 1)
+def test_the_cutoff_keeps_one_posting_year() -> None:
+    """Not one month. Boards date a posting from when it went up, and the roles for
+    this cycle start appearing in the spring — July was cutting Palantir, Optiver
+    and Rippling internships posted in the last week of June, all still open."""
+    assert EARLIEST_POSTED == date(2026, 1, 1)
 
 
-def test_filter_drops_anything_before_the_cutoff() -> None:
+def test_filter_drops_the_previous_cycle_and_keeps_this_one() -> None:
     jobs = [
+        _job("2025-12-31"),
+        _job("2026-01-01"),
         _job("2026-06-30"),
-        _job("2026-07-01"),
-        _job("2026-07-15"),
-        _job("2025-12-01"),
+        _job("2016-10-04"),
         _job("2026-08-06"),
     ]
     kept = [job.date_posted for job in _filter(jobs, EARLIEST_POSTED)]
-    assert kept == ["2026-07-01", "2026-07-15", "2026-08-06"]
+    assert kept == ["2026-01-01", "2026-06-30", "2026-08-06"]
+
+
+def test_the_trackers_really_do_reach_back_that_far() -> None:
+    """A live crawl turned up a matching role first posted in October 2016. The
+    cutoff is not tidiness — without it the sheet takes a decade of history."""
+    assert not _filter([_job("2016-10-04")], EARLIEST_POSTED)
 
 
 def test_cutoff_day_itself_is_included() -> None:
-    assert _filter([_job("2026-07-01")], EARLIEST_POSTED)
+    assert _filter([_job("2026-01-01")], EARLIEST_POSTED)
 
 
 def test_scheduled_slot_only_on_even_et_hours() -> None:
