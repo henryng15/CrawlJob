@@ -8,6 +8,7 @@ from job_sync.sheet import (
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _drop_empty_rows,
+    _drop_foreign_rows,
     _key,
     _last_stage,
     _loose_identity,
@@ -653,3 +654,30 @@ def test_a_stage_with_no_date_yet_still_counts_as_reached() -> None:
 def test_an_empty_update_column_names_no_stage() -> None:
     assert _last_stage("") == ""
     assert _last_stage("chưa nghe gì") == ""
+
+
+def test_a_row_the_boards_place_abroad_leaves_the_sheet() -> None:
+    """It was written before there was a location filter. Nothing in the sheet can
+    tell — the Jobs tab has no location column — so the verdict is carried in from
+    the crawl and matched on the same normalised link the dedupe uses."""
+    rows = [
+        ["Acme", "SWE Intern", "https://jobs.ashbyhq.com/acme/berlin", "2026-08-01"],
+        ["Acme", "SWE Intern", "https://jobs.ashbyhq.com/acme/austin", "2026-08-01"],
+    ]
+    kept, dropped = _drop_foreign_rows(rows, {"https://jobs.ashbyhq.com/acme/berlin"})
+    assert dropped == 1
+    assert [row[2] for row in kept] == ["https://jobs.ashbyhq.com/acme/austin"]
+
+
+def test_a_row_you_have_written_on_is_not_taken_away_from_you() -> None:
+    """Ticking Applied on a job in London is a decision. This has no business
+    overruling it, on the same rule that makes a note in column G stop the
+    auto-tick."""
+    rows = [["Acme", "SWE Intern", "https://jobs.ashbyhq.com/acme/berlin", "2026-08-01", "TRUE"]]
+    kept, dropped = _drop_foreign_rows(rows, {"https://jobs.ashbyhq.com/acme/berlin"})
+    assert (dropped, len(kept)) == (0, 1)
+
+
+def test_nothing_to_drop_costs_nothing() -> None:
+    rows = [["Acme", "SWE Intern", "https://x/1", "2026-08-01"]]
+    assert _drop_foreign_rows(rows, set()) == (rows, 0)

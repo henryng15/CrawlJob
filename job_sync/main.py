@@ -102,14 +102,17 @@ def main() -> None:
     # on, and every tracker failing is an outage worth stopping for even if a few
     # hundred boards happen to answer.
     boards = [] if args.no_boards else load_boards()
+    abroad: set[str] = set()
     if boards and wants_boards(args.scheduled, now):
         found = harvest(boards)
         print(
             f"ATS boards: asked {found.asked}, {found.live} were advertising something, "
             f"{found.quiet} had nothing open, {found.failed} did not answer; "
-            f"{len(found.jobs)} matching roles"
+            f"{len(found.jobs)} matching roles in the US, "
+            f"{len(found.foreign)} elsewhere"
         )
         jobs.extend(found.jobs)
+        abroad = found.foreign
     elif boards:
         hours = ", ".join(f"{hour:02d}:00" for hour in sorted(BOARD_HOURS))
         print(f"{len(boards)} ATS boards skipped; they are asked at {hours} ET.")
@@ -120,12 +123,17 @@ def main() -> None:
     recent = [job for job in jobs if job.date_posted >= cutoff]
     print(f"{len(recent)} of {len(jobs)} deduped roles posted on or after {cutoff}")
     result = append_new_jobs(
-        load_settings(), recent, rebuild=args.rebuild, verify_links=not args.skip_link_check
+        load_settings(),
+        recent,
+        rebuild=args.rebuild,
+        verify_links=not args.skip_link_check,
+        foreign=abroad,
     )
     already = len(recent) - result.appended
     print(f"Appended {result.appended} new jobs; {already} already in the sheet.")
     print(f"Dropped {result.dead} rows whose posting the board reports as gone.")
     print(f"Dropped {result.blocked} rows from employers this tracker no longer follows.")
+    print(f"Dropped {result.abroad} rows the boards place outside the US.")
     print(f"Merged {result.duplicate} rows repeating a company and role already listed.")
     # One of these is usually last run's divider, which is rebuilt rather than junk.
     print(f"Dropped {result.empty} blank rows before sorting.")

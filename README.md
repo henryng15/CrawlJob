@@ -61,6 +61,7 @@ job_sync/          Python package
   sources.py       fetch + parse tracker, normalize link, chuẩn hoá tên role
   boards.py        hỏi job board Greenhouse / Lever / Ashby
   roles.py         regex quyết định role nào được giữ
+  places.py        đọc location, quyết định job có ở Mỹ không
   sheet.py         đọc/ghi Google Sheet, gộp trùng, tick Applied, audit
   liveness.py      hỏi từng board xem posting còn mở không
   highlight.py     tick hai cột Alumni/Recruiter ở App, tô vàng dòng ở Alumni

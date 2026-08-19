@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from job_sync.places import is_united_states
 from job_sync.roles import is_target_role
 from job_sync.sources import Job
 
@@ -45,6 +46,9 @@ WORKERS = 12
 @dataclass(frozen=True)
 class BoardResult:
     jobs: list[Job] = field(default_factory=list)
+    # Normalised links of matching roles the boards place outside the US. Not rows
+    # that were skipped — rows that must be taken out of the sheet if they are in it.
+    foreign: set[str] = field(default_factory=set)
     asked: int = 0
     live: int = 0
     quiet: int = 0
@@ -81,48 +85,89 @@ def _from_epoch(value: object) -> str:
         return ""
 
 
-def _greenhouse(slug: str, payload: object) -> list[Job]:
+def _where(row: dict, *keys: str) -> str:
+    """Every place this row names, joined into one line for the country reading.
+
+    Joined rather than picked, because a posting open in two offices has to count
+    as American if either of them is — Ashby carries the second one in a separate
+    list, and reading only the first would drop a job open in London and Boston."""
+    found: list[str] = []
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, dict):
+            found.append(str(value.get("name") or value.get("location") or ""))
+        elif isinstance(value, list):
+            found += [
+                item if isinstance(item, str) else str((item or {}).get("location") or "")
+                for item in value
+            ]
+    return "; ".join(part for part in found if part)
+
+
+def _in_country(code: object) -> bool:
+    """Lever carries an ISO-3166 country code, the one unambiguous location field
+    any of these three APIs has. Read it in preference to guessing at prose.
+
+    Absent is kept, on the same rule as everywhere else here: a board that has not
+    said where the job is has not said it is abroad."""
+    if not isinstance(code, str) or not code.strip():
+        return True
+    return code.strip().upper() in ("US", "USA")
+
+
+def _greenhouse(slug: str, payload: object) -> list[tuple[Job, bool]]:
     rows = payload.get("jobs", []) if isinstance(payload, dict) else []
     return [
-        Job(
-            company=row.get("company_name") or _display(slug),
-            role=row["title"],
-            apply_link=row.get("absolute_url") or "",
-            # first_published is when the posting went up. updated_at moves every
-            # time someone fixes a typo in the description, which would reshuffle
-            # the top of the sheet for no reason anyone could act on.
-            date_posted=_from_iso(row.get("first_published") or row.get("updated_at")),
+        (
+            Job(
+                company=row.get("company_name") or _display(slug),
+                role=row["title"],
+                apply_link=row.get("absolute_url") or "",
+                # first_published is when the posting went up. updated_at moves
+                # every time someone fixes a typo in the description, which would
+                # reshuffle the top of the sheet for no reason anyone could act on.
+                date_posted=_from_iso(row.get("first_published") or row.get("updated_at")),
+            ),
+            is_united_states(_where(row, "location")),
         )
         for row in rows
         if isinstance(row, dict) and row.get("title") and is_target_role(row["title"])
     ]
 
 
-def _lever(slug: str, payload: object) -> list[Job]:
+def _lever(slug: str, payload: object) -> list[tuple[Job, bool]]:
     rows = payload if isinstance(payload, list) else []
     return [
-        Job(
-            company=_display(slug),
-            role=row["text"],
-            # hostedUrl, not applyUrl: the posting rather than the form hanging off
-            # it. normalize_link folds the two together, so this only decides what
-            # a human sees after clicking.
-            apply_link=row.get("hostedUrl") or row.get("applyUrl") or "",
-            date_posted=_from_epoch(row.get("createdAt")),
+        (
+            Job(
+                company=_display(slug),
+                role=row["text"],
+                # hostedUrl, not applyUrl: the posting rather than the form hanging
+                # off it. normalize_link folds the two together, so this only decides
+                # what a human sees after clicking.
+                apply_link=row.get("hostedUrl") or row.get("applyUrl") or "",
+                date_posted=_from_epoch(row.get("createdAt")),
+            ),
+            _in_country(row.get("country")) and is_united_states(_where(row, "categories")),
         )
         for row in rows
         if isinstance(row, dict) and row.get("text") and is_target_role(row["text"])
     ]
 
 
-def _ashby(slug: str, payload: object) -> list[Job]:
+def _ashby(slug: str, payload: object) -> list[tuple[Job, bool]]:
     rows = payload.get("jobs", []) if isinstance(payload, dict) else []
     return [
-        Job(
-            company=_display(slug),
-            role=row["title"],
-            apply_link=row.get("jobUrl") or row.get("applyUrl") or "",
-            date_posted=_from_iso(row.get("publishedAt")),
+        (
+            Job(
+                company=_display(slug),
+                role=row["title"],
+                apply_link=row.get("jobUrl") or row.get("applyUrl") or "",
+                date_posted=_from_iso(row.get("publishedAt")),
+            ),
+            is_united_states(_where(row, "location", "secondaryLocations", "address")),
         )
         for row in rows
         # isListed false is a posting the employer has taken off its own board but
@@ -156,22 +201,44 @@ def read_board(ats: str, slug: str) -> object | None:
         return None
 
 
-def parse_board(ats: str, slug: str, payload: object) -> list[Job]:
+def split_board(ats: str, slug: str, payload: object) -> tuple[list[Job], set[str]]:
+    """The roles to write, and the links of the ones this tracker will not follow
+    because the board says they are somewhere other than the United States.
+
+    Both halves are needed, and the second one is why. A row already written to the
+    sheet carries no location — the Jobs tab has no such column — so nothing in the
+    sheet can work out on its own that it should go. The board is the only thing
+    that knows, and it only knows while the posting is still up. Naming the foreign
+    links here is what lets the sync take back what an earlier, unfiltered run put
+    in."""
     _, parser = BOARDS[ats]
-    jobs = parser(slug, payload)
-    # A posting with no link cannot be deduped, applied to, or checked for
-    # liveness. It is not a row, it is a hole where a row would go.
-    return [job for job in jobs if job.apply_link.strip()]
+    keep: list[Job] = []
+    foreign: set[str] = set()
+    for job, in_the_us in parser(slug, payload):
+        # A posting with no link cannot be deduped, applied to, or checked for
+        # liveness. It is not a row, it is a hole where a row would go.
+        if not job.apply_link.strip():
+            continue
+        if in_the_us:
+            keep.append(job)
+        else:
+            foreign.add(job.dedupe_key)
+    return keep, foreign
 
 
-def _one(pair: tuple[str, str]) -> tuple[bool, bool, list[Job]]:
+def parse_board(ats: str, slug: str, payload: object) -> list[Job]:
+    return split_board(ats, slug, payload)[0]
+
+
+def _one(pair: tuple[str, str]) -> tuple[bool, bool, list[Job], set[str]]:
     ats, slug = pair
     payload = read_board(ats, slug)
     if payload is None:
-        return False, False, []
+        return False, False, [], set()
     rows = payload.get("jobs", []) if isinstance(payload, dict) else payload
     live = bool(isinstance(rows, list) and rows)
-    return True, live, parse_board(ats, slug, payload)
+    keep, foreign = split_board(ats, slug, payload)
+    return True, live, keep, foreign
 
 
 def harvest(boards: list[tuple[str, str]], workers: int = WORKERS) -> BoardResult:
@@ -185,15 +252,18 @@ def harvest(boards: list[tuple[str, str]], workers: int = WORKERS) -> BoardResul
     with ThreadPoolExecutor(max_workers=workers) as pool:
         answers = list(pool.map(_one, boards))
     jobs: list[Job] = []
+    foreign: set[str] = set()
     live = failed = 0
-    for answered, had_rows, found in answers:
+    for answered, had_rows, found, elsewhere in answers:
         if not answered:
             failed += 1
             continue
         live += 1 if had_rows else 0
         jobs.extend(found)
+        foreign |= elsewhere
     return BoardResult(
         jobs=jobs,
+        foreign=foreign,
         asked=len(boards),
         live=live,
         quiet=len(boards) - failed - live,

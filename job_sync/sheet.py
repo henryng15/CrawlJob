@@ -42,6 +42,7 @@ class SyncResult:
     appended: int = 0
     dead: int = 0
     blocked: int = 0
+    abroad: int = 0
     duplicate: int = 0
     empty: int = 0
     ticked_link: int = 0
@@ -232,6 +233,28 @@ def _drop_duplicate_identities(rows: list[list[str]]) -> tuple[list[list[str]], 
     # Kept in the order they were read, so the write is stable run to run.
     kept = sorted(set(best.values()).union(unjudgeable))
     return [rows[position] for position in kept], len(rows) - len(kept)
+
+
+def _drop_foreign_rows(rows: list[list[str]], foreign: set[str]) -> tuple[list[list[str]], int]:
+    """Rows the boards place somewhere other than the United States.
+
+    The sheet cannot reach this verdict on its own. The Jobs tab has no location
+    column, and by the time a posting is a row, all that is left of it is a link —
+    so the answer has to be carried in from the crawl, keyed by the same normalised
+    link the dedupe already uses. That is what lets a filter added today take back
+    what an unfiltered run wrote yesterday.
+
+    Removed rather than kept as a tombstone, unlike an Applied or Expired row. A
+    tombstone exists to stop a job being appended a second time; a posting that
+    fails the location test is never in the set being appended to begin with.
+
+    A row someone has written on is left alone. Ticking Applied on a job in London
+    is a decision, and this has no business overruling it — the same rule that
+    makes column G the way to stop the auto-tick."""
+    if not foreign:
+        return rows, 0
+    live = [row for row in rows if _is_annotated(row) or _key(row) not in foreign]
+    return live, len(rows) - len(live)
 
 
 def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
@@ -446,7 +469,11 @@ def audit_app(settings: Settings) -> int:
 
 
 def append_new_jobs(
-    settings: Settings, jobs: list[Job], rebuild: bool = False, verify_links: bool = True
+    settings: Settings,
+    jobs: list[Job],
+    rebuild: bool = False,
+    verify_links: bool = True,
+    foreign: set[str] | None = None,
 ) -> SyncResult:
     service = _service(settings)
     values_api = service.spreadsheets().values()
@@ -477,6 +504,10 @@ def append_new_jobs(
     data, empty = _drop_empty_rows(data)
     data = _drop_duplicate_rows(data)
     data, blocked = _drop_blocked_rows(data)
+    # Before `known` is taken, so that a row leaving for being abroad does not
+    # leave its link behind to block the same posting being re-read later from a
+    # board that has since moved it to a US office.
+    data, abroad = _drop_foreign_rows(data, foreign or set())
     known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
     data = data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
@@ -499,6 +530,7 @@ def append_new_jobs(
     standing = {
         "dead": dead,
         "blocked": blocked,
+        "abroad": abroad,
         "duplicate": duplicate,
         "empty": empty,
         "ticked_link": ticked_link,

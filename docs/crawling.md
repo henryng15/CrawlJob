@@ -83,6 +83,58 @@ Shortlist nằm ở `job_sync/data/ats_boards.json`, đi theo wheel qua `package
 file thì tính năng tắt, sync vẫn chạy trên tracker Markdown như cũ. Bỏ qua bằng
 `--no-boards`.
 
+## Lọc "trong nước Mỹ"
+
+Tracker Markdown là danh sách US theo bản chất — người curate làm cho người đọc ở Mỹ. Board
+ATS thì **không**: nó là mọi job công ty đang mở ở mọi nơi. Lượt crawl đầu tiên cho thấy
+**137 trong 312 role (44%)** nằm ngoài US — Munich, Singapore, London, Auckland, Berlin,
+Ho Chi Minh, Taipei, Colombia, Toronto.
+
+[`places.py`](../job_sync/places.py) đọc dòng location. Nó là **văn xuôi, không phải field**:
+`San Francisco`, `New York, NY`, `Austin, Texas, United States; South San Francisco,
+California, U`, `Colombia, Remote` đều là giá trị thật trong một lượt crawl. Không có cách
+nào chính xác tuyệt đối.
+
+Nên luật cố tình **lệch một bên**, vì hai loại sai không tốn như nhau:
+
+> Bỏ nhầm một intern US thì **vô hình** — dòng đó đơn giản không bao giờ xuất hiện, và
+> không ai nhớ được thứ mình chưa từng thấy. Giữ nhầm một job ở Berlin thì tốn đúng một
+> cái liếc mắt.
+
+Nên: **giữ, trừ khi dòng chữ nói ngược lại.**
+
+1. Có tên bang, mã bang, hoặc chữ `United States` / `USA` → **giữ**, chốt luôn. Chạy trước
+   để `Vancouver, WA` không bị nhầm với Vancouver BC.
+2. Không có thì mới xét quốc gia / thành phố / vùng chắc chắn không thuộc US → **bỏ**.
+3. Còn lại → **giữ**. Một thành phố Mỹ trần trụi không có bang (`San Francisco`) là trường
+   hợp phổ biến nhất, và nó rơi vào nhánh này.
+
+Ô location trống cũng **giữ**: board không nói job ở đâu thì nó chưa nói job ở nước ngoài.
+
+Mã bang chỉ khớp trên chuỗi **gốc**, không lowercase — `IN`, `OR`, `ME`, `OK`, `HI`, `DE`,
+`LA`, `PA` đều là từ tiếng Anh thường, và fold case sẽ biến "Remote **in** Europe" thành
+Indiana rồi giữ lại.
+
+Riêng Lever có field `country` là **mã ISO-3166** (`US`, `GB`, `KR`, `JP`…) — field địa
+điểm rõ ràng duy nhất trong cả ba API, nên nó được đọc trước khi phải đoán từ văn xuôi.
+
+### Dòng ngoài US đã lỡ vào sheet
+
+Sheet **không tự phán được**: tab Jobs không có cột location, và tới lúc một posting đã
+thành một dòng thì thứ duy nhất còn lại là cái link. Board là thứ duy nhất biết, và chỉ
+biết khi posting còn treo.
+
+Nên mỗi lượt crawl trả về thêm **tập link của những role khớp nhưng ở nước ngoài**, và
+`_drop_foreign_rows` gỡ chúng khỏi sheet theo đúng cái link đã normalize mà dedupe dùng. Đó
+là cách một bộ lọc thêm hôm nay lấy lại được thứ lượt chạy hôm qua đã ghi vào.
+
+Gỡ hẳn chứ không giữ làm tombstone như dòng Applied/Expired: tombstone tồn tại để chặn một
+job bị append lần hai, mà một posting trượt bài kiểm tra địa điểm thì vốn không nằm trong
+tập được append.
+
+**Dòng bạn đã viết vào thì không bị đụng.** Tick Applied cho một job ở London là một quyết
+định, và cái này không có quyền lật nó — cùng luật khiến ghi chú cột G chặn được auto-tick.
+
 ## Role nào được giữ
 
 [`roles.py`](../job_sync/roles.py) chứa toàn bộ regex. Một role phải thoả **cả hai**:

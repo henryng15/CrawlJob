@@ -3,9 +3,11 @@ import json
 from job_sync.boards import (
     BoardResult,
     _display,
+    _in_country,
     harvest,
     load_boards,
     parse_board,
+    split_board,
 )
 
 
@@ -142,6 +144,56 @@ def test_a_payload_of_the_wrong_shape_is_not_an_exception() -> None:
     of those must cost a board, not the crawl."""
     assert parse_board("greenhouse", "acme", ["not", "a", "dict"]) == []
     assert parse_board("lever", "acme", {"unexpected": True}) == []
+
+
+def test_a_role_outside_the_us_is_named_rather_than_merely_skipped() -> None:
+    """The sheet has no location column, so a row already written cannot work out
+    on its own that it should go. The board is the only thing that knows, and only
+    while the posting is up — so the link comes back with the crawl."""
+    payload = {
+        "jobs": [
+            {
+                "title": "Software Engineer Intern",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/berlin",
+                "publishedAt": "2026-08-01",
+                "location": "Berlin",
+            },
+            {
+                "title": "Software Engineer Intern",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/austin",
+                "publishedAt": "2026-08-01",
+                "location": "Austin, TX",
+            },
+        ]
+    }
+    keep, foreign = split_board("ashby", "acme", payload)
+    assert [job.apply_link for job in keep] == ["https://jobs.ashbyhq.com/acme/austin"]
+    assert foreign == {"https://jobs.ashbyhq.com/acme/berlin"}
+
+
+def test_a_second_office_in_the_us_keeps_an_otherwise_foreign_row() -> None:
+    payload = {
+        "jobs": [
+            {
+                "title": "Software Engineer Intern",
+                "jobUrl": "https://jobs.ashbyhq.com/acme/1",
+                "publishedAt": "2026-08-01",
+                "location": "London",
+                "secondaryLocations": [{"location": "Boston, MA"}],
+            }
+        ]
+    }
+    keep, foreign = split_board("ashby", "acme", payload)
+    assert len(keep) == 1
+    assert foreign == set()
+
+
+def test_lever_is_read_from_its_country_code_before_its_prose() -> None:
+    """The one unambiguous location field any of these three APIs has."""
+    assert _in_country("US") and _in_country("us")
+    assert not _in_country("GB")
+    # Absent is unsaid, and unsaid is kept.
+    assert _in_country(None) and _in_country("")
 
 
 def test_a_slug_reads_as_a_company_name() -> None:
