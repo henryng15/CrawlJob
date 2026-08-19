@@ -3,16 +3,19 @@ from job_sync.sheet import (
     APPLIED,
     EXPIRED,
     HEADERS,
+    SOURCE,
     _census,
     _divided,
     _drop_blocked_rows,
     _drop_duplicate_identities,
     _drop_empty_rows,
     _drop_foreign_rows,
+    _fill_source,
     _key,
     _last_stage,
     _loose_identity,
     _mark_applied,
+    _needs_source_column,
     _quote_tab,
     _sorted_rows,
     _trimmed,
@@ -55,8 +58,17 @@ def test_sheet_key_skips_rows_without_a_link() -> None:
     assert _key(HEADERS) == normalize_link("Link Apply")
 
 
-def _row(company: str, date_posted: str, *extra: str) -> list[str]:
-    return [company, "SWE Intern", f"https://jobs.example/{company}", date_posted, *extra]
+def _row(company: str, date_posted: str, *extra: str, source: str = "") -> list[str]:
+    """A Jobs row. `extra` starts at the Applied checkbox, so every test that says
+    "TRUE" still means Applied even though Source now sits between them."""
+    return [
+        company,
+        "SWE Intern",
+        f"https://jobs.example/{company}",
+        date_posted,
+        source,
+        *extra,
+    ]
 
 
 def test_rows_sort_newest_posting_first() -> None:
@@ -74,7 +86,7 @@ def test_same_date_breaks_the_tie_on_company() -> None:
 
 
 def test_sorting_carries_extra_operator_columns_with_the_row() -> None:
-    """A note typed into column E must follow its own posting, not stay on the
+    """A note typed past the checkboxes must follow its own posting, not stay on the
     line number it happened to occupy before the sort."""
     rows = [_row("Beta", "2026-07-04", "applied"), _row("Acme", "2026-08-06", "rejected")]
     assert _sorted_rows(rows) == [
@@ -160,8 +172,8 @@ def test_a_row_missing_company_or_role_is_never_merged_away() -> None:
 
 
 def test_an_annotated_row_outranks_the_duplicate_arriving_after_it() -> None:
-    """Existing rows are passed in ahead of new ones, so a note in column E is
-    never traded away for a fresh row describing the same job."""
+    """Existing rows are passed in ahead of new ones, so a note past the
+    checkboxes is never traded away for a fresh row describing the same job."""
     rows = [
         ["Acme", "SWE Intern", "https://jobs.example/a", "2026-08-01", "applied"],
         ["Acme", "SWE Intern", "https://jobs.example/b", "2026-08-02"],
@@ -201,7 +213,7 @@ def test_an_annotation_is_worth_more_than_a_better_link() -> None:
     """Whoever wrote "applied" applied through that link. Upgrading the URL under
     them would drop the row carrying their note."""
     rows = [
-        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "applied"],
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "", "applied"],
         ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02"],
     ]
     unique, _ = _drop_duplicate_identities(rows)
@@ -257,8 +269,8 @@ def test_a_ticked_checkbox_protects_the_link_it_was_ticked_on() -> None:
     """The tick means the application went through that URL, so the aggregator row
     keeps its place even though the employer's own board is otherwise preferred."""
     rows = [
-        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "TRUE"],
-        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02", "FALSE"],
+        ["Acme", "SWE Intern", JOBRIGHT, "2026-08-01", "", "TRUE"],
+        ["Acme", "SWE Intern", GREENHOUSE, "2026-08-02", "", "FALSE"],
     ]
     unique, _ = _drop_duplicate_identities(rows)
     assert [row[2] for row in unique] == [JOBRIGHT]
@@ -300,7 +312,7 @@ def _written(rows: list[list[str]], clear_to_row: int = 0) -> _FakeValues:
 
 def test_a_sheet_nobody_has_annotated_is_still_one_write() -> None:
     api = _written([HEADERS, _row("Acme", "2026-08-01")])
-    assert [(cells, parse) for cells, parse, _ in api.updates] == [("'Jobs'!A1:D2", "RAW")]
+    assert [(cells, parse) for cells, parse, _ in api.updates] == [("'Jobs'!A1:E2", "RAW")]
 
 
 def test_the_checkbox_column_is_written_where_sheets_will_parse_it() -> None:
@@ -308,8 +320,8 @@ def test_the_checkbox_column_is_written_where_sheets_will_parse_it() -> None:
     the box would read back unticked on the next run."""
     api = _written([HEADERS + ["Applied"], _row("Acme", "2026-08-01", "TRUE")])
     assert [(cells, parse) for cells, parse, _ in api.updates] == [
-        ("'Jobs'!A1:D2", "RAW"),
-        ("'Jobs'!E1:E2", "USER_ENTERED"),
+        ("'Jobs'!A1:E2", "RAW"),
+        ("'Jobs'!F1:F2", "USER_ENTERED"),
     ]
     assert api.updates[1][2] == [["Applied"], ["TRUE"]]
 
@@ -319,7 +331,7 @@ def test_the_iso_date_is_never_offered_to_the_value_parser() -> None:
     and _sort_key reads it as a string."""
     api = _written([HEADERS + ["Applied"], _row("Acme", "2026-08-01", "TRUE")])
     owned = next(rows for _, parse, rows in api.updates if parse == "RAW")
-    assert owned[1] == ["Acme", "SWE Intern", "https://jobs.example/Acme", "2026-08-01"]
+    assert owned[1] == ["Acme", "SWE Intern", "https://jobs.example/Acme", "2026-08-01", ""]
 
 
 def test_a_row_appended_this_run_gets_an_empty_checkbox_cell() -> None:
@@ -333,7 +345,7 @@ def test_a_row_appended_this_run_gets_an_empty_checkbox_cell() -> None:
 
 def test_the_tail_of_a_shortened_sheet_is_cleared_before_the_write() -> None:
     api = _written([HEADERS, _row("Acme", "2026-08-01")], clear_to_row=9)
-    assert api.cleared == ["'Jobs'!A3:D9"]
+    assert api.cleared == ["'Jobs'!A3:E9"]
 
 
 APPLIED_LINK = "https://jobs.example/Acme"
@@ -539,12 +551,12 @@ def test_a_row_carrying_both_ticks_sinks_once() -> None:
 
 
 def test_a_row_holding_only_a_checkbox_is_not_a_job() -> None:
-    """Validation covers E2:F500 whether or not a job is on the row, and a cleared
+    """Validation covers the checkbox pair whether or not a job is on the row, and a cleared
     checkbox reads back as FALSE — so A:Z returns every row down to 500."""
     rows = [
         _row("Acme", "2026-08-01", "FALSE", "FALSE"),
-        ["", "", "", "", "FALSE", "FALSE"],
-        ["", "", "", "", "FALSE", "FALSE"],
+        ["", "", "", "", "", "FALSE", "FALSE"],
+        ["", "", "", "", "", "FALSE", "FALSE"],
     ]
     live, dropped = _drop_empty_rows(rows)
     assert [row[0] for row in live] == ["Acme"]
@@ -552,7 +564,7 @@ def test_a_row_holding_only_a_checkbox_is_not_a_job() -> None:
 
 
 def test_a_job_missing_only_its_date_is_still_a_job() -> None:
-    """Emptiness is judged across all four owned columns, not on any one of them."""
+    """Emptiness is judged across all the owned columns, not on any one of them."""
     live, dropped = _drop_empty_rows([["Acme", "SWE Intern", "https://x/1", ""]])
     assert dropped == 0
     assert len(live) == 1
@@ -563,7 +575,7 @@ def test_the_settled_rows_end_up_last_with_nothing_after_them() -> None:
     they sat between the open jobs and the settled ones."""
     rows = [
         _row("Done", "2026-08-17", "TRUE", "FALSE"),
-        ["", "", "", "", "FALSE", "FALSE"],
+        ["", "", "", "", "", "FALSE", "FALSE"],
         _row("Open", "2026-08-18", "FALSE", "FALSE"),
     ]
     live, _ = _drop_empty_rows(rows)
@@ -600,7 +612,7 @@ def test_the_divider_is_as_wide_as_the_sheet() -> None:
         _row("Done", "2026-08-17", "TRUE"),
     ]
     laid_out, _ = _divided(_sorted_rows(rows))
-    assert laid_out[1] == [""] * 7
+    assert laid_out[1] == [""] * 8
 
 
 def test_the_divider_is_dropped_when_the_sheet_is_read_back() -> None:
@@ -673,7 +685,9 @@ def test_a_row_you_have_written_on_is_not_taken_away_from_you() -> None:
     """Ticking Applied on a job in London is a decision. This has no business
     overruling it, on the same rule that makes a note in column G stop the
     auto-tick."""
-    rows = [["Acme", "SWE Intern", "https://jobs.ashbyhq.com/acme/berlin", "2026-08-01", "TRUE"]]
+    rows = [
+        ["Acme", "SWE Intern", "https://jobs.ashbyhq.com/acme/berlin", "2026-08-01", "", "TRUE"]
+    ]
     kept, dropped = _drop_foreign_rows(rows, {"https://jobs.ashbyhq.com/acme/berlin"})
     assert (dropped, len(kept)) == (0, 1)
 
@@ -681,3 +695,43 @@ def test_a_row_you_have_written_on_is_not_taken_away_from_you() -> None:
 def test_nothing_to_drop_costs_nothing() -> None:
     rows = [["Acme", "SWE Intern", "https://x/1", "2026-08-01"]]
     assert _drop_foreign_rows(rows, set()) == (rows, 0)
+
+
+def test_a_row_written_before_the_column_existed_gets_its_source_back() -> None:
+    """The migration leaves the cell empty and the link is all that is left to
+    recover it from — which is exactly what the crawl can still answer."""
+    rows = [_row("Acme", "2026-08-01"), _row("Beta", "2026-08-02")]
+    filled = _fill_source(rows, {_key(rows[0]): "Simplify"})
+    assert filled == 1
+    assert rows[0][SOURCE] == "Simplify"
+    assert rows[1][SOURCE] == ""
+
+
+def test_where_a_row_was_first_seen_is_not_rewritten() -> None:
+    """Two trackers carry one posting. Restating the source every run would make
+    the column flicker between their names for a row that never changed."""
+    rows = [_row("Acme", "2026-08-01", source="Jobright")]
+    assert _fill_source(rows, {_key(rows[0]): "Greenhouse"}) == 0
+    assert rows[0][SOURCE] == "Jobright"
+
+
+def test_filling_the_source_squares_off_a_short_row() -> None:
+    """The API drops trailing blanks, so a row with no source and no ticks comes
+    back four cells wide and has nowhere to put the answer."""
+    rows = [["Acme", "SWE Intern", "https://jobs.example/Acme", "2026-08-01"]]
+    _fill_source(rows, {})
+    assert len(rows[0]) == len(HEADERS)
+
+
+def test_the_old_layout_is_recognised_by_what_column_e_holds() -> None:
+    """Applied in E is the sheet from before Source existed; Source in E is the one
+    after. Those are the only two shapes it is safe to act on."""
+    assert _needs_source_column(HEADERS[:4] + ["Applied", "Expired"]) is True
+    assert _needs_source_column(HEADERS + ["Applied", "Expired"]) is False
+
+
+def test_an_unrecognised_fifth_column_is_left_alone() -> None:
+    """Inserting a column into a sheet whose shape is not understood would move
+    somebody's checkboxes away from the rows they were ticked on."""
+    assert _needs_source_column(HEADERS[:4] + ["Notes"]) is False
+    assert _needs_source_column(HEADERS[:4]) is False

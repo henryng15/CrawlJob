@@ -7,7 +7,7 @@ chung một luật**:
 | Câu hỏi | Dùng để | Sai thì mất gì |
 |---|---|---|
 | Hai dòng ở `Jobs` có phải một job? | **xoá bớt một dòng** | mất một cơ hội thật, không bao giờ biết |
-| Dòng `Jobs` này có nằm trong `App` không? | **tick một ô** | ghi chú vào cột G là gỡ được |
+| Dòng `Jobs` này có nằm trong `App` không? | **tick một ô** | ghi chú vào cột H là gỡ được |
 
 Vì thiệt hại lệch nhau như vậy nên có ba lớp, lỏng dần, và lớp lỏng nhất **không bao giờ**
 được dùng để xoá.

@@ -162,7 +162,7 @@ Mở spreadsheet → **Extensions → Apps Script**, dán từng file vào, Save
 
 | File | Chạy hàm | Làm gì |
 |---|---|---|
-| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | dựng checkbox `Applied` (E) và `Expired` (F) ở tab Jobs |
+| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | dựng checkbox `Applied` (F) và `Expired` (G) ở tab Jobs |
 | | `setupAppColumns` | dựng `Alumni` (I), `Recruiter` (J), `Update` (K) ở tab App |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | dựng dropdown `Process` có màu ở tab App |
 

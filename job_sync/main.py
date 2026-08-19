@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -90,7 +91,10 @@ def main() -> None:
     failures = []
     for source in load_sources(args.sources):
         try:
-            parsed = parse_jobs(fetch_source(source), now.date())
+            parsed = [
+                replace(job, source=source.label)
+                for job in parse_jobs(fetch_source(source), now.date())
+            ]
             print(f"{source.name}: {len(parsed)} matching roles")
             jobs.extend(parsed)
         except Exception as error:  # noqa: BLE001 - a tracker must not block the others.
@@ -134,6 +138,7 @@ def main() -> None:
     print(f"Dropped {result.dead} rows whose posting the board reports as gone.")
     print(f"Dropped {result.blocked} rows from employers this tracker no longer follows.")
     print(f"Dropped {result.abroad} rows the boards place outside the US.")
+    print(f"Named the source of {result.sourced} rows that did not carry one.")
     print(f"Merged {result.duplicate} rows repeating a company and role already listed.")
     # One of these is usually last run's divider, which is rebuilt rather than junk.
     print(f"Dropped {result.empty} blank rows before sorting.")

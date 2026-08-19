@@ -133,7 +133,7 @@ job bị append lần hai, mà một posting trượt bài kiểm tra địa đi
 tập được append.
 
 **Dòng bạn đã viết vào thì không bị đụng.** Tick Applied cho một job ở London là một quyết
-định, và cái này không có quyền lật nó — cùng luật khiến ghi chú cột G chặn được auto-tick.
+định, và cái này không có quyền lật nó — cùng luật khiến ghi chú cột H chặn được auto-tick.
 
 ## Role nào được giữ
 
@@ -192,7 +192,7 @@ Ba lý do, và chỉ ba:
    được dọn. Đã chặn thì dòng cũ cũng bị gỡ, chứ không chỉ ngừng thêm mới.
 3. **Trùng với một dòng khác** — xem [matching.md](matching.md).
 
-Ô tick và ghi chú của bạn ở cột E–G **không** phải là lý do để giữ hay xoá một dòng, ngoại
+Ô tick và ghi chú của bạn ở cột F trở đi **không** phải là lý do để giữ hay xoá một dòng, ngoại
 trừ việc chúng thắng khi phải chọn giữ dòng nào trong hai dòng trùng nhau.
 
 ## Liveness: hỏi board xem posting còn mở không

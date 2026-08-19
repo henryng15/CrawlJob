@@ -125,6 +125,7 @@ def _greenhouse(slug: str, payload: object) -> list[tuple[Job, bool]]:
                 company=row.get("company_name") or _display(slug),
                 role=row["title"],
                 apply_link=row.get("absolute_url") or "",
+                source="Greenhouse",
                 # first_published is when the posting went up. updated_at moves
                 # every time someone fixes a typo in the description, which would
                 # reshuffle the top of the sheet for no reason anyone could act on.
@@ -148,6 +149,7 @@ def _lever(slug: str, payload: object) -> list[tuple[Job, bool]]:
                 # off it. normalize_link folds the two together, so this only decides
                 # what a human sees after clicking.
                 apply_link=row.get("hostedUrl") or row.get("applyUrl") or "",
+                source="Lever",
                 date_posted=_from_epoch(row.get("createdAt")),
             ),
             _in_country(row.get("country")) and is_united_states(_where(row, "categories")),
@@ -165,6 +167,7 @@ def _ashby(slug: str, payload: object) -> list[tuple[Job, bool]]:
                 company=_display(slug),
                 role=row["title"],
                 apply_link=row.get("jobUrl") or row.get("applyUrl") or "",
+                source="Ashby",
                 date_posted=_from_iso(row.get("publishedAt")),
             ),
             is_united_states(_where(row, "location", "secondaryLocations", "address")),

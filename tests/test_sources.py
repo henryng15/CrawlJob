@@ -193,3 +193,19 @@ def test_a_name_that_is_only_legal_form_matches_nothing() -> None:
     everything — which would paint the entire directory."""
     assert company_tokens("The Company Ltd") == frozenset()
     assert not same_employer(company_tokens("The Company Ltd"), company_tokens("Google"))
+
+
+def test_a_tracker_label_is_the_name_without_its_season() -> None:
+    """The long name belongs in a log. The Source cell is glanced at, and what
+    changes between a tracker's editions is the season and the co-curator — the
+    first word is what stays put and what anyone would say out loud."""
+    from job_sync.sources import Source
+
+    def label(name: str) -> str:
+        return Source(name=name, url="").label
+
+    assert label("Simplify / Pitt CSC — Summer 2027") == "Simplify"
+    assert label("Jobright — 2026 Software Engineer Internship") == "Jobright"
+    assert label("speedyapply — 2027 SWE College Jobs") == "speedyapply"
+    # Nothing to cut leaves the name whole rather than empty.
+    assert label("Handmade list") == "Handmade list"

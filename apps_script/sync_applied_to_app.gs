@@ -17,8 +17,13 @@
 
 var JOBS_TAB    = 'Jobs';
 var APP_TAB     = 'App';
-var APPLIED_COL = 5;    // Jobs cột E
-var EXPIRED_COL = 6;    // Jobs cột F — tick vào đây thì dòng không sang App
+// Cột E là Source — nguồn của dòng đó (Simplify, Jobright, Greenhouse…), do phía
+// Python ghi. Nó nằm TRƯỚC hai checkbox chứ không phải sau, và đó là bắt buộc: mọi
+// cột sau Expired đều được đọc là ghi chú của bạn, mà ghi chú là thứ duy nhất chặn
+// được auto-tick. Một cột Source đặt sau F sẽ trông như ghi chú ở mọi dòng.
+var SOURCE_COL  = 5;    // Jobs cột E
+var APPLIED_COL = 6;    // Jobs cột F
+var EXPIRED_COL = 7;    // Jobs cột G — tick vào đây thì dòng không sang App
 var FIRST_ROW   = 2;    // dòng 1 là header
 var LAST_ROW    = 500;  // chừa sẵn chỗ, khớp với setup_process_dropdown.gs
 
@@ -106,8 +111,8 @@ function identity(company, role) {
 /**
  * Chạy tay một lần: dựng header và checkbox cho cột E và F của tab Jobs.
  *
- * Ghi chú tự do bắt đầu từ cột G, không phải F. Một cột checkbox đọc ra FALSE ở
- * mọi dòng nó phủ, nên nếu F được coi là chỗ ghi chú thì phía Python sẽ thấy cả
+ * Ghi chú tự do bắt đầu từ cột H, không phải G. Một cột checkbox đọc ra FALSE ở
+ * mọi dòng nó phủ, nên nếu G được coi là chỗ ghi chú thì phía Python sẽ thấy cả
  * sheet đã có ghi chú và ngừng tick tự động.
  */
 function setupJobsCheckboxes() {
@@ -121,7 +126,7 @@ function setupJobsCheckboxes() {
   jobs.getRange(FIRST_ROW, APPLIED_COL, LAST_ROW - FIRST_ROW + 1, 2)
       .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
-  ss.toast('Cột E và F (dòng 2–' + LAST_ROW + ') đã thành checkbox.', 'Xong', 5);
+  ss.toast('Cột F và G (dòng 2–' + LAST_ROW + ') đã thành checkbox.', 'Xong', 5);
 }
 
 

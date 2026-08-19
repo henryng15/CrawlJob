@@ -10,11 +10,12 @@ Spreadsheet là giao diện của cả hệ thống. Hiểu ai sở hữu cột 
 | B | Role | tool |
 | C | Link Apply | tool |
 | D | Date Posted | tool |
-| E | **Applied** ☑ | bạn, và tool tick sẵn hộ |
-| F | **Expired** ☑ | chỉ bạn |
-| G trở đi | ghi chú tự do | chỉ bạn |
+| E | **Source** | tool |
+| F | **Applied** ☑ | bạn, và tool tick sẵn hộ |
+| G | **Expired** ☑ | chỉ bạn |
+| H trở đi | ghi chú tự do | chỉ bạn |
 
-Mỗi lượt sync tool **ghi đè toàn bộ** A–D rồi sort lại. Cột E trở đi được đọc lên và ghi
+Mỗi lượt sync tool **ghi đè toàn bộ** A–E rồi sort lại. Cột F trở đi được đọc lên và ghi
 lại nguyên vẹn, nên ô tick của bạn luôn đi theo đúng dòng của nó chứ không nằm lại ở số
 dòng cũ.
 
@@ -31,22 +32,40 @@ dòng chỉ-có-checkbox và xoá luôn. Mỗi lượt nó được dựng lại
 luôn nằm đúng chỗ khi hai nửa thay đổi kích thước. Ô màu cũng được dời theo, bằng cùng cơ
 chế xoá-có-chọn-lọc dùng cho alumni.
 
-Khoảng trống đó từng có thật. `setupJobsCheckboxes` phủ validation lên `E2:F500` bất kể
+Khoảng trống đó từng có thật. `setupJobsCheckboxes` phủ validation lên `F2:G500` bất kể
 dòng đó có job hay không, mà ô checkbox chưa tick đọc ra `FALSE` chứ không phải rỗng — nên
 một lần đọc `A:Z` trả về đủ cả 499 dòng, phần lớn chỉ có hai chữ `FALSE`. Chúng xếp vào
 nhóm "chưa làm" với ngày trống, tức là sau job thật nhưng trước đám đã tick. Giờ dòng nào
 không có gì ở A–D đều bị xoá hẳn trước khi sort.
 
-### Cột E — `Applied`
+### Cột E — `Source`
+
+Dòng này từ đâu ra: `Simplify`, `Jobright`, `speedyapply`, `zshah101`, `sndsh404`, hoặc
+`Greenhouse` / `Lever` / `Ashby` nếu nó đọc thẳng từ board của chính công ty.
+
+Do tool ghi, và **chỉ điền vào ô trống**. Một dòng đã có nguồn thì giữ nguyên, kể cả khi
+hôm nay một tracker khác cũng đang đăng đúng posting đó — nơi nó được **nhìn thấy lần đầu**
+mới là câu trả lời không đổi, còn ghi đè mỗi lượt sẽ làm cột này nhấp nháy giữa hai cái tên
+cho một dòng chẳng thay đổi gì.
+
+Dòng có trước khi cột này tồn tại được điền ngược lại từ link, ở lượt sync đầu tiên sau khi
+cột được chèn.
+
+> **Vì sao Source nằm ở E chứ không phải ở cuối.** Mọi cột sau `Expired` đều được đọc là
+> ghi chú của bạn, và ghi chú là thứ **duy nhất** chặn được auto-tick. Một cột Source đặt
+> sau G sẽ trông như ghi chú ở mọi dòng, và tool sẽ ngừng tick tự động trên cả sheet — đúng
+> lỗi từng khiến bản đầu tiên tick được 0 dòng.
+
+### Cột F — `Applied`
 
 Tick vào là dòng đó lập tức được copy sang tab `App`, đầy đủ Property, ngày hôm nay và
 `Process = Applied`. Mất khoảng một giây.
 
 Tool cũng tự tick hộ ô này cho những job mà tab `App` cho thấy bạn đã nộp rồi — xem
-[matching.md](matching.md). Nói cách khác: **dòng nào còn trống ở cột E chính là việc còn
+[matching.md](matching.md). Nói cách khác: **dòng nào còn trống ở cột F chính là việc còn
 phải làm.**
 
-### Cột F — `Expired`
+### Cột G — `Expired`
 
 Dành cho posting đã đóng nhưng board vẫn trả HTTP 200, nên liveness check không tự xoá
 được. Tick vào thì:
@@ -59,13 +78,13 @@ Nó chỉ chặn chiều đi. Một dòng đã sang `App` rồi thì tick `Expir
 nó về — `App` là source of truth. Gỡ tick ra thì dòng lại đi được bình thường, không có
 trạng thái kẹt.
 
-### Cột G trở đi — ghi chú
+### Cột H trở đi — ghi chú
 
 Ghi bất cứ gì vào đây là tool ngừng đụng vào checkbox của dòng đó. Đây là cách duy nhất
 để nói "tool khớp sai rồi", vì untick suông sẽ bị tick lại ở lượt sau.
 
-> **Vì sao ghi chú phải từ G chứ không phải F.** Một cột checkbox đọc ra `FALSE` ở *mọi*
-> dòng nó phủ, không phải ô rỗng. Nếu F được coi là chỗ ghi chú thì tool sẽ thấy cả sheet
+> **Vì sao ghi chú phải từ H chứ không phải G.** Một cột checkbox đọc ra `FALSE` ở *mọi*
+> dòng nó phủ, không phải ô rỗng. Nếu G được coi là chỗ ghi chú thì tool sẽ thấy cả sheet
 > đã có ghi chú và ngừng tick tự động hoàn toàn. Đúng lỗi này từng khiến bản đầu tiên tick
 > được 0 dòng mà workflow vẫn báo xanh. Có test ghim lại: `test_the_expired_column_is_not_read_as_a_note`.
 

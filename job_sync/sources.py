@@ -90,6 +90,17 @@ class Source:
     name: str
     url: str
 
+    @property
+    def label(self) -> str:
+        """The short name for the Source column, cut out of the long one.
+
+        "Simplify / Pitt CSC — Summer 2027" is the right thing to print in a log
+        and far too much for a cell you glance at. The season and the co-curator
+        are what change between a tracker's editions; the first word is what stays
+        the same and is what anyone would say out loud."""
+        head = self.name.split("—")[0].split("/")[0]
+        return head.strip() or self.name.strip()
+
 
 def normalize_link(value: str) -> str:
     """The one definition of "the same posting". A row already in the sheet and a
@@ -178,6 +189,10 @@ class Job:
     role: str
     apply_link: str
     date_posted: str
+    # Which tracker or job board this row came from. Carried on the job rather than
+    # decided at the sheet, because by the time two rows for one posting have been
+    # deduped, only the surviving one knows where it was read.
+    source: str = ""
 
     @property
     def dedupe_key(self) -> str:

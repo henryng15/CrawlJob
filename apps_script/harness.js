@@ -122,7 +122,10 @@ function load() {
   return sandbox;
 }
 
-const JOBS_HEADER = ['Company', 'Role', 'Link Apply', 'Date Posted', 'Applied', 'Expired'];
+const JOBS_HEADER = ['Company', 'Role', 'Link Apply', 'Date Posted', 'Source',
+                    'Applied', 'Expired'];
+// Cột checkbox trong grid, 0-based: Source chen vào giữa nên chúng lùi một ô.
+const APPLIED = 5, EXPIRED = 6;
 const APP_HEADER = ['Property', 'Company', 'Application Link', 'Date Applied',
                     'Location (State)', 'Process', 'Role', 'Note'];
 
@@ -136,12 +139,12 @@ function freshJobs() {
   return makeSheet('Jobs', [
     JOBS_HEADER,
     // App có job này nhưng dưới link greenhouse, còn Jobs đang giữ link jobright.
-    ['IBM', 'Software Engineering Intern', 'https://jobright.ai/jobs/info/abc', '2026-08-14', false, false],
+    ['IBM', 'Software Engineering Intern', 'https://jobright.ai/jobs/info/abc', '2026-08-14', 'Jobright', false, false],
     // Cùng link với App, chỉ khác dấu / cuối và utm.
     ['Notion', 'Software Engineer Intern',
-     'https://jobs.ashbyhq.com/notion/1?utm_source=Simplify', '2026-08-15', false, false],
+     'https://jobs.ashbyhq.com/notion/1?utm_source=Simplify', '2026-08-15', 'Simplify', false, false],
     // Chưa nộp bao giờ.
-    ['Neuralink', 'Firmware Engineer Intern', 'https://jobright.ai/jobs/info/xyz', '2026-08-16', false, false],
+    ['Neuralink', 'Firmware Engineer Intern', 'https://jobright.ai/jobs/info/xyz', '2026-08-16', 'Ashby', false, false],
   ]);
 }
 
@@ -201,11 +204,11 @@ console.log('backfillTicksFromApp');
   const s = load();
   s.backfillTicksFromApp();
   run('Notion được tick qua link, IBM qua company + role', () => {
-    assert.strictEqual(jobs.grid[1][4], true, 'IBM');
-    assert.strictEqual(jobs.grid[2][4], true, 'Notion');
+    assert.strictEqual(jobs.grid[1][APPLIED], true, 'IBM');
+    assert.strictEqual(jobs.grid[2][APPLIED], true, 'Notion');
   });
   run('job chưa nộp thì để nguyên', () => {
-    assert.strictEqual(jobs.grid[3][4], false, 'Neuralink');
+    assert.strictEqual(jobs.grid[3][APPLIED], false, 'Neuralink');
   });
   run('toast tách riêng hai kiểu khớp', () => {
     assert.match(toasts[0], /2 dòng: 1 khớp link, 1 khớp company \+ role/);
@@ -230,8 +233,8 @@ console.log('onEdit');
   app = freshApp();
   const s = load();
   // onEdit chạy sau khi ô đã đổi giá trị, nên ô phải là true trước khi bắn.
-  jobs.grid[3][4] = true;
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][APPLIED] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('tick job chưa có ở App thì thêm một dòng', () => {
     assert.strictEqual(app.getLastRow(), 5);
   });
@@ -268,19 +271,19 @@ console.log('onEdit — các trường hợp phải không làm gì');
   s.onEdit({ source: ss, range: jobs.getRange(2, 3, 1, 1) });
   run('sửa cột khác thì bỏ qua', () => assert.strictEqual(app.getLastRow(), 4));
 
-  jobs.grid[3][4] = false;
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][APPLIED] = false;
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('untick không làm gì', () => assert.strictEqual(app.getLastRow(), 4));
 
-  jobs.grid[2][4] = true;
-  s.onEdit({ source: ss, range: jobs.getRange(3, 5, 1, 1) });
+  jobs.grid[2][APPLIED] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(3, APPLIED + 1, 1, 1) });
   run('tick job đã có ở App qua link thì bỏ qua', () => {
     assert.strictEqual(app.getLastRow(), 4);
     assert.match(toasts[toasts.length - 1], /Không thêm dòng nào/);
   });
 
-  jobs.grid[1][4] = true;
-  s.onEdit({ source: ss, range: jobs.getRange(2, 5, 1, 1) });
+  jobs.grid[1][APPLIED] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 1, 1) });
   run('onEdit KHÔNG khớp theo tên: link khác thì vẫn ghi nhận', () => {
     assert.strictEqual(app.getLastRow(), 5);
   });
@@ -291,10 +294,10 @@ console.log('onEdit — fill-down nhiều dòng');
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  jobs.grid[1][4] = true;
-  jobs.grid[2][4] = true;
-  jobs.grid[3][4] = true;
-  s.onEdit({ source: ss, range: jobs.getRange(2, 5, 3, 1) });
+  jobs.grid[1][APPLIED] = true;
+  jobs.grid[2][APPLIED] = true;
+  jobs.grid[3][APPLIED] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 3, 1) });
   run('cả khối được xử lý, Property không trùng nhau', () => {
     assert.strictEqual(app.getLastRow(), 6);
     assert.strictEqual(app.grid[4][0], 3);
@@ -310,9 +313,9 @@ console.log('onEdit — Expired chặn dòng sang App');
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  jobs.grid[3][4] = true;   // Applied
-  jobs.grid[3][5] = true;   // Expired
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][APPLIED] = true;   // Applied
+  jobs.grid[3][EXPIRED] = true;   // Expired
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('tick Applied trên dòng đã Expired thì không thêm gì', () => {
     assert.strictEqual(app.getLastRow(), 4);
   });
@@ -320,8 +323,8 @@ console.log('onEdit — Expired chặn dòng sang App');
     assert.match(toasts[toasts.length - 1], /Bỏ qua 1 dòng đã tick Expired/);
   });
 
-  jobs.grid[1][4] = true;   // IBM: Applied, không Expired
-  s.onEdit({ source: ss, range: jobs.getRange(2, 5, 3, 1) });
+  jobs.grid[1][APPLIED] = true;   // IBM: Applied, không Expired
+  s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 3, 1) });
   run('trong cùng một khối, dòng không Expired vẫn sang bình thường', () => {
     assert.strictEqual(app.getLastRow(), 5);
     assert.strictEqual(app.grid[4][1], 'IBM');
@@ -330,8 +333,8 @@ console.log('onEdit — Expired chặn dòng sang App');
     assert.match(toasts[toasts.length - 1], /Đã thêm 1 dòng.*Bỏ qua 1 dòng đã tick Expired/s);
   });
 
-  jobs.grid[3][5] = false;  // gỡ Expired
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][EXPIRED] = false;  // gỡ Expired
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('gỡ Expired rồi thì dòng đó sang được', () => {
     assert.strictEqual(app.getLastRow(), 6);
     assert.strictEqual(app.grid[5][1], 'Neuralink');
@@ -345,8 +348,8 @@ console.log('setupJobsCheckboxes');
   const s = load();
   s.setupJobsCheckboxes();
   run('dựng header cho cả hai cột', () => {
-    assert.strictEqual(jobs.grid[0][4], 'Applied');
-    assert.strictEqual(jobs.grid[0][5], 'Expired');
+    assert.strictEqual(jobs.grid[0][APPLIED], 'Applied');
+    assert.strictEqual(jobs.grid[0][EXPIRED], 'Expired');
   });
 }
 
@@ -380,8 +383,8 @@ console.log('Jobs → App: gieo dòng Update đầu tiên');
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  jobs.grid[3][4] = true;   // Neuralink: Applied
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][APPLIED] = true;   // Neuralink: Applied
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('dòng vừa sang App đã mang sẵn chặng Applied', () => {
     assert.strictEqual(app.grid[4][10], 'Applied: ' + today());
   });
@@ -521,8 +524,8 @@ console.log('onEdit — dòng mới nhận validation của cả hai ô checkbox
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  jobs.grid[3][4] = true;
-  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  jobs.grid[3][APPLIED] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('copy validation tới hết cột J, không dừng ở APP_WIDTH', () => {
     assert.strictEqual(copied.length, 1);
     assert.strictEqual(copied[0][1], 'PASTE_DATA_VALIDATION');

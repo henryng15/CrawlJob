@@ -20,7 +20,16 @@ from job_sync.sources import (
     role_tokens,
 )
 
-HEADERS = ["Company", "Role", "Link Apply", "Date Posted"]
+# Source sits inside the tool's own block, before the checkboxes, and that is
+# forced rather than chosen: every column past Expired is read as an operator's
+# note, and a note is the only way to tell the auto-tick to leave a row alone. A
+# Source column written past F would look like a note on every row and silence the
+# tick everywhere.
+HEADERS = ["Company", "Role", "Link Apply", "Date Posted", "Source"]
+SOURCE = 4
+# What column E holds in a sheet built before Source existed. Finding this is what
+# tells a run it has an old layout in front of it rather than a broken new one.
+OLD_FIFTH = "Applied"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # Columns E and F, the first two past the four this tool owns. Both are checkboxes
 # the operator ticks; a free-text note starts at G, past both of them.
@@ -43,6 +52,7 @@ class SyncResult:
     dead: int = 0
     blocked: int = 0
     abroad: int = 0
+    sourced: int = 0
     duplicate: int = 0
     empty: int = 0
     ticked_link: int = 0
@@ -468,6 +478,95 @@ def audit_app(settings: Settings) -> int:
     return len(findings)
 
 
+def _fill_source(rows: list[list[str]], sources: dict[str, str]) -> int:
+    """Name the tracker or board a row already in the sheet came from.
+
+    Only ever fills a blank. A row that already names its source keeps it, even
+    when a different tracker is offering the same posting today — where a job was
+    first seen is the answer that stays true, and rewriting it each run would make
+    the column flicker between two names for one row that never changed.
+
+    Rows written before the column existed are the reason this exists at all: they
+    come back from the migration with an empty cell and nothing but a link to
+    recover it from."""
+    filled = 0
+    for row in rows:
+        row.extend([""] * (len(HEADERS) - len(row)))
+        if row[SOURCE].strip():
+            continue
+        found = sources.get(_key(row) or "")
+        if found:
+            row[SOURCE] = found
+            filled += 1
+    return filled
+
+
+def _needs_source_column(header: list[str]) -> bool:
+    """Is this the four-column sheet that existed before Source did.
+
+    Read off the fifth cell, which says Applied on the old layout and Source on the
+    new one. Anything else is neither, and neither is where this stops: inserting a
+    column into a sheet whose shape is not understood would move somebody's
+    checkboxes away from their rows."""
+    fifth = header[SOURCE] if len(header) > SOURCE else ""
+    if fifth.strip() == HEADERS[SOURCE]:
+        return False
+    if fifth.strip() == OLD_FIFTH:
+        return True
+    print(
+        f"WARNING: expected {HEADERS[SOURCE]!r} or {OLD_FIFTH!r} in column E; found "
+        f"{fifth!r}. Leaving the layout alone."
+    )
+    return False
+
+
+def _insert_source_column(service, settings: Settings) -> None:
+    """Push everything from column E one to the right and write the header in.
+
+    Done from here rather than by hand in the Apps Script editor because the sync
+    runs on a cron: between a person reading an instruction and acting on it, this
+    would run several times, and each of those runs would write company names into
+    the Applied checkboxes. There is no safe window to ask for, so there is no
+    asking.
+
+    inheritFromBefore is false so the new column takes its formatting from D rather
+    than becoming a third checkbox."""
+    sheet_id = _tab_id(service, settings, settings.sheet_tab)
+    if sheet_id is None:
+        raise RuntimeError(f"No tab named {settings.sheet_tab!r} to insert a column into.")
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=settings.sheet_id,
+        body={
+            "requests": [
+                {
+                    "insertDimension": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": SOURCE,
+                            "endIndex": SOURCE + 1,
+                        },
+                        "inheritFromBefore": False,
+                    }
+                }
+            ]
+        },
+    ).execute()
+    print(f"Inserted a {HEADERS[SOURCE]} column at {settings.sheet_tab}!E; everything moved right.")
+
+
+def _tab_id(service, settings: Settings, tab: str) -> int | None:
+    meta = (
+        service.spreadsheets()
+        .get(spreadsheetId=settings.sheet_id, fields="sheets.properties(sheetId,title)")
+        .execute()
+    )
+    for sheet in meta.get("sheets", []):
+        if sheet["properties"]["title"] == tab:
+            return sheet["properties"]["sheetId"]
+    return None
+
+
 def append_new_jobs(
     settings: Settings,
     jobs: list[Job],
@@ -495,8 +594,21 @@ def append_new_jobs(
             f"No tab named {settings.sheet_tab!r} in the spreadsheet. Tabs found: {found}"
         ) from error
     header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
-    if header[:4] != HEADERS:
-        raise RuntimeError(f"Expected {HEADERS} in {settings.sheet_tab}!A1:D1; found {header[:4]}")
+    if header[: len(HEADERS)] != HEADERS and _needs_source_column(header):
+        _insert_source_column(service, settings)
+        # Re-read rather than shifting the rows in memory. The insert moves values,
+        # checkbox validation and cell colours together, and the only way to be sure
+        # this run agrees with what is now on the sheet is to look again.
+        existing = (
+            values_api.get(spreadsheetId=settings.sheet_id, range=f"{tab}!A:Z")
+            .execute()
+            .get("values", [])
+        )
+        header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
+    if header[: len(HEADERS) - 1] != HEADERS[:-1]:
+        raise RuntimeError(
+            f"Expected {HEADERS[:-1]} in {settings.sheet_tab}!A1:D1; found {header[:4]}"
+        )
     if rebuild:
         # Rows written by an earlier, buggier parse cannot be repaired in place —
         # the company they should carry is only knowable from the source.
@@ -510,7 +622,13 @@ def append_new_jobs(
     data, abroad = _drop_foreign_rows(data, foreign or set())
     known = {key for row in data if (key := _key(row))}
     fresh = [job for job in jobs if job.dedupe_key not in known]
-    data = data + [[job.company, job.role, job.apply_link, job.date_posted] for job in fresh]
+    data = data + [
+        [job.company, job.role, job.apply_link, job.date_posted, job.source] for job in fresh
+    ]
+    # Every crawled job, not only the new ones: the rows already in the sheet are
+    # exactly the ones with nothing in the column, and the crawl is the only thing
+    # that still knows where they came from.
+    sourced = _fill_source(data, {job.dedupe_key: job.source for job in jobs if job.source})
     # After the new rows are appended rather than before, so that a new posting
     # repeating a company and role already in the sheet is the one dropped.
     data, duplicate = _drop_duplicate_identities(data)
@@ -531,6 +649,7 @@ def append_new_jobs(
         "dead": dead,
         "blocked": blocked,
         "abroad": abroad,
+        "sourced": sourced,
         "duplicate": duplicate,
         "empty": empty,
         "ticked_link": ticked_link,

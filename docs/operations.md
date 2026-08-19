@@ -73,7 +73,7 @@ Trên Actions: **Run workflow** → bật input `rebuild`.
 Bỏ hết dòng đang có và viết lại sheet chỉ từ nguồn. Dùng khi các dòng cũ được ghi bởi một
 parser sai và không sửa tại chỗ được.
 
-> **Rebuild xoá luôn cột E–G.** Mọi ô tick `Applied`, `Expired` và ghi chú đều mất. Tab
+> **Rebuild xoá luôn cột F trở đi.** Mọi ô tick `Applied`, `Expired` và ghi chú đều mất. Tab
 > `App` không bị đụng tới, nên lượt sync sau sẽ tick lại được những job đã nộp — nhưng
 > `Expired` và ghi chú thì phải làm lại bằng tay.
 
@@ -95,8 +95,8 @@ parser sai và không sửa tại chỗ được.
 | `WARNING: no tab named 'App'` | sync vẫn chạy, chỉ là không tick được gì |
 | `Expected [...] in Jobs!A1:D1` | header A–D bị sửa; trả lại đúng bốn tên cột |
 | `403` / `does not have permission` | quên share spreadsheet cho service account, xem [setup.md](setup.md) |
-| Ô Applied hiện ra chữ `TRUE` thay vì dấu tick | cột E đang bị ghi bằng `RAW` |
-| Tool tick 0 dòng suốt | cột G có ghi chú ở mọi dòng, hoặc cột E–F lệch chỗ |
+| Ô Applied hiện ra chữ `TRUE` thay vì dấu tick | cột F đang bị ghi bằng `RAW` |
+| Tool tick 0 dòng suốt | cột H có ghi chú ở mọi dòng, hoặc cột F–G lệch chỗ |
 | `Multiple top-level packages discovered` | thêm thư mục mới ở gốc repo → khai báo trong `[tool.setuptools] packages` |
 
 ## Kiểm tra trước khi push
