@@ -89,6 +89,8 @@ Muốn cho khuất mắt thì dùng **filter view** ẩn `E = TRUE` hoặc `F = 
 | F | Process | dropdown: Applied / OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
+| I | *(không có chữ)* | ô bôi đỏ báo công ty đó có recruiter — xem [alumni.md](alumni.md) |
+| J | **Update** | lịch sử chuyển chặng, mỗi chặng một dòng |
 
 `Property` được tính bằng **số lớn nhất đang có + 1**, không phải số dòng — App có thể đã
 bị xoá dòng ở giữa, và hai dòng trùng số thì tệ hơn là có lỗ hổng.
@@ -96,6 +98,51 @@ bị xoá dòng ở giữa, và hai dòng trùng số thì tệ hơn là có l�
 Data validation của dòng mới được **copy từ dòng entry cuối cùng** thay vì dựng lại, vì
 dropdown `Process` dạng chip màu được tạo từ giao diện Sheets mà Apps Script không có API
 đặt màu chip. Copy thì dòng mới giống hệt dòng cũ, bất kể dropdown từng được tạo kiểu gì.
+
+### Cột J — `Update`
+
+Mỗi lần bạn đổi `Process` ở cột F, Apps Script nối thêm một dòng vào ô J của **chính dòng
+đó**, ghi chặng vừa chuyển sang và ngày hôm nay. Nhiều dòng nằm trong cùng một ô, ngăn
+nhau bằng xuống dòng (Alt+Enter):
+
+```
+Applied: Jul 21, 2026
+OA: Aug 3, 2026
+Interview: Aug 12, 2026
+```
+
+Cột `Date Applied` chỉ nhớ được ngày đầu tiên. Cột này nhớ cả đường đi — bao lâu thì có
+OA, bao lâu từ OA sang phỏng vấn — thứ mà nhìn một ô `Process` đang đứng ở đâu thì không
+bao giờ biết được.
+
+**Mỗi chặng ghi đúng một lần.** Ô này là lịch sử, không phải log: quay lại một chặng đã đi
+qua, hay paste đè đúng giá trị đang có, đều không sinh dòng thứ hai. Giá trị nằm ngoài
+pipeline (gõ tay "Phone screen" chẳng hạn) bị bỏ qua hẳn — dropdown đã liệt kê hết chặng
+có thật, nên cái gì không khớp là gõ nhầm.
+
+Script chỉ **nối thêm**, không bao giờ viết lại cái đã có. Nên ô này sửa tay thoải mái:
+ghi nhầm thì xoá dòng đó đi, nhớ ra ngày cũ thì điền vào.
+
+> **Vì sao là cột J chứ không phải I.** Cột I đang là ô bôi đỏ báo "công ty này có
+> recruiter", do phía Python vẽ. Nó không mang chữ nào, nhưng đặt text lên nền đỏ thì vừa
+> không đọc được vừa khiến hai thứ chẳng liên quan tranh nhau một cột.
+
+### Dấu `?` trong cột Update
+
+`setupUpdateColumn` dựng cột này cho các dòng đã có sẵn. Chỉ chặng `Applied` là suy ra
+được — từ ô `Date Applied`. Ngày chuyển sang OA hay Interview thì **chưa từng được ghi ở
+đâu cả**, nên dòng nào đang đứng ở chặng sau `Applied` được ghi thêm:
+
+```
+Applied: Jul 26, 2026
+OA: ?
+```
+
+Dấu `?` nghĩa là chặng đó có thật nhưng ngày thì không ai biết. Ctrl+F tìm `: ?` ra đúng
+danh sách cần điền tay. Nó ở đó thay cho một ngày bịa trông như thật.
+
+Từ lúc dựng xong trở đi mọi lần chuyển chặng đều tự ghi, nên `?` chỉ xuất hiện ở đám dòng
+có trước.
 
 ### Điền Role vào là tool tick được nhiều hơn
 

@@ -51,6 +51,10 @@ App: 82 rows
 - `SAME LINK` / `SAME JOB` — hai dòng cùng một đơn.
 - `NOT A LINK` — ô Application Link không phải URL.
 - `STAGE?` — giá trị `Process` nằm ngoài pipeline.
+- `UNLOGGED` — `Process` và dòng cuối của cột `Update` nói hai chặng khác nhau. Apps Script
+  ghi dòng đó ngay lúc `Process` đổi, nên lệch nghĩa là thay đổi đã vào sheet bằng đường
+  mà simple trigger không thấy: một lượt ghi qua API, hoặc một lần sửa lúc script đang hỏng.
+  Sửa bằng cách điền tay dòng còn thiếu vào ô `Update`.
 - `DEAD LINK` — board báo posting đã gỡ.
 
 Audit **chỉ báo, không sửa gì** trong tab App. Nó cũng không làm workflow đỏ khi có

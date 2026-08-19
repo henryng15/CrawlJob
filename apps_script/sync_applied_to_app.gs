@@ -28,6 +28,24 @@ var JOB_COMPANY = 0, JOB_ROLE = 1, JOB_LINK = 2;
 // App: Property | Company | Application Link | Date Applied | Location | Process | Role | Note
 // Số cột 1-based cho getRange; trừ 1 khi tra vào mảng của getValues.
 var APP_WIDTH = 8, APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE = 4, APP_ROLE = 7;
+var PROCESS_COL = 6;   // App cột F — dropdown Process
+
+// Cột J chứ không phải I. Cột I là ô bôi đỏ báo "công ty này có recruiter", do phía
+// Python vẽ ở highlight.py — nó không mang chữ nào, nhưng đặt text lên nền đỏ thì
+// vừa không đọc được vừa khiến hai thứ chẳng liên quan tranh nhau một cột.
+var UPDATE_COL = 10;
+
+// Đúng pipeline mà setup_process_dropdown.gs dựng, và cùng danh sách với
+// PROCESS_STAGES trong job_sync/sheet.py. Phần tử đầu là chặng mọi dòng bắt đầu.
+var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
+
+// Ngắn hơn DATE_FORMAT vì mấy dòng này xếp chồng trong một ô, nhưng vẫn đọc theo
+// cùng một kiểu với phần còn lại của sheet.
+var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
+
+// Chặng có thật nhưng ngày thì chưa từng được ghi lại ở đâu. Ghi dấu ra để còn tìm
+// mà điền tay, thay vì bịa một ngày trông như thật.
+var UNKNOWN_DATE = '?';
 
 // Lượt khớp thứ hai của backfillTicksFromApp. Link của cùng một job có thể khác nhau
 // giữa hai tab — Python thay link aggregator bằng link của chính employer khi tìm được
@@ -103,6 +121,67 @@ function setupJobsCheckboxes() {
 
 
 /**
+ * Chạy tay một lần: dựng header cột J của tab App và điền lịch sử cho các dòng đã có.
+ *
+ * Chỉ chặng Applied là suy ra được, từ ô Date Applied. Ngày chuyển sang OA hay
+ * Interview thì chưa từng được ghi ở đâu cả — dòng nào đang ở chặng sau Applied
+ * được ghi thêm một dòng mang dấu '?', để bạn tìm bằng Ctrl+F mà điền tay nếu còn
+ * nhớ, thay vì bịa ra một ngày trông như thật.
+ *
+ * Ô đã có chữ thì không đụng vào, nên chạy lại nhiều lần cũng không hỏng gì.
+ */
+function setupUpdateColumn() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var app = ss.getSheetByName(APP_TAB);
+  if (!app) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
+
+  app.getRange(1, UPDATE_COL).setValue('Update');
+  var bottom = app.getLastRow();
+  if (bottom < FIRST_ROW) {
+    ss.toast('Tab ' + APP_TAB + ' chưa có dòng nào.', 'Update', 5);
+    return;
+  }
+
+  var count = bottom - FIRST_ROW + 1;
+  var dates = app.getRange(FIRST_ROW, APP_DATE, count, 1).getValues();
+  var stages = app.getRange(FIRST_ROW, PROCESS_COL, count, 1).getValues();
+  var column = app.getRange(FIRST_ROW, UPDATE_COL, count, 1);
+  var notes = column.getValues();
+  var filled = 0;
+  var unknown = 0;
+
+  for (var i = 0; i < count; i++) {
+    if (String(notes[i][0] == null ? '' : notes[i][0]).trim()) continue;
+    // Không có Process thì không phải một entry — App có sẵn vài dòng chỉ có mỗi link.
+    var stage = stageLabel(stages[i][0]);
+    if (!stage) continue;
+    var text = STAGES[0] + ': ' + stamp(dates[i][0]);
+    if (stage !== STAGES[0]) {
+      text += '\n' + stage + ': ' + UNKNOWN_DATE;
+      unknown++;
+    }
+    notes[i][0] = text;
+    filled++;
+  }
+
+  column.setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  if (filled) column.setValues(notes);
+  ss.toast(updateReport(filled, unknown), 'Update', 10);
+}
+
+
+function updateReport(filled, unknown) {
+  if (!filled) return 'Không có dòng nào cần điền.';
+  var text = 'Đã điền ' + filled + ' dòng ở cột Update';
+  if (unknown) {
+    text += '; ' + unknown + ' dòng đang ở chặng sau Applied nên ngày ghi "'
+         + UNKNOWN_DATE + '", tìm dấu đó để điền tay';
+  }
+  return text + '.';
+}
+
+
+/**
  * Chạy tay: tick sẵn ở Jobs những job đã nằm ở App, để danh sách chưa tick đúng
  * bằng danh sách còn phải nộp.
  *
@@ -164,12 +243,23 @@ function backfillReport(byLink, byName) {
 }
 
 
+/**
+ * Trigger này chạy mỗi lần bất cứ ô nào trong file bị sửa, nên việc đầu tiên là hỏi
+ * ô đó thuộc tab nào rồi giao cho đúng nửa. Hai tab nghe hai cột khác nhau và làm
+ * hai việc khác nhau: Jobs cột E tick Applied thì đẻ ra một dòng ở App; App cột F
+ * đổi Process thì ghi thêm một dòng ngày vào cột Update.
+ */
 function onEdit(e) {
+  var name = e.range.getSheet().getName();
+  if (name === JOBS_TAB) return onJobsEdit(e);
+  if (name === APP_TAB) return onAppEdit(e);
+}
+
+
+function onJobsEdit(e) {
   var range = e.range;
-  // Guard rẻ đứng trước: trigger này chạy mỗi lần bất cứ ô nào trong file bị sửa.
   if (range.getColumn() > APPLIED_COL || range.getLastColumn() < APPLIED_COL) return;
   var jobs = range.getSheet();
-  if (jobs.getName() !== JOBS_TAB) return;
 
   var firstRow = Math.max(range.getRow(), FIRST_ROW);
   var lastRow = range.getLastRow();
@@ -225,6 +315,15 @@ function onEdit(e) {
     var written = app.getRange(start, 1, fresh.length, APP_WIDTH);
     written.setValues(fresh);
     app.getRange(start, APP_DATE, fresh.length, 1).setNumberFormat(DATE_FORMAT);
+    // Dòng đầu tiên của lịch sử, gieo ngay tại đây. Script tự ghi 'Applied' vào cột
+    // Process, mà Apps Script không gọi lại onEdit cho thay đổi do chính script tạo
+    // ra — không gieo thì chặng đầu của mọi dòng mới biến mất không dấu vết.
+    var today = stamp(new Date());
+    var seeded = [];
+    for (var k = 0; k < fresh.length; k++) seeded.push([STAGES[0] + ': ' + today]);
+    app.getRange(start, UPDATE_COL, fresh.length, 1)
+       .setValues(seeded)
+       .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
     // Validation được copy chứ không dựng lại: dropdown Process ở các dòng trên là
     // chip màu tạo từ UI, mà Apps Script không có API đặt màu chip. Copy thì dòng
     // mới giống hệt dòng cũ dù dropdown từng được tạo bằng cách nào.
@@ -234,6 +333,95 @@ function onEdit(e) {
     }
   }
   ss.toast(report(fresh.length, skipped, expired), 'Jobs → App', 6);
+}
+
+
+/**
+ * App: đổi Process ở cột F thì ghi thêm một dòng "<Chặng>: <ngày>" vào cột J.
+ *
+ * Ô đó là lịch sử, không phải log. Mỗi chặng ghi đúng một lần: quay lại một chặng
+ * đã đi qua, hay paste đè đúng giá trị đang có, đều không sinh thêm dòng. Sửa nhầm
+ * thì sửa thẳng trong ô — nó là text tự do, script chỉ nối thêm chứ không bao giờ
+ * viết lại cái đã có.
+ *
+ * Giá trị ngoài pipeline bị bỏ qua: dropdown đã liệt kê hết các chặng có thật, nên
+ * cái gì không khớp là gõ nhầm, và gõ nhầm thì không đáng được ghi ngày.
+ */
+function onAppEdit(e) {
+  var range = e.range;
+  if (range.getColumn() > PROCESS_COL || range.getLastColumn() < PROCESS_COL) return;
+  var firstRow = Math.max(range.getRow(), FIRST_ROW);
+  var lastRow = range.getLastRow();
+  if (lastRow < firstRow) return;  // chỉ sửa header
+
+  // Fill-down và paste sửa nhiều dòng một lúc, nên đọc cả khối chứ không chỉ ô đầu.
+  var app = range.getSheet();
+  var count = lastRow - firstRow + 1;
+  var stages = app.getRange(firstRow, PROCESS_COL, count, 1).getValues();
+  var notes = app.getRange(firstRow, UPDATE_COL, count, 1).getValues();
+  var today = stamp(new Date());
+  var written = 0;
+
+  for (var i = 0; i < count; i++) {
+    var stage = stageLabel(stages[i][0]);
+    if (!stage) continue;
+    var cell = String(notes[i][0] == null ? '' : notes[i][0]).replace(/\s+$/, '');
+    if (hasStage(cell, stage)) continue;
+    notes[i][0] = (cell ? cell + '\n' : '') + stage + ': ' + today;
+    written++;
+  }
+  if (!written) return;
+
+  // Không WRAP thì ô chỉ hiện đúng dòng đầu, và cả lịch sử trông như mất sạch.
+  app.getRange(firstRow, UPDATE_COL, count, 1)
+     .setValues(notes)
+     .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  e.source.toast(stageReport(written, today), 'App', 5);
+}
+
+
+function stageReport(written, today) {
+  return 'Ghi ' + today + ' vào cột Update của ' + written + ' dòng.';
+}
+
+
+/**
+ * Tên chuẩn của một chặng, hoặc '' nếu giá trị không thuộc pipeline. Gõ tay "oa"
+ * và chọn "OA" từ dropdown phải ra cùng một dòng, nếu không thì hasStage() đọc hai
+ * lần viết khác nhau thành hai chặng khác nhau và ghi trùng.
+ */
+function stageLabel(value) {
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  for (var i = 0; i < STAGES.length; i++) {
+    if (STAGES[i].toLowerCase() === text) return STAGES[i];
+  }
+  return '';
+}
+
+
+/** Chặng này đã có dòng của nó trong ô chưa. So phần đứng trước dấu ':'. */
+function hasStage(cell, stage) {
+  var lines = String(cell == null ? '' : cell).split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].split(':')[0].trim().toLowerCase() === stage.toLowerCase()) return true;
+  }
+  return false;
+}
+
+
+/**
+ * Ngày để ghi vào ô. Ô Date Applied trả về Date, nhưng vài dòng cũ đang giữ text —
+ * cái gì đọc được thì giữ nguyên, không đọc được thì '?' để còn tìm mà điền tay.
+ *
+ * Object.prototype.toString chứ không phải instanceof: Date do Apps Script trả về
+ * và Date của script không phải lúc nào cũng cùng một realm.
+ */
+function stamp(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), UPDATE_DATE_FORMAT);
+  }
+  var text = String(value == null ? '' : value).trim();
+  return text || UNKNOWN_DATE;
 }
 
 

@@ -27,8 +27,12 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 APPLIED = len(HEADERS)
 EXPIRED = APPLIED + 1
 # The application tracker: Property | Company | Application Link | Date Applied |
-# Location (State) | Process | Role | Note.
-APP_COMPANY, APP_LINK, APP_ROLE = 1, 2, 6
+# Location (State) | Process | Role | Note | (recruiter mark) | Update.
+APP_COMPANY, APP_LINK, APP_PROCESS, APP_ROLE = 1, 2, 5, 6
+# Column J, where sync_applied_to_app.gs appends one "<Stage>: <date>" line per
+# stage the application has passed through. Column I is skipped on purpose: it
+# carries the recruiter mark, which is a background colour and no text.
+APP_UPDATE = 9
 
 
 @dataclass(frozen=True)
@@ -346,16 +350,31 @@ APP_FIELDS = ("Property", "Company", "Application Link", "Date Applied", None, "
 PROCESS_STAGES = frozenset({"applied", "oa", "interview", "offer", "rejected"})
 
 
+def _last_stage(cell: str) -> str:
+    """The stage named by the bottom line of the Update column, or "".
+
+    Lines are appended in the order the application moved, so the last one that
+    names a stage is where the history says it stands. Read bottom-up rather than
+    by counting lines: the cell is free text an operator edits by hand, and a
+    stray line that names no stage should be stepped over, not believed."""
+    for line in reversed(cell.splitlines()):
+        stage = line.split(":", 1)[0].strip().casefold()
+        if stage in PROCESS_STAGES:
+            return stage
+    return ""
+
+
 def audit_app(settings: Settings) -> int:
     """Read every row of the application tracker and say what is wrong with it.
 
-    Four questions, none of which the sheet can ask itself: is a field missing, do
-    two rows describe one application, is the Process outside the pipeline, and
-    does the link still lead anywhere. The last one is why this is a separate
-    command — asking every board costs a minute, and the sync must not pay it."""
+    Five questions, none of which the sheet can ask itself: is a field missing, do
+    two rows describe one application, is the Process outside the pipeline, has the
+    Update column kept up with it, and does the link still lead anywhere. The last
+    one is why this is a separate command — asking every board costs a minute, and
+    the sync must not pay it."""
     values_api = _service(settings).spreadsheets().values()
     rows = (
-        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:H")
+        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:J")
         .execute()
         .get("values", [])
     )
@@ -368,7 +387,7 @@ def audit_app(settings: Settings) -> int:
     seen_identity: dict[tuple[str, frozenset[str]], int] = {}
     for offset, row in enumerate(rows[1:]):
         number = offset + 2  # The sheet's own row number, so a finding is clickable.
-        cell = [(row[i] if len(row) > i else "").strip() for i in range(8)]
+        cell = [(row[i] if len(row) > i else "").strip() for i in range(APP_UPDATE + 1)]
         empty = [name for i, name in enumerate(APP_FIELDS) if name and not cell[i]]
         if len(empty) == len(list(filter(None, APP_FIELDS))):
             findings.append(f"  row {number:<4} EMPTY      nothing but formatting")
@@ -394,9 +413,20 @@ def audit_app(settings: Settings) -> int:
                 )
             else:
                 seen_identity[identity] = number
-        stage = cell[5].casefold()
+        stage = cell[APP_PROCESS].casefold()
         if stage and stage not in PROCESS_STAGES:
-            findings.append(f"  row {number:<4} STAGE?     {cell[5]!r} is not in the pipeline")
+            findings.append(
+                f"  row {number:<4} STAGE?     {cell[APP_PROCESS]!r} is not in the pipeline"
+            )
+        # The Apps Script writes this line the moment Process changes, so the two
+        # disagreeing means the change reached the sheet by some route the trigger
+        # does not see — an API write, or an edit made while the script was broken.
+        recorded = _last_stage(cell[APP_UPDATE])
+        if stage in PROCESS_STAGES and recorded and recorded != stage:
+            findings.append(
+                f"  row {number:<4} UNLOGGED   Process is {cell[APP_PROCESS]!r} but Update "
+                f"stops at {recorded!r}"
+            )
 
     live = {row[APP_LINK] for row in rows[1:] if len(row) > APP_LINK and row[APP_LINK].strip()}
     for url in sorted(dead_links(sorted(live))):

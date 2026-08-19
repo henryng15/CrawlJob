@@ -49,6 +49,7 @@ function makeSheet(name, data) {
         },
         setNumberFormat() { return this; },
         setDataValidation() { return this; },
+        setWrapStrategy(strategy) { wrapped.push([col, strategy]); return this; },
         copyTo(dest, type) { copied.push([row, type]); return this; },
       };
     },
@@ -58,11 +59,16 @@ function makeSheet(name, data) {
 
 let copied = [];
 let toasts = [];
+let wrapped = [];
 let jobs, app, ss;
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function load() {
   copied = [];
   toasts = [];
+  wrapped = [];
   ss = {
     getSheetByName: (n) => (n === 'Jobs' ? jobs : n === 'App' ? app : null),
     toast: (msg) => toasts.push(msg),
@@ -80,6 +86,16 @@ function load() {
       getActiveSpreadsheet: () => ss,
       newDataValidation: () => validation,
       CopyPasteType: { PASTE_DATA_VALIDATION: 'PASTE_DATA_VALIDATION' },
+      WrapStrategy: { WRAP: 'WRAP' },
+    },
+    Session: { getScriptTimeZone: () => 'America/New_York' },
+    Utilities: {
+      // Đủ cho UPDATE_DATE_FORMAT, format duy nhất file .gs dùng. Ném lỗi thay vì
+      // trả bừa, để đổi format bên kia mà quên bên này thì test đỏ chứ không lặng.
+      formatDate(date, timeZone, format) {
+        if (format !== 'MMM d, yyyy') throw new Error('harness chưa hiểu format ' + format);
+        return MONTHS[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
+      },
     },
   };
   vm.createContext(sandbox);
@@ -90,6 +106,12 @@ function load() {
 const JOBS_HEADER = ['Company', 'Role', 'Link Apply', 'Date Posted', 'Applied', 'Expired'];
 const APP_HEADER = ['Property', 'Company', 'Application Link', 'Date Applied',
                     'Location (State)', 'Process', 'Role', 'Note'];
+
+/** Ngày hôm nay theo đúng cách stamp() trong .gs viết ra. */
+function today() {
+  const now = new Date();
+  return MONTHS[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
+}
 
 function freshJobs() {
   return makeSheet('Jobs', [
@@ -306,5 +328,125 @@ console.log('setupJobsCheckboxes');
   run('dựng header cho cả hai cột', () => {
     assert.strictEqual(jobs.grid[0][4], 'Applied');
     assert.strictEqual(jobs.grid[0][5], 'Expired');
+  });
+}
+
+console.log('stageLabel / hasStage / stamp');
+{
+  const s = load();
+  run('viết hoa thường kiểu gì cũng ra một tên chặng', () => {
+    assert.strictEqual(s.stageLabel('oa'), 'OA');
+    assert.strictEqual(s.stageLabel('  Rejected '), 'Rejected');
+  });
+  run('giá trị ngoài pipeline không phải một chặng', () => {
+    assert.strictEqual(s.stageLabel('Phone screen'), '');
+    assert.strictEqual(s.stageLabel(''), '');
+  });
+  run('hasStage đọc phần đứng trước dấu :', () => {
+    const cell = 'Applied: Jul 21, 2026\nOA: Aug 1, 2026';
+    assert.strictEqual(s.hasStage(cell, 'OA'), true);
+    assert.strictEqual(s.hasStage(cell, 'Offer'), false);
+  });
+  run('ô trống thì chưa có chặng nào', () => {
+    assert.strictEqual(s.hasStage('', 'Applied'), false);
+  });
+  run('ngày đọc không ra thì thành ?, không thành chuỗi rỗng', () => {
+    assert.strictEqual(s.stamp(''), '?');
+    assert.strictEqual(s.stamp('July 21, 2026'), 'July 21, 2026');
+  });
+}
+
+console.log('Jobs → App: gieo dòng Update đầu tiên');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  const s = load();
+  jobs.grid[3][4] = true;   // Neuralink: Applied
+  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  run('dòng vừa sang App đã mang sẵn chặng Applied', () => {
+    assert.strictEqual(app.grid[4][9], 'Applied: ' + today());
+  });
+  run('cột J được set WRAP, không thì ô chỉ hiện đúng dòng đầu', () => {
+    assert.ok(wrapped.some((call) => call[0] === 10 && call[1] === 'WRAP'));
+  });
+}
+
+console.log('onAppEdit');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  const s = load();
+
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });   // Notion đang ở OA
+  run('đổi Process thì ghi một dòng "<Chặng>: <ngày>"', () => {
+    assert.strictEqual(app.grid[2][9], 'OA: ' + today());
+  });
+  run('toast nói rõ ngày vừa ghi', () => {
+    assert.match(toasts[toasts.length - 1], /Ghi .+ vào cột Update của 1 dòng/);
+  });
+
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
+  run('bắn lại đúng chặng đang có thì không ghi thêm dòng nào', () => {
+    assert.strictEqual(app.grid[2][9], 'OA: ' + today());
+  });
+
+  app.grid[2][5] = 'Interview';
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
+  run('chặng mới nối xuống dưới, chặng cũ giữ nguyên', () => {
+    assert.strictEqual(app.grid[2][9], 'OA: ' + today() + '\nInterview: ' + today());
+  });
+
+  app.grid[2][5] = 'OA';
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
+  run('quay lại chặng đã đi qua không ghi lần hai', () => {
+    assert.strictEqual(app.grid[2][9].split('\n').length, 2);
+  });
+
+  const kept = app.grid[2][9];
+  s.onEdit({ source: ss, range: app.getRange(3, 8, 1, 1) });   // cột Note
+  run('sửa cột khác thì không đụng vào cột Update', () => {
+    assert.strictEqual(app.grid[2][9], kept);
+  });
+
+  app.grid[2][5] = 'Offer';
+  app.grid[3][5] = 'Phone screen';
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 2, 1) });
+  run('trong cùng khối, chặng hợp lệ vẫn ghi còn giá trị lạ thì không', () => {
+    assert.match(app.grid[2][9], /Offer: /);
+    assert.ok(!app.grid[3][9]);
+  });
+}
+
+console.log('setupUpdateColumn');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  const s = load();
+  s.setupUpdateColumn();
+  run('dựng header ở cột J', () => {
+    assert.strictEqual(app.grid[0][9], 'Update');
+  });
+  run('dòng đang ở Applied suy ra ngày từ cột Date Applied', () => {
+    assert.strictEqual(app.grid[1][9], 'Applied: July 21, 2026');
+  });
+  run('dòng đã đi xa hơn thì chặng sau mang dấu ? chứ không bịa ngày', () => {
+    assert.strictEqual(app.grid[2][9], 'Applied: July 26, 2026\nOA: ?');
+  });
+  run('dòng chỉ có link, không có Process, thì không phải entry', () => {
+    assert.ok(!app.grid[3][9]);
+  });
+  run('toast đếm riêng số dòng còn phải điền tay', () => {
+    assert.match(toasts[toasts.length - 1], /Đã điền 2 dòng.*1 dòng đang ở chặng sau Applied/s);
+  });
+
+  const kept = app.grid[1][9];
+  app.grid[2][9] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
+  s.setupUpdateColumn();
+  run('chạy lại không ghi đè ô đã có chữ', () => {
+    assert.strictEqual(app.grid[1][9], kept);
+    assert.strictEqual(app.grid[2][9], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
+  });
+  run('lần hai không còn gì để điền', () => {
+    assert.match(toasts[toasts.length - 1], /Không có dòng nào cần điền/);
   });
 }

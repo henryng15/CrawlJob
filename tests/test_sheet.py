@@ -9,6 +9,7 @@ from job_sync.sheet import (
     _drop_duplicate_identities,
     _drop_empty_rows,
     _key,
+    _last_stage,
     _loose_identity,
     _mark_applied,
     _quote_tab,
@@ -631,3 +632,24 @@ def test_a_real_change_still_reads_as_a_change() -> None:
     before = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "FALSE"]]
     after = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "TRUE"]]
     assert _trimmed(before) != _trimmed(after)
+
+
+def test_the_history_reads_from_the_bottom_line() -> None:
+    assert _last_stage("Applied: Jul 21, 2026\nOA: Aug 1, 2026") == "oa"
+
+
+def test_a_hand_written_note_between_stages_is_stepped_over() -> None:
+    # The cell is free text. A line that names no stage says nothing about where
+    # the application stands, so the reading has to look past it rather than stop.
+    assert _last_stage("Applied: Jul 21, 2026\nnhắc HR ngày 3/8\nOffer: ?") == "offer"
+
+
+def test_a_stage_with_no_date_yet_still_counts_as_reached() -> None:
+    # What the backfill writes for a stage whose date was never recorded. It is
+    # the stage that has to match Process; the date is a blank to fill in by hand.
+    assert _last_stage("Applied: Jul 21, 2026\nRejected: ?") == "rejected"
+
+
+def test_an_empty_update_column_names_no_stage() -> None:
+    assert _last_stage("") == ""
+    assert _last_stage("chưa nghe gì") == ""
