@@ -13,9 +13,9 @@ from job_sync.sheet import (
     _fill_source,
     _key,
     _last_stage,
+    _layout,
     _loose_identity,
     _mark_applied,
-    _needs_source_column,
     _quote_tab,
     _sorted_rows,
     _trimmed,
@@ -723,15 +723,29 @@ def test_filling_the_source_squares_off_a_short_row() -> None:
     assert len(rows[0]) == len(HEADERS)
 
 
-def test_the_old_layout_is_recognised_by_what_column_e_holds() -> None:
-    """Applied in E is the sheet from before Source existed; Source in E is the one
-    after. Those are the only two shapes it is safe to act on."""
-    assert _needs_source_column(HEADERS[:4] + ["Applied", "Expired"]) is True
-    assert _needs_source_column(HEADERS + ["Applied", "Expired"]) is False
+def test_the_layout_is_read_off_the_header_row() -> None:
+    assert _layout(HEADERS + ["Applied", "Expired"]) == "done"
+    assert _layout(HEADERS[:4] + ["Applied", "Expired"]) == "old"
+
+
+def test_a_column_inserted_but_never_named_is_finished_rather_than_repeated() -> None:
+    """The state the first migration actually left behind: E blank because a header
+    cell inserted into row 1 arrives empty. Inserting again would shift the
+    checkboxes a second time and leave two orphan columns."""
+    assert _layout(HEADERS[:4] + ["", "Applied", "Expired"]) == "half"
 
 
 def test_an_unrecognised_fifth_column_is_left_alone() -> None:
     """Inserting a column into a sheet whose shape is not understood would move
     somebody's checkboxes away from the rows they were ticked on."""
-    assert _needs_source_column(HEADERS[:4] + ["Notes"]) is False
-    assert _needs_source_column(HEADERS[:4]) is False
+    assert _layout(HEADERS[:4] + ["Notes"]) == "unknown"
+    assert _layout(HEADERS[:4]) == "unknown"
+
+
+def test_a_checkbox_that_reached_the_source_column_does_not_look_like_a_source() -> None:
+    """FALSE is what a checkbox rule writes into every cell it covers. Reading it
+    as a source already recorded is what made the first migration fill 33 rows of
+    330."""
+    rows = [_row("Acme", "2026-08-01", source="FALSE")]
+    assert _fill_source(rows, {_key(rows[0]): "Simplify"}) == 1
+    assert rows[0][SOURCE] == "Simplify"

@@ -492,7 +492,10 @@ def _fill_source(rows: list[list[str]], sources: dict[str, str]) -> int:
     filled = 0
     for row in rows:
         row.extend([""] * (len(HEADERS) - len(row)))
-        if row[SOURCE].strip():
+        # "FALSE" counts as empty. A checkbox rule that reached this column writes
+        # that word into every cell it covers, and reading it as a source already
+        # recorded is exactly what made the first migration fill 33 rows out of 330.
+        if row[SOURCE].strip().casefold() not in ("", "false"):
             continue
         found = sources.get(_key(row) or "")
         if found:
@@ -501,23 +504,33 @@ def _fill_source(rows: list[list[str]], sources: dict[str, str]) -> int:
     return filled
 
 
-def _needs_source_column(header: list[str]) -> bool:
-    """Is this the four-column sheet that existed before Source did.
+def _layout(header: list[str]) -> str:
+    """Which of four shapes the Jobs tab is in, read off its header row.
 
-    Read off the fifth cell, which says Applied on the old layout and Source on the
-    new one. Anything else is neither, and neither is where this stops: inserting a
-    column into a sheet whose shape is not understood would move somebody's
-    checkboxes away from their rows."""
-    fifth = header[SOURCE] if len(header) > SOURCE else ""
-    if fifth.strip() == HEADERS[SOURCE]:
-        return False
-    if fifth.strip() == OLD_FIFTH:
-        return True
+    "done"    — column E says Source. Nothing to do.
+    "old"     — column E says Applied. The sheet predates the column entirely.
+    "half"    — E is blank and F says Applied. A column was inserted but never
+                claimed: the header was not written, and the insert copied the
+                checkbox rule across from what is now F.
+    "unknown" — anything else, and the only safe answer is to stop. Inserting a
+                column into a sheet whose shape is not understood would move
+                somebody's checkboxes away from the rows they were ticked on.
+    """
+
+    def cell(index: int) -> str:
+        return header[index].strip() if len(header) > index else ""
+
+    if cell(SOURCE) == HEADERS[SOURCE]:
+        return "done"
+    if cell(SOURCE) == OLD_FIFTH:
+        return "old"
+    if not cell(SOURCE) and cell(SOURCE + 1) == OLD_FIFTH:
+        return "half"
     print(
         f"WARNING: expected {HEADERS[SOURCE]!r} or {OLD_FIFTH!r} in column E; found "
-        f"{fifth!r}. Leaving the layout alone."
+        f"{cell(SOURCE)!r}. Leaving the layout alone."
     )
-    return False
+    return "unknown"
 
 
 def _insert_source_column(service, settings: Settings) -> None:
@@ -529,8 +542,15 @@ def _insert_source_column(service, settings: Settings) -> None:
     the Applied checkboxes. There is no safe window to ask for, so there is no
     asking.
 
-    inheritFromBefore is false so the new column takes its formatting from D rather
-    than becoming a third checkbox."""
+    inheritFromBefore is **true**, which reads backwards and is the whole point: a
+    new column inherits from the one before it when true and from the one after it
+    when false. False made column E inherit the Applied checkbox rule, and a
+    checkbox rule writes FALSE into every cell it covers — so the new column came
+    up full of the word FALSE, and the fill below read that as a source already
+    written and skipped every row.
+
+    The rule is then cleared outright rather than trusted to inheritance, because
+    the same mistake is invisible until a whole run has been wasted."""
     sheet_id = _tab_id(service, settings, settings.sheet_tab)
     if sheet_id is None:
         raise RuntimeError(f"No tab named {settings.sheet_tab!r} to insert a column into.")
@@ -546,13 +566,41 @@ def _insert_source_column(service, settings: Settings) -> None:
                             "startIndex": SOURCE,
                             "endIndex": SOURCE + 1,
                         },
-                        "inheritFromBefore": False,
+                        "inheritFromBefore": True,
                     }
                 }
             ]
         },
     ).execute()
     print(f"Inserted a {HEADERS[SOURCE]} column at {settings.sheet_tab}!E; everything moved right.")
+
+
+def _claim_source_column(service, settings: Settings) -> None:
+    """Take the checkbox rule off column E, whatever put it there.
+
+    Run after an insert and on a sheet found half-migrated, so that one wrong
+    inheritFromBefore does not need a person to go and undo it by hand. A
+    setDataValidation request carrying no rule is how the API spells "clear"."""
+    sheet_id = _tab_id(service, settings, settings.sheet_tab)
+    if sheet_id is None:
+        return
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=settings.sheet_id,
+        body={
+            "requests": [
+                {
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "startColumnIndex": SOURCE,
+                            "endColumnIndex": SOURCE + 1,
+                        }
+                    }
+                }
+            ]
+        },
+    ).execute()
 
 
 def _tab_id(service, settings: Settings, tab: str) -> int | None:
@@ -594,8 +642,11 @@ def append_new_jobs(
             f"No tab named {settings.sheet_tab!r} in the spreadsheet. Tabs found: {found}"
         ) from error
     header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
-    if header[: len(HEADERS)] != HEADERS and _needs_source_column(header):
-        _insert_source_column(service, settings)
+    shape = _layout(header)
+    if shape in ("old", "half"):
+        if shape == "old":
+            _insert_source_column(service, settings)
+        _claim_source_column(service, settings)
         # Re-read rather than shifting the rows in memory. The insert moves values,
         # checkbox validation and cell colours together, and the only way to be sure
         # this run agrees with what is now on the sheet is to look again.
@@ -605,6 +656,11 @@ def append_new_jobs(
             .get("values", [])
         )
         header, data = (existing[0], existing[1:]) if existing else (HEADERS, [])
+        # The header cell is written here rather than left to the sheet's own copy:
+        # a column inserted into row 1 arrives blank, and nothing downstream would
+        # ever put a name in it.
+        header = header + [""] * (len(HEADERS) - len(header))
+        header[SOURCE] = HEADERS[SOURCE]
     if header[: len(HEADERS) - 1] != HEADERS[:-1]:
         raise RuntimeError(
             f"Expected {HEADERS[:-1]} in {settings.sheet_tab}!A1:D1; found {header[:4]}"
