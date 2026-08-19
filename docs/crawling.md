@@ -59,7 +59,7 @@ vào những công ty chưa từng nhận intern. Nên:
 | | tần suất | phạm vi | tiêu chí giữ lại |
 |---|---|---|---|
 | `discover_boards.py` | tuần, workflow riêng | tất cả 19.899 | board **đang đăng internship bất kỳ ngành nào** |
-| `boards.py` | ngày, ở lượt sync 08:00 ET | 902 board trong shortlist | role khớp `roles.py` |
+| `boards.py` | **2 lần/ngày**, lượt 08:00 và 14:00 ET | 902 board trong shortlist | role khớp `roles.py` |
 
 Số đo lần đầu (19/08/2026): 9.062 board còn sống, **902** đang tuyển intern, trong đó
 **312 role khớp** bộ lọc SWE. Lượt hàng ngày hỏi hết 902 board mất **36 giây**.
@@ -71,10 +71,13 @@ nay" — công ty đã chạy chương trình intern mới là công ty có th�
 ty mở chương trình lần đầu thì trong vòng một tuần. Nói ra ở đây thay vì giấu trong một con
 số.
 
-Vì sao một lần mỗi ngày chứ không phải cả 5 lượt: 36 giây kia là 902 request lên API của
-người khác, và bài đăng intern không đóng trong hai tiếng. Đặt ở lượt **đầu tiên** trong
-ngày là có chủ đích — bài đăng đêm qua nằm sẵn trong sheet lúc bạn mở ra buổi sáng. Cần
-ngay thì bấm **Run workflow**: lượt chạy tay luôn hỏi board.
+Vì sao 2 lần chứ không phải cả 5 lượt: chi phí không nằm ở Actions minutes — 36 giây gần
+như tan hết vào việc GitHub làm tròn lên từng phút của một run vốn đã 3,4 phút. Chi phí nằm
+ở **902 request lên API của người khác**, mỗi lượt. Hai lần sáng–chiều đưa độ trễ tối đa
+xuống ~6 tiếng; năm lần đưa xuống ~2 tiếng nhưng gấp 2,5 lần lưu lượng.
+
+Sửa ở `BOARD_HOURS` trong [`main.py`](../job_sync/main.py), một dòng. Cần ngay thì bấm
+**Run workflow**: lượt chạy tay luôn hỏi board, bất kể giờ nào.
 
 Shortlist nằm ở `job_sync/data/ats_boards.json`, đi theo wheel qua `package-data`. Thiếu
 file thì tính năng tắt, sync vẫn chạy trên tracker Markdown như cũ. Bỏ qua bằng

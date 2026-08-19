@@ -13,6 +13,15 @@ from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
 SCHEDULED_HOURS = {8, 10, 12, 14, 16}
+# Which of those runs also ask the ATS boards. Morning and mid-afternoon, so a
+# posting that goes up during US business hours is in the sheet within six hours
+# rather than twenty-four — internships close on that timescale.
+#
+# Adding an hour here is close to free: the board crawl takes 36 seconds and
+# Actions bills whole minutes, so most of it disappears into rounding a run that
+# already takes three and a half. What it is not free in is requests to somebody
+# else's API — 902 of them per crawl.
+BOARD_HOURS = {8, 14}
 # The trackers carry a year of history. The first sync would otherwise backfill all
 # of it, so the sheet starts at July 2026. Later runs re-apply the same cutoff,
 # which costs nothing: anything newly posted is already past it.
@@ -27,13 +36,13 @@ def is_scheduled_slot(now: datetime) -> bool:
 def wants_boards(scheduled: bool, now: datetime) -> bool:
     """Whether this run should ask the ATS boards as well as the trackers.
 
-    Once a day, not five times. The shortlist is several hundred boards and each
-    is a request to somebody else's API; asking them again two hours later would
-    quadruple that for the sake of postings that are dated by the day anyway.
+    Twice a day rather than on all five runs. The shortlist is 902 boards and each
+    one is a request to an API this tool is a guest on; the gain from asking every
+    two hours instead of every six does not pay for five times that traffic.
 
     A manual run always asks, because a run someone typed is a deliberate request
     for everything there is."""
-    return not scheduled or now.astimezone(NEW_YORK).hour == min(SCHEDULED_HOURS)
+    return not scheduled or now.astimezone(NEW_YORK).hour in BOARD_HOURS
 
 
 def main() -> None:
@@ -102,7 +111,8 @@ def main() -> None:
         )
         jobs.extend(found.jobs)
     elif boards:
-        print(f"{len(boards)} ATS boards skipped; they are asked once a day, not every run.")
+        hours = ", ".join(f"{hour:02d}:00" for hour in sorted(BOARD_HOURS))
+        print(f"{len(boards)} ATS boards skipped; they are asked at {hours} ET.")
 
     jobs = dedupe_jobs(jobs)
     # ISO-8601 dates compare correctly as strings, which is why date_posted is one.

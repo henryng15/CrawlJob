@@ -166,3 +166,34 @@ def test_a_board_list_drops_rows_naming_an_ats_this_build_cannot_read(tmp_path) 
 
 def test_asking_no_boards_makes_no_requests() -> None:
     assert harvest([]) == BoardResult()
+
+
+def test_the_boards_are_asked_twice_a_day_not_on_every_run() -> None:
+    """902 requests to somebody else's API is the cost, and it buys a posting
+    within six hours instead of twenty-four. Asking on all five runs would be five
+    times the traffic to shorten that to two."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from job_sync.main import BOARD_HOURS, SCHEDULED_HOURS, wants_boards
+
+    new_york = ZoneInfo("America/New_York")
+    asked = {
+        hour
+        for hour in SCHEDULED_HOURS
+        if wants_boards(True, datetime(2026, 8, 19, hour, tzinfo=new_york))
+    }
+    assert asked == BOARD_HOURS
+    assert BOARD_HOURS < SCHEDULED_HOURS, "a board hour that is not a sync hour never runs"
+
+
+def test_a_run_someone_typed_always_asks_the_boards() -> None:
+    """Outside every window, too. A manual run is a deliberate request for
+    everything there is — it is the escape hatch when a posting cannot wait."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from job_sync.main import wants_boards
+
+    middle_of_the_night = datetime(2026, 8, 19, 3, tzinfo=ZoneInfo("America/New_York"))
+    assert wants_boards(False, middle_of_the_night) is True

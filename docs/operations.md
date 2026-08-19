@@ -154,3 +154,33 @@ có vấn đề, chứ không phải thị trường tuyển dụng đột nhiê
 ```bash
 uv run python scripts/discover_boards.py
 ```
+
+## Ngân sách GitHub Actions
+
+Free tier của private repo là **2.000 phút/tháng**. Actions tính tiền theo **phút, làm tròn
+lên**, cho từng job — nên một run 131 giây và một run 238 giây đều tốn nguyên phút như nhau
+ở phần dư.
+
+Đo từ 14 scheduled run thật:
+
+| | mỗi ngày | phút/run | phút/tháng |
+|---|---|---|---|
+| sync, trong khung giờ ET | 5 | 3,4 | 510 |
+| sync, ngoài khung giờ (thoát sau ~20s) | 5 | 1 | 150 |
+| `boards.yml` dựng lại shortlist | tuần | ~40 | 172 |
+| | | **tổng** | **~830** |
+
+Còn dư khoảng **1.170 phút**. Crawl board 2 lần/ngày gần như không thêm gì: nó dài 36 giây
+và bị nuốt vào phần làm tròn của một run đã 3,4 phút — xấu nhất là +1 phút/ngày, tức +30
+phút/tháng.
+
+Kể cả hỏi board ở **cả 5 lượt** cũng vẫn trong ngân sách (~900 phút/tháng). Thứ chặn không
+phải quota mà là lịch sự với ba API kia: 902 request × 5 lượt = 4.510 request/ngày.
+
+Cron chạy 10 lần (`0 12-21 * * *`) nhưng chỉ 5 lần làm việc — 5 lần kia thoát ngay bằng bộ
+lọc khung giờ ET và tốn 1 phút mỗi lần. Đó là 150 phút/tháng trả cho việc GitHub chỉ nhận
+cron theo UTC còn khung giờ thì theo ET, vốn xê dịch theo DST.
+
+> API `/actions/runs/{id}/timing` báo `billable.UBUNTU.total_ms = 0` kể cả cho run 237
+> giây, nên **đừng tin nó**. Các con số trên suy từ `run_duration_ms` cộng quy tắc làm tròn.
+> Số chính thức xem ở **Settings → Billing and plans → Usage this month**.
