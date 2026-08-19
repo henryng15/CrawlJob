@@ -1,18 +1,22 @@
 # Ai có thể nói giúp bạn một câu
 
-Danh bạ alumni của trường được dán vào một tab riêng. Mỗi lượt sync, tool tô vàng **cả hai
-phía** của phần giao nhau:
+Danh bạ alumni của trường được dán vào một tab riêng. Mỗi lượt sync, tool đánh dấu **cả
+hai phía** của phần giao nhau:
 
-- Tab **`Alumni`** — dòng của người đang làm ở công ty bạn đã nộp. Đây là người đáng hỏi
-  xin referral.
-- Tab **`App`** — đơn ứng tuyển mà bạn *có người quen bên trong*. Nhìn tab App là biết ngay
-  đơn nào còn đường đẩy thêm.
+- Tab **`Alumni`** — dòng của người đang làm ở công ty bạn đã nộp được **tô vàng**. Đây là
+  người đáng hỏi xin referral.
+- Tab **`App`** — cột **I `Alumni`** được tick ở đơn mà bạn *có người quen bên trong*.
 
-Và một dấu thứ hai, màu đỏ ở **cột I của tab `App`**: công ty đó có sẵn recruiter trong
-danh sách liên hệ. Hai dấu độc lập — vàng cả dòng là "có alumni", đỏ ô I là "có recruiter";
-một đơn có thể mang cả hai.
+Và một dấu thứ hai ở tab `App`: cột **J `Recruiter`** được tick khi công ty đó có sẵn
+recruiter trong danh sách liên hệ. Hai cột độc lập, một đơn có thể tick cả hai.
 
-Tool **chỉ ghi màu**, không đụng vào một chữ nào trong hai tab đó.
+Hai dấu ở tab `App` trước đây là màu nền — vàng cả dòng và đỏ ở cột I. Checkbox nói đúng
+cùng một điều nhưng **lọc và sort được**, còn màu nền thì không: muốn xem "mọi đơn có
+alumni" thì với checkbox là một filter, với màu là mắt thường dò từng dòng. Lượt sync đầu
+tiên sau khi đổi tự gỡ màu cũ.
+
+Bên tab `Alumni` vẫn là màu, vì ở đó không có đơn nào để mà tick — mỗi dòng là một con
+người, không phải một lần nộp.
 
 ## Vì sao phải nằm trong spreadsheet
 
@@ -69,22 +73,43 @@ Một cái tên rút gọn xong chẳng còn từ nào (`The Company Ltd`) sẽ 
 tập rỗng nằm trong mọi tập, và nếu không chặn thì nó sẽ tô vàng toàn bộ danh bạ. Có test
 ghim lại chuyện này.
 
+## Hai cột đó là của tool, không phải của bạn
+
+Mỗi lượt sync tool ghi **cả hai câu trả lời** vào cột I và J — TRUE ở dòng khớp, FALSE ở
+dòng không. Tự tick tay một ô thì lượt sau nó bị gỡ.
+
+Phải như vậy thì dấu mới đúng được: một alumnus đổi công ty, hay một đơn bị xoá khỏi `App`,
+đều phải làm ô tick tắt đi. Chỉ-tick-chứ-không-bao-giờ-gỡ thì dấu chỉ tích tụ dần rồi sai
+lúc nào không biết. Chỗ để ghi thứ bạn muốn giữ là cột **H `Note`**.
+
+Hai cột này là những ô **duy nhất** ngoài tab Jobs mà tool ghi vào. Cột A–H và cột K của
+`App` không bao giờ bị đụng tới.
+
+Một ngoại lệ đứng canh: nguồn **thiếu** thì cột đó được để nguyên, không bị ghi. Không có
+tab `Alumni` không phải là "không ai làm ở đâu cả" — đọc ra 0 dòng khớp từ một tab không
+tồn tại rồi ghi xuống thì gỡ sạch cả cột. Danh sách recruiter cũng vậy: rỗng nghĩa là file
+không đi theo bản build, chứ không phải không công ty nào có recruiter.
+
+Lượt nào hai cột đã đúng thì **không gửi request nào**, dù chạy 5 lần mỗi ngày.
+
 ## Tool chỉ xoá đúng màu vàng của chính nó
 
-Trước khi tô, tool đọc màu nền đang có và so với đúng màu của nó — vàng `#FFE599` ở cột A,
-đỏ `#F4CCCC` ở cột I. Chỉ ô mang đúng màu đó mới bị xoá, và mỗi dấu chỉ dò ở cột của riêng
-nó nên không cái nào nhầm việc của cái kia là của mình.
+Bên tab `Alumni`, trước khi tô, tool đọc màu nền đang có và so với đúng màu của nó — vàng
+`#FFE599` ở cột A. Chỉ ô mang đúng màu đó mới bị xoá.
 
-- Ô bạn tự tô tay — mấy ô xanh lá trong tab `App` chẳng hạn — **được giữ nguyên**.
+- Ô bạn tự tô tay **được giữ nguyên**.
 - Công ty bị gỡ khỏi `App` thì dòng alumni tương ứng tự hết vàng.
-- Dòng đã đúng màu rồi thì không bị ghi lại. Một lượt không có gì đổi sẽ **không gửi
-  request nào**, dù chạy 5 lần mỗi ngày.
+- Dòng đã đúng màu rồi thì không bị ghi lại.
 
-Một ngoại lệ cần biết: dòng **được** tô vàng thì cả dải A–H của nó thành vàng, nên nếu dòng
-đó đang có ô bạn tô tay thì màu cũ bị phủ. Chỉ xảy ra với dòng khớp, và bỏ tick sẽ trả về
-nền trắng chứ không trả về màu cũ.
+Cùng cơ chế đó lo việc dọn màu cũ ở tab `App`: hai dấu vàng-cả-dòng và đỏ-cột-I giờ khớp
+với tập rỗng, nên tất cả những gì chúng còn làm được là gỡ màu chúng từng tô. Việc dọn phải
+có: cột I hôm nay là ô checkbox `Alumni`, mà một checkbox nằm trên nền đỏ trông như một
+cảnh báo không ai viết ra.
 
-## Recruiter (ô đỏ cột I)
+Một ngoại lệ cần biết: dòng từng được tô vàng thì cả dải A–H thành vàng, nên ô bạn tô tay
+trên dòng đó đã bị phủ từ trước. Lượt dọn trả về nền trắng, không trả về màu cũ.
+
+## Recruiter (cột J)
 
 Nguồn là project `ColdEmail`, file `web/db/seed_recruiters.csv` — 2269 liên hệ đã verify.
 Nhưng repo này **không mang theo tên hay email của ai**: chỉ danh sách công ty được chép
@@ -109,9 +134,9 @@ cao hơn hẳn alumni — danh sách recruiter phủ rộng hơn danh bạ trư�
 
 ## Chi phí
 
-Thêm 6 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền ở ba chỗ (cột A của
-`Alumni`, cột A và cột I của `App`), rồi một `batchUpdate` — và `batchUpdate` bị bỏ hẳn khi
-không có gì đổi. Danh sách recruiter đọc từ đĩa, không tốn call nào. Các dòng liền nhau
+Thêm 8 API call mỗi lượt sync: đọc `Alumni`, đọc `App`, đọc màu nền ở ba chỗ (cột A của
+`Alumni`, cột A và cột I của `App`), đọc hai cột checkbox, rồi một `batchUpdate` và một
+`update` — hai cái cuối bị bỏ hẳn khi không có gì đổi. Danh sách recruiter đọc từ đĩa, không tốn call nào. Các dòng liền nhau
 được gộp thành một request, nên 100 dòng khớp rải rác vẫn chỉ tốn vài request chứ không
 phải 100.
 

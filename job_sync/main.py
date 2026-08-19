@@ -102,6 +102,11 @@ def main() -> None:
         f"{marks.app_rows} applications, {marks.app_lit} have an alumnus and "
         f"{marks.recruiter_lit} have a recruiter contact."
     )
+    print(
+        "Restated the Alumni and Recruiter checkboxes."
+        if marks.ticked
+        else "Checkboxes already correct; nothing written."
+    )
     for failure in failures:
         print(f"WARNING: {failure}")
 

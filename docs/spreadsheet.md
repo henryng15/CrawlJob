@@ -89,8 +89,9 @@ Muốn cho khuất mắt thì dùng **filter view** ẩn `E = TRUE` hoặc `F = 
 | F | Process | dropdown: Applied / OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
-| I | *(không có chữ)* | ô bôi đỏ báo công ty đó có recruiter — xem [alumni.md](alumni.md) |
-| J | **Update** | lịch sử chuyển chặng, mỗi chặng một dòng |
+| I | **Alumni** ☑ | tool tick khi công ty đó có alumni — xem [alumni.md](alumni.md) |
+| J | **Recruiter** ☑ | tool tick khi công ty đó có recruiter trong danh sách liên hệ |
+| K | **Update** | lịch sử chuyển chặng, mỗi chặng một dòng |
 
 `Property` được tính bằng **số lớn nhất đang có + 1**, không phải số dòng — App có thể đã
 bị xoá dòng ở giữa, và hai dòng trùng số thì tệ hơn là có lỗ hổng.
@@ -99,9 +100,18 @@ Data validation của dòng mới được **copy từ dòng entry cuối cùng*
 dropdown `Process` dạng chip màu được tạo từ giao diện Sheets mà Apps Script không có API
 đặt màu chip. Copy thì dòng mới giống hệt dòng cũ, bất kể dropdown từng được tạo kiểu gì.
 
-### Cột J — `Update`
+### Cột I và J — `Alumni`, `Recruiter`
 
-Mỗi lần bạn đổi `Process` ở cột F, Apps Script nối thêm một dòng vào ô J của **chính dòng
+Hai checkbox **do tool tick**, không phải bạn. Cột I bật khi tab `Alumni` có người đang làm
+ở công ty đó; cột J bật khi công ty đó nằm trong danh sách recruiter đi kèm repo. Cả hai
+được ghi lại từ đầu ở mỗi lượt sync, nên tick tay thì lượt sau bị gỡ — chỗ ghi thứ bạn muốn
+giữ là cột H `Note`. Chi tiết ở [alumni.md](alumni.md).
+
+Hai cột này là những ô **duy nhất** ngoài tab Jobs mà tool ghi vào.
+
+### Cột K — `Update`
+
+Mỗi lần bạn đổi `Process` ở cột F, Apps Script nối thêm một dòng vào ô K của **chính dòng
 đó**, ghi chặng vừa chuyển sang và ngày hôm nay. Nhiều dòng nằm trong cùng một ô, ngăn
 nhau bằng xuống dòng (Alt+Enter):
 
@@ -123,13 +133,9 @@ có thật, nên cái gì không khớp là gõ nhầm.
 Script chỉ **nối thêm**, không bao giờ viết lại cái đã có. Nên ô này sửa tay thoải mái:
 ghi nhầm thì xoá dòng đó đi, nhớ ra ngày cũ thì điền vào.
 
-> **Vì sao là cột J chứ không phải I.** Cột I đang là ô bôi đỏ báo "công ty này có
-> recruiter", do phía Python vẽ. Nó không mang chữ nào, nhưng đặt text lên nền đỏ thì vừa
-> không đọc được vừa khiến hai thứ chẳng liên quan tranh nhau một cột.
-
 ### Dấu `?` trong cột Update
 
-`setupUpdateColumn` dựng cột này cho các dòng đã có sẵn. Chỉ chặng `Applied` là suy ra
+`setupAppColumns` dựng cột này cho các dòng đã có sẵn. Chỉ chặng `Applied` là suy ra
 được — từ ô `Date Applied`. Ngày chuyển sang OA hay Interview thì **chưa từng được ghi ở
 đâu cả**, nên dòng nào đang đứng ở chặng sau `Applied` được ghi thêm:
 

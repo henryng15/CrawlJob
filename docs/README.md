@@ -6,7 +6,7 @@
 | [spreadsheet.md](spreadsheet.md) | Hai tab và từng cột: ai được ghi vào đâu, `Applied`, `Expired`, chỗ ghi chú, vì sao không được xoá dòng |
 | [matching.md](matching.md) | Khi nào hai dòng là một job. Ba lớp khớp, vì sao lớp lỏng nhất không bao giờ được xoá dòng |
 | [crawling.md](crawling.md) | Nguồn, bộ lọc role, `Date Posted`, và ba lý do duy nhất khiến một dòng biến mất |
-| [alumni.md](alumni.md) | Vàng = có alumni ở công ty đó, đỏ cột I = có recruiter. Hai dấu để biết đơn nào còn đường đẩy |
+| [alumni.md](alumni.md) | Hai cột checkbox `Alumni` và `Recruiter` ở tab App: đơn nào còn đường đẩy thêm |
 | [operations.md](operations.md) | Đọc log, `--audit-app`, `--rebuild`, bảng tra lỗi |
 
 Bắt đầu bằng [../README.md](../README.md) nếu chưa biết tool này làm gì.

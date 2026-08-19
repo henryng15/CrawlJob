@@ -57,7 +57,7 @@ job_sync/          Python package
   roles.py         regex quyết định role nào được giữ
   sheet.py         đọc/ghi Google Sheet, gộp trùng, tick Applied, audit
   liveness.py      hỏi từng board xem posting còn mở không
-  highlight.py     tô vàng alumni / tô đỏ recruiter trên hai tab
+  highlight.py     tick hai cột Alumni/Recruiter ở App, tô vàng dòng ở Alumni
   data/            danh sách công ty có recruiter (tên công ty, không PII)
 apps_script/       chạy phía Google, dán vào Apps Script editor
 sources.toml       danh sách tracker

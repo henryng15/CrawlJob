@@ -7,7 +7,7 @@ không có lịch sử nào đáng để dựa vào.
 | File | Hàm chạy tay | |
 |---|---|---|
 | `sync_applied_to_app.gs` | `setupJobsCheckboxes` | dựng checkbox `Applied` (E) và `Expired` (F) ở tab Jobs |
-| | `setupUpdateColumn` | dựng cột `Update` (J) ở tab App và điền lịch sử cho các dòng đã có |
+| | `setupAppColumns` | dựng `Alumni` (I), `Recruiter` (J), `Update` (K) ở tab App |
 | | `backfillTicksFromApp` | quét tab App, tick sẵn ở Jobs những job đã nộp |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | dựng dropdown `Process` có màu ở tab App |
 
@@ -18,7 +18,7 @@ giao cho đúng nửa, và mỗi nửa thoát ngay nếu sai cột:
 | Tab | Cột | Làm gì |
 |---|---|---|
 | Jobs | E `Applied` | copy dòng đó sang tab App |
-| App | F `Process` | nối một dòng `<Chặng>: <ngày>` vào cột J `Update` |
+| App | F `Process` | nối một dòng `<Chặng>: <ngày>` vào cột K `Update` |
 
 Cách cài: [../docs/setup.md](../docs/setup.md#5-apps-script).
 Ý nghĩa từng cột: [../docs/spreadsheet.md](../docs/spreadsheet.md).
@@ -31,7 +31,7 @@ node apps_script/harness.js
 
 Không cần cài gì và không đụng tới spreadsheet thật. `harness.js` stub `SpreadsheetApp`
 bằng một sheet giả trong bộ nhớ, nạp file `.gs` qua `vm`, rồi gọi thẳng `onEdit`,
-`backfillTicksFromApp`, `setupJobsCheckboxes` và `setupUpdateColumn`. 48 assertion, in
+`backfillTicksFromApp`, `setupJobsCheckboxes` và `setupAppColumns`. 55 assertion, in
 `ok` / `FAIL` từng dòng và trả exit code khác 0 nếu có cái nào hỏng.
 
 Sheet giả dựng theo đúng hình dạng dữ liệu thật, gồm cả những dòng rác chỉ có mỗi link mà

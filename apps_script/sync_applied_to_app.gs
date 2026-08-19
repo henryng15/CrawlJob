@@ -30,10 +30,10 @@ var JOB_COMPANY = 0, JOB_ROLE = 1, JOB_LINK = 2;
 var APP_WIDTH = 8, APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE = 4, APP_ROLE = 7;
 var PROCESS_COL = 6;   // App cột F — dropdown Process
 
-// Cột J chứ không phải I. Cột I là ô bôi đỏ báo "công ty này có recruiter", do phía
-// Python vẽ ở highlight.py — nó không mang chữ nào, nhưng đặt text lên nền đỏ thì
-// vừa không đọc được vừa khiến hai thứ chẳng liên quan tranh nhau một cột.
-var UPDATE_COL = 10;
+// Ba cột cuối của tab App. I và J là checkbox do phía Python ghi (highlight.py):
+// công ty này có alumni chưa, có recruiter chưa. Trước đây hai câu đó là màu nền —
+// vàng cả dòng và đỏ ở cột I — nhưng checkbox thì lọc và sort được, màu thì không.
+var ALUMNI_COL = 9, RECRUITER_COL = 10, UPDATE_COL = 11;
 
 // Đúng pipeline mà setup_process_dropdown.gs dựng, và cùng danh sách với
 // PROCESS_STAGES trong job_sync/sheet.py. Phần tử đầu là chặng mọi dòng bắt đầu.
@@ -121,28 +121,36 @@ function setupJobsCheckboxes() {
 
 
 /**
- * Chạy tay một lần: dựng header cột J của tab App và điền lịch sử cho các dòng đã có.
+ * Chạy tay một lần: dựng ba cột cuối của tab App — Alumni (I), Recruiter (J),
+ * Update (K) — và điền lịch sử cho các dòng đã có.
  *
- * Chỉ chặng Applied là suy ra được, từ ô Date Applied. Ngày chuyển sang OA hay
- * Interview thì chưa từng được ghi ở đâu cả — dòng nào đang ở chặng sau Applied
- * được ghi thêm một dòng mang dấu '?', để bạn tìm bằng Ctrl+F mà điền tay nếu còn
- * nhớ, thay vì bịa ra một ngày trông như thật.
- *
- * Ô đã có chữ thì không đụng vào, nên chạy lại nhiều lần cũng không hỏng gì.
+ * Chạy lại bao nhiêu lần cũng được: ô Update đã có chữ thì không bị đụng vào, và
+ * bước dời cột chỉ chạy khi đúng là còn phải dời.
  */
-function setupUpdateColumn() {
+function setupAppColumns() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var app = ss.getSheetByName(APP_TAB);
   if (!app) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
 
+  var moved = migrateUpdateColumn(app);
+  app.getRange(1, ALUMNI_COL).setValue('Alumni');
+  app.getRange(1, RECRUITER_COL).setValue('Recruiter');
   app.getRange(1, UPDATE_COL).setValue('Update');
+
   var bottom = app.getLastRow();
   if (bottom < FIRST_ROW) {
-    ss.toast('Tab ' + APP_TAB + ' chưa có dòng nào.', 'Update', 5);
+    ss.toast('Tab ' + APP_TAB + ' chưa có dòng nào.', 'App', 5);
     return;
   }
-
   var count = bottom - FIRST_ROW + 1;
+
+  // Chỉ phủ tới dòng cuối có thật, KHÔNG phủ tới LAST_ROW như bên Jobs. Validation
+  // checkbox ghi vật lý FALSE vào mọi ô nó phủ, nên phủ tới dòng 500 thì
+  // app.getLastRow() thành 500 và onEdit sẽ append dòng mới ở dòng 501. Dòng thêm
+  // sau này nhận validation bằng đường khác: onEdit copy từ dòng entry cuối.
+  app.getRange(FIRST_ROW, ALUMNI_COL, count, 2)
+     .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+
   var dates = app.getRange(FIRST_ROW, APP_DATE, count, 1).getValues();
   var stages = app.getRange(FIRST_ROW, PROCESS_COL, count, 1).getValues();
   var column = app.getRange(FIRST_ROW, UPDATE_COL, count, 1);
@@ -166,18 +174,51 @@ function setupUpdateColumn() {
 
   column.setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
   if (filled) column.setValues(notes);
-  ss.toast(updateReport(filled, unknown), 'Update', 10);
+  ss.toast(updateReport(filled, unknown, moved), 'App', 10);
 }
 
 
-function updateReport(filled, unknown) {
-  if (!filled) return 'Không có dòng nào cần điền.';
-  var text = 'Đã điền ' + filled + ' dòng ở cột Update';
-  if (unknown) {
-    text += '; ' + unknown + ' dòng đang ở chặng sau Applied nên ngày ghi "'
-         + UNKNOWN_DATE + '", tìm dấu đó để điền tay';
+/**
+ * Cột Update từng nằm ở J, một ngày trước khi Alumni và Recruiter chen vào I và J.
+ * Dời sang K, đúng một lần.
+ *
+ * Hai điều kiện đứng canh, và cả hai đều cần: J1 phải đúng là 'Update' (không thì
+ * đây là sheet chưa từng dựng cột đó, chẳng có gì để dời), và K1 phải trống (không
+ * thì đã dời rồi, dời tiếp là ghi đè lên chính lịch sử vừa dời sang).
+ */
+function migrateUpdateColumn(app) {
+  if (String(app.getRange(1, RECRUITER_COL).getValue()).trim() !== 'Update') return 0;
+  if (String(app.getRange(1, UPDATE_COL).getValue()).trim()) return 0;
+
+  var moved = 0;
+  var bottom = app.getLastRow();
+  if (bottom >= FIRST_ROW) {
+    var count = bottom - FIRST_ROW + 1;
+    var from = app.getRange(FIRST_ROW, RECRUITER_COL, count, 1);
+    var values = from.getValues();
+    for (var i = 0; i < count; i++) if (String(values[i][0]).trim()) moved++;
+    app.getRange(FIRST_ROW, UPDATE_COL, count, 1)
+       .setValues(values)
+       .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+    from.clearContent();
   }
-  return text + '.';
+  return moved;
+}
+
+
+function updateReport(filled, unknown, moved) {
+  var parts = [];
+  if (moved) parts.push('Dời ' + moved + ' dòng lịch sử từ cột J sang K');
+  if (filled) {
+    var text = 'Điền ' + filled + ' dòng ở cột Update';
+    if (unknown) {
+      text += ' (' + unknown + ' dòng đang ở chặng sau Applied nên ngày ghi "'
+           + UNKNOWN_DATE + '", tìm dấu đó để điền tay)';
+    }
+    parts.push(text);
+  }
+  if (!parts.length) return 'Ba cột đã đúng, không có gì phải sửa.';
+  return parts.join('. ') + '.';
 }
 
 
@@ -327,9 +368,12 @@ function onJobsEdit(e) {
     // Validation được copy chứ không dựng lại: dropdown Process ở các dòng trên là
     // chip màu tạo từ UI, mà Apps Script không có API đặt màu chip. Copy thì dòng
     // mới giống hệt dòng cũ dù dropdown từng được tạo bằng cách nào.
+    // Tới hết cột J, không dừng ở APP_WIDTH: hai ô checkbox cũng là validation, và
+    // dòng mới không có chúng thì lượt sync sau ghi TRUE/FALSE thành chữ nằm đè lên.
     if (last.row) {
-      app.getRange(last.row, 1, 1, APP_WIDTH)
-         .copyTo(written, SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
+      app.getRange(last.row, 1, 1, RECRUITER_COL)
+         .copyTo(app.getRange(start, 1, fresh.length, RECRUITER_COL),
+                 SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
     }
   }
   ss.toast(report(fresh.length, skipped, expired), 'Jobs → App', 6);

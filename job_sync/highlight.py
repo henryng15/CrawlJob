@@ -3,14 +3,22 @@
 Two questions the App tab cannot answer on its own, and both are about the same
 thing — is there a person on the other side of this application.
 
-  * An alumnus works there. Painted yellow across the row, in the Alumni tab and
-    in App alike, so it reads from either direction.
-  * A recruiter contact exists. Painted red in column I of App, from a list of
-    employer names carried in this repo.
+  * An alumnus works there. A tick in column I of App, and still a yellow row in
+    the Alumni tab, where there is no application to hang a checkbox off.
+  * A recruiter contact exists. A tick in column J of App, from a list of employer
+    names carried in this repo.
 
-Only the exact colours below are ever cleared, and each is looked for in the
-column it is written to. A cell the operator coloured by hand is invisible to
-this, so a run can be repeated without eating anyone's marks.
+Both App marks used to be colours: yellow across the row, red in column I. A
+checkbox says the same thing and can be filtered and sorted on, which a
+background colour cannot. The paint is lifted on the first run that finds it.
+
+These two columns are the only cells outside the Jobs tab this tool writes, and
+it owns them completely — every run states both, so a tick added by hand is gone
+by the next sync. Anything you want to keep goes in Note.
+
+Colour that is still colour is only ever cleared where it matches the exact
+values below, in the column it was written to. A cell coloured by hand is
+invisible to this, so a run can be repeated without eating anyone's marks.
 """
 
 from __future__ import annotations
@@ -21,15 +29,16 @@ from pathlib import Path
 from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
-from job_sync.sheet import APP_COMPANY, _quote_tab, _service
+from job_sync.sheet import APP_COMPANY, _column, _quote_tab, _service
 from job_sync.sources import company_tokens, same_employer
 
 ALUMNI_COMPANY = 0
 ALUMNI_WIDTH = 6
 JOBS_WIDTH = 7
 APP_WIDTH = 8
-# Column I of App, the first past the eight that tab uses.
-RECRUITER_COLUMN = 8
+# Columns I and J of App, the two checkboxes this module owns. Zero-based, and
+# adjacent so both are stated in one write.
+APP_ALUMNI, APP_RECRUITER = 8, 9
 FIRST_DATA_ROW = 1  # zero-based; row 1 of the sheet is the header
 HIGHLIGHT = {"red": 1.0, "green": 0.898, "blue": 0.6}
 RECRUITER = {"red": 0.957, "green": 0.8, "blue": 0.8}
@@ -48,6 +57,9 @@ class HighlightResult:
     app_rows: int = 0
     app_lit: int = 0
     recruiter_lit: int = 0
+    # Whether the two checkbox columns had to be restated. A run that changes
+    # nothing sends nothing, same as the sheet write.
+    ticked: bool = False
 
 
 def recruiter_companies() -> list[frozenset[str]]:
@@ -161,8 +173,79 @@ def _requests(
     return requests
 
 
+def _boxes(rows: list[list[str]], count: int) -> list[list[str]]:
+    """Two checkbox columns, `count` rows deep, every cell reading TRUE or FALSE.
+
+    Both halves of the comparison go through this. A checkbox that has never been
+    ticked reads back as FALSE, one on a row the validation has not reached reads
+    back as nothing at all, and the API drops trailing blanks from every row it
+    returns — three spellings of the same state, which would otherwise make a run
+    that changes nothing look like a run with work to do."""
+    stated = []
+    for index in range(count):
+        row = rows[index] if index < len(rows) else []
+        stated.append(
+            [
+                "TRUE"
+                if column < len(row) and row[column].strip().casefold() == "true"
+                else "FALSE"
+                for column in (0, 1)
+            ]
+        )
+    return stated
+
+
+def _state(matched: set[int] | None, index: int, held: str) -> str:
+    """What this run has to say about one checkbox, or what the sheet already says
+    where the run has nothing to say. Written as a function rather than a nested
+    conditional because the condition has to be read before the membership test —
+    `index in matched` on a None set raises before any else branch is reached."""
+    if matched is None:
+        return held
+    return "TRUE" if index in matched else "FALSE"
+
+
+def _mark_contacts(
+    values_api,
+    settings: Settings,
+    rows: int,
+    alumni: set[int] | None,
+    recruiters: set[int] | None,
+) -> bool:
+    """State both checkbox columns, and say whether anything had to be written.
+
+    A None match set means that mark's source was not available this run — no
+    Alumni tab, or no recruiter list in the wheel. That is the one case where the
+    column is not restated: the tool owns these cells, so computing "no matches"
+    from a source that is missing rather than empty would untick the lot.
+
+    USER_ENTERED, not RAW: written raw, the string "TRUE" is laid over the
+    checkbox as text instead of ticking it, and reads back next run as untouched."""
+    if not rows:
+        return False
+    first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
+    cells = f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"
+    current = _boxes(
+        _values(values_api, settings, settings.app_tab, f"{first}2:{last}") or [], rows
+    )
+    wanted = [
+        [_state(alumni, index, held[0]), _state(recruiters, index, held[1])]
+        for index, held in enumerate(current, start=FIRST_DATA_ROW)
+    ]
+    if wanted == current:
+        return False
+    values_api.update(
+        spreadsheetId=settings.sheet_id,
+        range=cells,
+        valueInputOption="USER_ENTERED",
+        body={"values": wanted},
+    ).execute()
+    return True
+
+
 def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> HighlightResult:
-    """Paint both marks, in one batch.
+    """Say who can be asked about each application: two checkboxes in App, and the
+    yellow that is left, in one batch.
 
     Company names are compared with the loose reading from sources.company_tokens:
     a directory writes the registered name and an application writes whatever the
@@ -178,9 +261,13 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
         for row in app[FIRST_DATA_ROW:]
         if len(row) > APP_COMPANY and row[APP_COMPANY].strip()
     ]
+    # A missing tab is not an empty tab. An Alumni tab with no rows in it says
+    # truthfully that nobody is anywhere; a tab that is not there says nothing,
+    # and stating the column from it would untick every row.
     alumni = _values(values_api, settings, settings.alumni_tab, "A:F")
-    if alumni is None:
-        print(f"No tab named {settings.alumni_tab!r}; skipping the alumni highlight.")
+    known = alumni is not None
+    if not known:
+        print(f"No tab named {settings.alumni_tab!r}; leaving the Alumni column as it stands.")
         alumni = []
 
     directory = [
@@ -188,7 +275,11 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
         for row in alumni[FIRST_DATA_ROW:]
         if len(row) > ALUMNI_COMPANY and row[ALUMNI_COMPANY].strip()
     ]
+    # Empty means the list did not ship, not that no employer has a recruiter —
+    # the file is 720 names in a checkout, and it once went missing from the wheel.
     recruiters = recruiter_companies()
+    if not recruiters:
+        print("No recruiter list in this build; leaving the Recruiter column as it stands.")
 
     alumni_rows: set[int] = set()
     for index, row in enumerate(alumni[FIRST_DATA_ROW:], start=FIRST_DATA_ROW):
@@ -220,14 +311,22 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
             wanted = {separator - 1} if separator else set()
             requests += _requests(sheet_id, wanted, already, (0, JOBS_WIDTH), HIGHLIGHT)
     marks = (
+        # Still a colour, and the only one left on this tab: a row in the alumni
+        # directory is a person, not an application, so there is no checkbox of
+        # theirs to tick.
         (settings.alumni_tab, alumni, alumni_rows, "A", (0, ALUMNI_WIDTH), HIGHLIGHT),
-        (settings.app_tab, app, app_alumni, "A", (0, APP_WIDTH), HIGHLIGHT),
+        # Both App marks are checkboxes now. These two match nothing by
+        # construction, so all they can do is lift the paint the earlier version
+        # left behind — including the red that sat where the Alumni box now is.
+        # Two reads a run, no requests once the tab is clean, and the sheet
+        # repairs itself if an older build is ever run against it again.
+        (settings.app_tab, app, set(), "A", (0, APP_WIDTH), HIGHLIGHT),
         (
             settings.app_tab,
             app,
-            app_recruiter,
-            "I",
-            (RECRUITER_COLUMN, RECRUITER_COLUMN + 1),
+            set(),
+            _column(APP_ALUMNI),
+            (APP_ALUMNI, APP_ALUMNI + 1),
             RECRUITER,
         ),
     )
@@ -244,10 +343,19 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
             spreadsheetId=settings.sheet_id, body={"requests": requests}
         ).execute()
 
+    applied_rows = max(len(app) - FIRST_DATA_ROW, 0)
+    ticked = _mark_contacts(
+        values_api,
+        settings,
+        applied_rows,
+        app_alumni if known else None,
+        app_recruiter if recruiters else None,
+    )
     return HighlightResult(
         alumni_rows=max(len(alumni) - FIRST_DATA_ROW, 0),
         alumni_lit=len(alumni_rows),
-        app_rows=max(len(app) - FIRST_DATA_ROW, 0),
+        app_rows=applied_rows,
         app_lit=len(app_alumni),
         recruiter_lit=len(app_recruiter),
+        ticked=ticked,
     )

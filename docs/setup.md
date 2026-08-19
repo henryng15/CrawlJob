@@ -163,7 +163,7 @@ Mở spreadsheet → **Extensions → Apps Script**, dán từng file vào, Save
 | File | Chạy hàm | Làm gì |
 |---|---|---|
 | `sync_applied_to_app.gs` | `setupJobsCheckboxes` | dựng checkbox `Applied` (E) và `Expired` (F) ở tab Jobs |
-| | `setupUpdateColumn` | dựng cột `Update` (J) ở tab App và điền lịch sử cho các dòng đã có |
+| | `setupAppColumns` | dựng `Alumni` (I), `Recruiter` (J), `Update` (K) ở tab App |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | dựng dropdown `Process` có màu ở tab App |
 
 Chạy hàm setup một lần là đủ; `onEdit` là simple trigger nên Google tự gọi, không cần cài

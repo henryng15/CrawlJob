@@ -31,9 +31,7 @@ def main() -> None:
     with open(sys.argv[1], encoding="utf-8") as handle:
         names = {row["company_name"].strip() for row in csv.DictReader(handle)}
     names.discard("")
-    TARGET.write_text(
-        HEADER + "\n".join(sorted(names, key=str.casefold)) + "\n", encoding="utf-8"
-    )
+    TARGET.write_text(HEADER + "\n".join(sorted(names, key=str.casefold)) + "\n", encoding="utf-8")
     print(f"{len(names)} companies -> {TARGET}")
 
 

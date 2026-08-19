@@ -47,10 +47,22 @@ function makeSheet(name, data) {
         setValue(v) {
           return this.setValues([[v]]);
         },
+        getValue() {
+          const v = (grid[row - 1] || [])[col - 1];
+          return v === undefined ? '' : v;
+        },
+        clearContent() {
+          for (let r = 0; r < numRows; r++) {
+            for (let c = 0; c < numCols; c++) {
+              if (grid[row - 1 + r]) grid[row - 1 + r][col - 1 + c] = '';
+            }
+          }
+          return this;
+        },
         setNumberFormat() { return this; },
-        setDataValidation() { return this; },
+        setDataValidation() { validated.push([row, col, numRows, numCols]); return this; },
         setWrapStrategy(strategy) { wrapped.push([col, strategy]); return this; },
-        copyTo(dest, type) { copied.push([row, type]); return this; },
+        copyTo(dest, type) { copied.push([row, type]); copiedWidth = numCols; return this; },
       };
     },
   };
@@ -60,6 +72,8 @@ function makeSheet(name, data) {
 let copied = [];
 let toasts = [];
 let wrapped = [];
+let validated = [];
+let copiedWidth = 0;
 let jobs, app, ss;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -69,6 +83,8 @@ function load() {
   copied = [];
   toasts = [];
   wrapped = [];
+  validated = [];
+  copiedWidth = 0;
   ss = {
     getSheetByName: (n) => (n === 'Jobs' ? jobs : n === 'App' ? app : null),
     toast: (msg) => toasts.push(msg),
@@ -364,10 +380,10 @@ console.log('Jobs → App: gieo dòng Update đầu tiên');
   jobs.grid[3][4] = true;   // Neuralink: Applied
   s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
   run('dòng vừa sang App đã mang sẵn chặng Applied', () => {
-    assert.strictEqual(app.grid[4][9], 'Applied: ' + today());
+    assert.strictEqual(app.grid[4][10], 'Applied: ' + today());
   });
-  run('cột J được set WRAP, không thì ô chỉ hiện đúng dòng đầu', () => {
-    assert.ok(wrapped.some((call) => call[0] === 10 && call[1] === 'WRAP'));
+  run('cột K được set WRAP, không thì ô chỉ hiện đúng dòng đầu', () => {
+    assert.ok(wrapped.some((call) => call[0] === 11 && call[1] === 'WRAP'));
   });
 }
 
@@ -379,7 +395,7 @@ console.log('onAppEdit');
 
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });   // Notion đang ở OA
   run('đổi Process thì ghi một dòng "<Chặng>: <ngày>"', () => {
-    assert.strictEqual(app.grid[2][9], 'OA: ' + today());
+    assert.strictEqual(app.grid[2][10], 'OA: ' + today());
   });
   run('toast nói rõ ngày vừa ghi', () => {
     assert.match(toasts[toasts.length - 1], /Ghi .+ vào cột Update của 1 dòng/);
@@ -387,66 +403,123 @@ console.log('onAppEdit');
 
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('bắn lại đúng chặng đang có thì không ghi thêm dòng nào', () => {
-    assert.strictEqual(app.grid[2][9], 'OA: ' + today());
+    assert.strictEqual(app.grid[2][10], 'OA: ' + today());
   });
 
   app.grid[2][5] = 'Interview';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('chặng mới nối xuống dưới, chặng cũ giữ nguyên', () => {
-    assert.strictEqual(app.grid[2][9], 'OA: ' + today() + '\nInterview: ' + today());
+    assert.strictEqual(app.grid[2][10], 'OA: ' + today() + '\nInterview: ' + today());
   });
 
   app.grid[2][5] = 'OA';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('quay lại chặng đã đi qua không ghi lần hai', () => {
-    assert.strictEqual(app.grid[2][9].split('\n').length, 2);
+    assert.strictEqual(app.grid[2][10].split('\n').length, 2);
   });
 
-  const kept = app.grid[2][9];
+  const kept = app.grid[2][10];
   s.onEdit({ source: ss, range: app.getRange(3, 8, 1, 1) });   // cột Note
   run('sửa cột khác thì không đụng vào cột Update', () => {
-    assert.strictEqual(app.grid[2][9], kept);
+    assert.strictEqual(app.grid[2][10], kept);
   });
 
   app.grid[2][5] = 'Offer';
   app.grid[3][5] = 'Phone screen';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 2, 1) });
   run('trong cùng khối, chặng hợp lệ vẫn ghi còn giá trị lạ thì không', () => {
-    assert.match(app.grid[2][9], /Offer: /);
-    assert.ok(!app.grid[3][9]);
+    assert.match(app.grid[2][10], /Offer: /);
+    assert.ok(!app.grid[3][10]);
   });
 }
 
-console.log('setupUpdateColumn');
+console.log('setupAppColumns');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  s.setupUpdateColumn();
-  run('dựng header ở cột J', () => {
-    assert.strictEqual(app.grid[0][9], 'Update');
+  s.setupAppColumns();
+  run('dựng header ở cột K', () => {
+    assert.strictEqual(app.grid[0][10], 'Update');
   });
   run('dòng đang ở Applied suy ra ngày từ cột Date Applied', () => {
-    assert.strictEqual(app.grid[1][9], 'Applied: July 21, 2026');
+    assert.strictEqual(app.grid[1][10], 'Applied: July 21, 2026');
   });
   run('dòng đã đi xa hơn thì chặng sau mang dấu ? chứ không bịa ngày', () => {
-    assert.strictEqual(app.grid[2][9], 'Applied: July 26, 2026\nOA: ?');
+    assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: ?');
   });
   run('dòng chỉ có link, không có Process, thì không phải entry', () => {
-    assert.ok(!app.grid[3][9]);
+    assert.ok(!app.grid[3][10]);
   });
   run('toast đếm riêng số dòng còn phải điền tay', () => {
-    assert.match(toasts[toasts.length - 1], /Đã điền 2 dòng.*1 dòng đang ở chặng sau Applied/s);
+    assert.match(toasts[toasts.length - 1], /Điền 2 dòng.*1 dòng đang ở chặng sau Applied/s);
+  });
+  run('dựng header cho hai cột checkbox', () => {
+    assert.strictEqual(app.grid[0][8], 'Alumni');
+    assert.strictEqual(app.grid[0][9], 'Recruiter');
+  });
+  run('checkbox chỉ phủ tới dòng cuối có thật, không tới LAST_ROW', () => {
+    // Phủ tới 500 thì validation ghi vật lý FALSE xuống tận đó, getLastRow() thành
+    // 500, và onEdit sẽ append dòng mới ở dòng 501.
+    const boxes = validated.filter((call) => call[1] === 9);
+    assert.strictEqual(boxes.length, 1);
+    assert.deepStrictEqual(boxes[0], [2, 9, 3, 2]);   // I2:J4, đúng 3 dòng đang có
   });
 
-  const kept = app.grid[1][9];
-  app.grid[2][9] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
-  s.setupUpdateColumn();
+  const kept = app.grid[1][10];
+  app.grid[2][10] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
+  s.setupAppColumns();
   run('chạy lại không ghi đè ô đã có chữ', () => {
-    assert.strictEqual(app.grid[1][9], kept);
-    assert.strictEqual(app.grid[2][9], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
+    assert.strictEqual(app.grid[1][10], kept);
+    assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
   });
   run('lần hai không còn gì để điền', () => {
-    assert.match(toasts[toasts.length - 1], /Không có dòng nào cần điền/);
+    assert.match(toasts[toasts.length - 1], /Ba cột đã đúng/);
+  });
+}
+
+console.log('setupAppColumns — dời cột Update từ J sang K');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  const s = load();
+  // Sheet của người đã chạy bản hôm qua: lịch sử đang nằm ở cột J.
+  app.grid[0][9] = 'Update';
+  app.grid[1][9] = 'Applied: Jul 21, 2026';
+  app.grid[2][9] = 'Applied: Jul 26, 2026\nOA: Aug 1, 2026';
+  s.setupAppColumns();
+
+  run('lịch sử sang cột K nguyên vẹn', () => {
+    assert.strictEqual(app.grid[1][10], 'Applied: Jul 21, 2026');
+    assert.strictEqual(app.grid[2][10], 'Applied: Jul 26, 2026\nOA: Aug 1, 2026');
+  });
+  run('cột J nhường chỗ cho Recruiter', () => {
+    assert.strictEqual(app.grid[0][9], 'Recruiter');
+    assert.strictEqual(app.grid[1][9], '');
+    assert.strictEqual(app.grid[2][9], '');
+  });
+  run('toast nói đã dời bao nhiêu dòng', () => {
+    assert.match(toasts[toasts.length - 1], /Dời 2 dòng lịch sử từ cột J sang K/);
+  });
+
+  const kept = app.grid[2][10];
+  s.setupAppColumns();
+  run('chạy lại không dời lần hai — K đã có chữ thì đứng yên', () => {
+    assert.strictEqual(app.grid[2][10], kept);
+    assert.strictEqual(app.grid[0][9], 'Recruiter');
+  });
+}
+
+console.log('onEdit — dòng mới nhận validation của cả hai ô checkbox');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  const s = load();
+  jobs.grid[3][4] = true;
+  s.onEdit({ source: ss, range: jobs.getRange(4, 5, 1, 1) });
+  run('copy validation tới hết cột J, không dừng ở APP_WIDTH', () => {
+    assert.strictEqual(copied.length, 1);
+    assert.strictEqual(copied[0][1], 'PASTE_DATA_VALIDATION');
+    assert.strictEqual(copiedWidth, 10);
   });
 }
