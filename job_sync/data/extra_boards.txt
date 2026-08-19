@@ -1,0 +1,10 @@
+# Board mà không danh sách thượng nguồn nào biết. Mỗi dòng: <ats>:<slug>
+#
+# Đây là lối thoát cho đúng trường hợp Verition: board có thật, mở việc thật,
+# mà Common Crawl chưa từng ghé qua — nên nó không nằm trong bất kỳ danh sách
+# slug nào, và không có API nào của Greenhouse/Lever/Ashby liệt kê board ra cả.
+# Thấy một cái thì thêm một dòng vào đây; nó được hỏi ở mọi lượt crawl, không
+# phải chờ tới lượt discovery chủ nhật.
+#
+# Lấy slug từ URL board: job-boards.greenhouse.io/<slug>/jobs/...
+greenhouse:veritiongroupllc

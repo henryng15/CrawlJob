@@ -34,14 +34,17 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from job_sync.boards import BOARDS, USER_AGENT, parse_board, read_board
+from job_sync.boards import BOARDS, USER_AGENT, extra_boards, parse_board, read_board
 from job_sync.roles import INTERNSHIP_RE
+from job_sync.sources import fetch_source, load_sources, parse_jobs
 
 TARGET = Path(__file__).resolve().parent.parent / "job_sync" / "data" / "ats_boards.json"
+SOURCES = Path(__file__).resolve().parent.parent / "sources.toml"
 CRAWL = (
     "https://raw.githubusercontent.com/Feashliaa/job-board-aggregator/main/data/{}_companies.json"
 )
@@ -72,36 +75,66 @@ def _json(url: str, cap: int = 32 * 1024 * 1024) -> object | None:
         return None
 
 
+def from_trackers() -> list[tuple[str, str]]:
+    """Board slugs read straight out of the links the trackers are publishing.
+
+    Free, exact, and self-renewing: a tracker that adds a company today hands over
+    that company's board today. No archive is involved, so it also reaches boards
+    Common Crawl has never fetched — which is most of the ones that matter, because
+    a board is only in an archive if something once linked to it."""
+    pairs: list[tuple[str, str]] = []
+    for source in load_sources(SOURCES):
+        try:
+            jobs = parse_jobs(fetch_source(source), datetime.now(tz=UTC).date())
+        except Exception as error:  # noqa: BLE001 - one tracker must not end the run
+            print(f"  WARNING: {source.name} — {error}")
+            continue
+        for job in jobs:
+            parts = urlsplit(job.apply_link)
+            host = parts.netloc.casefold().removeprefix("www.")
+            segments = [segment for segment in parts.path.split("/") if segment]
+            if not segments:
+                continue
+            for domain, ats in (
+                ("greenhouse.io", "greenhouse"),
+                ("lever.co", "lever"),
+                ("ashbyhq.com", "ashby"),
+            ):
+                if host.endswith(domain):
+                    # Greenhouse serves the same board under /embed/job_board and
+                    # under /<slug>, so the slug is not always the first segment.
+                    slug = (
+                        segments[1] if segments[0] == "embed" and len(segments) > 1 else segments[0]
+                    )
+                    pairs.append((ats, slug))
+    return pairs
+
+
 def candidates() -> list[tuple[str, str]]:
     """Every (ats, slug) worth one probe, deduplicated, in a stable order."""
     seen: set[tuple[str, str]] = set()
     pairs: list[tuple[str, str]] = []
-    for ats in BOARDS:
-        slugs = _json(CRAWL.format(ats)) or []
+
+    def take(found: list[tuple[str, str]], label: str) -> None:
         kept = 0
-        for slug in slugs:
-            pair = (ats, str(slug).strip())
-            if pair[1] and pair not in seen:
+        for pair in found:
+            if pair[0] in BOARDS and pair[1] and pair not in seen:
                 seen.add(pair)
                 pairs.append(pair)
                 kept += 1
-        print(f"  {ats:<11} {kept:>6} slugs from the Common Crawl list")
+        print(f"  {label:<11} {kept:>6} slugs")
+
+    # Hand-written first, so they are never crowded out of the probe list.
+    take(extra_boards(), "by hand")
+    take(from_trackers(), "trackers")
+    for ats in BOARDS:
+        take([(ats, str(slug).strip()) for slug in (_json(CRAWL.format(ats)) or [])], ats)
 
     companies = _json(YC) or []
-    extra = 0
-    for company in companies:
-        slug = str(company.get("slug") or "").strip()
-        if not slug:
-            continue
-        for ats in BOARDS:
-            pair = (ats, slug)
-            # Only the slugs the crawl list missed. The rest are already queued,
-            # and probing them twice would cost an hour to learn nothing.
-            if pair not in seen:
-                seen.add(pair)
-                pairs.append(pair)
-                extra += 1
-    print(f"  {'yc':<11} {extra:>6} slugs the crawl list did not already carry")
+    take(
+        [(ats, str(company.get("slug") or "").strip()) for company in companies for ats in BOARDS],
+        "yc",
+    )
     return pairs
 
 

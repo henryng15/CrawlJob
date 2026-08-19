@@ -31,6 +31,9 @@ from job_sync.roles import is_target_role
 from job_sync.sources import Job
 
 BOARD_FILE = Path(__file__).resolve().parent / "data" / "ats_boards.json"
+# Boards added by hand because nothing upstream knows them. Kept separate from the
+# generated shortlist so that the weekly rebuild cannot quietly drop one.
+EXTRA_FILE = Path(__file__).resolve().parent / "data" / "extra_boards.txt"
 USER_AGENT = "internship-sheet-sync/0.1"
 TIMEOUT = 15
 # One board's reply, capped. A large employer's Ashby board runs to 12 MB because
@@ -274,16 +277,41 @@ def harvest(boards: list[tuple[str, str]], workers: int = WORKERS) -> BoardResul
     )
 
 
-def load_boards(path: Path = BOARD_FILE) -> list[tuple[str, str]]:
+def load_boards(path: Path = BOARD_FILE, extra: Path = EXTRA_FILE) -> list[tuple[str, str]]:
     """The boards worth asking every day, as (ats, slug) pairs.
 
     A missing file is the feature switched off, not an error: the Markdown
     trackers are the floor this sits on top of, and they do not need it."""
+    found: list[tuple[str, str]] = []
+    if path.exists():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        found += [tuple(row) for row in data.get("daily", [])]
+    found += extra_boards(extra)
+    # Deduplicated but kept in order, so two runs over an unchanged pair of files
+    # ask the same boards in the same sequence.
+    seen: set[tuple[str, str]] = set()
+    ordered: list[tuple[str, str]] = []
+    for pair in found:
+        if len(pair) == 2 and pair[0] in BOARDS and pair[1] and pair not in seen:
+            seen.add(pair)
+            ordered.append(pair)
+    return ordered
+
+
+def extra_boards(path: Path = EXTRA_FILE) -> list[tuple[str, str]]:
+    """Boards written down by hand, as "<ats>:<slug>" a line.
+
+    The escape hatch for a board no list upstream carries — Verition's is real,
+    open and hiring, and Common Crawl has never once fetched it. Since none of the
+    three ATSes will enumerate their boards, a human noticing one is the only way
+    it can ever be found, and this is where that goes."""
     if not path.exists():
         return []
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return [
-        (ats, slug)
-        for ats, slug in (tuple(row) for row in data.get("daily", []))
-        if ats in BOARDS and slug
-    ]
+    pairs = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        ats, _, slug = line.partition(":")
+        pairs.append((ats.strip().casefold(), slug.strip()))
+    return pairs

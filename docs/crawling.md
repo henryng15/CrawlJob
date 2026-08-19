@@ -45,11 +45,40 @@ Ba thứ khiến chúng **tốt hơn** tracker chứ không chỉ nhiều hơn:
 - Ngày là `first_published` của board, chứ không phải ngày một người tình nguyện để ý thấy.
 - Một startup bốn người đứng ngang hàng với một công ty bốn vạn người.
 
+### Không có cách nào lấy hết
+
+Đã kiểm chứng, không phải phỏng đoán: **không ATS nào cho liệt kê board.** Không endpoint
+danh sách, không sitemap dùng được (`job-boards.greenhouse.io/sitemap.xml` trả 404,
+`jobs.ashbyhq.com/sitemap.xml` trả HTML chứ không phải XML).
+
+Và archive cũng không phủ hết. Verition Group có board Greenhouse thật, mở việc thật, mà
+Common Crawl **chưa từng fetch một lần nào**:
+
+```
+boards.greenhouse.io/veritiongroupllc*      No Captures found
+```
+
+Một board chỉ nằm trong archive nếu từng có thứ gì đó link tới nó. Board không ai link thì
+không có đường nào tìm ra bằng máy. Nên hệ thống góp slug từ bốn nguồn, mỗi nguồn bịt một
+kiểu lỗ khác nhau:
+
+| nguồn | được gì | bịt lỗ nào |
+|---|---|---|
+| `data/extra_boards.txt` | ghi tay | board không ai biết — lối thoát duy nhất |
+| link trong tracker | 83 slug, 26 cái mới | board vừa được tracker đăng, archive chưa kịp thấy |
+| Common Crawl (qua repo) | 15.862 slug | bề rộng |
+| `yc-oss/api` | công ty YC đang tuyển | startup |
+
 ### Biết board nào tồn tại
 
 Đó mới là phần khó, và nó nằm ở [`scripts/discover_boards.py`](../scripts/discover_boards.py).
 Slug lấy từ hai danh sách **tên**, không phải từ việc scrape trang của ai:
 
+- **`job_sync/data/extra_boards.txt`** — ghi tay, mỗi dòng `<ats>:<slug>`. File riêng để
+  lượt dựng lại hàng tuần không bao giờ xoá mất cái nào. Thấy board nào thiếu thì thêm một
+  dòng; nó được hỏi ngay ở lượt crawl kế tiếp, không phải chờ chủ nhật.
+- **Link mà chính tracker đang đăng** — miễn phí, chính xác, tự lớn lên. Tracker thêm công
+  ty nào hôm nay là đưa luôn board công ty đó hôm nay.
 - [`Feashliaa/job-board-aggregator`](https://github.com/Feashliaa/job-board-aggregator) —
   15.862 slug, harvest từ index Common Crawl của các URL ATS công khai.
   Data theo **CC BY-NC 4.0**; attribution được ghi thẳng vào file output, và tracker này là
@@ -145,12 +174,26 @@ tập được append.
 
 [`roles.py`](../job_sync/roles.py) chứa toàn bộ regex. Một role phải thoả **cả hai**:
 
-1. Có `intern`, `internship`, `co-op`, `placement` hoặc `student`.
+1. Có `intern`, `internship`, `co-op`, `placement`, `student`, `summer analyst`, hoặc có
+   **cả** `summer` lẫn `analyst` ở bất kỳ đâu trong tên.
+
+   Ngân hàng và quỹ không bao giờ dùng chữ *intern*. Verition đăng
+   "2027 Technology Internship (US)", cùng vị trí đó ở chỗ khác tên là
+   "Technology Summer Analyst" — một người nộp, một việc, mà một trong hai từng vô hình ở
+   đây. Nới rộng chỗ này chỉ an toàn vì vế thứ hai vẫn phải đồng ý: "Investment Banking
+   Summer 2027 Analyst" không có từ kỹ thuật nào nên vẫn bị loại.
 2. Khớp một trong các nhóm: software engineering/engineer/developer/dev/SWE/SDE; frontend,
    backend, full-stack, web, mobile, iOS, Android; platform, infrastructure, production
    infrastructure, developer experience; cloud/cloud operations, DevOps, SRE,
    build/release, MLOps; embedded, firmware, systems, application; FDE/forward deployed;
-   ML/data platform engineer; quantitative developer.
+   ML/data platform engineer; quantitative developer; **và `technology` đứng một mình.**
+
+   Chữ `technology` trần là cố ý. Tài chính đặt tên cả bộ phận là "Technology" chứ không
+   gọi tên chuyên ngành — "2027 Technology Internship", "Technology Summer Analyst" — nên
+   không có từ thứ hai nào để bám vào. Cái giá là thỉnh thoảng lọt một
+   "Marketing Technology Intern": một dòng liếc qua rồi bỏ, đổi lấy cả một nhóm công ty
+   trước đây hoàn toàn vô hình. Đo trên dữ liệu thật, việc nới này cứu về **37 role** —
+   Verition, NVIDIA, American Express, Deutsche Bank, GE Aerospace, KeyBank, Truist.
 
 Muốn nới hay siết thì sửa ngay file đó, pipeline không cần biết.
 

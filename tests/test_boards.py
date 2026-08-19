@@ -1,9 +1,11 @@
 import json
 
 from job_sync.boards import (
+    EXTRA_FILE,
     BoardResult,
     _display,
     _in_country,
+    extra_boards,
     harvest,
     load_boards,
     parse_board,
@@ -204,7 +206,7 @@ def test_a_slug_reads_as_a_company_name() -> None:
 def test_no_board_list_is_the_feature_switched_off(tmp_path) -> None:
     """The Markdown trackers are the floor this stands on. A checkout that has
     never run discovery still syncs."""
-    assert load_boards(tmp_path / "absent.json") == []
+    assert load_boards(tmp_path / "absent.json", tmp_path / "absent.txt") == []
 
 
 def test_a_board_list_drops_rows_naming_an_ats_this_build_cannot_read(tmp_path) -> None:
@@ -213,7 +215,7 @@ def test_a_board_list_drops_rows_naming_an_ats_this_build_cannot_read(tmp_path) 
         json.dumps({"daily": [["ashby", "etched"], ["workday", "acme"], ["lever", ""]]}),
         encoding="utf-8",
     )
-    assert load_boards(path) == [("ashby", "etched")]
+    assert load_boards(path, tmp_path / "absent.txt") == [("ashby", "etched")]
 
 
 def test_asking_no_boards_makes_no_requests() -> None:
@@ -249,3 +251,36 @@ def test_a_run_someone_typed_always_asks_the_boards() -> None:
 
     middle_of_the_night = datetime(2026, 8, 19, 3, tzinfo=ZoneInfo("America/New_York"))
     assert wants_boards(False, middle_of_the_night) is True
+
+
+def test_a_board_can_be_written_down_by_hand(tmp_path) -> None:
+    """The escape hatch for a board nothing upstream knows. Verition's is real,
+    open and hiring, and Common Crawl has never fetched it once — with no
+    enumeration API on any of the three ATSes, a person noticing is the only route
+    it has."""
+    path = tmp_path / "extra.txt"
+    path.write_text(
+        "# a comment\n\ngreenhouse:veritiongroupllc\n  ashby : etched \nnonsense\n",
+        encoding="utf-8",
+    )
+    assert extra_boards(path) == [("greenhouse", "veritiongroupllc"), ("ashby", "etched")]
+
+
+def test_the_hand_written_list_survives_a_rebuild_of_the_shortlist(tmp_path) -> None:
+    """Kept in its own file precisely so the weekly rebuild cannot drop one."""
+    shortlist = tmp_path / "boards.json"
+    shortlist.write_text(json.dumps({"daily": [["ashby", "etched"]]}), encoding="utf-8")
+    assert ("greenhouse", "veritiongroupllc") in load_boards(shortlist)
+
+
+def test_the_shipped_hand_list_is_readable_and_carries_verition() -> None:
+    assert EXTRA_FILE.exists(), "job_sync/data/extra_boards.txt is missing"
+    assert ("greenhouse", "veritiongroupllc") in extra_boards()
+
+
+def test_a_board_in_both_lists_is_asked_once(tmp_path) -> None:
+    shortlist = tmp_path / "boards.json"
+    shortlist.write_text(
+        json.dumps({"daily": [["greenhouse", "veritiongroupllc"]]}), encoding="utf-8"
+    )
+    assert load_boards(shortlist).count(("greenhouse", "veritiongroupllc")) == 1
