@@ -186,14 +186,30 @@ tập được append.
    backend, full-stack, web, mobile, iOS, Android; platform, infrastructure, production
    infrastructure, developer experience; cloud/cloud operations, DevOps, SRE,
    build/release, MLOps; embedded, firmware, systems, application; FDE/forward deployed;
-   ML/data platform engineer; quantitative developer; **và `technology` đứng một mình.**
+   ML/data platform engineer; quantitative developer.
 
-   Chữ `technology` trần là cố ý. Tài chính đặt tên cả bộ phận là "Technology" chứ không
-   gọi tên chuyên ngành — "2027 Technology Internship", "Technology Summer Analyst" — nên
-   không có từ thứ hai nào để bám vào. Cái giá là thỉnh thoảng lọt một
-   "Marketing Technology Intern": một dòng liếc qua rồi bỏ, đổi lấy cả một nhóm công ty
-   trước đây hoàn toàn vô hình. Đo trên dữ liệu thật, việc nới này cứu về **37 role** —
-   Verition, NVIDIA, American Express, Deutsche Bank, GE Aerospace, KeyBank, Truist.
+   Và **tên nhóm đứng một mình cũng đủ**: `technology`, `cloud`, `infra`/`infrastructure`,
+   `devops`, `software`, `ai` / `artificial intelligence` / `generative ai` / `llm`,
+   `machine learning` / `deep learning`, `ml` / `mlops`, `programming` / `coding`.
+
+   Để tên nhóm đứng một mình là cố ý. Công ty viết "Cloud Intern" hay "AI Summer Analyst"
+   là đang nói đúng thứ tracker này tìm; bắt họ viết thêm chữ "engineer" chỉ lọc mất những
+   ai đặt tiêu đề ngắn. Tài chính còn đặt tên cả bộ phận là "Technology" thay vì gọi tên
+   chuyên ngành, nên ở đó không có từ thứ hai nào để bám vào.
+
+   Nó **chỉ trả nổi vì vế internship vẫn phải đồng ý**. "Cloud Solutions Architect",
+   "Head of AI", "Senior Machine Learning Engineer" đều không có từ chỉ đợt tuyển nên vẫn
+   nằm ngoài. Không có vế đó thì mỗi tên nhóm sẽ kéo vào toàn bộ nhân sự senior của mọi
+   công ty trong danh sách.
+
+   Cái giá đã biết: `Cloud Sales Intern`, `Marketing Technology Intern`, hay một vị trí
+   `Infrastructure` hoá ra là xây dựng dân dụng. Mỗi cái là một dòng liếc qua rồi bỏ. Siết
+   lại thì phải có danh sách loại trừ (sales, marketing, recruiting) — mà nó sẽ bắt đầu
+   từ chối luôn "Sales Engineering Intern".
+
+   Đo trên dữ liệu thật: nới `technology` + `summer analyst` cứu về **37 role**; nới tiếp
+   `cloud` / `infra` / `devops` / `ai` / `ml` cứu thêm **154 role** nữa — tổng số role qua
+   bộ lọc đi từ 421 lên **561**.
 
 Muốn nới hay siết thì sửa ngay file đó, pipeline không cần biết.
 
