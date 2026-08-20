@@ -1,63 +1,66 @@
-# Khi nào hai dòng là một job
+# When two rows are one job
 
-Cùng một posting đến từ năm tracker khác nhau, mỗi nơi viết một kiểu. Quyết định "hai dòng
-này là một" phải trả lời hai câu hỏi rất khác nhau, và **hai câu hỏi đó không được dùng
-chung một luật**:
+The same posting arrives from five different trackers, each writing it its own way. Deciding
+"these two rows are one" has to answer two very different questions, and **those two questions
+must not share one rule**:
 
-| Câu hỏi | Dùng để | Sai thì mất gì |
+| Question | Used for | Cost of getting it wrong |
 |---|---|---|
-| Hai dòng ở `Jobs` có phải một job? | **xoá bớt một dòng** | mất một cơ hội thật, không bao giờ biết |
-| Dòng `Jobs` này có nằm trong `App` không? | **tick một ô** | ghi chú vào cột H là gỡ được |
+| Are two `Jobs` rows one job? | **deleting a row** | a real opening lost, and never known about |
+| Is this `Jobs` row already in `App`? | **ticking a box** | a note in column H undoes it |
 
-Vì thiệt hại lệch nhau như vậy nên có ba lớp, lỏng dần, và lớp lỏng nhất **không bao giờ**
-được dùng để xoá.
+Because the damage is that lopsided there are three layers, loosening as they go, and the
+loosest one is **never** used to delete.
 
 ---
 
-## Lớp 1 — theo link (`normalize_link`)
+## Layer 1 — by link (`normalize_link`)
 
-Chặt nhất và chắc chắn nhất. Hai URL quy về cùng một chuỗi thì là một posting.
+The strictest and the most certain. Two URLs that reduce to the same string are one posting.
 
-Bốn thứ bị bỏ đi:
+Four things are dropped:
 
-**Tham số tracking** — `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`,
-`utm_term`, `ref`, `gh_src`, `src`. Simplify gắn `?utm_source=Simplify&ref=Simplify` vào
-đúng cái link mà speedyapply để trần.
+**Tracking params** — `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`,
+`utm_term`, `ref`, `gh_src`, `src`. Simplify appends `?utm_source=Simplify&ref=Simplify` to the
+very link speedyapply leaves bare.
 
-**Tham số chỉ đổi cách render** — `embed`, `mobile`, `needsredirect`. Chúng đổi cách trang
-tự vẽ, không đổi trang là trang nào.
+**Params that only change how the page renders** — `embed`, `mobile`, `needsredirect`. They
+change how the page draws itself, not which page it is.
 
-**Đoạn `/application` và `/apply` ở cuối path** — một số tracker link vào form nộp, số
-khác link vào chính posting nằm ngay trên nó. Ashby treo form ở `/application`, Lever ở
-`/apply`, đều là một segment dưới cùng một id:
+**A trailing `/application` or `/apply` path segment** — some trackers link the apply form,
+others the posting sitting right above it. Ashby hangs the form off `/application` and Lever
+off `/apply`, both one segment under the same id:
 
 ```
 jobs.ashbyhq.com/replit/7e0dafe8-.../application?embed=true&utm_source=Simplify
 jobs.ashbyhq.com/replit/7e0dafe8-...
 ```
 
-Hai dòng Replit từng cùng tồn tại trong sheet chính là cặp này. Riêng luật này gộp được
-**15 cặp**.
+The two Replit rows that once sat in the sheet together were this pair. This rule on its own
+merged **15 pairs**.
 
-Có bảo vệ: nếu path chỉ có mỗi `/apply` thì không cắt, vì cắt xong sẽ còn host trần và mọi
-thứ trên host đó gộp thành một.
+There is a guard: a path that is nothing but `/apply` is not cut, because cutting it would
+leave a bare host and merge everything on that host into one.
 
-**`gh_jid` khi nó lặp lại đúng id đã có trong path** — Greenhouse ghi id vào cả hai chỗ:
+**`gh_jid` where it repeats the id already in the path** — Greenhouse writes the id in both
+places:
 
 ```
 boards.greenhouse.io/spacex/jobs/8621757002?utm_source=Simplify
 boards.greenhouse.io/spacex/jobs/8621757002?gh_jid=8621757002
 ```
 
-Bỏ có điều kiện chứ không bỏ hẳn: form nhúng `/embed/job_app?gh_jid=...` **không** có id
-trong path, bỏ `gh_jid` ở đó là gộp mọi posting của board đó thành một dòng.
+Dropped conditionally rather than outright: the embedded form `/embed/job_app?gh_jid=...` has
+**no** id in the path, and dropping `gh_jid` there would merge every posting on that board into
+one row.
 
-## Lớp 2 — theo `(company, role)` (`role_key`)
+## Layer 2 — by `(company, role)` (`role_key`)
 
-Cho những posting mà link khác nhau thật — ví dụ jobright mirror lại board của công ty.
+For postings whose links genuinely do differ — jobright mirroring a company's board, say.
 
-`name_key` hạ hoa thường và bỏ dấu câu, nhưng vẫn để `engineer` khác `engineering`.
-`role_key` gộp thêm các đuôi từ mà hai tracker viết khác nhau về cùng một việc:
+`name_key` lowercases and drops punctuation, but still leaves `engineer` different from
+`engineering`. `role_key` also settles the word endings two trackers write differently while
+describing one job:
 
 ```
 engineering, engineers  → engineer
@@ -65,62 +68,64 @@ internship, internships, interns → intern
 development, developers → developer
 ```
 
-**Giữ nguyên thứ tự từ và giữ nguyên đợt tuyển.** Đây là lựa chọn có chủ đích:
+**Word order is kept, and so is the intake.** This is a deliberate choice:
 
 ```
 Notion — Software Engineer Intern (Summer 2027)
 Notion — Software Engineer Intern (Winter 2027)
 ```
 
-Hai đợt tuyển khác nhau. Một luật đủ lỏng để gộp chúng sẽ **xoá mất một cơ hội thật**.
-Điều tương tự với SpaceX (Spring / Summer), Melius (Fall/Winter / Spring/Summer), Heliux.
-Có test ghim: `test_two_intakes_are_not_merged_out_of_the_sheet`.
+Two different intakes. A rule loose enough to merge them **deletes a real opening**. The same
+goes for SpaceX (Spring / Summer), Melius (Fall/Winter / Spring/Summer), Heliux. A test pins
+it: `test_two_intakes_are_not_merged_out_of_the_sheet`.
 
-Khi hai dòng cùng identity, giữ dòng nào được quyết theo thứ tự ưu tiên trong `_preference`:
+Where two rows share an identity, which one to keep is decided by the priority order in
+`_preference`:
 
-1. Dòng đã có tick hoặc ghi chú của bạn — thắng tuyệt đối.
-2. Link của chính công ty, thay vì link redirect của aggregator.
-3. Dòng đến trước.
+1. A row already carrying a tick or a note of yours — wins outright.
+2. The company's own link, rather than an aggregator's redirect.
+3. Whichever came first.
 
-## Lớp 3 — theo tập từ (`role_tokens`) — **chỉ để tick, không bao giờ để xoá**
+## Layer 3 — by word set (`role_tokens`) — **only for ticking, never for deleting**
 
-Bỏ luôn thứ tự từ, bỏ năm (`20\d\d`) và bỏ mùa (`summer`, `fall`, `winter`, `spring`,
-`program`). So hai bên như hai tập hợp.
+Word order goes too, along with the year (`20\d\d`) and the season (`summer`, `fall`, `winter`,
+`spring`, `program`). The two sides are compared as sets.
 
-Cần lớp này vì hai tab mô tả cùng một job từ hai đầu ngược nhau:
+This layer is needed because the two tabs describe one job from opposite ends:
 
 ```
 App  — "2027 Internship - Software Engineer"
 Jobs — "Software Engineer Intern - Software Engineer"
-        → cả hai đều là {engineer, intern, software}
+        → both are {engineer, intern, software}
 ```
 
-Đây chính là ca Virtu Financial: đã nộp rõ ràng mà không tick được, cho tới khi có lớp
-này. Lớp 1 trượt (nộp qua career site công ty, Jobs đang giữ link khác), lớp 2 cũng trượt
-(khác thứ tự từ).
+This is the Virtu Financial case: plainly applied to, and nothing would tick it until this
+layer existed. Layer 1 missed it (applied through the company career site, while Jobs holds a
+different link) and layer 2 missed it too (different word order).
 
-Nó lỏng, nhưng vẫn không bừa: một từ phân biệt là đủ để không khớp.
+It is loose, but still not careless: one distinguishing word is enough to make it not match.
 `Frontend Developer Internship` ≠ `Software Engineer Intern`.
 
-### Đánh đổi đã biết của lớp 3
+### The known trade-off of layer 3
 
-Vì bỏ mùa, một dòng `Jobs` thuộc **đợt tuyển khác** có thể bị tick từ một dòng `App` không
-ghi đợt. Lượt gần nhất có 2 trong 9 dòng khớp theo tên rơi vào diện này:
+Because the season is dropped, a `Jobs` row belonging to a **different intake** can be ticked
+from an `App` row that names no intake. On the last run, 2 of the 9 rows matched by name fell
+into this category:
 
 ```
 Figma    — Software Engineer Intern - Winter 2027
 Deepgram — Software Engineering- Internship - Fall 2026/Summer 2027
 ```
 
-Đây là đánh đổi có chủ đích, không phải bug: chính việc bỏ năm là thứ làm Virtu khớp
-được. Giữ lại mùa sẽ tránh được hai ca trên nhưng lại làm trượt những dòng `App` có ghi
-mùa mà `Jobs` thì không.
+This is a deliberate trade-off, not a bug: dropping the year is precisely what makes Virtu
+match. Keeping the season would avoid the two cases above, but would then miss the `App` rows
+that do name a season where `Jobs` does not.
 
-Cách chọn hiện tại thiên về **tick nhiều hơn**, vì tick thừa có đường lùi (ghi chú vào cột
-G) còn sót thì không có gì báo cho bạn biết. Muốn đổi hướng thì bỏ `ROLE_NOISE` khỏi
-`role_tokens`, một dòng — Virtu vẫn khớp vì nó chỉ cần bỏ năm.
+The current choice leans towards **ticking more**, because an extra tick has a way back (a note
+in column H) while a miss tells you nothing. To lean the other way, drop `ROLE_NOISE` from
+`role_tokens`, one line — Virtu still matches, since all it needs is the year gone.
 
-Mọi dòng được tick nhờ lớp 3 đều được in tên ra log của Actions, đúng để soát lại:
+Every row ticked by layer 3 is named in the Actions log, exactly so it can be checked:
 
 ```
 Ticked by company and role: Virtu Financial — Software Engineer Intern - Software Engineer
@@ -128,11 +133,11 @@ Ticked by company and role: Virtu Financial — Software Engineer Intern - Softw
 
 ---
 
-## Vì sao `Applied` không dùng lớp 3 khi bạn tự tick
+## Why `Applied` does not use layer 3 when you tick it yourself
 
-Khi bạn tự tay tick `Applied`, Apps Script chỉ chống trùng **theo link**, không theo tên.
-Lúc đó bạn vừa nộp thật; một dòng bị bỏ qua vì "trùng tên" là **mất bản ghi**, tệ hơn hẳn
-so với việc có thêm một dòng thừa trong `App`.
+When you tick `Applied` by hand, Apps Script dedupes **by link** only, not by name. You have
+just genuinely applied; a row skipped as a "name duplicate" is **a lost record**, which is far
+worse than one extra row in `App`.
 
-Hệ quả nhỏ: một dòng mà tool đã tick theo tên, nếu bạn untick rồi tick lại bằng tay, sẽ
-tạo dòng mới ở `App`.
+A small consequence: a row the tool ticked by name will create a new `App` row if you untick it
+and tick it again by hand.

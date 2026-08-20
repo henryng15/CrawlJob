@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| [setup.md](setup.md) | Google Cloud, service account, share quyền, `.env`, GitHub Actions secrets, cài Apps Script |
-| [spreadsheet.md](spreadsheet.md) | Hai tab và từng cột: ai được ghi vào đâu, `Applied`, `Expired`, chỗ ghi chú, vì sao không được xoá dòng |
-| [matching.md](matching.md) | Khi nào hai dòng là một job. Ba lớp khớp, vì sao lớp lỏng nhất không bao giờ được xoá dòng |
-| [crawling.md](crawling.md) | Nguồn, bộ lọc role, `Date Posted`, và ba lý do duy nhất khiến một dòng biến mất |
-| [alumni.md](alumni.md) | Hai cột checkbox `Alumni` và `Recruiter` ở tab App: đơn nào còn đường đẩy thêm |
-| [operations.md](operations.md) | Đọc log, `--audit-app`, `--rebuild`, bảng tra lỗi |
+| [setup.md](setup.md) | Google Cloud, the service account, sharing access, `.env`, GitHub Actions secrets, installing the Apps Script |
+| [spreadsheet.md](spreadsheet.md) | The two tabs and every column: who may write where, `Applied`, `Expired`, where a note goes, why a row must not be deleted |
+| [matching.md](matching.md) | When two rows are one job. The three layers of matching, and why the loosest of them may never delete a row |
+| [crawling.md](crawling.md) | The sources, the role filter, `Date Posted`, and the only three reasons a row disappears |
+| [alumni.md](alumni.md) | The `Alumni` and `Recruiter` checkbox columns on the App tab: which application still has a way to push it further |
+| [operations.md](operations.md) | Reading the log, `--audit-app`, `--rebuild`, the error table |
 
-Bắt đầu bằng [../README.md](../README.md) nếu chưa biết tool này làm gì.
+Start with [../README.md](../README.md) if you do not know what this tool does yet.

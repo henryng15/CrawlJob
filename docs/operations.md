@@ -1,6 +1,6 @@
-# Vận hành
+# Operations
 
-## Đọc log của một lượt sync
+## Reading the log of one sync run
 
 ```
 Simplify / Pitt CSC — Summer 2027: 80 matching roles
@@ -15,27 +15,28 @@ Ticked Applied on 3 rows matching a tracked link and 9 matching a tracked compan
 52 rows ticked Applied and 0 ticked Expired; 440 postings still to apply to.
 ```
 
-| Dòng | Đáng chú ý khi |
+| Line | Worth a look when |
 |---|---|
-| `N of M deduped roles` | `M` tụt mạnh → một tracker đổi format, xem `WARNING` |
-| `Appended` | 0 là bình thường; job mới không xuất hiện mỗi hai tiếng |
-| `Dropped … reports as gone` | tăng vọt → có thể một board đang trả 404 hàng loạt |
-| `Merged` | tăng vọt sau khi sửa luật khớp → kiểm tra xem có gộp oan không |
-| `Ticked by company and role: …` | **soát từng dòng** — đây là lớp lỏng nhất |
-| `still to apply to` | con số đáng đọc hàng ngày |
+| `N of M deduped roles` | `M` drops sharply → a tracker changed format, check for `WARNING` |
+| `Appended` | 0 is normal; new jobs do not appear every ninety minutes |
+| `Dropped … reports as gone` | a sudden jump → a board may be returning 404 across the board |
+| `Merged` | a sudden jump after a change to the matching rules → check nothing was merged that should not have been |
+| `Ticked by company and role: …` | **read every one** — this is the loosest layer |
+| `still to apply to` | the number worth reading daily |
 
-Lượt chạy theo lịch vào giờ lẻ chỉ in `Outside scheduled 2-hour ET window; nothing to do.`
-và thoát sau khoảng 20 giây. Đó là bình thường, không phải lỗi.
+Every scheduled run does the work. `Outside the 08:00–18:59 ET working window; nothing to
+do.` should never appear on a scheduled run: the cron fires seven times inside the window,
+and that message means the cron and the window have drifted apart.
 
-## Soát tab App
+## Auditing the App tab
 
 ```bash
 internship-sync --audit-app
 ```
 
-Trên Actions: **Run workflow** → bật input `audit_app`. Nó không sync gì cả.
+On Actions: **Run workflow** → turn on the `audit_app` input. It syncs nothing.
 
-Đọc từng dòng của tab `App` và báo bốn loại vấn đề:
+It reads every row of the `App` tab and reports four kinds of problem:
 
 ```
 App: 82 rows
@@ -46,21 +47,24 @@ App: 82 rows
 18 findings across 82 rows.
 ```
 
-- `MISSING` — thiếu field bắt buộc. `Role` là cái đáng sửa nhất: thiếu nó thì dòng đó
-  không bao giờ khớp được theo tên, xem [matching.md](matching.md).
-- `SAME LINK` / `SAME JOB` — hai dòng cùng một đơn.
-- `NOT A LINK` — ô Application Link không phải URL.
-- `STAGE?` — giá trị `Process` nằm ngoài pipeline.
-- `UNLOGGED` — `Process` và dòng cuối của cột `Update` nói hai chặng khác nhau. Apps Script
-  ghi dòng đó ngay lúc `Process` đổi, nên lệch nghĩa là thay đổi đã vào sheet bằng đường
-  mà simple trigger không thấy: một lượt ghi qua API, hoặc một lần sửa lúc script đang hỏng.
-  Sửa bằng cách điền tay dòng còn thiếu vào ô `Update`.
-- `DEAD LINK` — board báo posting đã gỡ.
+- `MISSING` — a required field is empty. `Role` is the one most worth fixing: without it the
+  row can never be matched by name, see [matching.md](matching.md).
+- `SAME LINK` / `SAME JOB` — two rows are the same application.
+- `NOT A LINK` — the Application Link cell is not a URL.
+- `STAGE?` — the `Process` value is outside the pipeline.
+- `UNLOGGED` — `Process` and the last line of the `Update` column name two different stages.
+  Apps Script writes that line the moment `Process` changes, so a mismatch means the change
+  reached the sheet by a route the simple trigger cannot see: a write through the API, or an
+  edit made while the script was broken. Fix it by typing the missing line into the `Update`
+  cell yourself.
+- `DEAD LINK` — the board reports the posting as taken down.
 
-Audit **chỉ báo, không sửa gì** trong tab App. Nó cũng không làm workflow đỏ khi có
-finding, vì phần lớn finding là việc bạn chủ động chọn không sửa.
+The audit **only reports; it changes nothing** in the App tab. It also does not fail the
+workflow when it finds something, because most findings are things you have decided not to
+fix.
 
-Tách riêng khỏi lượt sync vì phải hỏi từng board, mất khoảng một phút.
+It is separate from the sync run because it has to ask every board, which takes about a
+minute.
 
 ## Rebuild
 
@@ -68,119 +72,134 @@ Tách riêng khỏi lượt sync vì phải hỏi từng board, mất khoảng m
 internship-sync --rebuild
 ```
 
-Trên Actions: **Run workflow** → bật input `rebuild`.
+On Actions: **Run workflow** → turn on the `rebuild` input.
 
-Bỏ hết dòng đang có và viết lại sheet chỉ từ nguồn. Dùng khi các dòng cũ được ghi bởi một
-parser sai và không sửa tại chỗ được.
+Discards every existing row and writes the sheet from the sources alone. Use it when the
+old rows were written by a parser that was wrong and cannot be corrected in place.
 
-> **Rebuild xoá luôn cột F trở đi.** Mọi ô tick `Applied`, `Expired` và ghi chú đều mất. Tab
-> `App` không bị đụng tới, nên lượt sync sau sẽ tick lại được những job đã nộp — nhưng
-> `Expired` và ghi chú thì phải làm lại bằng tay.
+> **Rebuild also wipes column F onward.** Every `Applied` tick, every `Expired` tick and
+> every note is lost. The `App` tab is untouched, so the next sync can tick the jobs you
+> have already applied to back on — but `Expired` and the notes have to be redone by hand.
 
-## Cờ khác
+## Other flags
 
-| Cờ | |
+| Flag | |
 |---|---|
-| `--skip-link-check` | không hỏi board nào cả; chạy nhanh, và không xoá dòng nào vì link chết |
-| `--since 2026-09-01` | đổi mốc chặn ngày đăng |
-| `--sources path.toml` | dùng danh sách tracker khác |
-| `--scheduled` | thoát ngay nếu không phải giờ chạy; workflow tự thêm khi chạy theo lịch |
+| `--skip-link-check` | ask no board at all; runs fast, and drops no row for a dead link |
+| `--since 2026-09-01` | change the posting-date cutoff |
+| `--sources path.toml` | use a different list of trackers |
+| `--no-boards` | read only the Markdown trackers and skip the ATS boards for this run |
+| `--scheduled` | exit immediately outside the 08:00–18:59 ET window; the workflow adds it on scheduled runs |
 
-## Hỏng thì xem gì
+## What to look at when it breaks
 
-| Triệu chứng | Nguyên nhân thường gặp |
+| Symptom | Usual cause |
 |---|---|
-| `Missing required environment variable(s)` | secret chưa tạo, hoặc tên viết sai |
-| `No tab named 'Jobs'` | tab bị đổi tên → đặt `GOOGLE_SHEET_TAB` |
-| `WARNING: no tab named 'App'` | sync vẫn chạy, chỉ là không tick được gì |
-| `Expected [...] in Jobs!A1:D1` | header A–D bị sửa; trả lại đúng bốn tên cột |
-| `403` / `does not have permission` | quên share spreadsheet cho service account, xem [setup.md](setup.md) |
-| Ô Applied hiện ra chữ `TRUE` thay vì dấu tick | cột F đang bị ghi bằng `RAW` |
-| Tool tick 0 dòng suốt | cột H có ghi chú ở mọi dòng, hoặc cột F–G lệch chỗ |
-| `Multiple top-level packages discovered` | thêm thư mục mới ở gốc repo → khai báo trong `[tool.setuptools] packages` |
+| `Missing required environment variable(s)` | a secret was never created, or its name is misspelled |
+| `No tab named 'Jobs'` | the tab was renamed → set `GOOGLE_SHEET_TAB` |
+| `WARNING: no tab named 'App'` | the sync still runs, it just cannot tick anything |
+| `Expected [...] in Jobs!A1:D1` | headers A–D were edited; put the four column names back |
+| `403` / `does not have permission` | the spreadsheet was never shared with the service account, see [setup.md](setup.md) |
+| An Applied cell shows the word `TRUE` instead of a tick | column F is being written with `RAW` |
+| The tool ticks 0 rows every time | column H has a note on every row, or columns F–G are in the wrong place |
+| `Multiple top-level packages discovered` | a new directory at the repo root → declare it in `[tool.setuptools] packages` |
 
-## Kiểm tra trước khi push
+## Checks before pushing
 
 ```bash
-uv run pytest -q          # 96 tests
+uv run pytest -q          # 194 tests
 uv run ruff check .
 uv run ruff format --check job_sync tests
 ```
 
-Phần Apps Script không chạy được trong pytest. Cách kiểm là stub `SpreadsheetApp` rồi chạy
-`onEdit` và `backfillTicksFromApp` trên sheet giả bằng `node` — xem
-[`apps_script/README.md`](../apps_script/README.md).
+The Apps Script half cannot run under pytest. The way to check it is to stub
+`SpreadsheetApp` and then run `onEdit` and `backfillTicksFromApp` against a fake sheet with
+`node` — see [`apps_script/README.md`](../apps_script/README.md).
 
-## Workflow thứ hai: dựng lại shortlist ATS board
+## The second workflow: rebuilding the ATS board shortlist
 
-[`.github/workflows/boards.yml`](../.github/workflows/boards.yml) chạy **06:00 UTC chủ
-nhật**, hoặc bấm tay bằng **Run workflow**. Nó hỏi cả ~15.900 board một lượt, giữ lại
-những board đang đăng internship, rồi commit `job_sync/data/ats_boards.json` ngược vào
-repo — chỉ commit khi file thật sự đổi.
+[`.github/workflows/boards.yml`](../.github/workflows/boards.yml) runs at **06:00 UTC on
+Sunday**, or on demand through **Run workflow**. It asks all ~15,900 boards in one pass,
+keeps the ones currently advertising an internship, and commits
+`job_sync/data/ats_boards.json` back into the repo — committing only when the file has
+actually changed.
 
-Tách khỏi workflow sync vì đây là loại việc khác hẳn: ~20.000 request và khoảng nửa tiếng,
-so với 902 request và **36 giây** đo được ở lượt hàng ngày. Nhét nó vào sync là bắt cả 5 lượt mỗi ngày trả
-cái giá đó để biết một thứ mỗi tuần mới đổi.
+It is separate from the sync workflow because it is a different kind of job: ~20,000
+requests and about half an hour, against 903 requests and a measured **36 seconds** on the
+daily run. Folding it into the sync would make all seven runs a day pay that price to learn
+something that only changes weekly.
 
-Giờ chạy 06:00 UTC là 01:00–02:00 ET, cách xa cửa sổ 08:00–16:00 ET của sync, nên hai bên
-không bao giờ tranh nhau cùng một API.
+06:00 UTC is 01:00–02:00 ET, well clear of the sync's 08:00–18:59 ET window, so the two
+never compete for the same API.
 
-`timeout-minutes: 90` không phải con số cho vui: một slug vừa không resolve vừa không bị từ
-chối sẽ giữ một worker đến hết timeout, mà loại đó có hàng nghìn. 90 phút là dư so với ~35
-phút thật, và ngắn hơn hẳn mức mặc định 6 tiếng vốn đủ đốt cả ngày quota.
+`timeout-minutes: 90` is not a decorative number: a slug that neither resolves nor gets
+refused will hold a worker until the timeout expires, and there are thousands of that kind.
+90 minutes is comfortably above the real ~35, and far below the 6-hour default, which is
+long enough to burn a day of quota.
 
-### Đọc log của nó
+### Reading its log
 
-Lần quét đầu, 19/08/2026:
+The first sweep, 19 August 2026:
 
 ```
   probed                       19899
-  answered with a job           9062   board còn sống
-  advertising any internship     902   <- ghi vào daily
+  answered with a job           9062   board still alive
+  advertising any internship     902   <- written to daily
   with a matching SWE intern     177
   matching roles right now       312
 ```
 
-Con số hàng thứ ba là thứ đáng theo dõi. Nó tụt mạnh nghĩa là danh sách slug thượng nguồn
-có vấn đề, chứ không phải thị trường tuyển dụng đột nhiên đóng cửa.
+The third number is the one to watch. A sharp drop means something is wrong with the
+upstream slug lists, not that the hiring market suddenly closed.
 
-### Khi nào phải chạy tay
+### When to run it by hand
 
-- Vừa clone repo về mà `job_sync/data/ats_boards.json` chưa có.
-- Vừa sửa `roles.py` — tiêu chí lọc đổi thì shortlist phải dựng lại.
-- Đầu mùa tuyển (tháng 8–9), khi hàng loạt công ty mở chương trình intern cùng lúc và bạn
-  không muốn đợi tới chủ nhật.
+- You have just cloned the repo and `job_sync/data/ats_boards.json` is not there yet.
+- You have just changed `roles.py` — when the filter changes, the shortlist has to be
+  rebuilt.
+- The start of recruiting season (August–September), when a wave of companies opens intern
+  programmes at once and you do not want to wait for Sunday.
 
 ```bash
 uv run python scripts/discover_boards.py
 ```
 
-## Ngân sách GitHub Actions
+## GitHub Actions budget
 
-Free tier của private repo là **2.000 phút/tháng**. Actions tính tiền theo **phút, làm tròn
-lên**, cho từng job — nên một run 131 giây và một run 238 giây đều tốn nguyên phút như nhau
-ở phần dư.
+The free tier for a private repo is **2,000 minutes/month**. Actions bills per **minute,
+rounded up**, for each job — so a 131-second run and a 238-second run cost the same whole
+minute at the end.
 
-Đo từ 14 scheduled run thật:
+Measured from real scheduled runs:
 
-| | mỗi ngày | phút/run | phút/tháng |
+| | per day | min/run | min/month |
 |---|---|---|---|
-| sync, trong khung giờ ET | 5 | 3,4 | 510 |
-| sync, ngoài khung giờ (thoát sau ~20s) | 5 | 1 | 150 |
-| `boards.yml` dựng lại shortlist | tuần | ~40 | 172 |
-| | | **tổng** | **~830** |
+| sync, every run does the work | 7 | 4.1, billed 5 | 1,050 |
+| `boards.yml` rebuilding the shortlist | weekly | ~40 | 172 |
+| manual **Run workflow** dispatches | varies | 5 | ~100 |
+| | | **total** | **~1,320** |
 
-Còn dư khoảng **1.170 phút**. Crawl board 2 lần/ngày gần như không thêm gì: nó dài 36 giây
-và bị nuốt vào phần làm tròn của một run đã 3,4 phút — xấu nhất là +1 phút/ngày, tức +30
-phút/tháng.
+That leaves roughly **680 minutes** spare.
 
-Kể cả hỏi board ở **cả 5 lượt** cũng vẫn trong ngân sách (~900 phút/tháng). Thứ chặn không
-phải quota mà là lịch sự với ba API kia: 902 request × 5 lượt = 4.510 request/ngày.
+Seven runs cost only about 240 minutes a month more than the five that came before them,
+which is not the obvious result. The old schedule fired a cron ten times a day and threw
+five of those away with an ET filter, at a billed minute each — 150 minutes a month spent
+on nothing. Naming the seven run times in the cron itself means every firing does work.
 
-Cron chạy 10 lần (`0 12-21 * * *`) nhưng chỉ 5 lần làm việc — 5 lần kia thoát ngay bằng bộ
-lọc khung giờ ET và tốn 1 phút mỗi lần. Đó là 150 phút/tháng trả cho việc GitHub chỉ nhận
-cron theo UTC còn khung giờ thì theo ET, vốn xê dịch theo DST.
+Two settings in `sync.yml` exist to keep that budget from being wrong by a lot:
 
-> API `/actions/runs/{id}/timing` báo `billable.UBUNTU.total_ms = 0` kể cả cho run 237
-> giây, nên **đừng tin nó**. Các con số trên suy từ `run_duration_ms` cộng quy tắc làm tròn.
-> Số chính thức xem ở **Settings → Billing and plans → Usage this month**.
+- `timeout-minutes: 15`. A run takes four minutes. The default ceiling is six hours, so a
+  single hung run would eat 18% of the month before Actions gave up on it.
+- `concurrency: sheet-write` with `cancel-in-progress: false`. Two runs must never write the
+  sheet at once, and a manual run fired during a scheduled one would do exactly that.
+  Queueing rather than cancelling, because a cancelled run could stop halfway through a
+  rewrite. Queued time is not billed.
+
+What actually limits the run count is not the quota but politeness to the three APIs: 903
+requests × 7 runs = 6,321 requests a day, which is 0.038 requests a second against
+Greenhouse, the busiest of the three.
+
+> The `/actions/runs/{id}/timing` API reports `billable.UBUNTU.total_ms = 0` even for a
+> 237-second run, so **do not trust it**. The numbers above are derived from
+> `run_duration_ms` plus the rounding rule. The official figure is under **Settings →
+> Billing and plans → Usage this month**.

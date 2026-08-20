@@ -1,5 +1,9 @@
+import re
+from pathlib import Path
+
 from job_sync.config import Settings
 from job_sync.sheet import (
+    APP_UPDATE,
     APPLIED,
     EXPIRED,
     HEADERS,
@@ -654,6 +658,10 @@ def test_the_history_reads_from_the_bottom_line() -> None:
 def test_a_hand_written_note_between_stages_is_stepped_over() -> None:
     # The cell is free text. A line that names no stage says nothing about where
     # the application stands, so the reading has to look past it rather than stop.
+    #
+    # The note is in Vietnamese on purpose, and stays that way even though the rest
+    # of this repo is English: it is what the operator actually types into the cell.
+    # A note the reader cannot parse is exactly the case worth pinning.
     assert _last_stage("Applied: Jul 21, 2026\nnhắc HR ngày 3/8\nOffer: ?") == "offer"
 
 
@@ -664,6 +672,8 @@ def test_a_stage_with_no_date_yet_still_counts_as_reached() -> None:
 
 
 def test_an_empty_update_column_names_no_stage() -> None:
+    # Second case: a cell holding only an operator's note, in the language they
+    # write notes in. It names no stage, so it names no stage.
     assert _last_stage("") == ""
     assert _last_stage("chưa nghe gì") == ""
 
@@ -749,3 +759,25 @@ def test_a_checkbox_that_reached_the_source_column_does_not_look_like_a_source()
     rows = [_row("Acme", "2026-08-01", source="FALSE")]
     assert _fill_source(rows, {_key(rows[0]): "Simplify"}) == 1
     assert rows[0][SOURCE] == "Simplify"
+
+
+def test_the_update_column_sits_one_past_the_recruiter_checkbox() -> None:
+    """These three constants describe the same three columns from two files, and
+    they drifted once already. Alumni and recruiter used to be background colours
+    on the row rather than columns of their own; turning them into checkboxes moved
+    Update from J to K, and APP_UPDATE stayed at J. audit_app then read the
+    Recruiter checkbox as the stage history and reported every staged row UNLOGGED.
+
+    Whatever gets inserted next, this is the relationship that has to hold."""
+    from job_sync.highlight import APP_ALUMNI, APP_RECRUITER
+
+    assert APP_RECRUITER == APP_ALUMNI + 1
+    assert APP_UPDATE == APP_RECRUITER + 1
+    # Apps Script counts columns from one, so its constants read one higher.
+    script = Path("apps_script/sync_applied_to_app.gs").read_text(encoding="utf-8")
+    for name, index in (
+        ("ALUMNI_COL", APP_ALUMNI),
+        ("RECRUITER_COL", APP_RECRUITER),
+        ("UPDATE_COL", APP_UPDATE),
+    ):
+        assert re.search(rf"\b{name} = {index + 1}\b", script), name

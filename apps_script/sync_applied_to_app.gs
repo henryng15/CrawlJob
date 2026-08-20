@@ -1,82 +1,88 @@
 /**
- * Jobs → App: tick ô "Applied" ở tab Jobs, dòng đó tự sang tab App.
+ * Jobs → App: tick the "Applied" box on the Jobs tab and that row moves to App.
  *
- * Cách chạy:
- *   1. Mở Google Sheet, Extensions → Apps Script
- *   2. Thêm file mới, dán toàn bộ file này vào
- *   3. Chọn hàm setupJobsCheckboxes ở thanh trên, bấm Run
- *   4. Lần đầu Google sẽ hỏi quyền → Review permissions → chọn account
+ * How to run it:
+ *   1. Open the Google Sheet, Extensions → Apps Script
+ *   2. Add a new file and paste this whole file in
+ *   3. Pick setupJobsCheckboxes from the toolbar and press Run
+ *   4. The first time, Google asks for permission → Review permissions → pick the account
  *      → Advanced → Go to (project name) → Allow
  *
- * Không cần cài trigger: onEdit là simple trigger, Google tự gọi.
+ * No trigger to install: onEdit is a simple trigger, and Google calls it itself.
  *
- * Sync một chiều Jobs → App. App là source of truth — script này không bao giờ
- * sửa hay xoá một dòng đã sang App, kể cả khi bạn untick lại ở Jobs, và kể cả khi
- * sau đó bạn tick Expired. Expired chỉ chặn dòng đi sang, không gọi dòng nào về.
+ * The sync runs one way, Jobs → App. App is the source of truth — this script never
+ * edits or deletes a row that has reached App, not when you untick it back on Jobs
+ * and not when you tick Expired afterwards. Expired only stops a row going across;
+ * it never calls one back.
  */
 
 var JOBS_TAB    = 'Jobs';
 var APP_TAB     = 'App';
-// Cột E là Source — nguồn của dòng đó (Simplify, Jobright, Greenhouse…), do phía
-// Python ghi. Nó nằm TRƯỚC hai checkbox chứ không phải sau, và đó là bắt buộc: mọi
-// cột sau Expired đều được đọc là ghi chú của bạn, mà ghi chú là thứ duy nhất chặn
-// được auto-tick. Một cột Source đặt sau F sẽ trông như ghi chú ở mọi dòng.
-var SOURCE_COL  = 5;    // Jobs cột E
-var APPLIED_COL = 6;    // Jobs cột F
-var EXPIRED_COL = 7;    // Jobs cột G — tick vào đây thì dòng không sang App
-var FIRST_ROW   = 2;    // dòng 1 là header
-var LAST_ROW    = 500;  // chừa sẵn chỗ, khớp với setup_process_dropdown.gs
+// Column E is Source — where the row came from (Simplify, Jobright, Greenhouse…),
+// written by the Python half. It sits BEFORE the two checkboxes rather than after,
+// and that is not optional: every column past Expired is read as a note of yours,
+// and a note is the only thing that stops the auto-tick. A Source column placed
+// after F would look like a note on every row.
+var SOURCE_COL  = 5;    // Jobs column E
+var APPLIED_COL = 6;    // Jobs column F
+var EXPIRED_COL = 7;    // Jobs column G — tick this and the row does not go to App
+var FIRST_ROW   = 2;    // row 1 is the header
+var LAST_ROW    = 500;  // room to grow, matching setup_process_dropdown.gs
 
 // Jobs: Company | Role | Link Apply | Date Posted
 var JOB_COMPANY = 0, JOB_ROLE = 1, JOB_LINK = 2;
 
 // App: Property | Company | Application Link | Date Applied | Location | Process | Role | Note
-// Số cột 1-based cho getRange; trừ 1 khi tra vào mảng của getValues.
+// 1-based column numbers for getRange; subtract 1 to index a getValues array.
 var APP_WIDTH = 8, APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE = 4, APP_ROLE = 7;
-var PROCESS_COL = 6;   // App cột F — dropdown Process
+var PROCESS_COL = 6;   // App column F — the Process dropdown
 
-// Ba cột cuối của tab App. I và J là checkbox do phía Python ghi (highlight.py):
-// công ty này có alumni chưa, có recruiter chưa. Trước đây hai câu đó là màu nền —
-// vàng cả dòng và đỏ ở cột I — nhưng checkbox thì lọc và sort được, màu thì không.
+// The last three columns of the App tab. I and J are checkboxes written by the
+// Python half (highlight.py): does this company have an alumnus, does it have a
+// recruiter. Both used to be background colours — yellow across the row, red in
+// column I — but a checkbox can be filtered and sorted, and a colour cannot.
 var ALUMNI_COL = 9, RECRUITER_COL = 10, UPDATE_COL = 11;
 
-// Hai cột checkbox chỉ cần đủ chỗ cho ô tick và chữ header — không có gì khác vào
-// đó bao giờ. Cột Update thì ngược lại: phải chứa được vài dòng kiểu
-// "Interview: Aug 12, 2026" xếp chồng mà không phải kéo tay.
+// The two checkbox columns only need room for the tick and the header word —
+// nothing else ever goes in them. Update is the opposite: it has to hold several
+// stacked lines like "Interview: Aug 12, 2026" without being dragged wider.
 var ALUMNI_WIDTH_PX = 70, RECRUITER_WIDTH_PX = 90, UPDATE_WIDTH_PX = 300;
 
-// Đúng pipeline mà setup_process_dropdown.gs dựng, và cùng danh sách với
-// PROCESS_STAGES trong job_sync/sheet.py. Phần tử đầu là chặng mọi dòng bắt đầu.
+// The pipeline setup_process_dropdown.gs builds, and the same list as
+// PROCESS_STAGES in job_sync/sheet.py. The first entry is where every row starts.
 var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
 
-// Ngắn hơn DATE_FORMAT vì mấy dòng này xếp chồng trong một ô, nhưng vẫn đọc theo
-// cùng một kiểu với phần còn lại của sheet.
+// Shorter than DATE_FORMAT because these lines stack inside one cell, but still
+// read the same way as the rest of the sheet.
 var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 
-// Chặng có thật nhưng ngày thì chưa từng được ghi lại ở đâu. Ghi dấu ra để còn tìm
-// mà điền tay, thay vì bịa một ngày trông như thật.
+// A stage that really happened on a date nothing ever recorded. Mark it so it can
+// be found and filled in by hand, rather than inventing a date that looks real.
 var UNKNOWN_DATE = '?';
 
-// Lượt khớp thứ hai của backfillTicksFromApp. Link của cùng một job có thể khác nhau
-// giữa hai tab — Python thay link aggregator bằng link của chính employer khi tìm được
-// — nên chỉ khớp link thì sót. Đổi thành false nếu thấy nó tick nhầm quá nhiều.
+// backfillTicksFromApp's second pass. The same job can carry different links on the
+// two tabs — Python swaps an aggregator link for the employer's own when it finds
+// one — so matching on links alone misses some. Set it to false if it ticks too
+// many rows wrongly.
 var MATCH_BY_NAME = true;
 
-// Khớp cách các dòng đang có hiển thị ngày, thay vì để dòng mới rơi về format mặc định.
+// Match how the existing rows show a date, rather than letting new rows fall back
+// to the default format.
 var DATE_FORMAT = 'mmmm d, yyyy';
 
-// Cùng danh sách với TRACKING_PARAMS trong job_sync/sources.py: chỉ những param
-// nói ai gửi cú click, không bao giờ là param định danh chính bài tuyển.
+// The same list as TRACKING_PARAMS in job_sync/sources.py: only the parameters that
+// say who sent the click, never one that identifies the posting itself.
 var TRACKING_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
                        'utm_term', 'ref', 'gh_src', 'src'];
 
 
 /**
- * "Cùng một bài tuyển" theo nghĩa của tool: Simplify gắn ?utm_source=Simplify&ref=Simplify
- * vào link mà speedyapply để trần, hai link đó là một.
+ * "The same posting" as this tool means it: Simplify hangs ?utm_source=Simplify&ref=Simplify
+ * on the link speedyapply leaves bare, and those two links are one link.
  *
- * Không cần khớp từng byte với normalize_link() bên Python. Hàm này chỉ so link ở
- * Jobs với link đã nằm ở App, và cả hai vế đều đi qua đúng hàm này.
+ * It does not have to agree byte for byte with normalize_link() on the Python side.
+ * This only compares a link on Jobs against a link already in App, and both sides go
+ * through this very function.
  */
 function normalizeLink(value) {
   var url = String(value == null ? '' : value).trim();
@@ -92,9 +98,10 @@ function normalizeLink(value) {
 
 
 /**
- * Một job theo cách Python nhận diện nó: cặp (company, role) đã bỏ hoa thường và
- * dấu câu. Xem name_key() và _identity() trong job_sync/. Hai tracker viết cùng một
- * bài là "Intern - Summer 2027" và "Intern (Summer 2027)", vẫn phải ra một key.
+ * A job the way Python identifies one: the (company, role) pair with case and
+ * punctuation stripped. See name_key() and _identity() in job_sync/. Two trackers
+ * write the same posting as "Intern - Summer 2027" and "Intern (Summer 2027)", and
+ * both still have to produce one key.
  */
 function nameKey(value) {
   return String(value == null ? '' : value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -102,45 +109,46 @@ function nameKey(value) {
 
 function identity(company, role) {
   var left = nameKey(company), right = nameKey(role);
-  // Ngăn cách bằng NUL chứ không phải dấu cách: nameKey trả về chuỗi có dấu cách,
-  // nên ("ibm a", "b") và ("ibm", "a b") sẽ ra cùng một key nếu nối bằng dấu cách.
+  // Separated by NUL rather than a space: nameKey returns strings containing
+  // spaces, so ("ibm a", "b") and ("ibm", "a b") would collide on one key.
   return left && right ? left + '\u0000' + right : '';
 }
 
 
 /**
- * Chạy tay một lần: dựng header và checkbox cho cột E và F của tab Jobs.
+ * Run once by hand: build the headers and checkboxes for the Jobs tab.
  *
- * Ghi chú tự do bắt đầu từ cột H, không phải G. Một cột checkbox đọc ra FALSE ở
- * mọi dòng nó phủ, nên nếu G được coi là chỗ ghi chú thì phía Python sẽ thấy cả
- * sheet đã có ghi chú và ngừng tick tự động.
+ * Free-text notes start at column H, not G. A checkbox column reads as FALSE on
+ * every row it covers, so if G counted as note space the Python half would see a
+ * note on every row in the sheet and stop ticking anything automatically.
  */
 function setupJobsCheckboxes() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var jobs = ss.getSheetByName(JOBS_TAB);
-  if (!jobs) throw new Error('Không tìm thấy tab "' + JOBS_TAB + '".');
-  if (!ss.getSheetByName(APP_TAB)) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
+  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+  if (!ss.getSheetByName(APP_TAB)) throw new Error('No tab named "' + APP_TAB + '".');
 
   jobs.getRange(1, APPLIED_COL).setValue('Applied');
   jobs.getRange(1, EXPIRED_COL).setValue('Expired');
   jobs.getRange(FIRST_ROW, APPLIED_COL, LAST_ROW - FIRST_ROW + 1, 2)
       .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
-  ss.toast('Cột F và G (dòng 2–' + LAST_ROW + ') đã thành checkbox.', 'Xong', 5);
+  ss.toast('Columns F and G (rows 2–' + LAST_ROW + ') are now checkboxes.', 'Done', 5);
 }
 
 
 /**
- * Chạy tay một lần: dựng ba cột cuối của tab App — Alumni (I), Recruiter (J),
- * Update (K) — và điền lịch sử cho các dòng đã có.
+ * Run once by hand: build the last three columns of the App tab — Alumni (I),
+ * Recruiter (J), Update (K) — and fill in the history for the rows already there.
  *
- * Chạy lại bao nhiêu lần cũng được: ô Update đã có chữ thì không bị đụng vào, và
- * bước dời cột chỉ chạy khi đúng là còn phải dời.
+ * Safe to run as many times as you like: an Update cell that already has text is
+ * left alone, and the column-move step runs only when there is really a move left
+ * to make.
  */
 function setupAppColumns() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var app = ss.getSheetByName(APP_TAB);
-  if (!app) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
+  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
 
   var moved = migrateUpdateColumn(app);
   app.getRange(1, ALUMNI_COL).setValue('Alumni');
@@ -152,19 +160,21 @@ function setupAppColumns() {
 
   var bottom = app.getLastRow();
   if (bottom < FIRST_ROW) {
-    ss.toast('Tab ' + APP_TAB + ' chưa có dòng nào.', 'App', 5);
+    ss.toast('Tab ' + APP_TAB + ' has no rows yet.', 'App', 5);
     return;
   }
   var count = bottom - FIRST_ROW + 1;
 
-  // Chỉ phủ tới dòng cuối có thật, KHÔNG phủ tới LAST_ROW như bên Jobs. Validation
-  // checkbox ghi vật lý FALSE vào mọi ô nó phủ, nên phủ tới dòng 500 thì
-  // app.getLastRow() thành 500 và onEdit sẽ append dòng mới ở dòng 501.
+  // Cover only as far as the real last row, NOT out to LAST_ROW the way Jobs does.
+  // A checkbox validation physically writes FALSE into every cell it covers, so
+  // covering to row 500 would make app.getLastRow() return 500 and onEdit would
+  // append each new row at row 501.
   //
-  // Đổi lại, phạm vi này đứng yên còn tab thì dài ra theo từng đơn — nên dòng mới
-  // nhận validation bằng hai đường khác: onEdit copy từ dòng entry cuối, và mỗi
-  // lượt sync phía Python tự đặt lại rule đúng bằng phạm vi nó ghi. Thiếu cả hai
-  // thì ô mang boolean mà không có checkbox nào vẽ nó, và Sheets in ra chữ FALSE.
+  // The cost is that this range stands still while the tab grows with every
+  // application — so a new row picks up its validation two other ways: onEdit copies
+  // it from the last entry row, and every Python sync resets the rule across exactly
+  // the range it writes. With neither, the cell holds a boolean that no checkbox is
+  // drawing, and Sheets prints the bare word FALSE.
   app.getRange(FIRST_ROW, ALUMNI_COL, count, 2)
      .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
@@ -177,7 +187,7 @@ function setupAppColumns() {
 
   for (var i = 0; i < count; i++) {
     if (String(notes[i][0] == null ? '' : notes[i][0]).trim()) continue;
-    // Không có Process thì không phải một entry — App có sẵn vài dòng chỉ có mỗi link.
+    // No Process means it is not an entry — App has a few rows carrying only a link.
     var stage = stageLabel(stages[i][0]);
     if (!stage) continue;
     var text = STAGES[0] + ': ' + stamp(dates[i][0]);
@@ -196,12 +206,13 @@ function setupAppColumns() {
 
 
 /**
- * Cột Update từng nằm ở J, một ngày trước khi Alumni và Recruiter chen vào I và J.
- * Dời sang K, đúng một lần.
+ * Update used to live at J, up until the day Alumni and Recruiter took I and J.
+ * This moves it to K, exactly once.
  *
- * Hai điều kiện đứng canh, và cả hai đều cần: J1 phải đúng là 'Update' (không thì
- * đây là sheet chưa từng dựng cột đó, chẳng có gì để dời), và K1 phải trống (không
- * thì đã dời rồi, dời tiếp là ghi đè lên chính lịch sử vừa dời sang).
+ * Two conditions stand guard and both are needed: J1 must actually read 'Update' (if
+ * not, this is a sheet that never built the column and there is nothing to move),
+ * and K1 must be empty (if not, the move already happened, and moving again would
+ * overwrite the very history it moved across).
  */
 function migrateUpdateColumn(app) {
   if (String(app.getRange(1, RECRUITER_COL).getValue()).trim() !== 'Update') return 0;
@@ -225,39 +236,40 @@ function migrateUpdateColumn(app) {
 
 function updateReport(filled, unknown, moved) {
   var parts = [];
-  if (moved) parts.push('Dời ' + moved + ' dòng lịch sử từ cột J sang K');
+  if (moved) parts.push('Moved ' + rowCount(moved) + ' of history from column J to K');
   if (filled) {
-    var text = 'Điền ' + filled + ' dòng ở cột Update';
+    var text = 'Filled in ' + rowCount(filled) + ' in the Update column';
     if (unknown) {
-      text += ' (' + unknown + ' dòng đang ở chặng sau Applied nên ngày ghi "'
-           + UNKNOWN_DATE + '", tìm dấu đó để điền tay)';
+      text += ' (' + unknown + ' at a stage past Applied, so the date reads "'
+           + UNKNOWN_DATE + '" — search for that mark and fill it in by hand)';
     }
     parts.push(text);
   }
-  if (!parts.length) return 'Ba cột đã đúng, không có gì phải sửa.';
+  if (!parts.length) return 'All three columns are already right; nothing to fix.';
   return parts.join('. ') + '.';
 }
 
 
 /**
- * Chạy tay: tick sẵn ở Jobs những job đã nằm ở App, để danh sách chưa tick đúng
- * bằng danh sách còn phải nộp.
+ * Run by hand: tick the jobs on Jobs that are already sitting in App, so that the
+ * unticked list is exactly the list still to apply to.
  *
- * Chỉ ghi vào cột E của Jobs. Không dòng nào được thêm vào App: Apps Script không
- * kích hoạt onEdit cho thay đổi do chính script tạo ra, và mấy job này vốn đã ở App.
+ * It writes only to the Applied column on Jobs. No row is added to App: Apps Script
+ * does not fire onEdit for a change the script itself made, and these jobs are in
+ * App already.
  *
- * Chỉ tick, không bao giờ untick — một ô bạn tự tick vì lý do riêng không bị xoá.
+ * It only ticks, never unticks — a box you ticked for a reason of your own survives.
  */
 function backfillTicksFromApp() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var jobs = ss.getSheetByName(JOBS_TAB);
   var app = ss.getSheetByName(APP_TAB);
-  if (!jobs) throw new Error('Không tìm thấy tab "' + JOBS_TAB + '".');
-  if (!app) throw new Error('Không tìm thấy tab "' + APP_TAB + '".');
+  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
 
   var bottom = jobs.getLastRow();
   if (bottom < FIRST_ROW) {
-    ss.toast('Tab ' + JOBS_TAB + ' chưa có dòng nào.', 'App → Jobs', 5);
+    ss.toast('Tab ' + JOBS_TAB + ' has no rows yet.', 'App → Jobs', 5);
     return;
   }
 
@@ -280,7 +292,7 @@ function backfillTicksFromApp() {
     var name = identity(rows[i][JOB_COMPANY], rows[i][JOB_ROLE]);
     if (name && names[name]) {
       ticks[i][0] = true;
-      // Khớp tên là lượt dễ sai hơn, nên ghi ra log để soát lại được.
+      // Matching by name is the more error-prone pass, so log it to be checked.
       byName.push('Jobs!' + (FIRST_ROW + i) + ': ' + rows[i][JOB_COMPANY] + ' — ' + rows[i][JOB_ROLE]);
     }
   }
@@ -294,18 +306,18 @@ function backfillTicksFromApp() {
 
 
 function backfillReport(byLink, byName) {
-  if (!byLink && !byName) return 'Không có dòng nào cần tick thêm.';
-  var text = 'Đã tick ' + (byLink + byName) + ' dòng: ' + byLink + ' khớp link';
-  if (MATCH_BY_NAME) text += ', ' + byName + ' khớp company + role (xem Execution log)';
+  if (!byLink && !byName) return 'No further rows to tick.';
+  var text = 'Ticked ' + rowCount(byLink + byName) + ': ' + byLink + ' matched by link';
+  if (MATCH_BY_NAME) text += ', ' + byName + ' by company + role (see the Execution log)';
   return text + '.';
 }
 
 
 /**
- * Trigger này chạy mỗi lần bất cứ ô nào trong file bị sửa, nên việc đầu tiên là hỏi
- * ô đó thuộc tab nào rồi giao cho đúng nửa. Hai tab nghe hai cột khác nhau và làm
- * hai việc khác nhau: Jobs cột E tick Applied thì đẻ ra một dòng ở App; App cột F
- * đổi Process thì ghi thêm một dòng ngày vào cột Update.
+ * This trigger runs every time any cell in the file is edited, so the first thing it
+ * does is ask which tab the cell is on and hand it to the right half. The two tabs
+ * listen to different columns and do different things: ticking Applied on Jobs
+ * creates a row in App; changing Process on App appends a dated line to Update.
  */
 function onEdit(e) {
   var name = e.range.getSheet().getName();
@@ -321,24 +333,25 @@ function onJobsEdit(e) {
 
   var firstRow = Math.max(range.getRow(), FIRST_ROW);
   var lastRow = range.getLastRow();
-  if (lastRow < firstRow) return;  // chỉ sửa header
+  if (lastRow < firstRow) return;  // only the header was edited
 
-  // Fill-down và paste sửa nhiều dòng một lúc, nên đọc cả khối chứ không chỉ ô đầu.
+  // Fill-down and paste edit many rows at once, so read the whole block rather than
+  // just the first cell.
   var count = lastRow - firstRow + 1;
   var flags = jobs.getRange(firstRow, APPLIED_COL, count, 2).getValues();
   var picked = [];
   var expired = 0;
   for (var i = 0; i < count; i++) {
-    if (flags[i][0] !== true) continue;  // untick không làm gì cả
-    // Expired thắng Applied: bạn đã nói posting này không còn để mà nộp, nên dù
-    // ô Applied có tick thì cũng không có gì đáng ghi sang App.
+    if (flags[i][0] !== true) continue;  // unticking does nothing
+    // Expired beats Applied: you have said this posting is no longer there to apply
+    // to, so a ticked Applied box has nothing worth carrying across to App.
     if (flags[i][1] === true) { expired++; continue; }
     picked.push(i);
   }
   if (!picked.length) {
     if (expired) {
       var ss0 = e.source;
-      ss0.toast('Bỏ qua ' + expired + ' dòng đã tick Expired.', 'Jobs → App', 6);
+      ss0.toast('Skipped ' + rowCount(expired) + ' ticked Expired.', 'Jobs → App', 6);
     }
     return;
   }
@@ -346,7 +359,7 @@ function onJobsEdit(e) {
   var ss = e.source;
   var app = ss.getSheetByName(APP_TAB);
   if (!app) {
-    ss.toast('Không tìm thấy tab "' + APP_TAB + '".', 'Jobs → App', 8);
+    ss.toast('No tab named "' + APP_TAB + '".', 'Jobs → App', 8);
     return;
   }
 
@@ -361,10 +374,11 @@ function onJobsEdit(e) {
     var row = jobRows[picked[j]];
     var link = String(row[JOB_LINK] || '').trim();
     var key = link && normalizeLink(link);
-    // Dòng thiếu link không có gì để chống trùng, nên để bạn tự điền hơn là đoán.
+    // A row with no link has nothing to dedupe on, so leave it for you to fill in
+    // rather than guessing.
     if (!key || seen[key]) { skipped++; continue; }
     seen[key] = true;
-    // Location để trống: Jobs không mang dữ liệu đó.
+    // Location is left empty: Jobs does not carry it.
     fresh.push([property++, row[JOB_COMPANY], link, new Date(), '', 'Applied', row[JOB_ROLE], '']);
   }
 
@@ -373,20 +387,23 @@ function onJobsEdit(e) {
     var written = app.getRange(start, 1, fresh.length, APP_WIDTH);
     written.setValues(fresh);
     app.getRange(start, APP_DATE, fresh.length, 1).setNumberFormat(DATE_FORMAT);
-    // Dòng đầu tiên của lịch sử, gieo ngay tại đây. Script tự ghi 'Applied' vào cột
-    // Process, mà Apps Script không gọi lại onEdit cho thay đổi do chính script tạo
-    // ra — không gieo thì chặng đầu của mọi dòng mới biến mất không dấu vết.
+    // The first line of the history, seeded right here. The script writes 'Applied'
+    // into the Process column itself, and Apps Script does not call onEdit back for a
+    // change the script made — without seeding it, the opening stage of every new row
+    // would vanish without trace.
     var today = stamp(new Date());
     var seeded = [];
     for (var k = 0; k < fresh.length; k++) seeded.push([STAGES[0] + ': ' + today]);
     app.getRange(start, UPDATE_COL, fresh.length, 1)
        .setValues(seeded)
        .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
-    // Validation được copy chứ không dựng lại: dropdown Process ở các dòng trên là
-    // chip màu tạo từ UI, mà Apps Script không có API đặt màu chip. Copy thì dòng
-    // mới giống hệt dòng cũ dù dropdown từng được tạo bằng cách nào.
-    // Tới hết cột J, không dừng ở APP_WIDTH: hai ô checkbox cũng là validation, và
-    // dòng mới không có chúng thì lượt sync sau ghi TRUE/FALSE thành chữ nằm đè lên.
+    // The validation is copied rather than rebuilt: the Process dropdown on the rows
+    // above is a set of coloured chips made through the UI, and Apps Script has no API
+    // for setting a chip colour. Copying makes the new row identical to the old one
+    // however that dropdown was originally created.
+    // Out to the end of column J, not stopping at APP_WIDTH: the two checkboxes are
+    // validation too, and a new row without them turns the next sync's TRUE/FALSE into
+    // bare words sitting on top of the cell.
     if (last.row) {
       app.getRange(last.row, 1, 1, RECRUITER_COL)
          .copyTo(app.getRange(start, 1, fresh.length, RECRUITER_COL),
@@ -398,24 +415,27 @@ function onJobsEdit(e) {
 
 
 /**
- * App: đổi Process ở cột F thì ghi thêm một dòng "<Chặng>: <ngày>" vào cột J.
+ * App: changing Process in column F appends one "<Stage>: <date>" line to the Update
+ * column.
  *
- * Ô đó là lịch sử, không phải log. Mỗi chặng ghi đúng một lần: quay lại một chặng
- * đã đi qua, hay paste đè đúng giá trị đang có, đều không sinh thêm dòng. Sửa nhầm
- * thì sửa thẳng trong ô — nó là text tự do, script chỉ nối thêm chứ không bao giờ
- * viết lại cái đã có.
+ * That cell is a history, not a log. Each stage is written exactly once: going back to
+ * a stage already passed, or pasting the value that is already there, adds no line.
+ * Got one wrong? Edit the cell directly — it is free text, and the script only ever
+ * appends, never rewrites what is already there.
  *
- * Giá trị ngoài pipeline bị bỏ qua: dropdown đã liệt kê hết các chặng có thật, nên
- * cái gì không khớp là gõ nhầm, và gõ nhầm thì không đáng được ghi ngày.
+ * A value outside the pipeline is ignored: the dropdown already lists every real
+ * stage, so anything that does not match is a typo, and a typo does not deserve a
+ * date.
  */
 function onAppEdit(e) {
   var range = e.range;
   if (range.getColumn() > PROCESS_COL || range.getLastColumn() < PROCESS_COL) return;
   var firstRow = Math.max(range.getRow(), FIRST_ROW);
   var lastRow = range.getLastRow();
-  if (lastRow < firstRow) return;  // chỉ sửa header
+  if (lastRow < firstRow) return;  // only the header was edited
 
-  // Fill-down và paste sửa nhiều dòng một lúc, nên đọc cả khối chứ không chỉ ô đầu.
+  // Fill-down and paste edit many rows at once, so read the whole block rather than
+  // just the first cell.
   var app = range.getSheet();
   var count = lastRow - firstRow + 1;
   var stages = app.getRange(firstRow, PROCESS_COL, count, 1).getValues();
@@ -433,7 +453,8 @@ function onAppEdit(e) {
   }
   if (!written) return;
 
-  // Không WRAP thì ô chỉ hiện đúng dòng đầu, và cả lịch sử trông như mất sạch.
+  // Without WRAP the cell shows only its first line, and the whole history looks
+  // like it was lost.
   app.getRange(firstRow, UPDATE_COL, count, 1)
      .setValues(notes)
      .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
@@ -442,14 +463,14 @@ function onAppEdit(e) {
 
 
 function stageReport(written, today) {
-  return 'Ghi ' + today + ' vào cột Update của ' + written + ' dòng.';
+  return 'Wrote ' + today + ' to the Update column of ' + rowCount(written) + '.';
 }
 
 
 /**
- * Tên chuẩn của một chặng, hoặc '' nếu giá trị không thuộc pipeline. Gõ tay "oa"
- * và chọn "OA" từ dropdown phải ra cùng một dòng, nếu không thì hasStage() đọc hai
- * lần viết khác nhau thành hai chặng khác nhau và ghi trùng.
+ * The canonical name of a stage, or '' if the value is not in the pipeline. Typing
+ * "oa" by hand and picking "OA" from the dropdown have to produce the same line, or
+ * hasStage() reads two spellings as two different stages and writes a duplicate.
  */
 function stageLabel(value) {
   var text = String(value == null ? '' : value).trim().toLowerCase();
@@ -460,7 +481,7 @@ function stageLabel(value) {
 }
 
 
-/** Chặng này đã có dòng của nó trong ô chưa. So phần đứng trước dấu ':'. */
+/** Whether this stage already has its line in the cell. Compares what precedes ':'. */
 function hasStage(cell, stage) {
   var lines = String(cell == null ? '' : cell).split('\n');
   for (var i = 0; i < lines.length; i++) {
@@ -471,11 +492,12 @@ function hasStage(cell, stage) {
 
 
 /**
- * Ngày để ghi vào ô. Ô Date Applied trả về Date, nhưng vài dòng cũ đang giữ text —
- * cái gì đọc được thì giữ nguyên, không đọc được thì '?' để còn tìm mà điền tay.
+ * The date to write into the cell. Date Applied returns a Date, but a few older rows
+ * hold text — keep whatever can be read, and write '?' for whatever cannot, so it can
+ * be found and filled in by hand.
  *
- * Object.prototype.toString chứ không phải instanceof: Date do Apps Script trả về
- * và Date của script không phải lúc nào cũng cùng một realm.
+ * Object.prototype.toString rather than instanceof: a Date handed back by Apps Script
+ * and a Date made by the script are not always from the same realm.
  */
 function stamp(value) {
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
@@ -487,11 +509,13 @@ function stamp(value) {
 
 
 /**
- * Các link đã nằm ở App, đã normalize. Tick lại một dòng đã sync — hoặc tick một
- * job bạn từng apply qua link khác — không được đẻ ra dòng thứ hai.
+ * The links already in App, normalized. Re-ticking a row that has synced — or
+ * ticking a job you once applied to through a different link — must not produce a
+ * second row.
  *
- * Object.create(null) chứ không phải {}: một key trùng tên thuộc tính kế thừa
- * ("constructor") sẽ đọc ra truthy trên object thường và báo trùng nhầm.
+ * Object.create(null) rather than {}: a key that collides with an inherited property
+ * name ("constructor") reads as truthy on an ordinary object and reports a false
+ * duplicate.
  */
 function existingLinks(app) {
   var seen = Object.create(null);
@@ -507,9 +531,9 @@ function existingLinks(app) {
 
 
 /**
- * Các cặp (company, role) đã nằm ở App. Dùng cho backfill, không dùng cho onEdit:
- * lúc bạn vừa tick là bạn vừa nộp thật, nên một dòng bị bỏ qua vì "trùng tên" ở đó
- * là mất bản ghi, tệ hơn hẳn so với việc có thêm một dòng thừa.
+ * The (company, role) pairs already in App. Used by the backfill, not by onEdit: the
+ * moment you tick a box you have genuinely just applied, so a row skipped there for a
+ * "name collision" is a lost record — much worse than one row too many.
  */
 function existingNames(app) {
   var seen = Object.create(null);
@@ -525,14 +549,14 @@ function existingNames(app) {
 
 
 /**
- * Hai thứ đọc được trong cùng một lượt quét cột Property.
+ * Two things read in the same pass over the Property column.
  *
- * `property` là số lớn nhất đang có, chứ không phải số dòng: App có thể đã bị xoá
- * dòng ở giữa, và hai dòng mang cùng một số thì tệ hơn là có lỗ hổng.
+ * `property` is the largest number in use, not the row count: App may have had a row
+ * deleted from the middle, and two rows carrying the same number is worse than a gap.
  *
- * `row` là dòng cuối cùng thực sự là một entry, dùng làm mẫu để copy dropdown.
- * App có sẵn vài dòng chỉ có mỗi link ở cột C — dòng như thế nằm dưới cùng nhưng
- * không mang validation nào để copy.
+ * `row` is the last row that is genuinely an entry, used as the template the dropdown
+ * is copied from. App has a few rows carrying only a link in column C — one of those
+ * can sit at the bottom while holding no validation worth copying.
  */
 function lastEntry(app) {
   var bottom = app.getLastRow();
@@ -549,10 +573,16 @@ function lastEntry(app) {
 }
 
 
+/** "1 row" / "2 rows". The reports read as sentences, so the noun has to agree. */
+function rowCount(n) {
+  return n + (n === 1 ? ' row' : ' rows');
+}
+
+
 function report(added, skipped, expired) {
   var tail = '';
-  if (skipped) tail += ' Bỏ qua ' + skipped + ' dòng đã có ở App hoặc thiếu link.';
-  if (expired) tail += ' Bỏ qua ' + expired + ' dòng đã tick Expired.';
-  if (!added) return 'Không thêm dòng nào vào ' + APP_TAB + '.' + tail;
-  return 'Đã thêm ' + added + ' dòng vào ' + APP_TAB + '.' + tail;
+  if (skipped) tail += ' Skipped ' + rowCount(skipped) + ' already in App or missing a link.';
+  if (expired) tail += ' Skipped ' + rowCount(expired) + ' ticked Expired.';
+  if (!added) return 'Added no rows to ' + APP_TAB + '.' + tail;
+  return 'Added ' + rowCount(added) + ' to ' + APP_TAB + '.' + tail;
 }

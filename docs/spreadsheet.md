@@ -1,144 +1,151 @@
-# Hai tab, và ai được ghi vào đâu
+# Two tabs, and who writes where
 
-Spreadsheet là giao diện của cả hệ thống. Hiểu ai sở hữu cột nào là hiểu gần hết.
+The spreadsheet is the interface to the whole system. Understanding who owns which column is
+most of understanding it.
 
-## Tab `Jobs` — việc còn phải nộp
+## Tab `Jobs` — still to be applied to
 
-| Cột | | Ai ghi |
+| Column | | Who writes it |
 |---|---|---|
 | A | Company | tool |
 | B | Role | tool |
 | C | Link Apply | tool |
 | D | Date Posted | tool |
 | E | **Source** | tool |
-| F | **Applied** ☑ | bạn, và tool tick sẵn hộ |
-| G | **Expired** ☑ | chỉ bạn |
-| H trở đi | ghi chú tự do | chỉ bạn |
+| F | **Applied** ☑ | you, and the tool ticks it ahead of you |
+| G | **Expired** ☑ | you only |
+| H onward | free-text notes | you only |
 
-Mỗi lượt sync tool **ghi đè toàn bộ** A–E rồi sort lại. Cột F trở đi được đọc lên và ghi
-lại nguyên vẹn, nên ô tick của bạn luôn đi theo đúng dòng của nó chứ không nằm lại ở số
-dòng cũ.
+Every sync run **overwrites all of** A–E and sorts again. Column F onward is read back and
+written out untouched, so your tick always travels with its own row rather than staying
+behind at the old row number.
 
-### Thứ tự sắp xếp
+### Sort order
 
-**Việc còn phải làm nổi lên trên, việc đã xong chìm xuống dưới.** Dòng đã tick `Applied`
-**hoặc** `Expired` bị đẩy xuống cuối; trong mỗi nửa thì bài đăng mới nhất đứng trước.
+**Everything still to do rises to the top, everything dealt with sinks to the bottom.** A row
+ticked `Applied` **or** `Expired` is pushed to the end; within each half the newest posting
+comes first.
 
-Giữa hai nửa là **một dòng trống bôi vàng** làm mốc. Phía trên nó là việc cần làm, phía
-dưới là việc đã xong — không có khoảng trống nào khác.
+Between the two halves sits **one blank row highlighted yellow** as the marker. Above it is
+the work to do, below it the work done — and there is no other gap.
 
-Dòng mốc đó không phải dữ liệu: nó rỗng, nên lượt đọc sau không phân biệt được nó với các
-dòng chỉ-có-checkbox và xoá luôn. Mỗi lượt nó được dựng lại từ đầu, và đó chính là cách nó
-luôn nằm đúng chỗ khi hai nửa thay đổi kích thước. Ô màu cũng được dời theo, bằng cùng cơ
-chế xoá-có-chọn-lọc dùng cho alumni.
+That marker row is not data: it holds nothing, so the next read cannot tell it from the
+checkbox-only rows and drops it too. It is rebuilt from scratch every run, and that is exactly
+what keeps it in place as the two halves change size. The colour moves with it, through the
+same selective-clearing mechanism used for alumni.
 
-Khoảng trống đó từng có thật. `setupJobsCheckboxes` phủ validation lên `F2:G500` bất kể
-dòng đó có job hay không, mà ô checkbox chưa tick đọc ra `FALSE` chứ không phải rỗng — nên
-một lần đọc `A:Z` trả về đủ cả 499 dòng, phần lớn chỉ có hai chữ `FALSE`. Chúng xếp vào
-nhóm "chưa làm" với ngày trống, tức là sau job thật nhưng trước đám đã tick. Giờ dòng nào
-không có gì ở A–D đều bị xoá hẳn trước khi sort.
+That gap was once real. `setupJobsCheckboxes` lays validation over `F2:G500` whether or not
+there is a job on the row, and an unticked checkbox reads back as `FALSE` rather than as empty
+— so one read of `A:Z` returned all 499 rows, most of them holding nothing but two `FALSE`s.
+They sorted into the "still to do" group with no date, which put them after the real jobs but
+before the ticked ones. Now any row with nothing in A–D is dropped outright before the sort.
 
-### Cột E — `Source`
+### Column E — `Source`
 
-Dòng này từ đâu ra: `Simplify`, `Jobright`, `speedyapply`, `zshah101`, `sndsh404`, hoặc
-`Greenhouse` / `Lever` / `Ashby` nếu nó đọc thẳng từ board của chính công ty.
+Where the row came from: `Simplify`, `Jobright`, `speedyapply`, `zshah101`, `sndsh404`, or
+`Greenhouse` / `Lever` / `Ashby` where it was read straight off the company's own board.
 
-Do tool ghi, và **chỉ điền vào ô trống**. Một dòng đã có nguồn thì giữ nguyên, kể cả khi
-hôm nay một tracker khác cũng đang đăng đúng posting đó — nơi nó được **nhìn thấy lần đầu**
-mới là câu trả lời không đổi, còn ghi đè mỗi lượt sẽ làm cột này nhấp nháy giữa hai cái tên
-cho một dòng chẳng thay đổi gì.
+Written by the tool, and **only into empty cells**. A row that already names a source keeps it,
+even where another tracker is carrying that same posting today — where it was **first seen** is
+the answer that does not change, while overwriting every run would leave this column flickering
+between two names for a row that has not changed at all.
 
-Dòng có trước khi cột này tồn tại được điền ngược lại từ link, ở lượt sync đầu tiên sau khi
-cột được chèn.
+Rows that existed before this column did are backfilled from their link, on the first sync run
+after the column is inserted.
 
-> **Vì sao Source nằm ở E chứ không phải ở cuối.** Mọi cột sau `Expired` đều được đọc là
-> ghi chú của bạn, và ghi chú là thứ **duy nhất** chặn được auto-tick. Một cột Source đặt
-> sau G sẽ trông như ghi chú ở mọi dòng, và tool sẽ ngừng tick tự động trên cả sheet — đúng
-> lỗi từng khiến bản đầu tiên tick được 0 dòng.
+> **Why Source sits at E rather than at the end.** Every column past `Expired` is read as a
+> note of yours, and a note is the **only** thing that stops the auto-tick. A Source column
+> placed after G would look like a note on every row, and the tool would stop ticking anywhere
+> on the sheet — exactly the bug that had the first version ticking 0 rows.
 
-### Cột F — `Applied`
+### Column F — `Applied`
 
-Tick vào là dòng đó lập tức được copy sang tab `App`, đầy đủ Property, ngày hôm nay và
-`Process = Applied`. Mất khoảng một giây.
+Tick it and the row is copied to the `App` tab straight away, with a Property number, today's
+date and `Process = Applied`. It takes about a second.
 
-Tool cũng tự tick hộ ô này cho những job mà tab `App` cho thấy bạn đã nộp rồi — xem
-[matching.md](matching.md). Nói cách khác: **dòng nào còn trống ở cột F chính là việc còn
-phải làm.**
+The tool also ticks this box for you on jobs the `App` tab shows you have already applied to —
+see [matching.md](matching.md). Put another way: **whatever is still blank in column F is the
+work left to do.**
 
-### Cột G — `Expired`
+### Column G — `Expired`
 
-Dành cho posting đã đóng nhưng board vẫn trả HTTP 200, nên liveness check không tự xoá
-được. Tick vào thì:
+For a posting that has closed while the board still answers HTTP 200, so the liveness check
+cannot drop it on its own. Ticking it means:
 
-- Dòng đó **không sang `App`**, kể cả khi `Applied` cũng đang tick. Expired thắng.
-- Tool **không** tự tick `Applied` cho dòng đó nữa.
-- Dòng đó không còn được đếm vào số "còn phải nộp".
+- The row **does not go to `App`**, even where `Applied` is ticked too. Expired wins.
+- The tool **no longer** auto-ticks `Applied` on that row.
+- The row stops counting towards the "still to apply to" total.
 
-Nó chỉ chặn chiều đi. Một dòng đã sang `App` rồi thì tick `Expired` sau đó **không** gọi
-nó về — `App` là source of truth. Gỡ tick ra thì dòng lại đi được bình thường, không có
-trạng thái kẹt.
+It only blocks the outbound direction. Once a row has reached `App`, ticking `Expired`
+afterwards **does not** call it back — `App` is the source of truth. Clear the tick and the row
+travels normally again; there is no stuck state.
 
-### Cột H trở đi — ghi chú
+### Column H onward — notes
 
-Ghi bất cứ gì vào đây là tool ngừng đụng vào checkbox của dòng đó. Đây là cách duy nhất
-để nói "tool khớp sai rồi", vì untick suông sẽ bị tick lại ở lượt sau.
+Write anything here and the tool stops touching that row's checkboxes. It is the only way to
+say "the tool matched this wrong", because a bare untick is ticked again on the next run.
 
-> **Vì sao ghi chú phải từ H chứ không phải G.** Một cột checkbox đọc ra `FALSE` ở *mọi*
-> dòng nó phủ, không phải ô rỗng. Nếu G được coi là chỗ ghi chú thì tool sẽ thấy cả sheet
-> đã có ghi chú và ngừng tick tự động hoàn toàn. Đúng lỗi này từng khiến bản đầu tiên tick
-> được 0 dòng mà workflow vẫn báo xanh. Có test ghim lại: `test_the_expired_column_is_not_read_as_a_note`.
+> **Why notes have to start at H and not G.** A checkbox column reads back as `FALSE` on
+> *every* row it covers, not as an empty cell. If G counted as the place for notes, the tool
+> would see a note on the whole sheet and stop auto-ticking entirely. That is the bug that had
+> the first version ticking 0 rows while the workflow still reported green. A test pins it:
+> `test_the_expired_column_is_not_read_as_a_note`.
 
-### Đừng xoá dòng khỏi `Jobs`
+### Do not delete rows from `Jobs`
 
-Cả dòng đã Applied lẫn dòng đã Expired đều phải **ở lại làm tombstone**. Tool biết một job
-đã có trong sheet bằng cách so với chính các link đang nằm trong sheet; xoá dòng đi thì
-job đó vẫn còn trong tracker nguồn và sẽ được append lại ở lượt sau.
+Applied rows and Expired rows both have to **stay behind as tombstones**. The tool knows a job
+is already in the sheet by comparing against the links the sheet itself holds; delete the row
+and the job — still listed by the source tracker — is appended again on the next run.
 
-Muốn cho khuất mắt thì dùng **filter view** ẩn `E = TRUE` hoặc `F = TRUE`, đừng xoá.
+To get them out of sight, use a **filter view** hiding `F = TRUE` or `G = TRUE` rather than
+deleting.
 
-## Tab `App` — đã nộp
+## Tab `App` — applied to
 
-| Cột | | |
+| Column | | |
 |---|---|---|
-| A | Property | số thứ tự, tự tăng |
+| A | Property | sequence number, auto-incrementing |
 | B | Company | |
 | C | Application Link | |
-| D | Date Applied | ngày bạn tick |
-| E | Location (State) | **luôn trống khi tự sinh** — tab Jobs không mang dữ liệu này |
+| D | Date Applied | the day you ticked |
+| E | Location (State) | **always blank when generated** — the Jobs tab does not carry this |
 | F | Process | dropdown: Applied / OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
-| I | **Alumni** ☑ | tool tick khi công ty đó có alumni — xem [alumni.md](alumni.md) |
-| J | **Recruiter** ☑ | tool tick khi công ty đó có recruiter trong danh sách liên hệ |
-| K | **Update** | lịch sử chuyển chặng, mỗi chặng một dòng |
+| I | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
+| J | **Recruiter** ☑ | the tool ticks it where that company has a recruiter in the contact list |
+| K | **Update** | stage history, one line per stage |
 
-`Property` được tính bằng **số lớn nhất đang có + 1**, không phải số dòng — App có thể đã
-bị xoá dòng ở giữa, và hai dòng trùng số thì tệ hơn là có lỗ hổng.
+`Property` is worked out as **the largest number present + 1**, not the row number — App may
+have had rows deleted out of the middle, and two rows sharing a number is worse than a gap.
 
-Data validation của dòng mới được **copy từ dòng entry cuối cùng** thay vì dựng lại, vì
-dropdown `Process` dạng chip màu được tạo từ giao diện Sheets mà Apps Script không có API
-đặt màu chip. Copy thì dòng mới giống hệt dòng cũ, bất kể dropdown từng được tạo kiểu gì.
+A new row's data validation is **copied from the last entry row** instead of being rebuilt,
+because the coloured-chip `Process` dropdown is made through the Sheets interface and Apps
+Script has no API for setting chip colours. Copying makes the new row identical to the old one,
+whatever way the dropdown happened to be created.
 
-### Cột I và J — `Alumni`, `Recruiter`
+### Columns I and J — `Alumni`, `Recruiter`
 
-Hai checkbox **do tool tick**, không phải bạn. Cột I bật khi tab `Alumni` có người đang làm
-ở công ty đó; cột J bật khi công ty đó nằm trong danh sách recruiter đi kèm repo. Cả hai
-được ghi lại từ đầu ở mỗi lượt sync, nên tick tay thì lượt sau bị gỡ — chỗ ghi thứ bạn muốn
-giữ là cột H `Note`. Chi tiết ở [alumni.md](alumni.md).
+Two checkboxes **the tool ticks**, not you. Column I turns on where the `Alumni` tab has
+someone working at that company; column J turns on where that company is in the recruiter list
+shipped with the repo. Both are rewritten from scratch on every sync run, so a tick by hand is
+cleared on the next one — the place to write anything you want kept is column H, `Note`.
+Details in [alumni.md](alumni.md).
 
-Hai cột này là những ô **duy nhất** ngoài tab Jobs mà tool ghi vào. Chúng được để hẹp
-(70px và 90px) vì không bao giờ có gì khác vào đó; cột K rộng 300px để chứa được vài dòng
-lịch sử xếp chồng.
+These two columns are the **only** cells outside the Jobs tab that the tool writes. They are
+kept narrow (70px and 90px) because nothing else ever goes in them; column K is 300px wide so
+a few stacked lines of history fit.
 
-Dòng không khớp hiện ô tick trống, không phải ô rỗng — đó là hình dạng bình thường của một
-checkbox chưa tick. Nếu ô hiện ra chữ `FALSE` thì rule checkbox chưa với tới dòng đó; lượt
-sync sau tự sửa, xem [alumni.md](alumni.md#khi-ô-hiện-ra-chữ-false).
+A row with no match shows an empty tick box, not an empty cell — that is what an unticked
+checkbox normally looks like. Where the cell shows the word `FALSE`, the checkbox rule has not
+reached that row yet; the next sync run fixes it, see
+[alumni.md](alumni.md#when-the-cell-shows-the-word-false).
 
-### Cột K — `Update`
+### Column K — `Update`
 
-Mỗi lần bạn đổi `Process` ở cột F, Apps Script nối thêm một dòng vào ô K của **chính dòng
-đó**, ghi chặng vừa chuyển sang và ngày hôm nay. Nhiều dòng nằm trong cùng một ô, ngăn
-nhau bằng xuống dòng (Alt+Enter):
+Every time you change `Process` in column F, Apps Script appends one line to the K cell of
+**that same row**, naming the stage just moved to and today's date. Several lines live in one
+cell, separated by line breaks (Alt+Enter):
 
 ```
 Applied: Jul 21, 2026
@@ -146,49 +153,50 @@ OA: Aug 3, 2026
 Interview: Aug 12, 2026
 ```
 
-Cột `Date Applied` chỉ nhớ được ngày đầu tiên. Cột này nhớ cả đường đi — bao lâu thì có
-OA, bao lâu từ OA sang phỏng vấn — thứ mà nhìn một ô `Process` đang đứng ở đâu thì không
-bao giờ biết được.
+The `Date Applied` column can only remember the first date. This one remembers the route — how
+long until the OA, how long from OA to interview — which is what looking at where a `Process`
+cell currently stands will never tell you.
 
-**Mỗi chặng ghi đúng một lần.** Ô này là lịch sử, không phải log: quay lại một chặng đã đi
-qua, hay paste đè đúng giá trị đang có, đều không sinh dòng thứ hai. Giá trị nằm ngoài
-pipeline (gõ tay "Phone screen" chẳng hạn) bị bỏ qua hẳn — dropdown đã liệt kê hết chặng
-có thật, nên cái gì không khớp là gõ nhầm.
+**Each stage is written exactly once.** The cell is a history, not a log: going back to a stage
+already passed, or pasting the value it already holds over itself, produces no second line. A
+value from outside the pipeline (typing "Phone screen" by hand, say) is ignored outright — the
+dropdown lists every stage that really exists, so anything that does not match is a typo.
 
-Script chỉ **nối thêm**, không bao giờ viết lại cái đã có. Nên ô này sửa tay thoải mái:
-ghi nhầm thì xoá dòng đó đi, nhớ ra ngày cũ thì điền vào.
+The script only **appends**; it never rewrites what is there. So the cell is safe to edit by
+hand: delete a line written in error, fill in an old date you have remembered.
 
-### Dấu `?` trong cột Update
+### The `?` in the Update column
 
-`setupAppColumns` dựng cột này cho các dòng đã có sẵn. Chỉ chặng `Applied` là suy ra
-được — từ ô `Date Applied`. Ngày chuyển sang OA hay Interview thì **chưa từng được ghi ở
-đâu cả**, nên dòng nào đang đứng ở chặng sau `Applied` được ghi thêm:
+`setupAppColumns` builds this column for the rows that already exist. Only the `Applied` stage
+can be inferred — from the `Date Applied` cell. The day a row moved to OA or Interview **was
+never recorded anywhere**, so a row standing at a stage past `Applied` gets a second line:
 
 ```
 Applied: Jul 26, 2026
 OA: ?
 ```
 
-Dấu `?` nghĩa là chặng đó có thật nhưng ngày thì không ai biết. Ctrl+F tìm `: ?` ra đúng
-danh sách cần điền tay. Nó ở đó thay cho một ngày bịa trông như thật.
+The `?` means the stage really happened but nobody knows the date. Ctrl+F for `: ?` gives
+exactly the list to fill in by hand. It is there instead of an invented date that would look
+real.
 
-Từ lúc dựng xong trở đi mọi lần chuyển chặng đều tự ghi, nên `?` chỉ xuất hiện ở đám dòng
-có trước.
+From the build onwards every stage change records itself, so `?` only shows up on the rows that
+came before it.
 
-### Điền Role vào là tool tick được nhiều hơn
+### Filling in Role lets the tool tick more
 
-Một dòng `App` thiếu `Company` hoặc `Role` thì **không bao giờ khớp được theo tên** — nó
-chỉ khớp nếu link trùng đúng từng ký tự. Lần audit gần nhất có 14 dòng như vậy trên tổng
-82. Điền `Role` vào là lượt sync sau tick thêm được một loạt.
+An `App` row missing `Company` or `Role` can **never match by name** — it matches only where
+the link agrees character for character. The last audit had 14 such rows out of 82. Fill in
+`Role` and the next sync run ticks a batch more.
 
-Chạy [`--audit-app`](operations.md#soát-tab-app) để biết chính xác dòng nào.
+Run [`--audit-app`](operations.md#auditing-the-app-tab) to see exactly which rows.
 
-## Vì sao ghi sheet phải tách làm hai lần
+## Why writing the sheet takes two calls
 
-`_write` ghi `A:D` bằng `valueInputOption="RAW"` và `E` trở đi bằng `USER_ENTERED`, tốn
-thêm một API call mỗi lượt. Hai nửa cần hai cách parse ngược nhau:
+`_write` writes `A:D` with `valueInputOption="RAW"` and `E` onward with `USER_ENTERED`, at the
+cost of one extra API call per run. The two halves need opposite parsing:
 
-- **`A:D` phải RAW.** `Date Posted` là chuỗi ISO `2026-08-16` và việc sort dựa vào nó vẫn
-  là chuỗi. `USER_ENTERED` sẽ parse nó thành date serial và phá sort.
-- **`E` trở đi phải USER_ENTERED.** Chuỗi `"TRUE"` ghi kiểu RAW sẽ nằm **đè lên** checkbox
-  dưới dạng text chứ không tick nó, và lượt sau đọc lại thành chưa tick.
+- **`A:D` has to be RAW.** `Date Posted` is the ISO string `2026-08-16` and the sort that reads
+  it treats it as a string. `USER_ENTERED` would parse it into a date serial and break the sort.
+- **`E` onward has to be USER_ENTERED.** The string `"TRUE"` written RAW sits **on top of** the
+  checkbox as text instead of ticking it, and the next run reads it back as unticked.

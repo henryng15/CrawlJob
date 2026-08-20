@@ -1,10 +1,10 @@
-# Board mà không danh sách thượng nguồn nào biết. Mỗi dòng: <ats>:<slug>
+# Boards no upstream list knows about. One per line: <ats>:<slug>
 #
-# Đây là lối thoát cho đúng trường hợp Verition: board có thật, mở việc thật,
-# mà Common Crawl chưa từng ghé qua — nên nó không nằm trong bất kỳ danh sách
-# slug nào, và không có API nào của Greenhouse/Lever/Ashby liệt kê board ra cả.
-# Thấy một cái thì thêm một dòng vào đây; nó được hỏi ở mọi lượt crawl, không
-# phải chờ tới lượt discovery chủ nhật.
+# This is the escape hatch for exactly the Verition case: a board that is real,
+# with real openings, that Common Crawl has never once fetched — so it appears in
+# no slug list anywhere, and none of Greenhouse, Lever or Ashby offers an API that
+# enumerates boards. Spot one, add a line; it is asked on every crawl rather than
+# waiting for Sunday's discovery run.
 #
-# Lấy slug từ URL board: job-boards.greenhouse.io/<slug>/jobs/...
+# The slug comes from the board URL: job-boards.greenhouse.io/<slug>/jobs/...
 greenhouse:veritiongroupllc

@@ -109,10 +109,11 @@ function load() {
     },
     Session: { getScriptTimeZone: () => 'America/New_York' },
     Utilities: {
-      // Đủ cho UPDATE_DATE_FORMAT, format duy nhất file .gs dùng. Ném lỗi thay vì
-      // trả bừa, để đổi format bên kia mà quên bên này thì test đỏ chứ không lặng.
+      // Enough for UPDATE_DATE_FORMAT, the only format the .gs file uses. Throw
+      // rather than return something plausible, so that changing the format over
+      // there and forgetting this turns the tests red instead of quiet.
       formatDate(date, timeZone, format) {
-        if (format !== 'MMM d, yyyy') throw new Error('harness chưa hiểu format ' + format);
+        if (format !== 'MMM d, yyyy') throw new Error('the harness does not understand the format ' + format);
         return MONTHS[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
       },
     },
@@ -124,12 +125,13 @@ function load() {
 
 const JOBS_HEADER = ['Company', 'Role', 'Link Apply', 'Date Posted', 'Source',
                     'Applied', 'Expired'];
-// Cột checkbox trong grid, 0-based: Source chen vào giữa nên chúng lùi một ô.
+// The checkbox columns in the grid, 0-based: Source pushed in ahead of them, so
+// both shifted one to the right.
 const APPLIED = 5, EXPIRED = 6;
 const APP_HEADER = ['Property', 'Company', 'Application Link', 'Date Applied',
                     'Location (State)', 'Process', 'Role', 'Note'];
 
-/** Ngày hôm nay theo đúng cách stamp() trong .gs viết ra. */
+/** Today's date, written exactly the way stamp() in the .gs file writes it. */
 function today() {
   const now = new Date();
   return MONTHS[now.getMonth()] + ' ' + now.getDate() + ', ' + now.getFullYear();
@@ -138,12 +140,12 @@ function today() {
 function freshJobs() {
   return makeSheet('Jobs', [
     JOBS_HEADER,
-    // App có job này nhưng dưới link greenhouse, còn Jobs đang giữ link jobright.
+    // App holds this job under a greenhouse link while Jobs holds the jobright one.
     ['IBM', 'Software Engineering Intern', 'https://jobright.ai/jobs/info/abc', '2026-08-14', 'Jobright', false, false],
-    // Cùng link với App, chỉ khác dấu / cuối và utm.
+    // The same link as App's, differing only by a trailing / and utm parameters.
     ['Notion', 'Software Engineer Intern',
      'https://jobs.ashbyhq.com/notion/1?utm_source=Simplify', '2026-08-15', 'Simplify', false, false],
-    // Chưa nộp bao giờ.
+    // Never applied to.
     ['Neuralink', 'Firmware Engineer Intern', 'https://jobright.ai/jobs/info/xyz', '2026-08-16', 'Ashby', false, false],
   ]);
 }
@@ -155,7 +157,7 @@ function freshApp() {
      'Software Engineering  Intern', ''],
     [2, 'Notion', 'https://jobs.ashbyhq.com/notion/1/', 'July 26, 2026', '', 'OA',
      'Software Engineer Intern', ''],
-    // Dòng rác chỉ có link, giống mấy dòng đang có thật trong App.
+    // A stray row carrying only a link, like the real ones already in App.
     ['', '', 'https://bambusdev.example/job/1', '', '', '', '', ''],
   ]);
 }
@@ -173,25 +175,25 @@ function run(name, fn) {
 console.log('normalizeLink / identity');
 {
   const s = load();
-  run('utm và dấu / cuối không làm hai link thành hai job', () => {
+  run('utm and a trailing slash do not make one link into two jobs', () => {
     assert.strictEqual(
       s.normalizeLink('https://jobs.ashbyhq.com/notion/1?utm_source=Simplify&ref=Simplify'),
       s.normalizeLink('https://JOBS.ashbyhq.com/notion/1/')
     );
   });
-  run('param định danh chính bài tuyển thì phải giữ', () => {
+  run('a parameter that identifies the posting itself is kept', () => {
     assert.notStrictEqual(
       s.normalizeLink('https://boards.example/j?gh_jid=1'),
       s.normalizeLink('https://boards.example/j?gh_jid=2')
     );
   });
-  run('dấu câu và khoảng trắng thừa không tách một job thành hai', () => {
+  run('punctuation and extra whitespace do not split one job into two', () => {
     assert.strictEqual(
       s.identity('IBM', 'Software Engineering  Intern'),
       s.identity('ibm.', 'Software-Engineering Intern')
     );
   });
-  run('thiếu company hoặc role thì không có identity để khớp', () => {
+  run('with no company or no role there is no identity to match on', () => {
     assert.strictEqual(s.identity('', 'SWE Intern'), '');
     assert.strictEqual(s.identity('IBM', ''), '');
   });
@@ -203,27 +205,27 @@ console.log('backfillTicksFromApp');
   app = freshApp();
   const s = load();
   s.backfillTicksFromApp();
-  run('Notion được tick qua link, IBM qua company + role', () => {
+  run('Notion is ticked by link, IBM by company + role', () => {
     assert.strictEqual(jobs.grid[1][APPLIED], true, 'IBM');
     assert.strictEqual(jobs.grid[2][APPLIED], true, 'Notion');
   });
-  run('job chưa nộp thì để nguyên', () => {
+  run('a job not yet applied to is left alone', () => {
     assert.strictEqual(jobs.grid[3][APPLIED], false, 'Neuralink');
   });
-  run('toast tách riêng hai kiểu khớp', () => {
-    assert.match(toasts[0], /2 dòng: 1 khớp link, 1 khớp company \+ role/);
+  run('the toast reports the two kinds of match separately', () => {
+    assert.match(toasts[0], /2 rows: 1 matched by link, 1 by company \+ role/);
   });
-  run('backfill không đụng gì vào App', () => {
+  run('the backfill touches nothing in App', () => {
     assert.strictEqual(app.getLastRow(), 4);
   });
 }
 
-console.log('backfill chạy lại lần hai');
+console.log('the backfill run a second time');
 {
   const s = load();
   s.backfillTicksFromApp();
-  run('không có gì để tick thêm', () => {
-    assert.match(toasts[0], /Không có dòng nào cần tick thêm/);
+  run('there is nothing further to tick', () => {
+    assert.match(toasts[0], /No further rows to tick/);
   });
 }
 
@@ -232,64 +234,64 @@ console.log('onEdit');
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  // onEdit chạy sau khi ô đã đổi giá trị, nên ô phải là true trước khi bắn.
+  // onEdit runs after the cell has already changed, so it must be true before firing.
   jobs.grid[3][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('tick job chưa có ở App thì thêm một dòng', () => {
+  run('ticking a job not yet in App adds a row', () => {
     assert.strictEqual(app.getLastRow(), 5);
   });
-  run('Property nối tiếp số lớn nhất, không phải số dòng', () => {
+  run('Property continues from the largest number, not from the row count', () => {
     assert.strictEqual(app.grid[4][0], 3);
   });
-  run('Company, link, Process và Role vào đúng cột', () => {
+  run('Company, link, Process and Role land in the right columns', () => {
     const row = app.grid[4];
     assert.strictEqual(row[1], 'Neuralink');
     assert.strictEqual(row[2], 'https://jobright.ai/jobs/info/xyz');
     assert.strictEqual(row[5], 'Applied');
     assert.strictEqual(row[6], 'Firmware Engineer Intern');
   });
-  run('Date Applied là ngày hôm nay', () => {
-    // instanceof không dùng được: Date tạo trong vm thuộc realm khác.
+  run('Date Applied is today', () => {
+    // instanceof is no use here: a Date made inside the vm is from another realm.
     const written = app.grid[4][3];
     assert.strictEqual(Object.prototype.toString.call(written), '[object Date]');
     assert.strictEqual(written.toDateString(), new Date().toDateString());
   });
-  run('Location để trống vì Jobs không mang dữ liệu đó', () => {
+  run('Location is left empty because Jobs does not carry it', () => {
     assert.strictEqual(app.grid[4][4], '');
   });
-  run('validation copy từ dòng entry cuối, không phải dòng rác chỉ có link', () => {
+  run('validation is copied from the last entry row, not from a link-only stray row', () => {
     assert.deepStrictEqual(copied, [[3, 'PASTE_DATA_VALIDATION']]);
   });
 }
 
-console.log('onEdit — các trường hợp phải không làm gì');
+console.log('onEdit — the cases where it must do nothing');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
 
   s.onEdit({ source: ss, range: jobs.getRange(2, 3, 1, 1) });
-  run('sửa cột khác thì bỏ qua', () => assert.strictEqual(app.getLastRow(), 4));
+  run('an edit to another column is ignored', () => assert.strictEqual(app.getLastRow(), 4));
 
   jobs.grid[3][APPLIED] = false;
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('untick không làm gì', () => assert.strictEqual(app.getLastRow(), 4));
+  run('unticking does nothing', () => assert.strictEqual(app.getLastRow(), 4));
 
   jobs.grid[2][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(3, APPLIED + 1, 1, 1) });
-  run('tick job đã có ở App qua link thì bỏ qua', () => {
+  run('ticking a job already in App under that link is ignored', () => {
     assert.strictEqual(app.getLastRow(), 4);
-    assert.match(toasts[toasts.length - 1], /Không thêm dòng nào/);
+    assert.match(toasts[toasts.length - 1], /Added no rows/);
   });
 
   jobs.grid[1][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 1, 1) });
-  run('onEdit KHÔNG khớp theo tên: link khác thì vẫn ghi nhận', () => {
+  run('onEdit does NOT match by name: a different link is still recorded', () => {
     assert.strictEqual(app.getLastRow(), 5);
   });
 }
 
-console.log('onEdit — fill-down nhiều dòng');
+console.log('onEdit — filling down many rows');
 {
   jobs = freshJobs();
   app = freshApp();
@@ -298,17 +300,17 @@ console.log('onEdit — fill-down nhiều dòng');
   jobs.grid[2][APPLIED] = true;
   jobs.grid[3][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 3, 1) });
-  run('cả khối được xử lý, Property không trùng nhau', () => {
+  run('the whole block is handled, and no two Property numbers collide', () => {
     assert.strictEqual(app.getLastRow(), 6);
     assert.strictEqual(app.grid[4][0], 3);
     assert.strictEqual(app.grid[5][0], 4);
   });
-  run('dòng đã có ở App trong khối vẫn bị bỏ qua', () => {
-    assert.match(toasts[toasts.length - 1], /Đã thêm 2 dòng.*Bỏ qua 1/);
+  run('a row already in App is still skipped inside the block', () => {
+    assert.match(toasts[toasts.length - 1], /Added 2 rows.*Skipped 1 row/);
   });
 }
 
-console.log('onEdit — Expired chặn dòng sang App');
+console.log('onEdit — Expired stops a row reaching App');
 {
   jobs = freshJobs();
   app = freshApp();
@@ -316,26 +318,26 @@ console.log('onEdit — Expired chặn dòng sang App');
   jobs.grid[3][APPLIED] = true;   // Applied
   jobs.grid[3][EXPIRED] = true;   // Expired
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('tick Applied trên dòng đã Expired thì không thêm gì', () => {
+  run('ticking Applied on an Expired row adds nothing', () => {
     assert.strictEqual(app.getLastRow(), 4);
   });
-  run('toast nói rõ vì sao bị bỏ qua', () => {
-    assert.match(toasts[toasts.length - 1], /Bỏ qua 1 dòng đã tick Expired/);
+  run('the toast says why the row was skipped', () => {
+    assert.match(toasts[toasts.length - 1], /Skipped 1 row ticked Expired/);
   });
 
-  jobs.grid[1][APPLIED] = true;   // IBM: Applied, không Expired
+  jobs.grid[1][APPLIED] = true;   // IBM: Applied, not Expired
   s.onEdit({ source: ss, range: jobs.getRange(2, APPLIED + 1, 3, 1) });
-  run('trong cùng một khối, dòng không Expired vẫn sang bình thường', () => {
+  run('inside one block, a row that is not Expired still goes across', () => {
     assert.strictEqual(app.getLastRow(), 5);
     assert.strictEqual(app.grid[4][1], 'IBM');
   });
-  run('khối lẫn lộn đếm riêng hai lý do bỏ qua', () => {
-    assert.match(toasts[toasts.length - 1], /Đã thêm 1 dòng.*Bỏ qua 1 dòng đã tick Expired/s);
+  run('a mixed block counts the two reasons for skipping separately', () => {
+    assert.match(toasts[toasts.length - 1], /Added 1 row.*Skipped 1 row ticked Expired/s);
   });
 
-  jobs.grid[3][EXPIRED] = false;  // gỡ Expired
+  jobs.grid[3][EXPIRED] = false;  // take Expired off again
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('gỡ Expired rồi thì dòng đó sang được', () => {
+  run('once Expired comes off, that row can go across', () => {
     assert.strictEqual(app.getLastRow(), 6);
     assert.strictEqual(app.grid[5][1], 'Neuralink');
   });
@@ -347,7 +349,7 @@ console.log('setupJobsCheckboxes');
   app = freshApp();
   const s = load();
   s.setupJobsCheckboxes();
-  run('dựng header cho cả hai cột', () => {
+  run('it builds the header for both columns', () => {
     assert.strictEqual(jobs.grid[0][APPLIED], 'Applied');
     assert.strictEqual(jobs.grid[0][EXPIRED], 'Expired');
   });
@@ -356,39 +358,39 @@ console.log('setupJobsCheckboxes');
 console.log('stageLabel / hasStage / stamp');
 {
   const s = load();
-  run('viết hoa thường kiểu gì cũng ra một tên chặng', () => {
+  run('any casing resolves to one stage name', () => {
     assert.strictEqual(s.stageLabel('oa'), 'OA');
     assert.strictEqual(s.stageLabel('  Rejected '), 'Rejected');
   });
-  run('giá trị ngoài pipeline không phải một chặng', () => {
+  run('a value outside the pipeline is not a stage', () => {
     assert.strictEqual(s.stageLabel('Phone screen'), '');
     assert.strictEqual(s.stageLabel(''), '');
   });
-  run('hasStage đọc phần đứng trước dấu :', () => {
+  run('hasStage reads what precedes the colon', () => {
     const cell = 'Applied: Jul 21, 2026\nOA: Aug 1, 2026';
     assert.strictEqual(s.hasStage(cell, 'OA'), true);
     assert.strictEqual(s.hasStage(cell, 'Offer'), false);
   });
-  run('ô trống thì chưa có chặng nào', () => {
+  run('an empty cell holds no stage yet', () => {
     assert.strictEqual(s.hasStage('', 'Applied'), false);
   });
-  run('ngày đọc không ra thì thành ?, không thành chuỗi rỗng', () => {
+  run('a date that cannot be read becomes ?, not an empty string', () => {
     assert.strictEqual(s.stamp(''), '?');
     assert.strictEqual(s.stamp('July 21, 2026'), 'July 21, 2026');
   });
 }
 
-console.log('Jobs → App: gieo dòng Update đầu tiên');
+console.log('Jobs → App: seeding the first Update line');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
   jobs.grid[3][APPLIED] = true;   // Neuralink: Applied
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('dòng vừa sang App đã mang sẵn chặng Applied', () => {
+  run('a row that has just reached App already carries the Applied stage', () => {
     assert.strictEqual(app.grid[4][10], 'Applied: ' + today());
   });
-  run('cột K được set WRAP, không thì ô chỉ hiện đúng dòng đầu', () => {
+  run('column K is set to WRAP, or the cell would show only its first line', () => {
     assert.ok(wrapped.some((call) => call[0] === 11 && call[1] === 'WRAP'));
   });
 }
@@ -399,41 +401,41 @@ console.log('onAppEdit');
   app = freshApp();
   const s = load();
 
-  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });   // Notion đang ở OA
-  run('đổi Process thì ghi một dòng "<Chặng>: <ngày>"', () => {
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });   // Notion is at OA
+  run('changing Process writes one "<Stage>: <date>" line', () => {
     assert.strictEqual(app.grid[2][10], 'OA: ' + today());
   });
-  run('toast nói rõ ngày vừa ghi', () => {
-    assert.match(toasts[toasts.length - 1], /Ghi .+ vào cột Update của 1 dòng/);
+  run('the toast names the date it just wrote', () => {
+    assert.match(toasts[toasts.length - 1], /Wrote .+ to the Update column of 1 row/);
   });
 
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
-  run('bắn lại đúng chặng đang có thì không ghi thêm dòng nào', () => {
+  run('firing again on the stage already set writes no further line', () => {
     assert.strictEqual(app.grid[2][10], 'OA: ' + today());
   });
 
   app.grid[2][5] = 'Interview';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
-  run('chặng mới nối xuống dưới, chặng cũ giữ nguyên', () => {
+  run('a new stage is appended below and the old ones are left as they were', () => {
     assert.strictEqual(app.grid[2][10], 'OA: ' + today() + '\nInterview: ' + today());
   });
 
   app.grid[2][5] = 'OA';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
-  run('quay lại chặng đã đi qua không ghi lần hai', () => {
+  run('going back to a stage already passed does not write it twice', () => {
     assert.strictEqual(app.grid[2][10].split('\n').length, 2);
   });
 
   const kept = app.grid[2][10];
-  s.onEdit({ source: ss, range: app.getRange(3, 8, 1, 1) });   // cột Note
-  run('sửa cột khác thì không đụng vào cột Update', () => {
+  s.onEdit({ source: ss, range: app.getRange(3, 8, 1, 1) });   // the Note column
+  run('an edit to another column leaves the Update column alone', () => {
     assert.strictEqual(app.grid[2][10], kept);
   });
 
   app.grid[2][5] = 'Offer';
   app.grid[3][5] = 'Phone screen';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 2, 1) });
-  run('trong cùng khối, chặng hợp lệ vẫn ghi còn giá trị lạ thì không', () => {
+  run('inside one block a valid stage is written and an unrecognised value is not', () => {
     assert.match(app.grid[2][10], /Offer: /);
     assert.ok(!app.grid[3][10]);
   });
@@ -445,88 +447,88 @@ console.log('setupAppColumns');
   app = freshApp();
   const s = load();
   s.setupAppColumns();
-  run('dựng header ở cột K', () => {
+  run('it builds the header in column K', () => {
     assert.strictEqual(app.grid[0][10], 'Update');
   });
-  run('dòng đang ở Applied suy ra ngày từ cột Date Applied', () => {
+  run('a row sitting at Applied takes its date from Date Applied', () => {
     assert.strictEqual(app.grid[1][10], 'Applied: July 21, 2026');
   });
-  run('dòng đã đi xa hơn thì chặng sau mang dấu ? chứ không bịa ngày', () => {
+  run('a row that has gone further marks the later stage ? rather than inventing a date', () => {
     assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: ?');
   });
-  run('dòng chỉ có link, không có Process, thì không phải entry', () => {
+  run('a row with only a link and no Process is not an entry', () => {
     assert.ok(!app.grid[3][10]);
   });
-  run('toast đếm riêng số dòng còn phải điền tay', () => {
-    assert.match(toasts[toasts.length - 1], /Điền 2 dòng.*1 dòng đang ở chặng sau Applied/s);
+  run('the toast counts the rows still needing to be filled in by hand separately', () => {
+    assert.match(toasts[toasts.length - 1], /Filled in 2 rows.*1 at a stage past Applied/s);
   });
-  run('dựng header cho hai cột checkbox', () => {
+  run('it builds the header for the two checkbox columns', () => {
     assert.strictEqual(app.grid[0][8], 'Alumni');
     assert.strictEqual(app.grid[0][9], 'Recruiter');
   });
-  run('cột checkbox hẹp, cột Update rộng', () => {
+  run('the checkbox columns are narrow and Update is wide', () => {
     assert.deepStrictEqual(widths, [[9, 70], [10, 90], [11, 300]]);
   });
-  run('checkbox chỉ phủ tới dòng cuối có thật, không tới LAST_ROW', () => {
-    // Phủ tới 500 thì validation ghi vật lý FALSE xuống tận đó, getLastRow() thành
-    // 500, và onEdit sẽ append dòng mới ở dòng 501.
+  run('the checkboxes cover only as far as the real last row, not to LAST_ROW', () => {
+    // Covering to 500 would make the validation physically write FALSE all the way
+    // down, getLastRow() would return 500, and onEdit would append new rows at 501.
     const boxes = validated.filter((call) => call[1] === 9);
     assert.strictEqual(boxes.length, 1);
-    assert.deepStrictEqual(boxes[0], [2, 9, 3, 2]);   // I2:J4, đúng 3 dòng đang có
+    assert.deepStrictEqual(boxes[0], [2, 9, 3, 2]);   // I2:J4, exactly the 3 rows there are
   });
 
   const kept = app.grid[1][10];
   app.grid[2][10] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
   s.setupAppColumns();
-  run('chạy lại không ghi đè ô đã có chữ', () => {
+  run('running again does not overwrite a cell that already has text', () => {
     assert.strictEqual(app.grid[1][10], kept);
     assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
   });
-  run('lần hai không còn gì để điền', () => {
-    assert.match(toasts[toasts.length - 1], /Ba cột đã đúng/);
+  run('the second run has nothing left to fill in', () => {
+    assert.match(toasts[toasts.length - 1], /All three columns are already right/);
   });
 }
 
-console.log('setupAppColumns — dời cột Update từ J sang K');
+console.log('setupAppColumns — moving the Update column from J to K');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  // Sheet của người đã chạy bản hôm qua: lịch sử đang nằm ở cột J.
+  // The sheet of someone who ran yesterday's version: the history is in column J.
   app.grid[0][9] = 'Update';
   app.grid[1][9] = 'Applied: Jul 21, 2026';
   app.grid[2][9] = 'Applied: Jul 26, 2026\nOA: Aug 1, 2026';
   s.setupAppColumns();
 
-  run('lịch sử sang cột K nguyên vẹn', () => {
+  run('the history reaches column K intact', () => {
     assert.strictEqual(app.grid[1][10], 'Applied: Jul 21, 2026');
     assert.strictEqual(app.grid[2][10], 'Applied: Jul 26, 2026\nOA: Aug 1, 2026');
   });
-  run('cột J nhường chỗ cho Recruiter', () => {
+  run('column J is handed over to Recruiter', () => {
     assert.strictEqual(app.grid[0][9], 'Recruiter');
     assert.strictEqual(app.grid[1][9], '');
     assert.strictEqual(app.grid[2][9], '');
   });
-  run('toast nói đã dời bao nhiêu dòng', () => {
-    assert.match(toasts[toasts.length - 1], /Dời 2 dòng lịch sử từ cột J sang K/);
+  run('the toast says how many rows it moved', () => {
+    assert.match(toasts[toasts.length - 1], /Moved 2 rows of history from column J to K/);
   });
 
   const kept = app.grid[2][10];
   s.setupAppColumns();
-  run('chạy lại không dời lần hai — K đã có chữ thì đứng yên', () => {
+  run('running again does not move a second time — text in K means stand still', () => {
     assert.strictEqual(app.grid[2][10], kept);
     assert.strictEqual(app.grid[0][9], 'Recruiter');
   });
 }
 
-console.log('onEdit — dòng mới nhận validation của cả hai ô checkbox');
+console.log('onEdit — a new row picks up the validation of both checkboxes');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
   jobs.grid[3][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('copy validation tới hết cột J, không dừng ở APP_WIDTH', () => {
+  run('validation is copied out to the end of column J, not stopping at APP_WIDTH', () => {
     assert.strictEqual(copied.length, 1);
     assert.strictEqual(copied[0][1], 'PASTE_DATA_VALIDATION');
     assert.strictEqual(copiedWidth, 10);

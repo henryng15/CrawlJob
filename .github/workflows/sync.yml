@@ -12,16 +12,34 @@ on:
         type: boolean
         default: false
   schedule:
-    # GitHub Actions only accepts UTC. Run hourly across both EST/EDT windows;
-    # the command itself accepts precisely 08:00, 10:00, 12:00, 14:00, 16:00 ET.
-    - cron: "0 12-21 * * *"
+    # Every 90 minutes from 09:00 to 18:00 ET: 9:00, 10:30, 12:00, 13:30, 15:00,
+    # 16:30, 18:00. Seven firings, and every one of them does the work — the
+    # command's window check is a guard, not a filter, so nothing is wasted.
+    #
+    # GitHub Actions only accepts UTC, and these times are EDT (UTC-4). When EST
+    # starts on 1 November 2026 they land an hour early, at 08:00-17:00 ET. To put
+    # them back, add one to each hour: "0 14,17,20,23" and "30 15,18,21".
+    - cron: "0 13,16,19,22 * * *"
+    - cron: "30 14,17,20 * * *"
 
 permissions:
   contents: read
 
+# Two runs must never write the sheet at once. Ninety minutes apart with a 4-minute
+# run leaves no room to collide on its own, but a manual run fired during a
+# scheduled one would, and both would be rewriting the same rows. Queue rather than
+# cancel: a cancelled run could stop halfway through a rewrite. Queued time is not
+# billed.
+concurrency:
+  group: sheet-write
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # A run takes four minutes. The default ceiling is six hours, so one hung run
+    # would eat 18% of the month's free minutes before Actions gave up on it.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

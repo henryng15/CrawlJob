@@ -222,35 +222,21 @@ def test_asking_no_boards_makes_no_requests() -> None:
     assert harvest([]) == BoardResult()
 
 
-def test_the_boards_are_asked_twice_a_day_not_on_every_run() -> None:
-    """902 requests to somebody else's API is the cost, and it buys a posting
-    within six hours instead of twenty-four. Asking on all five runs would be five
-    times the traffic to shorten that to two."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+def test_the_boards_are_asked_on_every_run() -> None:
+    """They used to be asked on two of the five runs, to hold the traffic down. On
+    a ninety-minute schedule that gating would have made the schedule a gesture:
+    the trackers are five Markdown files a volunteer edits once or twice a day, so
+    a run reading only those finds what the run before it already had. The boards
+    are the half that changes hourly, and the only half that reports the date a
+    posting went up.
 
-    from job_sync.main import BOARD_HOURS, SCHEDULED_HOURS, wants_boards
+    The cost is asserted rather than described, so that raising the run count is a
+    decision somebody makes on purpose."""
+    from job_sync.main import WORKING_HOURS
 
-    new_york = ZoneInfo("America/New_York")
-    asked = {
-        hour
-        for hour in SCHEDULED_HOURS
-        if wants_boards(True, datetime(2026, 8, 19, hour, tzinfo=new_york))
-    }
-    assert asked == BOARD_HOURS
-    assert BOARD_HOURS < SCHEDULED_HOURS, "a board hour that is not a sync hour never runs"
-
-
-def test_a_run_someone_typed_always_asks_the_boards() -> None:
-    """Outside every window, too. A manual run is a deliberate request for
-    everything there is — it is the escape hatch when a posting cannot wait."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    from job_sync.main import wants_boards
-
-    middle_of_the_night = datetime(2026, 8, 19, 3, tzinfo=ZoneInfo("America/New_York"))
-    assert wants_boards(False, middle_of_the_night) is True
+    runs_a_day = 7
+    assert 5_000 < len(load_boards()) * runs_a_day < 8_000
+    assert len(WORKING_HOURS) == 11, "the window is the working day, not the run count"
 
 
 def test_a_board_can_be_written_down_by_hand(tmp_path) -> None:

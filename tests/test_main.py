@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
-from job_sync.main import EARLIEST_POSTED, NEW_YORK, is_scheduled_slot
+from job_sync.main import EARLIEST_POSTED, NEW_YORK, in_working_window
 from job_sync.sources import Job
 
 
@@ -47,14 +47,35 @@ def test_cutoff_day_itself_is_included() -> None:
     assert _filter([_job("2026-01-01")], EARLIEST_POSTED)
 
 
-def test_scheduled_slot_only_on_even_et_hours() -> None:
+def test_the_window_is_the_working_day_not_the_schedule() -> None:
+    """The seven run times live in sync.yml's cron. All this has to do is let the
+    working day through, an hour wider than the schedule at each end."""
     kept = [
         hour
         for hour in range(24)
-        if is_scheduled_slot(datetime(2026, 8, 6, hour, 30, tzinfo=NEW_YORK))
+        if in_working_window(datetime(2026, 8, 6, hour, 30, tzinfo=NEW_YORK))
     ]
-    assert kept == [8, 10, 12, 14, 16]
+    assert kept == list(range(8, 19))
 
 
-def test_manual_run_at_night_is_not_a_scheduled_slot() -> None:
-    assert not is_scheduled_slot(datetime(2026, 8, 6, 21, 22, tzinfo=NEW_YORK))
+def test_a_run_actions_started_late_still_counts() -> None:
+    """Measured across one day, the cron fired between 16 and 36 minutes behind
+    its slot. Matching an exact time is what this window replaced: the 18:00 run
+    arriving at 18:36 has to survive, and on a half-hour schedule so does 16:30
+    arriving at 17:06."""
+    assert in_working_window(datetime(2026, 8, 6, 18, 36, tzinfo=NEW_YORK))
+    assert in_working_window(datetime(2026, 8, 6, 17, 6, tzinfo=NEW_YORK))
+
+
+def test_the_window_survives_the_dst_shift() -> None:
+    """Actions cron is UTC only, so the same two lines land an hour earlier once
+    EST starts in November. Both ends of the shifted day still pass, which is why
+    a forgotten cron edit costs an hour of timing rather than a whole run."""
+    for utc_hour, expected in ((13, 8), (22, 17)):
+        run = datetime(2026, 12, 1, utc_hour, 20, tzinfo=UTC)
+        assert run.astimezone(NEW_YORK).hour == expected
+        assert in_working_window(run)
+
+
+def test_manual_run_at_night_is_outside_the_window() -> None:
+    assert not in_working_window(datetime(2026, 8, 6, 21, 22, tzinfo=NEW_YORK))

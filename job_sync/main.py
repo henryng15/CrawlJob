@@ -13,16 +13,20 @@ from job_sync.sheet import append_new_jobs, audit_app
 from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
-SCHEDULED_HOURS = {8, 10, 12, 14, 16}
-# Which of those runs also ask the ATS boards. Morning and mid-afternoon, so a
-# posting that goes up during US business hours is in the sheet within six hours
-# rather than twenty-four — internships close on that timescale.
+# The working day as a window, not a list of slots. The seven run times live in
+# the cron of sync.yml — 9:00, 10:30, 12:00, 13:30, 15:00, 16:30 and 18:00 ET —
+# and this only refuses a run that arrives outside business hours at all.
 #
-# Adding an hour here is close to free: the board crawl takes 36 seconds and
-# Actions bills whole minutes, so most of it disappears into rounding a run that
-# already takes three and a half. What it is not free in is requests to somebody
-# else's API — 902 of them per crawl.
-BOARD_HOURS = {8, 14}
+# It used to name five exact hours, which was a bug waiting for a slow day.
+# Actions does not start a scheduled run on time: measured across one day, the
+# hourly cron fired between 16 and 36 minutes late, once at :36. Matching an
+# exact slot would have thrown away whichever run was unluckiest, and a
+# half-hour schedule makes that near-certain.
+#
+# The window is also an hour wider than the schedule at each end, which is what
+# carries it through the November DST change: the same UTC cron lands an hour
+# earlier once EST starts, and every run still passes.
+WORKING_HOURS = frozenset(range(8, 19))
 # One posting year, not one month. The cutoff exists because the trackers carry a
 # decade of history — there are still-reachable listings here from 2016 — and the
 # first sync would otherwise pour all of it into the sheet.
@@ -39,28 +43,16 @@ BOARD_HOURS = {8, 14}
 EARLIEST_POSTED = date(2026, 1, 1)
 
 
-def is_scheduled_slot(now: datetime) -> bool:
+def in_working_window(now: datetime) -> bool:
     local = now.astimezone(NEW_YORK)
-    return local.hour in SCHEDULED_HOURS
-
-
-def wants_boards(scheduled: bool, now: datetime) -> bool:
-    """Whether this run should ask the ATS boards as well as the trackers.
-
-    Twice a day rather than on all five runs. The shortlist is 902 boards and each
-    one is a request to an API this tool is a guest on; the gain from asking every
-    two hours instead of every six does not pay for five times that traffic.
-
-    A manual run always asks, because a run someone typed is a deliberate request
-    for everything there is."""
-    return not scheduled or now.astimezone(NEW_YORK).hour in BOARD_HOURS
+    return local.hour in WORKING_HOURS
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync target internships to a Google Sheet")
     parser.add_argument("--sources", type=Path, default=Path("sources.toml"))
     parser.add_argument(
-        "--scheduled", action="store_true", help="exit outside 08:00–16:59 ET even hours"
+        "--scheduled", action="store_true", help="exit outside the 08:00–18:59 ET working window"
     )
     parser.add_argument(
         "--skip-link-check",
@@ -93,8 +85,8 @@ def main() -> None:
         audit_app(load_settings())
         return
     now = datetime.now(NEW_YORK)
-    if args.scheduled and not is_scheduled_slot(now):
-        print("Outside scheduled 2-hour ET window; nothing to do.")
+    if args.scheduled and not in_working_window(now):
+        print("Outside the 08:00–18:59 ET working window; nothing to do.")
         return
 
     jobs = []
@@ -115,9 +107,16 @@ def main() -> None:
     # After the check above, not before it: the trackers are the floor this stands
     # on, and every tracker failing is an outage worth stopping for even if a few
     # hundred boards happen to answer.
+    # Every run asks the boards, not a chosen two of them. The trackers are five
+    # Markdown files a volunteer edits once or twice a day, so asking them every
+    # ninety minutes turns up nothing the run before did not already have. The
+    # boards are the half that changes hourly, and the only half that reports the
+    # date a posting went up — gating them would have made the tighter schedule a
+    # gesture. It costs 903 requests seven times a day, and roughly 1,050 of the
+    # 2,000 free Actions minutes a month. --no-boards is how you dial it back.
     boards = [] if args.no_boards else load_boards()
     abroad: set[str] = set()
-    if boards and wants_boards(args.scheduled, now):
+    if boards:
         found = harvest(boards)
         print(
             f"ATS boards: asked {found.asked}, {found.live} were advertising something, "
@@ -133,9 +132,6 @@ def main() -> None:
         # in the Source column says where the posting actually lives.
         jobs = found.jobs + jobs
         abroad = found.foreign
-    elif boards:
-        hours = ", ".join(f"{hour:02d}:00" for hour in sorted(BOARD_HOURS))
-        print(f"{len(boards)} ATS boards skipped; they are asked at {hours} ET.")
 
     jobs = dedupe_jobs(jobs)
     # ISO-8601 dates compare correctly as strings, which is why date_posted is one.

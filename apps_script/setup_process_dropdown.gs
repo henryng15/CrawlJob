@@ -1,28 +1,28 @@
 /**
- * Track App — thiết lập cột Process thành dropdown có màu.
+ * Track App — turn the Process column into a coloured dropdown.
  *
- * Cách chạy:
- *   1. Mở Google Sheet "Track App"
+ * How to run it:
+ *   1. Open the "Track App" Google Sheet
  *   2. Extensions → Apps Script
- *   3. Xoá code mẫu, dán toàn bộ file này vào
- *   4. Chọn hàm setupProcessDropdown ở thanh trên, bấm Run
- *   5. Lần đầu Google sẽ hỏi quyền → Review permissions → chọn account
- *      → Advanced → Go to (project name) → Allow
+ *   3. Delete the sample code and paste this whole file in
+ *   4. Pick setupProcessDropdown from the toolbar and press Run
+ *   5. The first time, Google asks for permission → Review permissions → pick the
+ *      account → Advanced → Go to (project name) → Allow
  */
 
 function setupProcessDropdown() {
-  var SHEET_GID     = 1712615786;  // tab lấy từ #gid= trong URL
-  var PROCESS_COL   = 6;           // cột F
-  var FIRST_ROW     = 2;           // dòng 1 là header
-  var LAST_ROW      = 500;         // chừa sẵn chỗ cho entry mới
+  var SHEET_GID     = 1712615786;  // the tab, taken from #gid= in the URL
+  var PROCESS_COL   = 6;           // column F
+  var FIRST_ROW     = 2;           // row 1 is the header
+  var LAST_ROW      = 500;         // leave room for new entries
 
-  // Thứ tự này = thứ tự hiện trong dropdown, đi theo pipeline tuyển dụng
+  // This order is the order they appear in the dropdown, following the hiring pipeline
   var STAGES = [
-    { name: 'Applied',   bg: '#CFE2F3', fg: '#1155CC' },  // xanh dương — đã nộp
-    { name: 'OA',        bg: '#FFF2CC', fg: '#BF9000' },  // vàng — cần làm bài
-    { name: 'Interview', bg: '#D9D2E9', fg: '#674EA7' },  // tím — đã vào vòng phỏng vấn
-    { name: 'Offer',     bg: '#D9EAD3', fg: '#38761D' },  // xanh lá — thành công
-    { name: 'Rejected',  bg: '#F4CCCC', fg: '#CC0000' }   // đỏ — đã đóng
+    { name: 'Applied',   bg: '#CFE2F3', fg: '#1155CC' },  // blue — sent
+    { name: 'OA',        bg: '#FFF2CC', fg: '#BF9000' },  // yellow — an assessment to do
+    { name: 'Interview', bg: '#D9D2E9', fg: '#674EA7' },  // purple — reached the interview round
+    { name: 'Offer',     bg: '#D9EAD3', fg: '#38761D' },  // green — it worked
+    { name: 'Rejected',  bg: '#F4CCCC', fg: '#CC0000' }   // red — closed
   ];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -30,23 +30,23 @@ function setupProcessDropdown() {
     return s.getSheetId() === SHEET_GID;
   })[0];
   if (!sheet) {
-    throw new Error('Không tìm thấy tab có gid ' + SHEET_GID + '. Kiểm tra lại URL.');
+    throw new Error('No tab with gid ' + SHEET_GID + '. Check the URL.');
   }
 
   var range = sheet.getRange(FIRST_ROW, PROCESS_COL, LAST_ROW - FIRST_ROW + 1, 1);
   var names = STAGES.map(function (s) { return s.name; });
 
-  // 1) Dropdown — setAllowInvalid(false) chặn luôn việc gõ sai chính tả
+  // 1) The dropdown. setAllowInvalid(false) also blocks a misspelled value
   var validation = SpreadsheetApp.newDataValidation()
     .requireValueInList(names, true)
     .setAllowInvalid(false)
-    .setHelpText('Chọn một trong: ' + names.join(', '))
+    .setHelpText('Pick one of: ' + names.join(', '))
     .build();
   range.setDataValidation(validation);
 
-  // 2) Màu theo giá trị.
-  //    Giữ lại các rule đang áp cho cột khác, chỉ thay rule của cột Process,
-  //    để chạy lại script nhiều lần không bị nhân bản rule.
+  // 2) Colour by value.
+  //    Keep the rules that apply to other columns and replace only the Process
+  //    ones, so running the script again does not duplicate rules.
   var kept = sheet.getConditionalFormatRules().filter(function (rule) {
     return rule.getRanges().every(function (r) {
       return r.getColumn() !== PROCESS_COL;
@@ -64,5 +64,5 @@ function setupProcessDropdown() {
 
   sheet.setConditionalFormatRules(kept.concat(colorRules));
 
-  ss.toast('Cột Process (F2:F' + LAST_ROW + ') đã có dropdown + màu.', 'Xong', 5);
+  ss.toast('Process column (F2:F' + LAST_ROW + ') now has a dropdown and colours.', 'Done', 5);
 }

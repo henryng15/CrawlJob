@@ -1,308 +1,353 @@
-# Job từ đâu ra, và khi nào một dòng biến mất
+# Where jobs come from, and when a row disappears
 
-## Nguồn
+## Sources
 
-[`sources.toml`](../sources.toml) liệt kê các public tracker, mỗi cái là một file Markdown
-thô trên GitHub. Thêm một block `[[sources]]` là xong, không cần đổi code.
+[`sources.toml`](../sources.toml) lists the public trackers, each one a raw
+Markdown file on GitHub. Adding a `[[sources]]` block is the whole job — no code
+change needed.
 
-| Tracker | Ghi chú |
+| Tracker | Notes |
 |---|---|
 | Simplify / Pitt CSC — Summer 2027 | |
 | sndsh404 — Summer 2027 | |
 | speedyapply — 2027 SWE College Jobs | |
 | zshah101 — 2027 / Fall 2026 Tech Internships | |
-| Jobright — 2026 Software Engineer Internship | không có cột Apply riêng; link nằm trong ô Job Title và là redirect `jobright.ai`, không phải URL board của công ty |
+| Jobright — 2026 Software Engineer Internship | no separate Apply column; the link sits inside the Job Title cell and is a `jobright.ai` redirect, not the company's own board URL |
 
-Đây là danh sách baseline, không có cách đáng tin cậy nào để khẳng định đã bao phủ *tất
-cả* repo tracker trên GitHub.
+This is a baseline list; there is no reliable way to claim it covers *every*
+tracker repo on GitHub.
 
-Một tracker hỏng không làm chết cả lượt sync: lỗi được bắt riêng cho từng nguồn, in ra
-`WARNING` và các nguồn còn lại vẫn chạy. Chỉ khi **không nguồn nào** parse ra job thì lượt
-đó mới fail.
+One broken tracker does not kill the whole sync run: errors are caught per source,
+printed as `WARNING`, and the remaining sources still run. Only when **no source at
+all** parses out a job does that run fail.
 
-## Nguồn thứ hai: ATS của chính công ty
+## The second source: the company's own ATS
 
-Tracker Markdown phủ tốt các chương trình đã nổi tiếng và phủ startup gần như bằng không —
-một công ty phải nổi đủ để có người tình nguyện gõ tên nó vào. Chính startup đó thì vẫn
-đăng bài, trên **applicant tracking system** họ dùng để nhận đơn, qua endpoint JSON công
-khai không cần key.
+The Markdown trackers cover already-famous programmes well and cover startups
+almost not at all — a company has to be famous enough that somebody volunteers to
+type its name in. Those startups do post, on the **applicant tracking system** they
+use to receive applications, over public JSON endpoints that need no key.
 
-| ATS | endpoint | ngày lấy từ |
+| ATS | endpoint | date comes from |
 |---|---|---|
 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{slug}/jobs` | `first_published` |
 | Lever | `api.lever.co/v0/postings/{slug}?mode=json` | `createdAt` (epoch ms) |
 | Ashby | `api.ashbyhq.com/posting-api/job-board/{slug}` | `publishedAt` |
 
-Board được đọc **trước** tracker, và thứ tự đó có ý nghĩa: `dedupe_jobs` giữ bản sao đầu
-tiên nó gặp của mỗi link, nên bên nào đứng trước sẽ là bên mô tả mọi posting xuất hiện ở cả
-hai chỗ. Board mô tả tốt hơn ở đúng hai điểm đáng kể — ngày là lúc employer publish chứ
-không phải lúc một người tình nguyện để ý, và tên trong cột `Source` nói đúng nơi bài đăng
-đang sống.
+The boards are read **before** the trackers, and that order means something:
+`dedupe_jobs` keeps the first copy of each link it meets, so whichever side comes
+first is the side that describes every posting appearing in both places. The board
+describes it better on exactly two counts worth caring about — the date is when the
+employer published rather than when a volunteer noticed, and the name in the
+`Source` column says where the posting actually lives.
 
-Ba thứ khiến chúng **tốt hơn** tracker chứ không chỉ nhiều hơn:
+Three things make them **better** than the trackers, not merely more of them:
 
-- Link là board của chính employer, nên nó không mục đi như redirect aggregator.
-- Ngày là `first_published` của board, chứ không phải ngày một người tình nguyện để ý thấy.
-- Một startup bốn người đứng ngang hàng với một công ty bốn vạn người.
+- The link is the employer's own board, so it does not rot the way an aggregator
+  redirect does.
+- The date is the board's `first_published`, not the day a volunteer noticed.
+- A four-person startup stands on the same footing as a forty-thousand-person
+  company.
 
-### Không có cách nào lấy hết
+### There is no way to get all of them
 
-Đã kiểm chứng, không phải phỏng đoán: **không ATS nào cho liệt kê board.** Không endpoint
-danh sách, không sitemap dùng được (`job-boards.greenhouse.io/sitemap.xml` trả 404,
-`jobs.ashbyhq.com/sitemap.xml` trả HTML chứ không phải XML).
+Verified, not guessed: **no ATS lets you list boards.** No listing endpoint, no
+usable sitemap (`job-boards.greenhouse.io/sitemap.xml` returns 404,
+`jobs.ashbyhq.com/sitemap.xml` returns HTML rather than XML).
 
-Và archive cũng không phủ hết. Verition Group có board Greenhouse thật, mở việc thật, mà
-Common Crawl **chưa từng fetch một lần nào**:
+And the archives do not cover everything either. Verition Group has a real
+Greenhouse board with real open jobs that Common Crawl has **never once fetched**:
 
 ```
 boards.greenhouse.io/veritiongroupllc*      No Captures found
 ```
 
-Một board chỉ nằm trong archive nếu từng có thứ gì đó link tới nó. Board không ai link thì
-không có đường nào tìm ra bằng máy. Nên hệ thống góp slug từ bốn nguồn, mỗi nguồn bịt một
-kiểu lỗ khác nhau:
+A board is only in an archive if something once linked to it. A board nobody links
+to cannot be found by machine at all. So the system pools slugs from four sources,
+each plugging a different kind of hole:
 
-| nguồn | được gì | bịt lỗ nào |
+| source | what it gives | which hole it plugs |
 |---|---|---|
-| `data/extra_boards.txt` | ghi tay | board không ai biết — lối thoát duy nhất |
-| link trong tracker | 83 slug, 26 cái mới | board vừa được tracker đăng, archive chưa kịp thấy |
-| Common Crawl (qua repo) | 15.862 slug | bề rộng |
-| `yc-oss/api` | công ty YC đang tuyển | startup |
+| `data/extra_boards.txt` | written by hand | the board nobody knows about — the only escape hatch |
+| links inside the trackers | 83 slugs, 26 of them new | a board a tracker has just posted that the archive has not caught up with |
+| Common Crawl (via a repo) | 15,862 slugs | breadth |
+| `yc-oss/api` | YC companies currently hiring | startups |
 
-### Biết board nào tồn tại
+### Knowing which boards exist
 
-Đó mới là phần khó, và nó nằm ở [`scripts/discover_boards.py`](../scripts/discover_boards.py).
-Slug lấy từ hai danh sách **tên**, không phải từ việc scrape trang của ai:
+That is the hard part, and it lives in [`scripts/discover_boards.py`](../scripts/discover_boards.py).
+Slugs come from four lists of **names**, not from scraping anybody's pages:
 
-- **`job_sync/data/extra_boards.txt`** — ghi tay, mỗi dòng `<ats>:<slug>`. File riêng để
-  lượt dựng lại hàng tuần không bao giờ xoá mất cái nào. Thấy board nào thiếu thì thêm một
-  dòng; nó được hỏi ngay ở lượt crawl kế tiếp, không phải chờ chủ nhật.
-- **Link mà chính tracker đang đăng** — miễn phí, chính xác, tự lớn lên. Tracker thêm công
-  ty nào hôm nay là đưa luôn board công ty đó hôm nay.
+- **`job_sync/data/extra_boards.txt`** — written by hand, one `<ats>:<slug>` per
+  line. A separate file so the weekly rebuild can never drop one. See a board
+  missing, add a line; it is asked on the very next crawl, not after waiting for
+  Sunday.
+- **The links the trackers themselves post** — free, accurate, self-growing.
+  Whichever company a tracker adds today brings that company's board along today.
 - [`Feashliaa/job-board-aggregator`](https://github.com/Feashliaa/job-board-aggregator) —
-  15.862 slug, harvest từ index Common Crawl của các URL ATS công khai.
-  Data theo **CC BY-NC 4.0**; attribution được ghi thẳng vào file output, và tracker này là
-  cá nhân, phi thương mại.
-- [`yc-oss/api`](https://github.com/yc-oss/api) — công ty YC đang tuyển, dựng lại mỗi ngày
-  từ chính Algolia index của YC. Chỉ những slug danh sách trên chưa có mới được thử.
+  15,862 slugs, harvested from the Common Crawl index of public ATS URLs.
+  The data is **CC BY-NC 4.0**; the attribution is written straight into the output
+  file, and this tracker is personal and non-commercial.
+- [`yc-oss/api`](https://github.com/yc-oss/api) — YC companies currently hiring,
+  rebuilt daily from YC's own Algolia index. Only slugs the lists above do not
+  already have are tried.
 
-### Vì sao chia hai tầng
+### Why it is split into two tiers
 
-Lượt sync không thể hỏi 19.899 board, 5 lần một ngày — đó là nửa tháng Actions minutes tiêu
-vào những công ty chưa từng nhận intern. Nên:
+A sync run cannot ask 19,899 boards seven times a day — that is half a month of
+Actions minutes spent on companies that have never taken an intern. So:
 
-| | tần suất | phạm vi | tiêu chí giữ lại |
+| | frequency | scope | keep criterion |
 |---|---|---|---|
-| `discover_boards.py` | tuần, workflow riêng | tất cả 19.899 | board **đang đăng internship bất kỳ ngành nào** |
-| `boards.py` | **2 lần/ngày**, lượt 08:00 và 14:00 ET | 902 board trong shortlist | role khớp `roles.py` |
+| `discover_boards.py` | weekly, its own workflow | all 19,899 | boards **advertising an internship in any field** |
+| `boards.py` | **every scheduled run**, every 90 minutes from 09:00 to 18:00 ET | the 903 boards in the shortlist | roles matching `roles.py` |
 
-Số đo lần đầu (19/08/2026): 9.062 board còn sống, **902** đang tuyển intern, trong đó
-**312 role khớp** bộ lọc SWE. Lượt hàng ngày hỏi hết 902 board mất **36 giây**.
+First measurement (2026-08-19): 9,062 boards still alive, **902** hiring interns,
+of which **312 roles matched** the SWE filter. Asking all 903 boards takes
+**36 seconds**.
 
-Tiêu chí của tầng một là "công ty này có nhận intern" chứ không phải "có SWE intern hôm
-nay" — công ty đã chạy chương trình intern mới là công ty có thể đăng SWE intern tuần sau.
+The first tier's criterion is "does this company take interns at all" rather than
+"does it have an SWE intern today" — a company that has already run an intern
+programme is a company that could post an SWE intern next week.
 
-Đánh đổi: posting mới ở công ty **đã** nhận intern thì bắt được trong vòng một ngày; công
-ty mở chương trình lần đầu thì trong vòng một tuần. Nói ra ở đây thay vì giấu trong một con
-số.
+The trade-off: a new posting at a company that **already** takes interns is caught
+within ninety minutes; a company opening a programme for the first time, within a
+week. Said out loud here instead of hidden inside a number.
 
-Vì sao 2 lần chứ không phải cả 5 lượt: chi phí không nằm ở Actions minutes — 36 giây gần
-như tan hết vào việc GitHub làm tròn lên từng phút của một run vốn đã 3,4 phút. Chi phí nằm
-ở **902 request lên API của người khác**, mỗi lượt. Hai lần sáng–chiều đưa độ trễ tối đa
-xuống ~6 tiếng; năm lần đưa xuống ~2 tiếng nhưng gấp 2,5 lần lưu lượng.
+Why every run rather than a chosen two of them: the cost is not Actions minutes —
+36 seconds nearly vanishes into GitHub rounding a run that already takes 4.1
+minutes up to the whole minute. The cost is **903 requests against somebody else's
+API**, every run. But gating them would have made the tighter schedule a gesture:
+the trackers are five Markdown files a volunteer edits once or twice a day, so a
+run reading only those turns up what the run before already had. The boards are the
+half that changes hourly, and the only half that reports the date a posting went
+up.
 
-Sửa ở `BOARD_HOURS` trong [`main.py`](../job_sync/main.py), một dòng. Cần ngay thì bấm
-**Run workflow**: lượt chạy tay luôn hỏi board, bất kể giờ nào.
+What that traffic comes to: 903 boards × 7 runs = **6,321 requests a day**, split
+greenhouse 467 / ashby 251 / lever 185 — 0.038 requests a second averaged against
+Greenhouse, the busiest of the three hosts. Seven runs ninety minutes apart hold
+the worst-case lag at ninety minutes, where a morning-and-afternoon pair held it at
+about six hours.
 
-Shortlist nằm ở `job_sync/data/ats_boards.json`, đi theo wheel qua `package-data`. Thiếu
-file thì tính năng tắt, sync vẫn chạy trên tracker Markdown như cũ. Bỏ qua bằng
-`--no-boards`.
+There is no hour list to edit any more: every scheduled run asks the boards, and
+`--no-boards` is how you skip them for a single run. Need one now, press **Run
+workflow**: a manual run skips the window check and always crawls.
 
-## Lọc "trong nước Mỹ"
+The shortlist lives in `job_sync/data/ats_boards.json` and travels with the wheel
+through `package-data`. A missing file means the feature is off, and the sync still
+runs on the Markdown trackers as before. Bypass it with `--no-boards`.
 
-Tracker Markdown là danh sách US theo bản chất — người curate làm cho người đọc ở Mỹ. Board
-ATS thì **không**: nó là mọi job công ty đang mở ở mọi nơi. Lượt crawl đầu tiên cho thấy
-**137 trong 312 role (44%)** nằm ngoài US — Munich, Singapore, London, Auckland, Berlin,
-Ho Chi Minh, Taipei, Colombia, Toronto.
+## The "inside the US" filter
 
-[`places.py`](../job_sync/places.py) đọc dòng location. Nó là **văn xuôi, không phải field**:
-`San Francisco`, `New York, NY`, `Austin, Texas, United States; South San Francisco,
-California, U`, `Colombia, Remote` đều là giá trị thật trong một lượt crawl. Không có cách
-nào chính xác tuyệt đối.
+The Markdown trackers are US lists by their nature — the people curating them are
+working for readers in the US. ATS boards are **not**: a board is every job a
+company has open anywhere. The first crawl showed **137 of 312 roles (44%)**
+outside the US — Munich, Singapore, London, Auckland, Berlin, Ho Chi Minh, Taipei,
+Colombia, Toronto.
 
-Nên luật cố tình **lệch một bên**, vì hai loại sai không tốn như nhau:
+[`places.py`](../job_sync/places.py) reads the location line. It is **prose, not a
+field**: `San Francisco`, `New York, NY`, `Austin, Texas, United States; South San
+Francisco, California, U`, `Colombia, Remote` are all real values from one crawl.
+There is no way to be exactly right.
 
-> Bỏ nhầm một intern US thì **vô hình** — dòng đó đơn giản không bao giờ xuất hiện, và
-> không ai nhớ được thứ mình chưa từng thấy. Giữ nhầm một job ở Berlin thì tốn đúng một
-> cái liếc mắt.
+So the rule is deliberately **lopsided**, because the two kinds of mistake do not
+cost the same:
 
-Nên: **giữ, trừ khi dòng chữ nói ngược lại.**
+> Wrongly dropping a US internship is **invisible** — that row simply never
+> appears, and nobody can miss what they never saw. Wrongly keeping a job in Berlin
+> costs exactly one glance.
 
-1. Có tên bang, mã bang, hoặc chữ `United States` / `USA` → **giữ**, chốt luôn. Chạy trước
-   để `Vancouver, WA` không bị nhầm với Vancouver BC.
-2. Không có thì mới xét quốc gia / thành phố / vùng chắc chắn không thuộc US → **bỏ**.
-3. Còn lại → **giữ**. Một thành phố Mỹ trần trụi không có bang (`San Francisco`) là trường
-   hợp phổ biến nhất, và nó rơi vào nhánh này.
+So: **keep, unless the text says otherwise.**
 
-Ô location trống cũng **giữ**: board không nói job ở đâu thì nó chưa nói job ở nước ngoài.
+1. A state name, a state code, or the words `United States` / `USA` → **keep**,
+   settled there and then. Runs first so `Vancouver, WA` is not mistaken for
+   Vancouver BC.
+2. Only when there is none of that, check for a country / city / region certainly
+   not in the US → **drop**.
+3. Everything else → **keep**. A bare US city with no state (`San Francisco`) is
+   the most common case, and it lands in this branch.
 
-Mã bang chỉ khớp trên chuỗi **gốc**, không lowercase — `IN`, `OR`, `ME`, `OK`, `HI`, `DE`,
-`LA`, `PA` đều là từ tiếng Anh thường, và fold case sẽ biến "Remote **in** Europe" thành
-Indiana rồi giữ lại.
+An empty location cell is also **kept**: a board that has not said where the job is
+has not said the job is abroad.
 
-Riêng Lever có field `country` là **mã ISO-3166** (`US`, `GB`, `KR`, `JP`…) — field địa
-điểm rõ ràng duy nhất trong cả ba API, nên nó được đọc trước khi phải đoán từ văn xuôi.
+State codes only match against the **original** string, not a lowercased one —
+`IN`, `OR`, `ME`, `OK`, `HI`, `DE`, `LA`, `PA` are all ordinary English words, and
+folding case would turn "Remote **in** Europe" into Indiana and then keep it.
 
-### Dòng ngoài US đã lỡ vào sheet
+Lever alone has a `country` field holding an **ISO-3166 code** (`US`, `GB`, `KR`,
+`JP`…) — the one unambiguous location field across all three APIs, so it is read
+before anything has to be guessed out of prose.
 
-Sheet **không tự phán được**: tab Jobs không có cột location, và tới lúc một posting đã
-thành một dòng thì thứ duy nhất còn lại là cái link. Board là thứ duy nhất biết, và chỉ
-biết khi posting còn treo.
+### Non-US rows that already made it into the sheet
 
-Nên mỗi lượt crawl trả về thêm **tập link của những role khớp nhưng ở nước ngoài**, và
-`_drop_foreign_rows` gỡ chúng khỏi sheet theo đúng cái link đã normalize mà dedupe dùng. Đó
-là cách một bộ lọc thêm hôm nay lấy lại được thứ lượt chạy hôm qua đã ghi vào.
+The sheet **cannot work it out for itself**: the Jobs tab has no location column,
+and by the time a posting has become a row the only thing left is the link. The
+board is the only thing that knows, and it only knows while the posting is still
+up.
 
-Gỡ hẳn chứ không giữ làm tombstone như dòng Applied/Expired: tombstone tồn tại để chặn một
-job bị append lần hai, mà một posting trượt bài kiểm tra địa điểm thì vốn không nằm trong
-tập được append.
+So every crawl also returns **the set of links for roles that matched but sit
+abroad**, and `_drop_foreign_rows` takes them out of the sheet by the same
+normalized link dedupe uses. That is how a filter added today takes back what
+yesterday's run wrote in.
 
-**Dòng bạn đã viết vào thì không bị đụng.** Tick Applied cho một job ở London là một quyết
-định, và cái này không có quyền lật nó — cùng luật khiến ghi chú cột H chặn được auto-tick.
+Removed outright rather than kept as a tombstone the way Applied/Expired rows are:
+a tombstone exists to stop a job being appended a second time, and a posting that
+fails the location test was never in the set to be appended in the first place.
 
-## Role nào được giữ
+**A row you have written into is not touched.** Ticking Applied for a job in London
+is a decision, and this has no authority to reverse it — the same rule that lets a
+note in column H block an auto-tick.
 
-[`roles.py`](../job_sync/roles.py) chứa toàn bộ regex. Một role phải thoả **cả hai**:
+## Which roles are kept
 
-1. Có `intern`, `internship`, `co-op`, `placement`, `student`, `summer analyst`, hoặc có
-   **cả** `summer` lẫn `analyst` ở bất kỳ đâu trong tên.
+[`roles.py`](../job_sync/roles.py) holds all the regexes. A role must satisfy
+**both**:
 
-   Ngân hàng và quỹ không bao giờ dùng chữ *intern*. Verition đăng
-   "2027 Technology Internship (US)", cùng vị trí đó ở chỗ khác tên là
-   "Technology Summer Analyst" — một người nộp, một việc, mà một trong hai từng vô hình ở
-   đây. Nới rộng chỗ này chỉ an toàn vì vế thứ hai vẫn phải đồng ý: "Investment Banking
-   Summer 2027 Analyst" không có từ kỹ thuật nào nên vẫn bị loại.
-2. Khớp một trong các nhóm: software engineering/engineer/developer/dev/SWE/SDE; frontend,
-   backend, full-stack, web, mobile, iOS, Android; platform, infrastructure, production
-   infrastructure, developer experience; cloud/cloud operations, DevOps, SRE,
-   build/release, MLOps; embedded, firmware, systems, application; FDE/forward deployed;
-   ML/data platform engineer; quantitative developer.
+1. It has `intern`, `internship`, `co-op`, `placement`, `student`,
+   `summer analyst`, or **both** `summer` and `analyst` anywhere in the title.
 
-   Và **tên nhóm đứng một mình cũng đủ**: `technology`, `cloud`, `infra`/`infrastructure`,
-   `devops`, `software`, `ai` / `artificial intelligence` / `generative ai` / `llm`,
-   `machine learning` / `deep learning`, `ml` / `mlops`, `programming` / `coding`.
+   Banks and funds never use the word *intern*. Verition posts
+   "2027 Technology Internship (US)"; the same position elsewhere is called
+   "Technology Summer Analyst" — one applicant, one job, and one of the two used to
+   be invisible here. Widening this is only safe because the second half still has
+   to agree: "Investment Banking Summer 2027 Analyst" carries no technical word and
+   is still rejected.
+2. It matches one of the families: software engineering/engineer/developer/dev/SWE/SDE;
+   frontend, backend, full-stack, web, mobile, iOS, Android; platform,
+   infrastructure, production infrastructure, developer experience; cloud/cloud
+   operations, DevOps, SRE, build/release, MLOps; embedded, firmware, systems,
+   application; FDE/forward deployed; ML/data platform engineer; quantitative
+   developer.
 
-   Để tên nhóm đứng một mình là cố ý. Công ty viết "Cloud Intern" hay "AI Summer Analyst"
-   là đang nói đúng thứ tracker này tìm; bắt họ viết thêm chữ "engineer" chỉ lọc mất những
-   ai đặt tiêu đề ngắn. Tài chính còn đặt tên cả bộ phận là "Technology" thay vì gọi tên
-   chuyên ngành, nên ở đó không có từ thứ hai nào để bám vào.
+   And **the family name standing alone is enough too**: `technology`, `cloud`,
+   `infra`/`infrastructure`, `devops`, `software`, `ai` / `artificial intelligence`
+   / `generative ai` / `llm`, `machine learning` / `deep learning`, `ml` / `mlops`,
+   `programming` / `coding`.
 
-   Nó **chỉ trả nổi vì vế internship vẫn phải đồng ý**. "Cloud Solutions Architect",
-   "Head of AI", "Senior Machine Learning Engineer" đều không có từ chỉ đợt tuyển nên vẫn
-   nằm ngoài. Không có vế đó thì mỗi tên nhóm sẽ kéo vào toàn bộ nhân sự senior của mọi
-   công ty trong danh sách.
+   Letting the family name stand alone is deliberate. A company writing "Cloud
+   Intern" or "AI Summer Analyst" is naming exactly what this tracker looks for;
+   making them also write "engineer" only filters out the ones who keep their titles
+   short. Finance even names a whole function "Technology" instead of naming the
+   discipline, so there is no second word to anchor on there.
 
-   Cái giá đã biết: `Cloud Sales Intern`, `Marketing Technology Intern`, hay một vị trí
-   `Infrastructure` hoá ra là xây dựng dân dụng. Mỗi cái là một dòng liếc qua rồi bỏ. Siết
-   lại thì phải có danh sách loại trừ (sales, marketing, recruiting) — mà nó sẽ bắt đầu
-   từ chối luôn "Sales Engineering Intern".
+   It **only holds up because the internship half still has to agree**. "Cloud
+   Solutions Architect", "Head of AI" and "Senior Machine Learning Engineer" all
+   carry no intake word and stay out. Without that half, every family name would
+   drag in the entire senior headcount of every company on the list.
 
-   Đo trên dữ liệu thật: nới `technology` + `summer analyst` cứu về **37 role**; nới tiếp
-   `cloud` / `infra` / `devops` / `ai` / `ml` cứu thêm **154 role** nữa — tổng số role qua
-   bộ lọc đi từ 421 lên **561**.
+   The known price: `Cloud Sales Intern`, `Marketing Technology Intern`, or an
+   `Infrastructure` position that turns out to be civil engineering. Each one is a
+   row to glance past and drop. Tightening it would take an exclusion list (sales,
+   marketing, recruiting) — which would start rejecting "Sales Engineering Intern"
+   along with the rest.
 
-Muốn nới hay siết thì sửa ngay file đó, pipeline không cần biết.
+   Measured on real data: loosening to `technology` + `summer analyst` recovers
+   **37 roles**; loosening further to `cloud` / `infra` / `devops` / `ai` / `ml`
+   recovers **154 roles** more — the total through the filter goes from 421 to
+   **561**.
 
-## `Date Posted` lấy từ đâu
+To loosen or tighten, edit that file; the pipeline does not need to know.
 
-Theo thứ tự ưu tiên:
+## Where `Date Posted` comes from
 
-**Từ ATS board** — chính xác, luôn có:
+In priority order:
 
-| Greenhouse | `first_published`, fallback `updated_at` |
+**From the ATS board** — accurate, always there:
+
+| Greenhouse | `first_published`, falling back to `updated_at` |
 |---|---|
-| Lever | `createdAt`, epoch ms đọc theo UTC |
+| Lever | `createdAt`, epoch ms read as UTC |
 | Ashby | `publishedAt` |
 
-Greenhouse dùng `first_published` chứ không phải `updated_at`: cái sau nhảy mỗi lần có
-người sửa lỗi chính tả trong mô tả, mà cột này là cột sort — một lỗi chính tả được sửa sẽ
-đẩy bài đăng một tháng trước lên đầu danh sách việc còn phải làm.
+Greenhouse uses `first_published` rather than `updated_at`: the latter jumps every
+time somebody fixes a typo in the description, and this column is the sort column —
+one corrected typo would push a month-old posting to the top of the list of work
+still to do.
 
-Cả ba đều đọc theo UTC hoặc cắt thẳng phần ngày của chuỗi ISO, không parse rồi format lại:
-runner chạy giờ UTC còn bạn ở ET, một bài đăng không được mang hai ngày khác nhau tuỳ ai
-chạy sync.
+All three are read as UTC, or the date half of the ISO string is sliced straight
+off rather than parsed and reformatted: the runner runs on UTC and you are on ET,
+and one posting must not carry two different dates depending on who ran the sync.
 
-**Từ tracker Markdown** — theo thứ tự ưu tiên:
+**From the Markdown trackers** — in priority order:
 
-1. Cột `Added` / `Posted` của tracker, nếu có.
-2. Nếu tracker chỉ ghi tuổi (`3d`, `2mo`) thì quy đổi ra ngày.
-3. Nếu không có cả hai thì lấy **ngày tool nhìn thấy job đó lần đầu**.
+1. The tracker's `Added` / `Posted` column, if it has one.
+2. If the tracker records only an age (`3d`, `2mo`), convert that into a date.
+3. If neither is there, use **the date the tool first saw that job**.
 
-Ngày luôn ở dạng ISO `YYYY-MM-DD` vì việc sort so sánh nó như chuỗi — cũng là lý do cột
-A–D phải được ghi bằng `RAW`, xem [spreadsheet.md](spreadsheet.md).
+The date is always ISO `YYYY-MM-DD` because sorting compares it as a string — which
+is also why columns A–D have to be written with `RAW`, see
+[spreadsheet.md](spreadsheet.md).
 
-Có một mốc chặn: job đăng trước **2026-01-01** bị bỏ qua. Đổi bằng `--since`.
+There is a cutoff: jobs posted before **2026-01-01** are skipped. Change it with
+`--since`.
 
-Mốc này cần thật. Tracker và board giữ bài đăng cũ lâu hơn bạn tưởng nhiều — một lượt crawl
-thật moi ra role khớp đăng từ **tháng 10 năm 2016** mà link vẫn mở. Không có mốc thì sheet
-nhận cả một thập kỷ lịch sử.
+That cutoff is needed. Trackers and boards hold on to old postings far longer than
+you would expect — one real crawl dug up a matching role posted in **October 2016**
+whose link still opened. Without a cutoff the sheet takes in a decade of history.
 
-Nó từng là **2026-07-01** và như thế là quá chặt. Board ghi ngày từ lúc bài đăng lên, mà
-role của mùa này — Fall 2026, Spring 2027, Summer 2027 — bắt đầu xuất hiện từ mùa xuân. Ở
-mốc tháng 7 nó đang cắt Palantir, Optiver và Rippling đăng trong tuần cuối tháng 6, tất cả
-đều còn mở.
+It used to be **2026-07-01**, and that was too tight. A board dates a posting from
+when it went up, and this season's roles — Fall 2026, Spring 2027, Summer 2027 —
+start appearing in the spring. At the July cutoff it was cutting Palantir, Optiver
+and Rippling postings from the last week of June, all still open.
 
-Tháng 1 giữ trọn năm đăng 2026 và bỏ hẳn mùa trước. Đổi lại, nó nhận vào một số bài đăng mà
-board không bao giờ gỡ. Cột `Expired` sinh ra cho đúng loại đó — **một dòng cũ bạn tick đi
-vẫn hơn một role đang mở mà bạn không bao giờ thấy.**
+January keeps the whole 2026 posting year and drops the previous season outright.
+In exchange, it takes in some postings a board never takes down. The `Expired`
+column exists for exactly that kind — **an old row you tick away beats an open role
+you never see.**
 
-## Khi nào một dòng bị xoá khỏi `Jobs`
+## When a row is deleted from `Jobs`
 
-Ba lý do, và chỉ ba:
+Three reasons, and only three:
 
-1. **Board báo posting đã đóng** — xem phần dưới.
-2. **Công ty nằm trong danh sách không theo dõi** — hiện là TikTok và ByteDance. Board của
-   họ trả 200 cho cả requisition chưa từng tồn tại, nên dòng của họ sẽ không bao giờ tự
-   được dọn. Đã chặn thì dòng cũ cũng bị gỡ, chứ không chỉ ngừng thêm mới.
-3. **Trùng với một dòng khác** — xem [matching.md](matching.md).
+1. **The board says the posting is closed** — see below.
+2. **The company is on the do-not-track list** — currently TikTok and ByteDance.
+   Their boards return 200 even for a requisition that never existed, so their rows
+   would never clean themselves up. Once blocked, old rows are removed too, not just
+   new ones stopped.
+3. **It duplicates another row** — see [matching.md](matching.md).
 
-Ô tick và ghi chú của bạn ở cột F trở đi **không** phải là lý do để giữ hay xoá một dòng, ngoại
-trừ việc chúng thắng khi phải chọn giữ dòng nào trong hai dòng trùng nhau.
+Your ticks and notes from column F onward are **not** a reason to keep or delete a
+row, except that they win when choosing which of two duplicate rows to keep.
 
-## Liveness: hỏi board xem posting còn mở không
+## Liveness: asking the board whether a posting is still open
 
-Phần lớn job board trả HTTP 200 dù posting còn hay mất, vì trang chỉ là vỏ rỗng và nội
-dung đến sau bằng JavaScript. Nên status code một mình gần như không quyết định được gì,
-và [`liveness.py`](../job_sync/liveness.py) hỏi ba kiểu khác nhau:
+Most job boards return HTTP 200 whether the posting is there or gone, because the
+page is only an empty shell and the content arrives afterwards over JavaScript. So
+a status code on its own decides almost nothing, and
+[`liveness.py`](../job_sync/liveness.py) asks in three different ways:
 
-- **Workday** — có một endpoint JSON nấp sau cùng đường dẫn. Nó trả 404 khi requisition
-  đã gỡ.
-- **Jobright** — render title phía server. Posting không còn thì title tụt về tên site.
-- **Còn lại** (Greenhouse, Lever, Ashby, workatastartup) — 404 thật thà.
+- **Workday** — there is a JSON endpoint hiding behind the same path. It returns
+  404 once the requisition is taken down.
+- **Jobright** — renders the title server-side. When a posting is gone the title
+  falls back to the site name.
+- **Everything else** (Greenhouse, Lever, Ashby, workatastartup) — an honest 404.
 
-Ba lớp bảo vệ để không xoá nhầm:
+Three layers of protection against deleting the wrong thing:
 
-- **Không đọc được thì không xoá.** Board trả 200 cho một id không tồn tại là board không
-  phán được; kết quả là `UNKNOWN` và dòng được **giữ lại**.
-- **Hỏi lại lần hai.** Khi bị bắn 16 request song song, Jobright từng trả vỏ generic cho
-  41 trong 83 posting còn sống — tất cả đều sống lại khi hỏi riêng. Nên các host được quét
-  song song với nhau nhưng trong một host thì tuần tự, và dòng nào vẫn có vẻ chết sẽ được
-  hỏi thêm một lần nữa trước khi bị xoá.
-- **Ô không phải link thì không bị hỏi.** Một ghi chú hay một dấu chấm lạc không phải
-  posting nào cả.
+- **What cannot be read is not deleted.** A board returning 200 for an id that does
+  not exist is a board with no verdict; the result is `UNKNOWN` and the row is
+  **kept**.
+- **Ask a second time.** Hit with 16 parallel requests, Jobright once returned the
+  generic shell for 41 of 83 live postings — all of which came back alive when asked
+  on their own. So hosts are scanned in parallel with each other but sequentially
+  within a host, and any row that still looks dead is asked once more before it is
+  deleted.
+- **A cell that is not a link is not asked.** A note or a stray full stop is not a
+  posting at all.
 
-### Đo thực tế
+### Measured in practice
 
-Quét 291 link của một lượt gần đây:
+Scanning 291 links from a recent run:
 
 ```
-alive = 267      dead = 8      UNKNOWN (giữ lại) = 16
+alive = 267      dead = 8      UNKNOWN (kept) = 16
 ```
 
-16 dòng không phán được chủ yếu là Workday tenant không trả lời. Ngoài ra đã tải nội dung
-142 trang không phải Workday/Jobright để tìm chữ "no longer accepting", "position has been
-filled"… và **không trang nào có** — nghĩa là các board này 404 thật khi hết hạn chứ không
-trả 200 rồi giấu.
+The 16 with no verdict are mostly Workday tenants not answering. Beyond that, the
+content of 142 non-Workday/Jobright pages was downloaded looking for "no longer
+accepting", "position has been filled" and the like — and **not one page had any of
+them**, meaning these boards really do 404 when a posting expires rather than
+returning 200 and hiding it.
 
-Phần còn lại là việc của con người: tick [cột `Expired`](spreadsheet.md#cột-f--expired)
-cho posting đã đóng mà máy không đọc ra được.
+The rest is a human's job: tick [the `Expired` column](spreadsheet.md#column-g--expired)
+for postings that closed in a way the machine cannot read.

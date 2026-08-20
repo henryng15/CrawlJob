@@ -31,17 +31,23 @@ SOURCE = 4
 # tells a run it has an old layout in front of it rather than a broken new one.
 OLD_FIFTH = "Applied"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-# Columns E and F, the first two past the four this tool owns. Both are checkboxes
-# the operator ticks; a free-text note starts at G, past both of them.
+# Columns F and G, the two past the five this tool owns. Both are checkboxes the
+# operator ticks; a free-text note starts at H, past both of them.
 APPLIED = len(HEADERS)
 EXPIRED = APPLIED + 1
 # The application tracker: Property | Company | Application Link | Date Applied |
-# Location (State) | Process | Role | Note | (recruiter mark) | Update.
+# Location (State) | Process | Role | Note | Alumni | Recruiter | Update.
 APP_COMPANY, APP_LINK, APP_PROCESS, APP_ROLE = 1, 2, 5, 6
-# Column J, where sync_applied_to_app.gs appends one "<Stage>: <date>" line per
-# stage the application has passed through. Column I is skipped on purpose: it
-# carries the recruiter mark, which is a background colour and no text.
-APP_UPDATE = 9
+# Column K, where sync_applied_to_app.gs appends one "<Stage>: <date>" line per
+# stage the application has passed through.
+#
+# It was column J while the alumni and recruiter marks were background colours
+# occupying no column of their own. Replacing those with real checkbox columns
+# moved Update one to the right and this constant did not follow, so audit_app
+# read the Recruiter checkbox as the stage history: _last_stage("FALSE") is "",
+# which made every row with a Process stage report UNLOGGED. Kept honest by
+# test_the_update_column_sits_one_past_the_recruiter_checkbox.
+APP_UPDATE = 10
 
 
 @dataclass(frozen=True)
@@ -169,7 +175,7 @@ def _identity(row: list[str]) -> tuple[str, str]:
 
 def _loose_identity(company: str, role: str) -> tuple[str, frozenset[str]]:
     """One posting, for asking whether it has already been applied to. Loose on
-    purpose: a wrong answer here ticks a checkbox, which a note in column F undoes,
+    purpose: a wrong answer here ticks a checkbox, which a note in column H undoes,
     while the strict reading misses a job the App tab plainly records."""
     return (name_key(company), role_tokens(role))
 
@@ -178,7 +184,7 @@ def _drop_empty_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     """A row with nothing in the four columns this tool owns is not a job.
 
     The sheet is full of them and none were typed. Checkbox validation covers
-    E2:F500 whether or not there is a job on the row, and a cleared checkbox reads
+    F2:G500 whether or not there is a job on the row, and a cleared checkbox reads
     back as FALSE, so a read of A:Z returns every row down to 500 with two FALSEs
     and nothing else. Left in, they sorted as work still to do with no date — which
     put a few hundred blank lines between the open jobs and the settled ones."""
@@ -194,8 +200,8 @@ def _drop_blocked_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
 
 
 def _is_annotated(row: list[str]) -> bool:
-    """Someone has written past the four columns this tool owns — a tick in the
-    Applied checkbox in column E, a note in F.
+    """Someone has written past the five columns this tool owns — a tick in the
+    Applied checkbox in column F, a note in H.
 
     An unticked checkbox reads back as "FALSE" rather than as an empty cell, and
     an unticked box is precisely the absence of an annotation. Without this every
@@ -206,8 +212,8 @@ def _is_annotated(row: list[str]) -> bool:
 def _preference(rows: list[list[str]], position: int) -> tuple[int, int, int]:
     """Which of two rows describing one job to keep, smallest first.
 
-    An annotation outranks everything: whoever wrote "applied" in column E
-    applied through that link, and no better link is worth losing the note for.
+    An annotation outranks everything: whoever ticked Applied on that row applied
+    through that link, and no better link is worth losing the note for.
 
     Then the employer's own board over an aggregator's redirect, which is what
     replaces a jobright.ai row already in the sheet with the greenhouse or
@@ -338,7 +344,7 @@ def _noted(row: list[str]) -> bool:
     since an unticked box cannot say so on its own.
 
     Past *both*: a checkbox column reads FALSE on every row it covers, so counting
-    column F as a note would freeze the whole sheet the moment Expired exists."""
+    column G as a note would freeze the whole sheet the moment Expired exists."""
     return any(cell.strip() for cell in row[EXPIRED + 1 :])
 
 
@@ -407,7 +413,7 @@ def audit_app(settings: Settings) -> int:
     the sync must not pay it."""
     values_api = _service(settings).spreadsheets().values()
     rows = (
-        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:J")
+        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:K")
         .execute()
         .get("values", [])
     )

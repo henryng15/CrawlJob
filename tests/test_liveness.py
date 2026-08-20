@@ -138,7 +138,7 @@ MALFORMED = [
     "mailto:a@b.c",
     "javascript:alert(1)",
     "https://exa mple.com/x",
-    "https://éxample.com/a",
+    "https://éxample.com/a",  # a non-ASCII host, deliberate: not a typo to fix
     "#REF!",
     '=HYPERLINK("x")',
 ]

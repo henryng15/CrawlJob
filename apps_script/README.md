@@ -1,49 +1,51 @@
 # Apps Script
 
-Hai file này chạy phía Google, không phải phía Python. Chúng sống trong Apps Script editor
-gắn với spreadsheet; bản trong repo là bản gốc để version control, vì Apps Script editor
-không có lịch sử nào đáng để dựa vào.
+These two files run on Google's side, not on Python's. They live in the Apps Script editor
+attached to the spreadsheet; the copy in the repo is the original, kept for version control,
+because the Apps Script editor has no history worth relying on.
 
-| File | Hàm chạy tay | |
+| File | Function to run by hand | |
 |---|---|---|
-| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | dựng checkbox `Applied` (F) và `Expired` (G) ở tab Jobs |
-| | `setupAppColumns` | dựng `Alumni` (I), `Recruiter` (J), `Update` (K) ở tab App |
-| | `backfillTicksFromApp` | quét tab App, tick sẵn ở Jobs những job đã nộp |
-| `setup_process_dropdown.gs` | `setupProcessDropdown` | dựng dropdown `Process` có màu ở tab App |
+| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | builds the `Applied` (F) and `Expired` (G) checkboxes on the Jobs tab |
+| | `setupAppColumns` | builds `Alumni` (I), `Recruiter` (J), `Update` (K) on the App tab |
+| | `backfillTicksFromApp` | scans the App tab and pre-ticks in Jobs the jobs already applied to |
+| `setup_process_dropdown.gs` | `setupProcessDropdown` | builds the coloured `Process` dropdown on the App tab |
 
-`onEdit` trong `sync_applied_to_app.gs` là **simple trigger** — Google tự gọi mỗi khi có ô
-bị sửa, không cần cài trigger. Việc đầu tiên nó làm là hỏi ô vừa sửa thuộc tab nào rồi
-giao cho đúng nửa, và mỗi nửa thoát ngay nếu sai cột:
+`onEdit` in `sync_applied_to_app.gs` is a **simple trigger** — Google calls it itself
+whenever a cell is edited, and no trigger has to be installed. The first thing it does is ask
+which tab the edited cell belongs to and hand it to the right half, and each half returns at
+once if the column is wrong:
 
-| Tab | Cột | Làm gì |
+| Tab | Column | What it does |
 |---|---|---|
-| Jobs | F `Applied` | copy dòng đó sang tab App |
-| App | F `Process` | nối một dòng `<Chặng>: <ngày>` vào cột K `Update` |
+| Jobs | F `Applied` | copies that row to the App tab |
+| App | F `Process` | appends a `<Stage>: <date>` line to column K `Update` |
 
-Cách cài: [../docs/setup.md](../docs/setup.md#5-apps-script).
-Ý nghĩa từng cột: [../docs/spreadsheet.md](../docs/spreadsheet.md).
+How to install it: [../docs/setup.md](../docs/setup.md#5-apps-script).
+What each column means: [../docs/spreadsheet.md](../docs/spreadsheet.md).
 
-## Chạy test
+## Running the tests
 
 ```bash
 node apps_script/harness.js
 ```
 
-Không cần cài gì và không đụng tới spreadsheet thật. `harness.js` stub `SpreadsheetApp`
-bằng một sheet giả trong bộ nhớ, nạp file `.gs` qua `vm`, rồi gọi thẳng `onEdit`,
-`backfillTicksFromApp`, `setupJobsCheckboxes` và `setupAppColumns`. 56 assertion, in
-`ok` / `FAIL` từng dòng và trả exit code khác 0 nếu có cái nào hỏng.
+Nothing to install, and it does not touch the real spreadsheet. `harness.js` stubs
+`SpreadsheetApp` with a fake in-memory sheet, loads the `.gs` files through `vm`, then calls
+`onEdit`, `backfillTicksFromApp`, `setupJobsCheckboxes` and `setupAppColumns` directly. 56
+assertions, printing `ok` / `FAIL` a line and returning a non-zero exit code if any of them
+breaks.
 
-Sheet giả dựng theo đúng hình dạng dữ liệu thật, gồm cả những dòng rác chỉ có mỗi link mà
-tab App đang có — chính chúng là lý do `lastEntry()` phải tìm dòng cuối *có số Property*
-thay vì dùng `getLastRow()`.
+The fake sheet is built to the shape of the real data, including the junk rows carrying
+nothing but a link that the App tab currently holds — they are precisely why `lastEntry()`
+has to find the last row *with a Property number* instead of using `getLastRow()`.
 
-Vài chỗ cần biết khi sửa harness:
+A few things to know when editing the harness:
 
-- `onEdit` chạy **sau** khi ô đã đổi giá trị, nên test phải gán `grid[r][4] = true` trước
-  khi bắn event.
-- `Date` tạo trong `vm` thuộc realm khác, `instanceof Date` ở ngoài luôn false. Dùng
-  `Object.prototype.toString.call(...)`.
-- `Utilities.formatDate` được stub đúng một format, `'MMM d, yyyy'`, và **ném lỗi** với
-  format khác. Đổi `UPDATE_DATE_FORMAT` bên `.gs` mà quên harness thì test đỏ chứ không
-  lặng lẽ so sai.
+- `onEdit` runs **after** the cell has changed value, so a test has to assign
+  `grid[r][4] = true` before firing the event.
+- A `Date` created inside `vm` belongs to another realm, and `instanceof Date` outside is
+  always false. Use `Object.prototype.toString.call(...)`.
+- `Utilities.formatDate` is stubbed for exactly one format, `'MMM d, yyyy'`, and **throws**
+  on any other. Change `UPDATE_DATE_FORMAT` in the `.gs` and forget the harness, and the
+  test goes red rather than quietly comparing the wrong thing.
