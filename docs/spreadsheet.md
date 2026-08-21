@@ -183,6 +183,30 @@ real.
 From the build onwards every stage change records itself, so `?` only shows up on the rows that
 came before it.
 
+## Tab `Outreach Queue` — empty queue scaffold
+
+Run `setupOutreachQueue` in Apps Script to create this tab. At this stage it is only an empty,
+human-visible queue: it does **not** read the `App` tab, add an application, contact a recruiter,
+or connect to Gmail.
+
+The tab is intentionally separate from `App`. `App` remains the source of truth for an
+application; the queue will later record one controlled outreach attempt without putting a
+recruiter's name, email address, or drafted message into this spreadsheet.
+
+| Column | Meaning |
+|---|---|
+| Queue ID | stable ID for one outreach attempt |
+| App Property | the `Property` value of the related App row |
+| Company / Role / Date Applied | snapshots of the application when queued |
+| Priority / Eligible At / Scheduled At | ordering and the permitted sending window |
+| Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
+| Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
+| Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
+| Result / Last Error / Version | delivery outcome, diagnostic, and concurrency guard |
+
+All rows start empty. The future queue worker will be the only automation allowed to create or
+move them; until then this tab is safe to inspect and format manually.
+
 ### Filling in Role lets the tool tick more
 
 An `App` row missing `Company` or `Role` can **never match by name** — it matches only where

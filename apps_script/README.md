@@ -8,6 +8,7 @@ because the Apps Script editor has no history worth relying on.
 |---|---|---|
 | `sync_applied_to_app.gs` | `setupJobsCheckboxes` | builds the `Applied` (F) and `Expired` (G) checkboxes on the Jobs tab |
 | | `setupAppColumns` | builds `Alumni` (I), `Recruiter` (J), `Update` (K) on the App tab |
+| | `setupOutreachQueue` | creates the empty `Outreach Queue` tab and its queue-state dropdowns; it does not queue an application or send email |
 | | `backfillTicksFromApp` | scans the App tab and pre-ticks in Jobs the jobs already applied to |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | builds the coloured `Process` dropdown on the App tab |
 

@@ -10,6 +10,7 @@ function makeSheet(name, data) {
     grid,
     getName: () => name,
     setColumnWidth(column, pixels) { widths.push([column, pixels]); return this; },
+    setFrozenRows(rows) { frozen.push([name, rows]); return this; },
     getLastRow() {
       let last = 0;
       grid.forEach((row, i) => {
@@ -63,6 +64,9 @@ function makeSheet(name, data) {
         setNumberFormat() { return this; },
         setDataValidation() { validated.push([row, col, numRows, numCols]); return this; },
         setWrapStrategy(strategy) { wrapped.push([col, strategy]); return this; },
+        setFontWeight() { return this; },
+        setBackground() { return this; },
+        setHorizontalAlignment() { return this; },
         copyTo(dest, type) { copied.push([row, type]); copiedWidth = numCols; return this; },
       };
     },
@@ -76,7 +80,8 @@ let wrapped = [];
 let validated = [];
 let copiedWidth = 0;
 let widths = [];
-let jobs, app, ss;
+let frozen = [];
+let jobs, app, outreach, ss;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -88,8 +93,16 @@ function load() {
   validated = [];
   copiedWidth = 0;
   widths = [];
+  frozen = [];
   ss = {
-    getSheetByName: (n) => (n === 'Jobs' ? jobs : n === 'App' ? app : null),
+    getSheetByName: (n) => (
+      n === 'Jobs' ? jobs : n === 'App' ? app : n === 'Outreach Queue' ? outreach : null
+    ),
+    insertSheet(name) {
+      if (name !== 'Outreach Queue') throw new Error('unexpected sheet ' + name);
+      outreach = makeSheet(name, []);
+      return outreach;
+    },
     toast: (msg) => toasts.push(msg),
   };
   const validation = {
@@ -352,6 +365,32 @@ console.log('setupJobsCheckboxes');
   run('it builds the header for both columns', () => {
     assert.strictEqual(jobs.grid[0][APPLIED], 'Applied');
     assert.strictEqual(jobs.grid[0][EXPIRED], 'Expired');
+  });
+}
+
+console.log('setupOutreachQueue');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  outreach = null;
+  const s = load();
+  s.setupOutreachQueue();
+  run('it creates the tab with the queue header only', () => {
+    assert.ok(outreach);
+    // OUTREACH_HEADERS came from the vm context, so copy it into this realm
+    // before comparing it with the fake sheet's normal JavaScript array.
+    assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
+    assert.strictEqual(outreach.getLastRow(), 1);
+  });
+  run('it freezes the header and validates Status and Mode without adding rows', () => {
+    assert.deepStrictEqual(frozen, [['Outreach Queue', 1]]);
+    assert.deepStrictEqual(validated.slice(-2), [[2, 9, 499, 1], [2, 10, 499, 1]]);
+    assert.strictEqual(outreach.getLastRow(), 1);
+  });
+  run('running it again is idempotent and does not create a second tab', () => {
+    s.setupOutreachQueue();
+    assert.strictEqual(outreach.getLastRow(), 1);
+    assert.match(toasts[toasts.length - 1], /No queue items changed/);
   });
 }
 
