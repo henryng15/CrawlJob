@@ -10,3 +10,6 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+
+# Recruiter contacts (names + emails) — never commit
+docs/seed_recruiters.csv
