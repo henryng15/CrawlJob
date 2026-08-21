@@ -6,6 +6,10 @@ the duplicate copies of one posting, then appends them to the `Jobs` tab of a Go
 Tick one checkbox and the row moves itself to the `App` tab; the other way round, a job
 already applied to is ticked for you.
 
+For a job you found outside those trackers, the included personal Chrome extension can add
+Company, Role and the current page link directly to `App`; it fills the property number,
+date and initial status. See [docs/external-applications.md](docs/external-applications.md).
+
 No browser automation, no database, no AI, no queue, no web dashboard. One Python package,
 two GitHub Actions workflows, two Apps Script files.
 

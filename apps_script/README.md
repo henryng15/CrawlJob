@@ -10,6 +10,7 @@ because the Apps Script editor has no history worth relying on.
 | | `setupAppColumns` | builds `Alumni` (I), `Recruiter` (J), `Update` (K) on the App tab |
 | | `setupOutreachQueue` | creates the empty `Outreach Queue` tab and its queue-state dropdowns; it does not queue an application or send email |
 | | `backfillTicksFromApp` | scans the App tab and pre-ticks in Jobs the jobs already applied to |
+| `external_application_api.gs` | `configureExternalApplicationApi` | prepares the secure Web App endpoint used by the personal Chrome extension to add an external application to App |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | builds the coloured `Process` dropdown on the App tab |
 
 `onEdit` in `sync_applied_to_app.gs` is a **simple trigger** — Google calls it itself
@@ -24,6 +25,7 @@ once if the column is wrong:
 
 How to install it: [../docs/setup.md](../docs/setup.md#5-apps-script).
 What each column means: [../docs/spreadsheet.md](../docs/spreadsheet.md).
+How to add external applications from Chrome: [../docs/external-applications.md](../docs/external-applications.md).
 
 ## Running the tests
 

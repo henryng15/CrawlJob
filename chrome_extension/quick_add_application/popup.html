@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Add application</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>Add application</h1>
+      <p class="intro">Save a job you applied to outside the <code>Jobs</code> list. This panel stays open while you copy from the page.</p>
+
+      <form id="application-form">
+        <label for="company">Company</label>
+        <input id="company" name="company" maxlength="200" autocomplete="organization" required autofocus>
+
+        <label for="role">Role</label>
+        <input id="role" name="role" maxlength="300" autocomplete="organization-title" required>
+
+        <label for="link">Application link</label>
+        <input id="link" name="link" type="url" maxlength="2000" placeholder="Filled from this tab" required>
+
+        <button id="submit" type="submit">Add to App</button>
+      </form>
+
+      <p id="status" class="status" aria-live="polite"></p>
+
+      <button id="settings-toggle" class="link-button" type="button">Settings</button>
+      <section id="settings" hidden>
+        <label for="endpoint">Apps Script Web App URL</label>
+        <input id="endpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+        <label for="secret">Extension key</label>
+        <input id="secret" type="password" autocomplete="off">
+        <button id="save-settings" type="button">Save settings</button>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
