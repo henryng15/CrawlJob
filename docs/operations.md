@@ -24,7 +24,7 @@ Ticked Applied on 3 rows matching a tracked link and 9 matching a tracked compan
 | `Ticked by company and role: …` | **read every one** — this is the loosest layer |
 | `still to apply to` | the number worth reading daily |
 
-Every scheduled run does the work. `Outside the 08:00–18:59 ET working window; nothing to
+Every scheduled run does the work. `Outside the 08:00–22:59 ET working window; nothing to
 do.` should never appear on a scheduled run: the cron fires seven times inside the window,
 and that message means the cron and the window have drifted apart.
 
@@ -89,7 +89,7 @@ old rows were written by a parser that was wrong and cannot be corrected in plac
 | `--since 2026-09-01` | change the posting-date cutoff |
 | `--sources path.toml` | use a different list of trackers |
 | `--no-boards` | read only the Markdown trackers and skip the ATS boards for this run |
-| `--scheduled` | exit immediately outside the 08:00–18:59 ET window; the workflow adds it on scheduled runs |
+| `--scheduled` | exit immediately outside the 08:00–22:59 ET window; the workflow adds it on scheduled runs |
 
 ## What to look at when it breaks
 
@@ -126,10 +126,10 @@ actually changed.
 
 It is separate from the sync workflow because it is a different kind of job: ~20,000
 requests and about half an hour, against 903 requests and a measured **36 seconds** on the
-daily run. Folding it into the sync would make all seven runs a day pay that price to learn
+daily run. Folding it into the sync would make all nine runs a day pay that price to learn
 something that only changes weekly.
 
-06:00 UTC is 01:00–02:00 ET, well clear of the sync's 08:00–18:59 ET window, so the two
+06:00 UTC is 01:00–02:00 ET, well clear of the sync's 08:00–22:59 ET window, so the two
 never compete for the same API.
 
 `timeout-minutes: 90` is not a decorative number: a slug that neither resolves nor gets
@@ -174,17 +174,23 @@ Measured from real scheduled runs:
 
 | | per day | min/run | min/month |
 |---|---|---|---|
-| sync, every run does the work | 7 | 4.1, billed 5 | 1,050 |
+| sync, every run does the work | 9 | 4.1, billed 5 | 1,350 |
 | `boards.yml` rebuilding the shortlist | weekly | ~40 | 172 |
 | manual **Run workflow** dispatches | varies | 5 | ~100 |
-| | | **total** | **~1,320** |
+| | | **total** | **~1,620** |
 
-That leaves roughly **680 minutes** spare.
+That leaves roughly **380 minutes** spare.
 
-Seven runs cost only about 240 minutes a month more than the five that came before them,
-which is not the obvious result. The old schedule fired a cron ten times a day and threw
+Nine runs cost about 540 minutes a month more than the five that came before them, which is
+less than the run count suggests. The old schedule fired a cron ten times a day and threw
 five of those away with an ET filter, at a billed minute each — 150 minutes a month spent
-on nothing. Naming the seven run times in the cron itself means every firing does work.
+on nothing. Naming the nine run times in the cron itself means every firing does work.
+
+The day ends at 21:00 rather than 18:00 because of what the shorter day cost. Databricks
+published a Software Engineering Intern role at 19:40 ET, an hour and a half after the last
+run, and it went unseen until 09:00 the next morning. The two evening runs are what that
+bought — and at ~380 minutes of headroom, they are close to the limit of what the free tier
+will carry.
 
 Two settings in `sync.yml` exist to keep that budget from being wrong by a lot:
 
@@ -196,7 +202,7 @@ Two settings in `sync.yml` exist to keep that budget from being wrong by a lot:
   rewrite. Queued time is not billed.
 
 What actually limits the run count is not the quota but politeness to the three APIs: 903
-requests × 7 runs = 6,321 requests a day, which is 0.038 requests a second against
+requests × 9 runs = 8,127 requests a day, which is 0.049 requests a second against
 Greenhouse, the busiest of the three.
 
 > The `/actions/runs/{id}/timing` API reports `billable.UBUNTU.total_ms = 0` even for a

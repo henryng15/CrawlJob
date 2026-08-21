@@ -151,14 +151,14 @@ Add the secrets at **Settings → Secrets and variables → Actions**:
 
 The workflow at [`.github/workflows/sync.yml`](../.github/workflows/sync.yml) runs every 90
 minutes from 09:00 to 18:00 `America/New_York`: 9:00, 10:30, 12:00, 13:30, 15:00, 16:30 and
-18:00 — seven runs a day, and every one of them asks the ATS boards.
+18:00, 19:30 and 21:00 — nine runs a day, and every one of them asks the ATS boards.
 
 GitHub cron only accepts UTC, and New York moves between EST and EDT twice a year. So the
 schedule is written as two crons, `0 13,16,19,22` and `30 14,17,20`, which are those seven
 ET times while EDT is in force, and `--scheduled` refuses only a run arriving outside the
-08:00–18:59 ET working window. The window is an hour wider than the schedule at each end,
+08:00–22:59 ET working window. The window is wider than the schedule at each end,
 which is what carries it through the November change: the same crons land an hour early once
-EST starts, and all seven runs still pass. A run takes about four minutes.
+EST starts, and all nine runs still pass. A run takes about four minutes.
 
 To run it by hand use **Run workflow**; there is no `--scheduled` then, so it ignores the
 time window and crawls straight away.
@@ -188,7 +188,7 @@ permission: Review permissions → pick the account → Advanced → Go to (proj
 Free, all of it.
 
 - **GitHub Actions** — a public repo has no minute limit. A private repo has the free tier's
-  2000 minutes a month, and the current schedule uses roughly 1,050. See the budget table
+  2000 minutes a month, and the current schedule uses roughly 1,350. See the budget table
   in [operations.md](operations.md) for where that goes.
 - **Apps Script** — a 90-minute-a-day runtime quota on an ordinary account; each tick costs
   about a second.

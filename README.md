@@ -14,7 +14,7 @@ flowchart LR
     T["5 public trackers<br/>(Markdown on GitHub)"]
     B["~19,900 ATS board slugs<br/>Greenhouse · Lever · Ashby"]
     D["discover_boards<br/>weekly · filters out a shortlist"]
-    P["job_sync<br/>GitHub Actions · 7 runs a day"]
+    P["job_sync<br/>GitHub Actions · 9 runs a day"]
     J[("Jobs tab<br/>still to apply to")]
     S["Apps Script<br/>onEdit · immediate"]
     A[("App tab<br/>applied — source of truth")]

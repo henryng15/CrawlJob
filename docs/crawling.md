@@ -94,13 +94,13 @@ Slugs come from four lists of **names**, not from scraping anybody's pages:
 
 ### Why it is split into two tiers
 
-A sync run cannot ask 19,899 boards seven times a day — that is half a month of
+A sync run cannot ask 19,899 boards nine times a day — that is half a month of
 Actions minutes spent on companies that have never taken an intern. So:
 
 | | frequency | scope | keep criterion |
 |---|---|---|---|
 | `discover_boards.py` | weekly, its own workflow | all 19,899 | boards **advertising an internship in any field** |
-| `boards.py` | **every scheduled run**, every 90 minutes from 09:00 to 18:00 ET | the 903 boards in the shortlist | roles matching `roles.py` |
+| `boards.py` | **every scheduled run**, every 90 minutes from 09:00 to 21:00 ET | the 903 boards in the shortlist | roles matching `roles.py` |
 
 First measurement (2026-08-19): 9,062 boards still alive, **902** hiring interns,
 of which **312 roles matched** the SWE filter. Asking all 903 boards takes
@@ -123,11 +123,11 @@ run reading only those turns up what the run before already had. The boards are 
 half that changes hourly, and the only half that reports the date a posting went
 up.
 
-What that traffic comes to: 903 boards × 7 runs = **6,321 requests a day**, split
-greenhouse 467 / ashby 251 / lever 185 — 0.038 requests a second averaged against
-Greenhouse, the busiest of the three hosts. Seven runs ninety minutes apart hold
-the worst-case lag at ninety minutes, where a morning-and-afternoon pair held it at
-about six hours.
+What that traffic comes to: 903 boards × 9 runs = **8,127 requests a day**, split
+greenhouse 467 / ashby 251 / lever 185 — 0.049 requests a second averaged against
+Greenhouse, the busiest of the three hosts. Nine runs ninety minutes apart hold the
+worst-case lag at ninety minutes across a twelve-hour day, where a
+morning-and-afternoon pair held it at about six hours.
 
 There is no hour list to edit any more: every scheduled run asks the boards, and
 `--no-boards` is how you skip them for a single run. Need one now, press **Run

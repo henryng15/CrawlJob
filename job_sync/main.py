@@ -13,9 +13,14 @@ from job_sync.sheet import append_new_jobs, audit_app
 from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
-# The working day as a window, not a list of slots. The seven run times live in
-# the cron of sync.yml — 9:00, 10:30, 12:00, 13:30, 15:00, 16:30 and 18:00 ET —
-# and this only refuses a run that arrives outside business hours at all.
+# The working day as a window, not a list of slots. The nine run times live in the
+# cron of sync.yml — 9:00, 10:30, 12:00, 13:30, 15:00, 16:30, 18:00, 19:30 and
+# 21:00 ET — and this only refuses a run that arrives outside those hours at all.
+#
+# The day runs to 21:00 rather than 18:00 because of what an 18:00 finish costs.
+# Databricks published a Software Engineering Intern role at 19:40 ET, an hour and
+# a half after the last run of the day, and it sat unseen until 09:00 the next
+# morning. Two more runs close most of that gap.
 #
 # It used to name five exact hours, which was a bug waiting for a slow day.
 # Actions does not start a scheduled run on time: measured across one day, the
@@ -26,7 +31,7 @@ NEW_YORK = ZoneInfo("America/New_York")
 # The window is also an hour wider than the schedule at each end, which is what
 # carries it through the November DST change: the same UTC cron lands an hour
 # earlier once EST starts, and every run still passes.
-WORKING_HOURS = frozenset(range(8, 19))
+WORKING_HOURS = frozenset(range(8, 23))
 # One posting year, not one month. The cutoff exists because the trackers carry a
 # decade of history — there are still-reachable listings here from 2016 — and the
 # first sync would otherwise pour all of it into the sheet.
@@ -52,7 +57,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Sync target internships to a Google Sheet")
     parser.add_argument("--sources", type=Path, default=Path("sources.toml"))
     parser.add_argument(
-        "--scheduled", action="store_true", help="exit outside the 08:00–18:59 ET working window"
+        "--scheduled", action="store_true", help="exit outside the 08:00–22:59 ET working window"
     )
     parser.add_argument(
         "--skip-link-check",
@@ -86,7 +91,7 @@ def main() -> None:
         return
     now = datetime.now(NEW_YORK)
     if args.scheduled and not in_working_window(now):
-        print("Outside the 08:00–18:59 ET working window; nothing to do.")
+        print("Outside the 08:00–22:59 ET working window; nothing to do.")
         return
 
     jobs = []
@@ -112,7 +117,7 @@ def main() -> None:
     # ninety minutes turns up nothing the run before did not already have. The
     # boards are the half that changes hourly, and the only half that reports the
     # date a posting went up — gating them would have made the tighter schedule a
-    # gesture. It costs 903 requests seven times a day, and roughly 1,050 of the
+    # gesture. It costs 903 requests nine times a day, and roughly 1,350 of the
     # 2,000 free Actions minutes a month. --no-boards is how you dial it back.
     boards = [] if args.no_boards else load_boards()
     abroad: set[str] = set()

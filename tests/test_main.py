@@ -48,14 +48,15 @@ def test_cutoff_day_itself_is_included() -> None:
 
 
 def test_the_window_is_the_working_day_not_the_schedule() -> None:
-    """The seven run times live in sync.yml's cron. All this has to do is let the
-    working day through, an hour wider than the schedule at each end."""
+    """The nine run times live in sync.yml's cron. All this has to do is let the
+    working day through, wider than the schedule at each end so nothing is lost to
+    a late start."""
     kept = [
         hour
         for hour in range(24)
         if in_working_window(datetime(2026, 8, 6, hour, 30, tzinfo=NEW_YORK))
     ]
-    assert kept == list(range(8, 19))
+    assert kept == list(range(8, 23))
 
 
 def test_a_run_actions_started_late_still_counts() -> None:
@@ -65,17 +66,19 @@ def test_a_run_actions_started_late_still_counts() -> None:
     arriving at 17:06."""
     assert in_working_window(datetime(2026, 8, 6, 18, 36, tzinfo=NEW_YORK))
     assert in_working_window(datetime(2026, 8, 6, 17, 6, tzinfo=NEW_YORK))
+    # The last run of the day is the one with no slot behind it to catch a slip.
+    assert in_working_window(datetime(2026, 8, 6, 21, 36, tzinfo=NEW_YORK))
 
 
 def test_the_window_survives_the_dst_shift() -> None:
     """Actions cron is UTC only, so the same two lines land an hour earlier once
     EST starts in November. Both ends of the shifted day still pass, which is why
     a forgotten cron edit costs an hour of timing rather than a whole run."""
-    for utc_hour, expected in ((13, 8), (22, 17)):
+    for utc_hour, expected in ((13, 8), (22, 17), (1, 20)):
         run = datetime(2026, 12, 1, utc_hour, 20, tzinfo=UTC)
         assert run.astimezone(NEW_YORK).hour == expected
         assert in_working_window(run)
 
 
 def test_manual_run_at_night_is_outside_the_window() -> None:
-    assert not in_working_window(datetime(2026, 8, 6, 21, 22, tzinfo=NEW_YORK))
+    assert not in_working_window(datetime(2026, 8, 6, 3, 22, tzinfo=NEW_YORK))

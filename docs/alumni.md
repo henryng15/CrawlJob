@@ -97,7 +97,7 @@ reading 0 matches out of a tab that is not there and writing that down clears th
 column. Same for the recruiter list: empty means the file did not travel with the build,
 not that no company has a recruiter.
 
-A run that finds both columns already correct **sends no request**, seven times a day
+A run that finds both columns already correct **sends no request**, nine times a day
 included.
 
 ### When a cell shows the word `FALSE`
@@ -128,7 +128,7 @@ somewhere else.
 ### Nothing is written before the columns are built
 
 And one more latch in front of all of it: **I1 and J1 have to read exactly `Alumni` and
-`Recruiter`** before the tool writes. The sync runs on cron seven times a day while you
+`Recruiter`** before the tool writes. The sync runs on cron nine times a day while you
 run `setupAppColumns` by hand — if a sync arrives before you have, column J is still where
 the `Update` history used to live, and writing FALSE over it wipes the lot. On a wrong
 header the tool prints a line of warning and leaves both columns alone.

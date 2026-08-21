@@ -234,9 +234,9 @@ def test_the_boards_are_asked_on_every_run() -> None:
     decision somebody makes on purpose."""
     from job_sync.main import WORKING_HOURS
 
-    runs_a_day = 7
-    assert 5_000 < len(load_boards()) * runs_a_day < 8_000
-    assert len(WORKING_HOURS) == 11, "the window is the working day, not the run count"
+    runs_a_day = 9
+    assert 7_000 < len(load_boards()) * runs_a_day < 10_000
+    assert len(WORKING_HOURS) == 15, "the window is the working day, not the run count"
 
 
 def test_a_board_can_be_written_down_by_hand(tmp_path) -> None:
