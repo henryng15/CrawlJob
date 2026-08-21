@@ -13,6 +13,7 @@ from job_sync.sheet import (
     _census,
     _divided,
     _drop_blocked_rows,
+    _drop_dead_rows,
     _drop_duplicate_identities,
     _drop_empty_rows,
     _drop_foreign_rows,
@@ -844,3 +845,80 @@ def test_the_app_tab_catches_a_repost_the_identity_layer_missed() -> None:
     by_link, by_name = _mark_applied([repost], set(), sent)
     assert (by_link, by_name) == (0, 1)
     assert repost[APPLIED] == "TRUE"
+
+
+def _dead(monkeypatch, gone: set[str]) -> list[list[str]]:
+    """Stand in for the liveness check, recording which links it was asked about."""
+    asked: list[list[str]] = []
+
+    def fake(urls: list[str]) -> set[str]:
+        asked.append(list(urls))
+        return {url for url in urls if url in gone}
+
+    monkeypatch.setattr("job_sync.sheet.dead_links", fake)
+    return asked
+
+
+def test_a_row_ticked_expired_survives_the_board_taking_the_posting_down(monkeypatch) -> None:
+    """The bug this pins cost the sheet its memory.
+
+    Ticking Expired and the board removing the posting are the same event seen
+    from two sides, so the liveness check used to delete the tombstone at exactly
+    the moment it began to matter. With the row gone its link left `known`, and the
+    next repost arrived as fresh unticked work — the job reappearing the morning
+    after it was dismissed, which is the one thing Expired exists to prevent."""
+    link = "https://jobright.ai/jobs/info/aaa111"
+    expired = ["Databricks", "SWE Intern", link, "2026-08-20", "Jobright", "", "TRUE"]
+    _dead(monkeypatch, {link})
+
+    live, dropped = _drop_dead_rows([expired])
+    assert dropped == 0
+    assert live == [expired]
+
+
+def test_a_row_ticked_applied_survives_it_too(monkeypatch) -> None:
+    """Same protection, weaker consequence: an applied row deleted here would be
+    ticked again next run from the App tab. Expired has no such second net, which
+    is why the rule is written once and covers both."""
+    link = "https://jobs.example/acme"
+    applied = ["Acme", "SWE Intern", link, "2026-08-20", "Simplify", "TRUE", ""]
+    _dead(monkeypatch, {link})
+
+    live, dropped = _drop_dead_rows([applied])
+    assert (dropped, live) == (0, [applied])
+
+
+def test_an_unticked_row_whose_posting_is_gone_still_leaves(monkeypatch) -> None:
+    """The protection must not turn the check off. A row nobody has touched is
+    what it was written for."""
+    gone = "https://jobs.example/gone"
+    stale = ["Acme", "SWE Intern", gone, "2026-08-20", "Simplify", "", ""]
+    open_ = ["Beta", "SWE Intern", "https://jobs.example/open", "2026-08-20", "Simplify", "", ""]
+    _dead(monkeypatch, {gone})
+
+    live, dropped = _drop_dead_rows([stale, open_])
+    assert dropped == 1
+    assert live == [open_]
+
+
+def test_a_settled_row_is_never_even_asked_about(monkeypatch) -> None:
+    """Liveness is the one step that costs a request per row. Every settled row is
+    a request that no longer has to be made, so the saving is real and not a side
+    effect worth losing later."""
+    settled = ["Acme", "SWE Intern", "https://jobs.example/a", "2026-08-20", "S", "", "TRUE"]
+    pending = ["Beta", "SWE Intern", "https://jobs.example/b", "2026-08-20", "S", "", ""]
+    asked = _dead(monkeypatch, set())
+
+    _drop_dead_rows([settled, pending])
+    assert asked == [["https://jobs.example/b"]]
+
+
+def test_a_note_protects_a_row_from_the_liveness_check_as_well(monkeypatch) -> None:
+    """Column H is the manual override everywhere else in this file, and it has to
+    mean the same thing here: write anything and the tool stops touching the row."""
+    link = "https://jobs.example/acme"
+    noted = ["Acme", "SWE Intern", link, "2026-08-20", "Simplify", "", "", "waiting on referral"]
+    _dead(monkeypatch, {link})
+
+    live, dropped = _drop_dead_rows([noted])
+    assert (dropped, live) == (0, [noted])

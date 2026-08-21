@@ -275,11 +275,26 @@ def _drop_foreign_rows(rows: list[list[str]], foreign: set[str]) -> tuple[list[l
 
 def _drop_dead_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     """Existing rows are checked too, not just the new ones: a posting that was
-    open last week is exactly the one that goes stale in the sheet."""
-    gone = dead_links([row[2] for row in rows if len(row) > 2 and row[2].strip()])
+    open last week is exactly the one that goes stale in the sheet.
+
+    An annotated row is neither asked about nor deleted, and that exception is the
+    whole point rather than a detail. Ticking Expired is what you do when a posting
+    closes, and the board taking it down is the same event seen from the other
+    side — so asking would delete the tombstone at the exact moment it starts
+    mattering. Once the row is gone its link leaves `known`, and the next time a
+    tracker reposts that job it arrives as fresh, unticked work.
+
+    Expired has no second net the way Applied does. An applied row that gets
+    deleted here is ticked again next run from the App tab; an expired row never
+    reaches App at all, so nothing would ever tick it back.
+
+    Not asking is also the cheaper half: this is the one step costing a request per
+    row, and every settled row is one request that no longer has to be made."""
+    asked = [row for row in rows if not _is_annotated(row)]
+    gone = dead_links([row[2] for row in asked if len(row) > 2 and row[2].strip()])
     if not gone:
         return rows, 0
-    live = [row for row in rows if not (len(row) > 2 and row[2] in gone)]
+    live = [row for row in rows if _is_annotated(row) or not (len(row) > 2 and row[2] in gone)]
     return live, len(rows) - len(live)
 
 
