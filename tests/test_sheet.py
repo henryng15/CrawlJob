@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 from job_sync.config import Settings
 from job_sync.sheet import (
     APP_UPDATE,
@@ -781,3 +783,64 @@ def test_the_update_column_sits_one_past_the_recruiter_checkbox() -> None:
         ("UPDATE_COL", APP_UPDATE),
     ):
         assert re.search(rf"\b{name} = {index + 1}\b", script), name
+
+
+def test_a_jobright_repost_under_a_new_link_does_not_return_as_work() -> None:
+    """Jobright republishes the same posting the next day under a fresh
+    jobright.ai/jobs/info/<id>. The link layer cannot see that: the two URLs
+    normalize to different keys, so `known` treats the repost as a job never seen
+    before and appends it.
+
+    The identity layer is what has to catch it, and _preference is what decides
+    which copy survives — the ticked one, carrying the application already sent.
+    Without this the sheet grows one unticked row per repost for a job already
+    applied to, which is the single failure the Applied column exists to prevent."""
+    role = "Software Engineering Intern (2027 Start) - Winter"
+    applied = ["Databricks", role, "https://jobright.ai/jobs/info/aaa111", "2026-08-20", "", "TRUE"]
+    repost = ["Databricks", role, "https://jobright.ai/jobs/info/bbb222", "2026-08-21", "", ""]
+    assert _key(applied) != _key(repost), "the repost really does carry a different link"
+
+    unique, removed = _drop_duplicate_identities([applied, repost])
+    assert removed == 1
+    assert unique == [applied], "the ticked copy is the one that stays"
+
+
+@pytest.mark.parametrize(
+    "reworded",
+    [
+        "Software Engineer Intern (2027 Start) - Winter",
+        "Software Engineering Intern (2027 Start) — Winter",
+        "Software Engineering Intern (2027 Start), Winter",
+        "Software Engineering Intern (2027 Start) - Winter ",
+    ],
+)
+def test_a_repost_that_rewords_the_title_is_still_one_posting(reworded: str) -> None:
+    """A repost is rarely byte-identical. role_key folds away the punctuation, the
+    trailing space and the engineer/engineering swap, so all of these still merge.
+
+    What it will not fold is a word appearing or disappearing — "2027 Software
+    Engineering Intern - Winter" drops "Start" and becomes a different identity.
+    That is deliberate: merging here deletes an opening, so the strict reading is
+    the safe one, and _mark_applied's looser reading against the App tab is the
+    second net under it."""
+    role = "Software Engineering Intern (2027 Start) - Winter"
+    applied = ["Databricks", role, "https://jobright.ai/jobs/info/aaa111", "2026-08-20", "", "TRUE"]
+    repost = ["Databricks", reworded, "https://jobright.ai/jobs/info/bbb222", "2026-08-21", "", ""]
+    unique, removed = _drop_duplicate_identities([applied, repost])
+    assert removed == 1, f"{reworded!r} should merge into the row already ticked"
+    assert unique == [applied]
+
+
+def test_the_app_tab_catches_a_repost_the_identity_layer_missed() -> None:
+    """The second net. When a repost reworks the title enough to survive the merge,
+    it lands as a new unticked row — and _mark_applied then reads the App tab by
+    company and role tokens, which tolerates the reordering that role_key will not.
+
+    So the repost still does not present itself as work: it arrives ticked."""
+    role = "Software Engineering Intern (Winter 2027 Start)"
+    repost = ["Databricks", role, "https://jobright.ai/jobs/info/bbb222", "2026-08-21", "", ""]
+    sent = {_loose_identity("Databricks", "Software Engineering Intern (2027 Start) - Winter")}
+
+    by_link, by_name = _mark_applied([repost], set(), sent)
+    assert (by_link, by_name) == (0, 1)
+    assert repost[APPLIED] == "TRUE"
