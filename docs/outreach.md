@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 153 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 154 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -359,6 +359,11 @@ Nothing is composed and sent in the same breath. A row picked at 09:00 becomes a
 draft** — the real recruiter in the `To` field, the real subject, the resume attached — and the
 firing at 10:00 is what sends it. So there is always an hour in which the finished message
 exists and can be read.
+
+The hour is also re-checked, not just waited out. Before a draft is sent, `App` is read again
+and its `Process` re-tested — the rejection scan catches the ones that arrive by email, and this
+catches every other way an application closes in that hour: a stage moved by hand, or a rejection
+that landed in the Kenyon mailbox instead. The draft is thrown away unsent.
 
 **Deleting the draft in Gmail is the cancel button.** The send finds nothing behind the stored
 draft id and marks the row `Cancelled` with *"The draft was deleted before its hour, so it was

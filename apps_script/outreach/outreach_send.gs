@@ -43,6 +43,22 @@ function outreachWriteRow_(queue, rowNumber, updates) {
 }
 
 /**
+ * Throw away a draft that must not go out.
+ *
+ * Already gone is the outcome we wanted, so a missing draft is not an error.
+ * Leaving it in the mailbox would be worse than either: it would sit there
+ * looking like something still waiting to be sent.
+ */
+function outreachDiscardDraft_(draftId) {
+  if (!draftId) return;
+  try {
+    GmailApp.getDraft(draftId).deleteDraft();
+  } catch (error) {
+    // Deleted by hand, or never created. Both mean there is nothing to stop.
+  }
+}
+
+/**
  * The drafts whose hour has come.
  *
  * Mode is checked here rather than at drafting time, so a row whose message could
@@ -66,19 +82,48 @@ function outreachDraftsToSend_(queueRows, now) {
  * A draft that is gone was deleted on purpose, and that is the whole point of
  * writing an hour early: reading it in Gmail and deleting it is how you call one
  * off. The row is marked Cancelled rather than Failed, because nothing failed.
+ *
+ * The other way a send is called off is the application itself closing during
+ * that hour, which is checked here rather than trusted from an hour ago.
  */
 function sendPreparedDrafts() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var app = tracker.getSheetByName(TAB_APP);
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var last = queue.getLastRow();
   if (last < 2) return { sent: 0, cancelled: 0, failed: 0 };
 
   var now = new Date();
   var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+
+  // App is re-read here as well as at drafting time, because an hour passes in
+  // between and it is an hour in which the answer can change. The rejection scan
+  // catches the ones that arrive by email; this catches every other way an
+  // application closes — a Process moved by hand, or a rejection that landed in
+  // the other mailbox. Without it, a draft written at 09:00 goes out at 10:00
+  // whatever happened at 09:30.
+  var appLast = app.getLastRow();
+  var byProperty = {};
+  if (appLast >= 2) {
+    app.getRange(2, 1, appLast - 1, APP_RECRUITERS).getValues()
+       .map(outreachParseApp_).forEach(function (row) { byProperty[row.property] = row; });
+  }
+
   var tally = { sent: 0, cancelled: 0, failed: 0 };
 
   outreachDraftsToSend_(rows, now).forEach(function (row) {
     var updates = {};
+
+    var check = outreachStillQualifies_(byProperty[row.property]);
+    if (!check.ok) {
+      outreachDiscardDraft_(row.draftId);
+      updates[Q_STATUS] = STATUS_CANCELLED;
+      updates[Q_RESULT] = check.why + '; the draft was thrown away unsent.';
+      outreachWriteRow_(queue, row.rowNumber, updates);
+      tally.cancelled++;
+      return;
+    }
+
     try {
       var draft = GmailApp.getDraft(row.draftId);
       var message = draft.send();

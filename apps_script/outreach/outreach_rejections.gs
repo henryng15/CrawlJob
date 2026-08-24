@@ -286,13 +286,7 @@ function outreachRecordRejection_(app, queue, appRow, queueRows, when) {
   queueRows.forEach(function (row) {
     if (row.property !== appRow.property) return;
     if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
-    if (row.status === STATUS_DRAFTED && row.draftId) {
-      try {
-        GmailApp.getDraft(row.draftId).deleteDraft();
-      } catch (error) {
-        // Already gone is the outcome we wanted anyway.
-      }
-    }
+    if (row.status === STATUS_DRAFTED) outreachDiscardDraft_(row.draftId);
     var updates = {};
     updates[Q_STATUS] = STATUS_CANCELLED;
     updates[Q_RESULT] = 'Rejected on ' + outreachStamp_(when) + '; nothing further goes out.';

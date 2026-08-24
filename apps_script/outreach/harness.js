@@ -812,6 +812,14 @@ console.log('written an hour early, so there is an hour to read it in');
     assert.strictEqual(
       S.outreachDraftsToSend_([row({ status: 'Sent', sentAt: at(10) })], at(11)).length, 0);
   });
+  run('an application closed during that hour has its draft thrown away', () => {
+    // outreachDraftsToSend_ still offers it — the row says Drafted and its hour
+    // has come. sendPreparedDrafts is what re-reads App and refuses, so this is
+    // the check that the two halves are not the same question.
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(10)).length, 1);
+    assert.ok(!S.outreachStillQualifies_(app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')).ok);
+    assert.ok(!S.outreachStillQualifies_(undefined).ok);
+  });
   run('deleting the draft in Gmail is what calls a send off', () => {
     // The selector still offers it; sendPreparedDrafts finds no draft behind the
     // id and marks the row Cancelled. That is the whole review mechanism.
