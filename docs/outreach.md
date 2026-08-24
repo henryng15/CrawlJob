@@ -665,9 +665,14 @@ software or engineering at all — the bank programmes that name a department ra
 like `2027 Truist Analyst Program - Technology, Data, and Operations Track`. Calling those a
 software internship would be inventing a req.
 
-> **A side effect worth naming.** The posting title no longer reaches the reader in any form, so
-> a role cell cannot carry markup into the message even escaped. What lands is one of the names
-> above, and none of them came from the sheet.
+**A title no rule recognises is left exactly as it was written.** Three of the 144 reach this —
+`Ad Infra`, `AI Builder Intern`, `R&D Intern (Fall 2026)` — and all three are already short, so
+there is nothing to cut and nothing solid to cut them to. The rules exist to remove job board
+padding, not to relabel a job they do not recognise. Only an empty cell falls back to
+`Software Engineer Intern`, because "Applied for the  role" is not a sentence.
+
+Since an unrecognised title reaches the reader as written, escaping is still what stands between
+the role cell and the message.
 
 **No dashes.** Not in a subject, not in a bullet, not in the ask. Text arriving from ColdEmail
 does use them, and `outreachNoDashes_` turns each into a full stop on the way in, so a long

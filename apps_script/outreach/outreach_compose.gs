@@ -277,14 +277,25 @@ var SHORT_ROLES = [
   { any: [['technology'], ['it']], name: 'Technology' }
 ];
 
-// What an unreadable or empty title is called. It was already the fallback here
-// before anything was shortened, and it is what 91 of the 144 titles in the sheet
-// resolve to anyway.
+// What an empty cell is called. Only an empty one: a title nobody typed cannot be
+// left as it was, because "Applied for the  role" is not a sentence.
 var DEFAULT_SHORT_ROLE = 'Software Engineer Intern';
 
+/**
+ * A title no rule recognises is left exactly as it was written.
+ *
+ * Three of the 144 titles in the sheet reach this — "Ad Infra", "AI Builder
+ * Intern", "R&D Intern (Fall 2026)" — and all three are already short. There is
+ * nothing to shorten and nothing solid to shorten them to: calling an AI Builder
+ * internship a Software Engineer internship would be answering with a guess in the
+ * one bullet the recipient can check. The rules exist to cut job board padding,
+ * not to relabel jobs they do not recognise.
+ */
 function outreachShortRole_(role) {
+  var written = String(role == null ? '' : role).trim();
+  if (!written) return DEFAULT_SHORT_ROLE;
   var seen = {};
-  outreachRoleTokens_(role).forEach(function (word) { seen[word] = true; });
+  outreachRoleTokens_(written).forEach(function (word) { seen[word] = true; });
   for (var i = 0; i < SHORT_ROLES.length; i++) {
     var alternatives = SHORT_ROLES[i].any;
     for (var j = 0; j < alternatives.length; j++) {
@@ -293,7 +304,7 @@ function outreachShortRole_(role) {
       if (every) return SHORT_ROLES[i].name;
     }
   }
-  return DEFAULT_SHORT_ROLE;
+  return written;
 }
 
 function outreachIntroBullets_(role, dateApplied, today, formatDate) {

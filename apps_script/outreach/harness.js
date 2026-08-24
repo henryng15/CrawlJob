@@ -717,7 +717,7 @@ console.log('the message');
   });
   run('past 45 days the date is dropped rather than volunteered', () => {
     assert.ok(stale.plain.indexOf('May 1') === -1);
-    assert.match(stale.plain, /Applied for the Software Engineer Intern role earlier this year/);
+    assert.match(stale.plain, /Applied for the SWE Intern role earlier this year/);
     assert.match(stale.plain, /I am Henry Nguyen/);
   });
   run('with no hook or angle the Why section is left out, not left empty', () => {
@@ -730,13 +730,10 @@ console.log('the message');
     dateApplied: day(2026, 8, 20), today, formatDate: () => 'Aug 20'
   });
   run('a role from the sheet cannot inject markup into the email', () => {
-    // Stronger than escaping now: the posting title never reaches the reader at
-    // all, escaped or otherwise. What lands is one of the names in SHORT_ROLES,
-    // and none of them came from the sheet.
+    // A title no rule recognises reaches the reader as written, so escaping is
+    // still what stands between the sheet and the message.
     assert.ok(nasty.html.indexOf('<script>') === -1);
-    assert.ok(nasty.html.indexOf('&lt;script&gt;') === -1);
-    assert.ok(nasty.html.indexOf('alert(1)') === -1);
-    assert.match(nasty.plain, /Applied for the Software Engineer Intern role/);
+    assert.ok(nasty.html.indexOf('&lt;script&gt;') !== -1);
   });
   run('an ampersand in a name is escaped, not swallowed', () => {
     assert.ok(nasty.html.indexOf('Bo &amp; Co') !== -1 || nasty.html.indexOf('Hi Bo,') !== -1);
@@ -784,9 +781,18 @@ console.log('the job is named in three words, not in the job board\'s words');
       + 'Innovation (TDI) - Cary 2027'), 'Technology');
     assert.strictEqual(short('College Internship Information Technology (20097565)'), 'Technology');
   });
-  run('a title that says nothing falls back rather than guessing', () => {
+  run('a title no rule recognises is left exactly as it was written', () => {
+    assert.strictEqual(short('Ad Infra'), 'Ad Infra');
+    assert.strictEqual(short('AI Builder Intern'), 'AI Builder Intern');
+    assert.strictEqual(short('R&D Intern (Fall 2026)'), 'R&D Intern (Fall 2026)');
+  });
+  run('only an empty cell falls back, because a blank is not a sentence', () => {
     assert.strictEqual(short(''), 'Software Engineer Intern');
-    assert.strictEqual(short('Ad Infra'), 'Software Engineer Intern');
+    assert.strictEqual(short('   '), 'Software Engineer Intern');
+  });
+  run('a recognised title is still cut down, not left long', () => {
+    assert.ok(short('Campus Undergraduate Summer Internship Program - 2027 Software '
+      + 'Engineer, Enterprise Technology Services- Charlotte, NC').length < 30);
   });
   run('the name is still the bold half of the bullet', () => {
     const mail = S.outreachCompose_({
