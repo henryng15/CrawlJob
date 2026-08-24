@@ -36,7 +36,7 @@ Everything that *decides* is pure — it takes rows, a message and a date, and r
 Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
 
 ```
-node apps_script/outreach/harness.js     # 163 tests, sends nothing
+node apps_script/outreach/harness.js     # 164 tests, sends nothing
 ```
 
 ## Deploying — do not paste by hand

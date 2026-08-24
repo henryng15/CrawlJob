@@ -148,6 +148,17 @@ var LABEL_IGNORED  = 'Tracker/Not a rejection';
 var REJECTION_RULES_VERSION = 2;
 var PROP_RULES_VERSION = 'REJECTION_RULES_SEEN';
 
+// A reopen needs to remember what it has already been through, and the verdict
+// labels cannot do it: a re-judged thread lands straight back under Check by hand
+// or Not a rejection, which the reopen query no longer excludes, so it would come
+// back on the next firing. With more threads than the scan cap that is not slow
+// progress, it is no progress — the same first forty for ever, the rest never
+// reached, and the version never recorded because the batch is always full.
+//
+// This marker is worn only during a reopen and deleted the moment one finishes,
+// which is also what makes the next reopen start from a clean sheet.
+var LABEL_REJUDGED = 'Tracker/Rejudged';
+
 // ------------------------------------------------------------------ matching
 
 /**
@@ -382,9 +393,9 @@ function outreachRejectionQuery_(reopen) {
   }).join(' OR ');
   var query = 'newer_than:' + REJECTION_WINDOW_DAYS + 'd -in:chats'
             + ' -label:"' + LABEL_REJECTED + '"';
-  if (!reopen) {
-    query += ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"';
-  }
+  query += reopen
+    ? ' -label:"' + LABEL_REJUDGED + '"'
+    : ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"';
   return query + ' (' + phrases + ')';
 }
 
@@ -419,14 +430,20 @@ function scanRejectionEmails() {
 
   var props = PropertiesService.getScriptProperties();
   var reopen = Number(props.getProperty(PROP_RULES_VERSION) || 0) < REJECTION_RULES_VERSION;
+  var rejudged = reopen ? outreachLabel_(LABEL_REJUDGED) : null;
   var threads = GmailApp.search(outreachRejectionQuery_(reopen), 0, REJECTION_SCAN_LIMIT);
   if (reopen) Logger.log('Rules are newer than the last pass; reopening ' + threads.length + '.');
 
   threads.forEach(function (thread) {
     var found = null;
     // A reopened thread already carries a verdict from the old rules. Clearing it
-    // first is what lets this pass overwrite it rather than stack a second label.
-    if (reopen) { thread.removeLabel(check); thread.removeLabel(ignored); }
+    // first is what lets this pass overwrite it rather than stack a second label;
+    // the marker is what stops it being handed back on the next firing.
+    if (reopen) {
+      thread.removeLabel(check);
+      thread.removeLabel(ignored);
+      thread.addLabel(rejudged);
+    }
 
     thread.getMessages().forEach(function (message) {
       if (found) return;
@@ -470,8 +487,13 @@ function scanRejectionEmails() {
   // Only once the backlog is drained, because the scan is capped per firing and a
   // reopen usually needs several. Recording the version after the first partial
   // pass would leave most of the mail judged by the rules that were replaced.
+  //
+  // A short batch is what "drained" means: every thread still owed a second look
+  // is excluded by the marker, so the first firing that comes back under the cap
+  // is the one that ran out of them.
   if (reopen && threads.length < REJECTION_SCAN_LIMIT) {
     props.setProperty(PROP_RULES_VERSION, String(REJECTION_RULES_VERSION));
+    rejudged.deleteLabel();
     Logger.log('Reopen complete; rules version ' + REJECTION_RULES_VERSION + ' recorded.');
   }
 

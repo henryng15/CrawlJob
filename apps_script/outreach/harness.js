@@ -797,6 +797,12 @@ console.log('reading a rejection out of the mailbox');
     assert.ok(query.indexOf('-label:"' + S.LABEL_CHECK + '"') === -1);
     assert.ok(query.indexOf('-label:"' + S.LABEL_IGNORED + '"') === -1);
   });
+  run('a reopen excludes what it has already re-read, or it never finishes', () => {
+    // Without this the verdict it just wrote puts the thread straight back in the
+    // result set: the same first forty for ever, and the rest never reached.
+    assert.ok(S.outreachRejectionQuery_(true).indexOf('-label:"' + S.LABEL_REJUDGED + '"') !== -1);
+    assert.ok(S.outreachRejectionQuery_(false).indexOf(S.LABEL_REJUDGED) === -1);
+  });
   run('a reopen never re-reads a closure, which it could only spoil', () => {
     // Those applications are already Rejected, so re-judging finds no open row
     // and would move a correct closure into the review pile.

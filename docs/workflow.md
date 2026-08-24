@@ -119,7 +119,7 @@ apps_script/
     outreach_queue.gs        who earns a row, in what order, how many this hour
     outreach_send.gs         drafting, sending, replies, bounces, the trigger
     outreach_rejections.gs   recognising a rejection and closing the application
-    harness.js               163 tests
+    harness.js               164 tests
 ```
 
 Everything that *decides* is a pure function over rows and a date, so the rules can be argued

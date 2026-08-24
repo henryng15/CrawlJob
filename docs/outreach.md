@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 163 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 164 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -367,6 +367,27 @@ twice and the search window cannot silt up:
 | `Tracker/Rejected` | acted on — `App` and `Email` are already updated |
 | `Tracker/Check by hand` | reads as a rejection, could not be pinned to one application |
 | `Tracker/Not a rejection` | looked at and ruled out |
+| `Tracker/Rejudged` | temporary; worn during a reopen and deleted when one finishes |
+
+#### When the rules improve, the old verdicts are revisited
+
+A label is what stops a thread being read twice, and that is also what would make a
+bad run permanent: better rules would never see the mail the old rules got wrong.
+`REJECTION_RULES_VERSION` is bumped whenever the phrase lists change, and the first
+firing after that reopens the two piles the scan is allowed to be wrong about —
+`Check by hand` and `Not a rejection` — clears their labels and judges them again.
+
+`Tracker/Rejected` is never reopened. Those applications are already closed, so
+re-judging would find no open row to match and would move every correct closure into
+the review pile. That label stays yours to audit, and it is short.
+
+The reopen carries its own marker, `Tracker/Rejudged`, because the verdict labels
+cannot do the job: a re-judged thread lands straight back under one of them, which
+the reopen query no longer excludes. With more threads than `REJECTION_SCAN_LIMIT`
+that is not slow progress but none — the same first forty every firing, the rest
+never reached, and the version never recorded because the batch is always full. The
+marker is deleted the moment a reopen finishes, which is what lets the next one start
+from a clean sheet.
 
 `Tracker/Check by hand` is the review pile. It is meant to be non-empty — that is the design
 working, not failing.
