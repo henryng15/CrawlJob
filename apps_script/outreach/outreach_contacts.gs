@@ -47,6 +47,32 @@ function outreachSameEmployer_(left, right) {
   return contains(right, left) || contains(left, right);
 }
 
+// The words a campus recruiter's title actually uses, as whole words rather than
+// substrings: `intern` must not match `internal`, which is a different job and a
+// different email. Early career and early talent are two spellings of one team.
+var CAMPUS_TITLE =
+  /\b(campus|university|college|school|students?|interns?|internships?|graduates?|grads?)\b|\bearly[\s-]?(career|talent)\b/;
+
+/**
+ * The focus a recruiter's own title implies, used only when Focus is empty.
+ *
+ * Only 'university' is worth deriving, because it is the one value
+ * outreachVariantOrder_ reads: it moves the campus subject — the one that asks
+ * whether Kenyon sits on the campus list this cycle — ahead of the industry hook.
+ * Anything else a title might say is already carried by the company's bucket, so
+ * inventing more values here would be guessing rather than reading.
+ *
+ * This exists for the hand-typed tab. A seed row arrives from ColdEmail with Focus
+ * already filled; a row typed by hand carries a title and little else, and asking
+ * for a second column whose only useful value is one word is how a tab stops being
+ * used. An explicit Focus still wins — the caller only falls back to this.
+ */
+function outreachFocusFromRole_(role) {
+  var text = String(role == null ? '' : role).toLowerCase().trim();
+  if (!text) return '';
+  return CAMPUS_TITLE.test(text) ? 'university' : '';
+}
+
 function outreachCell_(row, index) {
   var value = row[index - 1];
   return String(value == null ? '' : value).trim();
@@ -56,8 +82,10 @@ function outreachCell_(row, index) {
  * Every contact worth writing to, from both tabs, newest-typed last.
  *
  * A manual row carries only Company, Recruiter Name and Email — that is all the
- * typing this system asks for. Focus, hook and angle stay empty and are borrowed
- * from the company's seed contacts at compose time.
+ * typing this system asks for. Hook and angle stay empty and are borrowed from the
+ * company's seed contacts at compose time. Focus is borrowed from nobody: it
+ * describes the person, not the employer, so an empty one is read off their own
+ * title instead.
  */
 function outreachReadContacts_(contactsSpreadsheet) {
   var out = [];
@@ -88,7 +116,12 @@ function outreachReadContacts_(contactsSpreadsheet) {
         name: outreachCell_(row, C_NAME),
         email: email,
         role: outreachCell_(row, C_ROLE),
-        focus: outreachCell_(row, C_FOCUS),
+        // A hand-typed row carries a title and no Focus. Deriving it here rather
+        // than at compose time means the Email tab's Template column names the
+        // campus subject when the row is queued, which is before the message is
+        // written and while there is still time to disagree with it.
+        focus: outreachCell_(row, C_FOCUS)
+          || outreachFocusFromRole_(outreachCell_(row, C_ROLE)),
         hook: outreachCell_(row, C_HOOK),
         angle: outreachCell_(row, C_ANGLE),
         bucket: outreachCell_(row, C_BUCKET),

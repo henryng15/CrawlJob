@@ -319,7 +319,11 @@ console.log('the contact list — two tabs, and why they are two');
   ];
   const manual = [
     ['Nowhere', 'N Four', 'n@nowhere.com', '', '', '', '', ''],
-    ['Acme', 'A One again', 'a@acme.com', '', '', '', '', '']
+    ['Acme', 'A One again', 'a@acme.com', '', '', '', '', ''],
+    ['Campus Co', 'C Five', 'c5@campus.com', 'Campus Recruiter', '', '', '', ''],
+    ['Talent Co', 'T Six', 't6@talent.com', 'Early Talent Partner', '', '', '', ''],
+    ['Internal Co', 'I Seven', 'i7@internal.com', 'Internal Recruiter', '', '', '', ''],
+    ['Override Co', 'O Eight', 'o8@override.com', 'Campus Recruiter', 'technical', '', '', '']
   ];
   const contacts = S.outreachReadContacts_(book(seed, manual));
 
@@ -345,6 +349,27 @@ console.log('the contact list — two tabs, and why they are two');
       getSheetByName: (n) => (n === 'Contacts (seed)' ? make(seed) : null)
     });
     assert.strictEqual(only.length, 2);
+  });
+  const focusOf = (email) => contacts.filter((c) => c.email === email)[0].focus;
+
+  run('a hand-typed campus recruiter is read as university from their title alone', () => {
+    assert.strictEqual(focusOf('c5@campus.com'), 'university');
+  });
+  run('early talent is the same team under another name', () => {
+    assert.strictEqual(focusOf('t6@talent.com'), 'university');
+  });
+  run('an internal recruiter is not a campus recruiter', () => {
+    assert.strictEqual(focusOf('i7@internal.com'), '');
+  });
+  run('a Focus that was typed in is never overwritten by the title', () => {
+    assert.strictEqual(focusOf('o8@override.com'), 'technical');
+  });
+  run('a title that says nothing about campus leaves focus empty', () => {
+    assert.strictEqual(focusOf('n@nowhere.com'), '');
+  });
+  run('the derived focus is what moves the campus subject to the front', () => {
+    assert.strictEqual(S.outreachVariantFor_(1, focusOf('c5@campus.com'), 'fintech'), 'campus');
+    assert.strictEqual(S.outreachVariantFor_(1, focusOf('i7@internal.com'), 'fintech'), 'fintech');
   });
   run('a hand-typed contact borrows its company angle from the seed rows', () => {
     const acme = S.outreachContactsFor_(contacts, 'Acme, Inc.');

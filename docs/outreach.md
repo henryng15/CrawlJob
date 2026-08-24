@@ -536,9 +536,19 @@ The split is the whole point. One tab would mean a single re-export silently des
 of contacts gathered by hand. Two tabs make that impossible rather than merely unlikely.
 
 Columns are the same on both: `Company · Recruiter Name · Email · Role · Focus · Hook · Angle ·
-Verify · Bucket`. **A hand-typed row needs only the first three.** Focus, hook and angle stay empty and
+Verify · Bucket`. **A hand-typed row needs only the first three.** Hook and angle stay empty and
 are borrowed from that company's seed contacts when the email is built — so adding someone at a
 company ColdEmail has already written for costs three cells and no prose.
+
+Focus is borrowed from nobody, because it describes the person rather than the employer. An empty
+one is read off the recruiter's own title instead: a `Role` that says campus, university, college,
+school, student, intern, graduate, or early career/talent is taken as `university`, which is the
+one value that matters — it moves the campus subject, the one that asks whether Kenyon sits on the
+campus list this cycle, ahead of the industry hook. The test is on whole words, so `Internal
+Recruiter` is not a campus recruiter. A `Focus` you typed in yourself always wins over the title.
+
+So the fourth cell is worth filling after all: `Company · Recruiter Name · Email · Role` is enough
+to get a campus recruiter the campus subject, with no second column to remember.
 
 Adding someone at a company it has *never* written for leaves no angle to borrow. That email
 still reads correctly, but it has lost the one sentence that made it specific, so it is queued
