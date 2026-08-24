@@ -59,17 +59,43 @@ function outreachDiscardDraft_(draftId) {
 }
 
 /**
+ * The hour a draft written now leaves in — the top of it, not the minute.
+ *
+ * A time-driven trigger fires at a minute Google picks and drifts a few either
+ * way, so `now + one hour` produces a target the next firing can arrive *before*.
+ * A draft written at 12:05 scheduled for exactly 13:05 is passed over by a 13:03
+ * firing and waits until 14:03 — an hour late, on a row whose Scheduled At says
+ * 13:05 and whose Error column is empty, which is the least debuggable shape a
+ * delay can have.
+ *
+ * Anchoring to the top of the hour also makes the row agree with the projection
+ * it replaces: outreachProjectSchedule_ has always promised whole hours, and a
+ * drafted row is the same fact after the event.
+ */
+function outreachSendHourAfter_(now) {
+  var goesAt = new Date(now.getTime() + DRAFT_LEAD_HOURS * 3600000);
+  goesAt.setMinutes(0, 0, 0);
+  return goesAt;
+}
+
+/**
  * The drafts whose hour has come.
  *
  * Mode is checked here rather than at drafting time, so a row whose message could
  * not be made specific — a hand-typed contact at a company ColdEmail never wrote
  * for — is written and then waits for a person, instead of never being written at
  * all. Its draft is in the mailbox either way; only this step passes it over.
+ *
+ * The global OUTREACH_MODE switch is read here too. It used to be consulted only
+ * where the drafts were written, which made it a switch over the wording of the
+ * Result column and nothing else: every row whose own Mode said Send still went
+ * out with the rollout switch set to Draft. A safety switch that fails open is
+ * worse than no switch, because it is believed.
  */
-function outreachDraftsToSend_(queueRows, now) {
+function outreachDraftsToSend_(queueRows, now, globalMode) {
   return queueRows.filter(function (row) {
     return row.status === STATUS_DRAFTED
-        && row.mode !== MODE_DRAFT
+        && outreachModeFor_(row.mode, globalMode) !== MODE_DRAFT
         && row.draftId
         && row.scheduledAt
         && row.scheduledAt.getTime() <= now.getTime();
@@ -88,6 +114,7 @@ function outreachDraftsToSend_(queueRows, now) {
  */
 function sendPreparedDrafts() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var globalMode = outreachProperty_(PROP_MODE, false);
   var app = tracker.getSheetByName(TAB_APP);
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var last = queue.getLastRow();
@@ -111,7 +138,7 @@ function sendPreparedDrafts() {
 
   var tally = { sent: 0, cancelled: 0, failed: 0 };
 
-  outreachDraftsToSend_(rows, now).forEach(function (row) {
+  outreachDraftsToSend_(rows, now, globalMode).forEach(function (row) {
     var updates = {};
 
     var check = outreachStillQualifies_(byProperty[row.property]);
@@ -236,7 +263,7 @@ function prepareOutreachDrafts() {
 
       try {
         var draft = GmailApp.createDraft(contact.email, mail.subject, mail.plain, options);
-        var goesAt = new Date(now.getTime() + DRAFT_LEAD_HOURS * 3600000);
+        var goesAt = outreachSendHourAfter_(now);
         var updates = {};
         updates[Q_STATUS] = STATUS_DRAFTED;
         updates[Q_DRAFT_ID] = draft.getId();
@@ -447,17 +474,41 @@ function previewOutreachEmail() {
  */
 function runOutreachCycle() {
   var summary = {};
-  summary.scan = scanOutreachReplies();
-  summary.rejections = scanRejectionEmails();
-  var plan = enqueueOutreach();
-  summary.queued = plan.planned.length;
+  var failures = [];
+
+  // Each step is allowed to fail on its own. Run as one unbroken expression, a
+  // Gmail search that throws in step 1 takes step 4 with it, so nothing is sent
+  // that hour and the Email tab shows a row still Drafted with an empty Error
+  // column — the delay is real and there is nothing on the row to read it from.
+  // The order below still matters and is unchanged; only the blast radius is.
+  var step = function (name, work) {
+    try {
+      summary[name] = work();
+    } catch (error) {
+      summary[name] = 'failed: ' + String(error.message || error);
+      failures.push(name);
+    }
+  };
+
+  step('scan', scanOutreachReplies);
+  step('rejections', scanRejectionEmails);
+  step('queued', function () { return enqueueOutreach().planned.length; });
   // Send before writing, never the other way round. Drafting first would let a
   // message be written and sent inside one firing, and the hour in which it could
   // have been read would never have existed.
-  summary.sent = sendPreparedDrafts();
-  summary.written = prepareOutreachDrafts();
-  summary.projected = refreshOutreachSchedule();
+  //
+  // Sending survives a failed scan on purpose: sendPreparedDrafts re-reads App
+  // for every draft it is about to send, so a rejection recorded by any route
+  // still stops it. A failed scan costs an hour of freshness, not the check.
+  step('sent', sendPreparedDrafts);
+  step('written', prepareOutreachDrafts);
+  step('projected', refreshOutreachSchedule);
+
+  summary.failedSteps = failures;
   Logger.log(JSON.stringify(summary));
+  // Thrown after everything else has had its turn, so the run still shows up red
+  // in Executions rather than being quietly swallowed for the rest of the year.
+  if (failures.length) throw new Error('Outreach steps failed: ' + failures.join(', '));
   return summary;
 }
 

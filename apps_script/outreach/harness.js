@@ -1100,6 +1100,37 @@ console.log('written an hour early, so there is an hour to read it in');
     // id and marks the row Cancelled. That is the whole review mechanism.
     assert.strictEqual(S.outreachDraftsToSend_([row({})], at(12)).length, 1);
   });
+
+  run('the hour a draft leaves in is the top of the hour, not the minute it was written', () => {
+    // The trigger fires at a minute Google picks. Scheduling for exactly one hour
+    // after an 12:05 write puts the target at 13:05, which a 13:03 firing arrives
+    // before — so the row waits until 14:03 with nothing on it saying why.
+    const written = new Date(2026, 7, 24, 12, 5, 30);
+    const goes = S.outreachSendHourAfter_(written);
+    assert.strictEqual(goes.getHours(), 13);
+    assert.strictEqual(goes.getMinutes(), 0);
+    assert.strictEqual(goes.getSeconds(), 0);
+  });
+  run('a firing that arrives early in the hour still sends what that hour is for', () => {
+    const goes = S.outreachSendHourAfter_(new Date(2026, 7, 24, 12, 5, 30));
+    const firing = new Date(2026, 7, 24, 13, 2, 0);
+    assert.strictEqual(S.outreachDraftsToSend_([row({ scheduledAt: goes })], firing).length, 1);
+  });
+  run('the last minute of an hour still leaves in the next one, not the one after', () => {
+    const goes = S.outreachSendHourAfter_(new Date(2026, 7, 24, 12, 59, 0));
+    assert.strictEqual(goes.getHours(), 13);
+  });
+
+  run('the global switch holds a row back even when its own Mode says Send', () => {
+    // This is the rollout switch. It was read only where drafts were written, so
+    // it changed the wording of the Result column and let every Send row go.
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), 'Draft').length, 0);
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), 'Send').length, 1);
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), '').length, 1);
+  });
+  run('the global switch can only be more cautious than the row, never less', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({ mode: 'Draft' })], at(11), 'Send').length, 0);
+  });
 }
 
 console.log('a draft spends the day the same as a send');
