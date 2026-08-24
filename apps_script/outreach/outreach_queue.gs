@@ -1,0 +1,444 @@
+/**
+ * Outreach — deciding what goes into the queue, and what goes out today.
+ *
+ * The functions that decide are pure: they take rows and a date and return rows.
+ * Only enqueueOutreach and the trigger entry point touch a spreadsheet, which is
+ * what lets every rule below be tested without a Google account.
+ */
+
+function outreachDate_(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  var text = String(value == null ? '' : value).trim();
+  if (!text) return null;
+  var parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Every application that qualifies, oldest first.
+ *
+ * Oldest first is the whole ordering. The instinct is to send the freshest
+ * application, and it is wrong here: the value of the email decays with the age
+ * of the application, so the oldest row is the one nearest to being worthless.
+ * A 25-day-old application sent today beats the same one sent in six days at 31.
+ */
+function outreachRankApplications_(appRows) {
+  return appRows.slice().sort(function (a, b) {
+    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
+    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
+    return left - right;
+  });
+}
+
+function outreachParseApp_(row, index) {
+  var dateApplied = outreachDate_(row[APP_DATE_APPLIED - 1]);
+  return {
+    rowNumber: index + 2,
+    property: outreachCell_(row, APP_PROPERTY),
+    company: outreachCell_(row, APP_COMPANY),
+    role: outreachCell_(row, APP_ROLE),
+    process: outreachCell_(row, APP_PROCESS),
+    dateApplied: dateApplied
+  };
+}
+
+function outreachParseQueue_(row, index) {
+  var dateApplied = outreachDate_(row[Q_DATE_APPLIED - 1]);
+  var attempt = Number(outreachCell_(row, Q_ATTEMPT)) || 0;
+  return {
+    rowNumber: index + 2,
+    // Derived, not stored. It is a fixed offset from two cells already on the
+    // row, and a stored copy is only ever a chance for the three to disagree.
+    eligibleAt: dateApplied ? outreachEligibleDay_(dateApplied, attempt) : null,
+    property: outreachCell_(row, Q_PROPERTY),
+    company: outreachCell_(row, Q_COMPANY),
+    role: outreachCell_(row, Q_ROLE),
+    dateApplied: dateApplied,
+    attempt: attempt,
+    template: outreachCell_(row, Q_TEMPLATE),
+    draftedAt: outreachDate_(row[Q_DRAFTED_AT - 1]),
+    scheduledAt: outreachDate_(row[Q_SCHEDULED - 1]),
+    recruiters: Number(outreachCell_(row, Q_RECRUITERS)) || 0,
+    id: outreachCell_(row, Q_ID),
+    status: outreachCell_(row, Q_STATUS),
+    mode: outreachCell_(row, Q_MODE),
+    fingerprint: outreachCell_(row, Q_FINGERPRINT),
+    draftId: outreachCell_(row, Q_DRAFT_ID),
+    sentAt: outreachDate_(row[Q_SENT_AT - 1])
+  };
+}
+
+/**
+ * How many more people at this employer this application should be written to.
+ *
+ * Everyone available is queued at once, one day apart, rather than the next
+ * person waiting on silence from the last. Waiting cost four days each, so one
+ * employer took twelve days to work through — and the application it is about
+ * ages the whole time, which is the one thing this system orders around.
+ *
+ * A reply does not stop the rest. One recruiter answering "we will pass this on"
+ * is not the same as being in, and the person who actually owns the req may be
+ * the second or the third. What does stop everything is the application's own
+ * Process moving off Applied — that is the signal that means something.
+ */
+function outreachAttemptsWanted_(app, existing, available, headroom, today) {
+  if (app.process !== QUALIFYING_PROCESS) return { count: 0, from: 1, why: 'process is ' + app.process };
+  if (!app.company || !app.role) return { count: 0, from: 1, why: 'company or role is blank' };
+  if (!app.dateApplied) return { count: 0, from: 1, why: 'no Date Applied to order by' };
+  if (outreachDaysBetween_(today, app.dateApplied) > FUTURE_APPLICATION_GRACE_DAYS) {
+    return { count: 0, from: 1, why: 'Date Applied is in the future — check the year' };
+  }
+
+  // Cancelled and Failed spend nothing: nothing went out.
+  var spent = existing.filter(function (r) {
+    return r.status !== STATUS_CANCELLED && r.status !== STATUS_FAILED;
+  }).length;
+
+  // A finished wave needs silence before the next one opens. Mid-wave — which is
+  // where a company with only two contacts sits until a third is typed in — the
+  // gate does not apply, because those emails were always meant to go together.
+  if (spent && spent % WAVE_SIZE === 0) {
+    if (existing.some(function (r) { return r.status === STATUS_REPLIED; })) {
+      return { count: 0, from: spent + 1, why: 'someone replied; no further wave' };
+    }
+    var lastSent = null;
+    existing.forEach(function (r) {
+      if (r.sentAt && (!lastSent || r.sentAt.getTime() > lastSent.getTime())) lastSent = r.sentAt;
+    });
+    if (!lastSent) return { count: 0, from: spent + 1, why: 'the current wave has not gone out yet' };
+    if (outreachDaysBetween_(lastSent, today) < WAVE_GAP_DAYS) {
+      return { count: 0, from: spent + 1, why: 'waiting out the ' + WAVE_GAP_DAYS + '-day gap' };
+    }
+  }
+
+  var room = Math.min(WAVE_SIZE - (spent % WAVE_SIZE), available, headroom);
+  if (room <= 0) {
+    var why = available <= 0
+      ? (spent ? 'everyone at that company has been written to' : 'no usable contact there')
+      : 'company is at its weekly cap';
+    return { count: 0, from: spent + 1, why: why };
+  }
+  return { count: room, from: spent + 1, why: '' };
+}
+
+/**
+ * How many emails this company is already committed to.
+ *
+ * Sent in the last seven days, rolling rather than calendar so nothing resets in
+ * a burst on Monday morning — **plus everything still queued for them**, which is
+ * the half an earlier version missed. Counting only what had been sent made the
+ * cap useless on the run that matters most: on a first run nothing has been sent
+ * at all, so every company reads as having its whole allowance free, and three
+ * applications to one employer with ten contacts queue nine emails in one go.
+ *
+ * A queued row is an email this company is going to get. It counts.
+ */
+function outreachCompanySendsThisWeek_(queueRows, company, today) {
+  var tokens = outreachCompanyTokens_(company);
+  return queueRows.filter(function (r) {
+    if (!outreachSameEmployer_(tokens, outreachCompanyTokens_(r.company))) return false;
+    if (r.status === STATUS_QUEUED || r.status === STATUS_DRAFTED) return true;
+    return !!r.sentAt && outreachDaysBetween_(r.sentAt, today) < 7;
+  }).length;
+}
+
+/**
+ * The first contact at this company nobody has written to yet.
+ *
+ * Fingerprints are checked across the whole queue, not just this application:
+ * the same person reached through two different applications is still the same
+ * person receiving a second cold email.
+ */
+function outreachPickContact_(companyContacts, usedFingerprints, salt) {
+  for (var i = 0; i < companyContacts.length; i++) {
+    var print = outreachFingerprint_(companyContacts[i].email, salt);
+    if (!usedFingerprints[print]) return { contact: companyContacts[i], fingerprint: print };
+  }
+  return null;
+}
+
+/**
+ * Build the rows to append. Pure: hand it data, get back rows and reasons.
+ */
+function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
+  var byProperty = {};
+  var usedFingerprints = {};
+  queueRows.forEach(function (r) {
+    (byProperty[r.property] = byProperty[r.property] || []).push(r);
+    if (r.fingerprint && STATUS_SPENDS_CONTACT.indexOf(r.status) !== -1) {
+      usedFingerprints[r.fingerprint] = true;
+    }
+  });
+
+  var planned = [];
+  var skipped = [];
+  var pretendSent = queueRows.slice();
+
+  outreachRankApplications_(appRows).forEach(function (app) {
+    var existing = byProperty[app.property] || [];
+    var companyContacts = outreachContactsFor_(contacts, app.company);
+    var free = companyContacts.filter(function (c) {
+      return !usedFingerprints[outreachFingerprint_(c.email, salt)];
+    });
+    // pretendSent grows as this loop plans: two applications to one employer in a
+    // single run must share the allowance, not each be told it is free.
+    var headroom = COMPANY_WEEKLY_CAP
+      - outreachCompanySendsThisWeek_(pretendSent, app.company, today);
+
+    var want = outreachAttemptsWanted_(app, existing, free.length, headroom, today);
+
+    if (!want.count) {
+      skipped.push({ property: app.property, company: app.company, why: want.why });
+      return;
+    }
+
+    var angle = outreachAngleFor_(companyContacts);
+    var bucket = outreachBucketFor_(companyContacts);
+    for (var n = 0; n < want.count; n++) {
+      var attempt = want.from + n;
+      var pick = outreachPickContact_(companyContacts, usedFingerprints, salt);
+      if (!pick) break;
+      usedFingerprints[pick.fingerprint] = true;
+      pretendSent.push({ company: app.company, status: STATUS_QUEUED, sentAt: null });
+      planned.push({
+        id: 'P' + app.property + '-A' + attempt,
+        recruiters: companyContacts.length,
+        status: STATUS_QUEUED,
+        property: app.property,
+        company: app.company,
+        role: app.role,
+        dateApplied: app.dateApplied,
+        attempt: attempt,
+        // Decided here rather than at send time, so the tab says which of the ten
+        // is coming before it goes rather than after.
+        template: outreachVariantFor_(attempt, pick.contact.focus, bucket),
+        eligibleAt: outreachEligibleDay_(app.dateApplied, attempt),
+        fingerprint: pick.fingerprint,
+        contact: pick.contact,
+        // No angle means a hand-typed contact at a company ColdEmail never wrote
+        // for. The email still reads, but it has lost the sentence that made it
+        // specific — so it waits as a draft rather than going out unattended.
+        mode: angle ? MODE_SEND : MODE_DRAFT
+      });
+    }
+  });
+
+  return { planned: planned, skipped: skipped };
+}
+
+function outreachQueueRowValues_(item) {
+  var row = new Array(Q_WIDTH).fill('');
+  row[Q_ID - 1] = item.id;
+  row[Q_PROPERTY - 1] = item.property;
+  row[Q_COMPANY - 1] = item.company;
+  row[Q_ROLE - 1] = item.role;
+  row[Q_DATE_APPLIED - 1] = item.dateApplied;
+  row[Q_RECRUITERS - 1] = item.recruiters;
+  row[Q_ATTEMPT - 1] = item.attempt;
+  row[Q_TEMPLATE - 1] = item.template || '';
+  row[Q_STATUS - 1] = item.status;
+  row[Q_MODE - 1] = item.mode;
+  row[Q_FINGERPRINT - 1] = item.fingerprint;
+  row[Q_RESULT - 1] = item.result || '';
+  row[Q_VERSION - 1] = 1;
+  return row;
+}
+
+/**
+ * Read App and the queue, work out what is missing, append it.
+ *
+ * Appending only. Nothing here edits a row that already exists, so a run that
+ * dies halfway leaves a shorter queue rather than a corrupted one.
+ */
+function enqueueOutreach() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var salt = outreachProperty_(PROP_SALT, true);
+
+    var app = tracker.getSheetByName(TAB_APP);
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    if (!app) throw new Error('No ' + TAB_APP + ' tab.');
+    if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab. Run setupOutreachQueue first.');
+
+    var appLast = app.getLastRow();
+    var appRows = appLast < 2 ? []
+      : app.getRange(2, 1, appLast - 1, APP_RECRUITERS).getValues().map(outreachParseApp_);
+
+    var queueLast = queue.getLastRow();
+    var queueRows = queueLast < 2 ? []
+      : queue.getRange(2, 1, queueLast - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+
+    var contacts = outreachReadContacts_(contactsBook);
+    var plan = outreachPlanEnqueue_(appRows, queueRows, contacts, new Date(), salt);
+
+    // Appending only. Nothing here edits a row that already exists, so a run
+    // that dies halfway leaves a shorter table rather than a corrupted one.
+    if (plan.planned.length) {
+      var values = plan.planned.map(outreachQueueRowValues_);
+      queue.getRange(queueLast + 1, 1, values.length, Q_WIDTH).setValues(values);
+    }
+    // An application with nobody to write to does not get a row — the table is
+    // about emails, and that is not one. It gets a line in the log instead, so
+    // the companies worth hunting contacts for are still nameable.
+    var noContact = plan.skipped
+      .filter(function (row) { return row.why === 'no usable contact there'; })
+      .map(function (row) { return row.company; });
+    Logger.log('Queued ' + plan.planned.length + ', skipped ' + plan.skipped.length + '.');
+    if (noContact.length) Logger.log('Nobody to write to at: ' + noContact.join(', '));
+    return plan;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Enqueue, then say when each of those rows is expected to go out. */
+function enqueueAndProject() {
+  var plan = enqueueOutreach();
+  refreshOutreachSchedule();
+  return plan;
+}
+
+/**
+ * The rows allowed to go out on this firing.
+ *
+ * The day's cap is spread across the firings left in the window rather than
+ * being burned at 09:00, and it is recomputed each time, so a firing that was
+ * missed is absorbed by the ones after it instead of being lost.
+ */
+function outreachDueNow_(queueRows, now) {
+  var cap = outreachDailyCap_(now);
+  if (!cap) return [];
+  var hour = now.getHours();
+  // DRAFT_HOUR_LAST, not SEND_HOUR_LAST: what this picks is written now and goes
+  // an hour later, so the last firing of the day has nothing left to pick for.
+  if (hour < SEND_HOUR_FIRST || hour > DRAFT_HOUR_LAST) return [];
+
+  // A draft counts against the day as much as a send does. It has no Sent At, so
+  // without the second half of this the cap never fills while Mode is Draft, and
+  // a fifteen-a-day account quietly produces thirty-odd drafts instead.
+  var spentToday = queueRows.filter(function (r) {
+    if (r.sentAt) return outreachDaysBetween_(r.sentAt, now) === 0;
+    return r.status === STATUS_DRAFTED && r.scheduledAt
+        && outreachDaysBetween_(r.scheduledAt, now) === 0;
+  }).length;
+  var remaining = cap - spentToday;
+  if (remaining <= 0) return [];
+
+  var firingsLeft = DRAFT_HOUR_LAST - hour + 1;
+  var slots = Math.min(remaining, Math.ceil(remaining / firingsLeft));
+
+  var due = queueRows.filter(function (r) {
+    return r.status === STATUS_QUEUED && r.eligibleAt
+        && outreachMidnight_(r.eligibleAt).getTime() <= outreachMidnight_(now).getTime();
+  });
+  // Oldest application first, exactly as at enqueue time. Row order would be a
+  // near-enough proxy most days and wrong on the day an old application is
+  // queued after a new one — which is every day the backlog is still draining.
+  due.sort(function (a, b) {
+    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
+    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
+    return left === right ? a.rowNumber - b.rowNumber : left - right;
+  });
+  return due.slice(0, slots);
+}
+
+/**
+ * The date each queued row is expected to go out.
+ *
+ * `Eligible At` says the earliest day a row *may* go; it does not say when it
+ * will, because forty rows eligible today still leave over a fortnight of
+ * weekday caps ahead of them. This walks the caps forward and hands each row the
+ * day it actually lands on, which is the question worth asking of a queue.
+ *
+ * It is a projection, not a promise: a reply, a rejection or a row queued
+ * tomorrow all move it. Recomputed from scratch on every enqueue run.
+ */
+function outreachProjectSchedule_(queueRows, from) {
+  var start = outreachMidnight_(from);
+  var sentToday = queueRows.filter(function (r) {
+    return r.sentAt && outreachMidnight_(r.sentAt).getTime() === start.getTime();
+  }).length;
+
+  var pending = queueRows.filter(function (r) { return r.status === STATUS_QUEUED; });
+  pending.sort(function (a, b) {
+    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
+    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
+    return left === right ? a.rowNumber - b.rowNumber : left - right;
+  });
+
+  var out = [];
+  var day = start;
+  // A year of weekdays is far past the point where the projection means
+  // anything; the bound is here so a bad cap table cannot spin forever.
+  for (var guard = 0; pending.length && guard < 400; guard++) {
+    var room = outreachDailyCap_(day) - (day.getTime() === start.getTime() ? sentToday : 0);
+    var today = [];
+    for (var i = 0; i < pending.length && room > 0;) {
+      var row = pending[i];
+      var waiting = row.eligibleAt
+        && outreachMidnight_(row.eligibleAt).getTime() > day.getTime();
+      if (waiting) { i++; continue; }
+      today.push(row);
+      pending.splice(i, 1);
+      room--;
+    }
+    // The hour matters as much as the day: "Aug 24" on fifteen rows reads as
+    // fifteen emails at once, which is the one thing this is built not to do.
+    // Both hours are projected, an hour apart, because both are shown: the row
+    // says when it will appear in Drafts and when it will leave them.
+    var hours = outreachDraftHoursForDay_(today.length);
+    today.forEach(function (row, index) {
+      var draftAt = new Date(day.getTime());
+      draftAt.setHours(hours[index], 0, 0, 0);
+      var sendAt = new Date(draftAt.getTime() + DRAFT_LEAD_HOURS * 3600000);
+      out.push({ rowNumber: row.rowNumber, draftAt: draftAt, sendAt: sendAt });
+    });
+    day = outreachAddDays_(day, 1);
+  }
+  return out;
+}
+
+/**
+ * Rewrite the columns that are derived from everything else.
+ *
+ * `Drafted At` and `Scheduled At` because a row queued today moves every row
+ * behind it, and `Recruiters` because a name typed into Contacts (manual) five
+ * minutes ago should show up as a 2 where there was a 1. All are rewritten in
+ * full on every firing rather than being stamped once at enqueue: a count from
+ * three weeks ago is worse than no count, because it looks current.
+ */
+function refreshOutreachSchedule() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var last = queue.getLastRow();
+  if (last < 2) return 0;
+
+  var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+  var contacts = outreachReadContacts_(contactsBook);
+
+  var projected = {};
+  outreachProjectSchedule_(rows, new Date()).forEach(function (item) {
+    projected[item.rowNumber] = item;
+  });
+
+  var counts = {};
+  queue.getRange(2, Q_RECRUITERS, rows.length, 1).setValues(rows.map(function (row) {
+    if (counts[row.company] === undefined) {
+      counts[row.company] = outreachRecruiterCount_(contacts, row.company);
+    }
+    return [counts[row.company]];
+  }));
+  // Only a Queued row gets a fresh projection. A row that has already been drafted
+  // or sent keeps the two times it really happened at, which is both the honest
+  // record and the only timestamp a draft has to be counted by.
+  queue.getRange(2, Q_DRAFTED_AT, rows.length, 2).setValues(rows.map(function (row) {
+    var slot = projected[row.rowNumber];
+    if (slot) return [slot.draftAt, slot.sendAt];
+    return [row.draftedAt || '', row.scheduledAt || ''];
+  }));
+  return Object.keys(projected).length;
+}

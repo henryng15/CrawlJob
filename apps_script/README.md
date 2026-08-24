@@ -8,7 +8,9 @@ because the Apps Script editor has no history worth relying on.
 |---|---|---|
 | `sync_applied_to_app.gs` | `setupJobsCheckboxes` | builds the `Applied` (F) and `Expired` (G) checkboxes on the Jobs tab |
 | | `setupAppColumns` | builds `Alumni` (I), `Recruiter` (J), `Update` (K) on the App tab |
+| | `setupOutreachQueue` | creates the empty `Email` tab and its queue-state dropdowns; it does not queue an application or send email |
 | | `backfillTicksFromApp` | scans the App tab and pre-ticks in Jobs the jobs already applied to |
+| `external_application_api.gs` | `configureExternalApplicationApi` | prepares the secure Web App endpoint used by the personal Chrome extension to add an external application to App |
 | `setup_process_dropdown.gs` | `setupProcessDropdown` | builds the coloured `Process` dropdown on the App tab |
 
 `onEdit` in `sync_applied_to_app.gs` is a **simple trigger** — Google calls it itself
@@ -23,6 +25,7 @@ once if the column is wrong:
 
 How to install it: [../docs/setup.md](../docs/setup.md#5-apps-script).
 What each column means: [../docs/spreadsheet.md](../docs/spreadsheet.md).
+How to add external applications from Chrome: [../docs/external-applications.md](../docs/external-applications.md).
 
 ## Running the tests
 
@@ -49,3 +52,7 @@ A few things to know when editing the harness:
 - `Utilities.formatDate` is stubbed for exactly one format, `'MMM d, yyyy'`, and **throws**
   on any other. Change `UPDATE_DATE_FORMAT` in the `.gs` and forget the harness, and the
   test goes red rather than quietly comparing the wrong thing.
+
+## `outreach/`
+
+A separate standalone project, owned by the sending account rather than by the spreadsheet — see [outreach/README.md](outreach/README.md).

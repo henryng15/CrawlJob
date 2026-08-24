@@ -1,0 +1,263 @@
+/**
+ * Outreach — shared configuration for the standalone sender project.
+ *
+ * This project is NOT the script bound to the Track App spreadsheet. It lives in
+ * the Apps Script editor of hoanng15.work@gmail.com and is what actually sends,
+ * because a bound script runs as whoever owns the spreadsheet — which here is a
+ * different account, and the one address that must never appear as the sender.
+ *
+ * Install: script.google.com -> New project, signed in as the sending account,
+ * paste these outreach_*.gs files in, then run setupOutreachProperties once and
+ * fill in the four IDs it reports as missing.
+ *
+ * See ../../docs/outreach.md for the design these constants come from.
+ */
+
+// ---------------------------------------------------------------- identifiers
+
+// Held in Script Properties rather than in the source, because two of them are
+// the only thing standing between this file and someone else's mailbox, and this
+// file is in a git repository.
+var PROP_TRACKER_ID  = 'TRACKER_SHEET_ID';   // the Track App spreadsheet
+var PROP_CONTACTS_ID = 'CONTACTS_SHEET_ID';  // the contacts spreadsheet, owned here
+var PROP_RESUME_ID   = 'RESUME_FILE_ID';     // Henry_Nguyen_Resume.pdf in Drive
+var PROP_SALT        = 'FINGERPRINT_SALT';   // salts the contact fingerprint
+// Set to 'Draft' to force every row to a draft whatever its own Mode says. This
+// is the rollout switch: for the first weeks nothing should leave unattended,
+// and one property is easier to be sure about than a column of them.
+var PROP_MODE        = 'OUTREACH_MODE';
+
+// ---------------------------------------------------------------------- tabs
+
+var TAB_APP            = 'App';
+var TAB_QUEUE          = 'Email';
+var TAB_CONTACTS_SEED  = 'Contacts (seed)';
+var TAB_CONTACTS_MANUAL= 'Contacts (manual)';
+
+// App tab, 1-based. Read only with one exception: a rejection found in the
+// mailbox writes Process and appends a line to Update, because an application
+// that has been turned down must stop being worked within the hour. Nothing else
+// here writes to App — the tab is already dense, and one more machine-written
+// column would be one more thing to read past.
+var APP_PROPERTY = 1, APP_COMPANY = 2, APP_DATE_APPLIED = 4;
+var APP_PROCESS = 6, APP_ROLE = 7, APP_RECRUITERS = 10, APP_UPDATE = 11;
+
+// The stage a recognised rejection moves an application to, and the date format
+// its line in Update is written in. Both mirror the bound script — STAGES and
+// UPDATE_DATE_FORMAT in sync_applied_to_app.gs — and the Python audit
+// (job_sync/sheet.py) reads the result, so all three have to agree.
+var STAGE_REJECTED = 'Rejected';
+var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
+
+// The Email tab, 1-based. The three columns copied from App lead it.
+//
+// Drafted At and Scheduled At sit together and in that order because they are one
+// fact read left to right: written at 09:07, goes at 10:00. While a row is Queued
+// both are the projection; once it is written both are what happened.
+var Q_COMPANY = 1, Q_ROLE = 2, Q_DATE_APPLIED = 3, Q_PROPERTY = 4, Q_RECRUITERS = 5;
+var Q_ATTEMPT = 6, Q_TEMPLATE = 7, Q_DRAFTED_AT = 8, Q_SCHEDULED = 9;
+var Q_STATUS = 10, Q_MODE = 11, Q_FINGERPRINT = 12, Q_DRAFT_ID = 13;
+var Q_MESSAGE_ID = 14, Q_SENT_AT = 15, Q_RESULT = 16, Q_ERROR = 17;
+var Q_ID = 18, Q_VERSION = 19;
+var Q_WIDTH = 19;
+
+// Contacts tabs, 1-based. The manual tab stops at Email: everything past it is
+// derived, and asking for it by hand is what stops the tab being used.
+var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
+var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
+
+// ------------------------------------------------------------------- policy
+
+// Sunday through Saturday. Fixed rather than random: there is nothing to debug
+// when the number looks wrong, and a fixed shape reads as more human than
+// randomness does. Tue/Wed are high because that is when a recruiter reads
+// carefully; Friday is low because Friday afternoon email dies.
+var DAILY_CAP = [0, 15, 25, 22, 18, 10, 0];
+
+var SEND_HOUR_FIRST = 9;    // inclusive, in the project's timezone
+var SEND_HOUR_LAST  = 17;   // inclusive: nine firings a day
+
+// How long a finished message sits in Drafts before it goes.
+//
+// Every email is written one firing before it leaves, so there is always an hour
+// in which it exists, addressed and complete, and can be read. Deleting the draft
+// in Gmail is what cancels it: the send finds nothing to send and marks the row
+// Cancelled. That makes the review a thing you do when you feel like it rather
+// than a mode you have to remember to be in.
+var DRAFT_LEAD_HOURS = 1;
+
+// The last firing that writes anything. Writing at 17:00 would produce a message
+// with no hour left to wait in, so the day's writing stops one firing before the
+// day's sending does: drafts are made 09:00-16:00 and go out 10:00-17:00.
+var DRAFT_HOUR_LAST = SEND_HOUR_LAST - DRAFT_LEAD_HOURS;
+
+var ELIGIBLE_AFTER_DAYS = 2;   // after Date Applied, before anything may go
+var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
+
+// People written to in one go, and how long the silence has to last before the
+// next three. Three was once the whole allowance per application, which left a
+// company with five contacts holding two nobody ever wrote to. Three is the right
+// number to send *together*; it is the wrong number to stop at.
+//
+// A wave is only started by silence. Within a wave a reply changes nothing — the
+// others are already committed — but a reply before the next wave calls it off,
+// because by then there is a person to talk to and three more cold emails to
+// their colleagues would be talking past them.
+var WAVE_SIZE      = 3;
+var WAVE_GAP_DAYS  = 14;
+
+// A Date Applied in the future is a typing slip, not a plan. One row read
+// "August 14, 2029" and the projection walked a year of weekday caps without
+// reaching it, so it silently held no send date at all — and would have sat in
+// the queue until 2029. Refuse it and say so instead.
+var FUTURE_APPLICATION_GRACE_DAYS = 1;
+
+// Everyone at a company is queued at once, one day apart.
+//
+// Waiting for silence before trying the next person cost four days each, so one
+// employer took twelve to work through while the application aged underneath —
+// which contradicts the ordering rule this whole system is built on. One day
+// apart keeps the three from arriving in one morning without spending the fortnight.
+var ATTEMPT_STAGGER_DAYS = 1;
+
+/** The earliest day one attempt may go out. */
+function outreachEligibleDay_(dateApplied, attempt) {
+  return outreachAddDays_(
+    dateApplied, ELIGIBLE_AFTER_DAYS + (Math.max(attempt, 1) - 1) * ATTEMPT_STAGGER_DAYS
+  );
+}
+
+// Only Applied qualifies. Rejected is over; OA and past mean a human contact
+// already exists and a cold email is the wrong message on the wrong thread.
+var QUALIFYING_PROCESS = 'Applied';
+
+// Unverified addresses were never actually checked, and bounce rate — not
+// volume — is what gets a sending account penalised.
+var UNSENDABLE_VERIFY = 'local:Unknown';
+
+// Past this, the email stops naming the application date. Pointing a recruiter
+// at "I applied 7 months ago" volunteers the weakest fact in the message.
+var STALE_APPLICATION_DAYS = 45;
+
+var STATUS_QUEUED = 'Queued', STATUS_DRAFTED = 'Drafted', STATUS_SENT = 'Sent';
+var STATUS_REPLIED = 'Replied', STATUS_BOUNCED = 'Bounced';
+var STATUS_CANCELLED = 'Cancelled', STATUS_FAILED = 'Failed';
+
+// A row here means this address is spent and must never be picked again — it was
+// written to, or it is about to be. Cancelled and Failed are deliberately absent:
+// nothing reached that person, so the address is still free for a later
+// application. Burning a contact we never actually emailed is a bug, not caution.
+//
+// This is also why there is no "do not contact" state. Somebody asking not to be
+// written to has replied, and Replied is already both permanent and automatic.
+var STATUS_SPENDS_CONTACT = [
+  STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED, STATUS_BOUNCED
+];
+var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
+
+/**
+ * Draft or send, for one row.
+ *
+ * The global switch can only ever be more cautious than the row: it can hold a
+ * row back to a draft, never push one out. A rollout switch that could promote
+ * a row nobody meant to send would be worse than no switch.
+ */
+function outreachModeFor_(rowMode, globalMode) {
+  if (globalMode === MODE_DRAFT) return MODE_DRAFT;
+  return rowMode === MODE_DRAFT ? MODE_DRAFT : MODE_SEND;
+}
+
+// ------------------------------------------------------------------ helpers
+
+function outreachProperty_(key, required) {
+  var value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value && required) {
+    throw new Error(
+      'Script Property ' + key + ' is not set. Run setupOutreachProperties and '
+      + 'fill it in under Project Settings -> Script Properties.'
+    );
+  }
+  return value || '';
+}
+
+/**
+ * Report which of the four properties are still missing.
+ *
+ * It deliberately does not create them with placeholder values: a property
+ * holding "TODO" reads as configured to every other function in this project.
+ */
+function setupOutreachProperties() {
+  var wanted = [
+    [PROP_TRACKER_ID,  'ID of the Track App spreadsheet (from its URL)'],
+    [PROP_CONTACTS_ID, 'ID of the contacts spreadsheet owned by this account'],
+    [PROP_RESUME_ID,   'Drive file ID of Henry_Nguyen_Resume.pdf'],
+    [PROP_SALT,        'any long random string; changing it re-opens every past contact']
+  ];
+  var props = PropertiesService.getScriptProperties();
+  var missing = wanted.filter(function (w) { return !props.getProperty(w[0]); });
+  if (!missing.length) {
+    Logger.log('All four script properties are set. Nothing to do.');
+    return;
+  }
+  Logger.log('Set these under Project Settings -> Script Properties:');
+  missing.forEach(function (w) { Logger.log('  ' + w[0] + ' — ' + w[1]); });
+}
+
+/** Today at midnight, so day arithmetic never trips over the clock time. */
+function outreachMidnight_(date) {
+  var d = new Date(date.getTime());
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function outreachDaysBetween_(from, to) {
+  return Math.round(
+    (outreachMidnight_(to).getTime() - outreachMidnight_(from).getTime()) / 86400000
+  );
+}
+
+function outreachAddDays_(date, days) {
+  var d = new Date(date.getTime());
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+/**
+ * A non-reversible name for an address, so the tracker can say "this person has
+ * been written to" without the tracker ever holding who they are.
+ */
+function outreachFingerprint_(email, salt) {
+  var raw = Utilities.computeHmacSha256Signature(
+    String(email || '').trim().toLowerCase(), salt || outreachProperty_(PROP_SALT, true)
+  );
+  return raw.map(function (b) {
+    return ('0' + (b & 0xff).toString(16)).slice(-2);
+  }).join('').slice(0, 32);
+}
+
+/** How many emails today's weekday allows. */
+function outreachDailyCap_(date) {
+  return DAILY_CAP[date.getDay()] || 0;
+}
+
+/**
+ * The hour each of a day's emails is written at.
+ *
+ * The same arithmetic the writer itself runs, so the projected time is the real
+ * one rather than an estimate of it: each firing takes ceil(remaining / firings
+ * left), which spreads fifteen emails as 2,2,2,2,2,2,2,1 across eight hours
+ * instead of emptying the day's allowance at nine in the morning.
+ *
+ * These are drafting hours, not sending hours. Add DRAFT_LEAD_HOURS for the hour
+ * a row actually leaves at.
+ */
+function outreachDraftHoursForDay_(count) {
+  var hours = [];
+  var remaining = count;
+  for (var hour = SEND_HOUR_FIRST; hour <= DRAFT_HOUR_LAST && remaining > 0; hour++) {
+    var slots = Math.min(remaining, Math.ceil(remaining / (DRAFT_HOUR_LAST - hour + 1)));
+    for (var i = 0; i < slots; i++) hours.push(hour);
+    remaining -= slots;
+  }
+  return hours;
+}

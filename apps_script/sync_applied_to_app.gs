@@ -18,6 +18,7 @@
 
 var JOBS_TAB    = 'Jobs';
 var APP_TAB     = 'App';
+var OUTREACH_QUEUE_TAB = 'Email';
 // Column E is Source — where the row came from (Simplify, Jobright, Greenhouse…),
 // written by the Python half. It sits BEFORE the two checkboxes rather than after,
 // and that is not optional: every column past Expired is read as a note of yours,
@@ -55,6 +56,57 @@ var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
 // Shorter than DATE_FORMAT because these lines stack inside one cell, but still
 // read the same way as the rest of the sheet.
 var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
+
+// The Email tab never holds a recruiter's name, address, or message body: those
+// stay in the contacts spreadsheet the sending account owns. setupOutreachQueue()
+// only creates the empty table — the sender is a separate project and fills it.
+//
+// The three columns copied straight from App lead, because they are the only ones
+// a human reads to know which application a row is about. Everything after Attempt
+// is the sending machinery, and everything past Sent At is an audit reference
+// nobody looks at until something has gone wrong.
+//
+// Drafted At and Scheduled At are a pair, read left to right: the minute the
+// message appears in Drafts, and the hour it leaves them. Every email waits an
+// hour between the two, and deleting the draft inside that hour calls it off, so
+// the pair is the column you check when you want to intervene.
+var OUTREACH_HEADERS = [
+  'Company', 'Role', 'Date Applied', 'Property', 'Recruiters', 'Attempt',
+  'Template', 'Drafted At', 'Scheduled At', 'Status', 'Mode',
+  'Contact Fingerprint', 'Gmail Draft ID', 'Gmail Message ID', 'Sent At',
+  'Result', 'Last Error', 'Queue ID', 'Version'
+];
+// Seven, and every one is a state the worker itself sets. An earlier list also
+// carried Approved, Scheduled and Sending from a design with a separate approval
+// step and a separate scheduler — Mode and Scheduled At do both of those jobs
+// now — and an Opted out that a human had to remember to set by hand, for an
+// outcome Replied already produces on its own.
+var OUTREACH_STATUS = [
+  'Queued', 'Drafted', 'Sent', 'Replied', 'Bounced', 'Cancelled', 'Failed'
+];
+var OUTREACH_MODE = ['Draft', 'Send'];
+
+// Colour by value, the same way the Process dropdown does it. Queued is
+// deliberately left plain: it is what most rows read most of the time, and a
+// colour on the ordinary case is a colour that stops meaning anything. The eye
+// should be pulled to the four that want something from you.
+//
+// Yellow means a person is involved, blue means the machine has it, green is good
+// news, red and orange are the two ways a message does not arrive.
+var OUTREACH_STATUS_COLOURS = [
+  { name: 'Drafted',   bg: '#FFF2CC', fg: '#BF9000' },  // waiting for you to read it
+  { name: 'Sent',      bg: '#CFE2F3', fg: '#1155CC' },  // gone, waiting on them
+  { name: 'Replied',   bg: '#D9EAD3', fg: '#38761D' },  // somebody answered
+  { name: 'Bounced',   bg: '#F4CCCC', fg: '#CC0000' },  // the address is bad
+  { name: 'Failed',    bg: '#FCE5CD', fg: '#B45F06' },  // our end; it retries
+  { name: 'Cancelled', bg: '#EFEFEF', fg: '#999999' }   // stopped, nothing to do
+];
+// Draft is yellow because it ends with you; Send is blue because it does not.
+var OUTREACH_MODE_COLOURS = [
+  { name: 'Draft', bg: '#FFF2CC', fg: '#BF9000' },
+  { name: 'Send',  bg: '#CFE2F3', fg: '#1155CC' }
+];
+var OUTREACH_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 
 // A stage that really happened on a date nothing ever recorded. Mark it so it can
 // be found and filled in by hand, rather than inventing a date that looks real.
@@ -134,6 +186,98 @@ function setupJobsCheckboxes() {
       .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
   ss.toast('Columns F and G (rows 2–' + LAST_ROW + ') are now checkboxes.', 'Done', 5);
+}
+
+
+/**
+ * Run once by hand: create the empty Email tab.
+ *
+ * The queue is intentionally empty after this function finishes. A later,
+ * separate worker will decide which App rows qualify and will append items; this
+ * setup never reads App, sends mail, or creates a Gmail credential.
+ *
+ * Safe to run again: it restores the known headers and formatting, but refuses
+ * to overwrite a non-empty header that means this is a different table.
+ */
+function setupOutreachQueue() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(OUTREACH_QUEUE_TAB);
+  var created = !queue;
+  if (!queue) queue = ss.insertSheet(OUTREACH_QUEUE_TAB);
+
+  var existing = queue.getRange(1, 1, 1, OUTREACH_HEADERS.length).getValues()[0];
+  for (var i = 0; i < OUTREACH_HEADERS.length; i++) {
+    var found = String(existing[i] == null ? '' : existing[i]).trim();
+    if (found && found !== OUTREACH_HEADERS[i]) {
+      throw new Error(
+        'Email column ' + (i + 1) + ' is ' + JSON.stringify(found)
+        + ', expected ' + JSON.stringify(OUTREACH_HEADERS[i]) + '. Refusing to overwrite it.'
+      );
+    }
+  }
+
+  var header = queue.getRange(1, 1, 1, OUTREACH_HEADERS.length);
+  header.setValues([OUTREACH_HEADERS])
+      .setFontWeight('bold')
+      .setBackground('#D9EAD3')
+      .setHorizontalAlignment('center');
+  queue.setFrozenRows(1);
+
+  // Date Applied is a date; the other three fields record an exact sending slot.
+  queue.getRange(FIRST_ROW, 3, LAST_ROW - FIRST_ROW + 1, 1).setNumberFormat(DATE_FORMAT);
+  [8, 9, 15].forEach(function (column) {
+    queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
+         .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
+  });
+  queue.getRange(FIRST_ROW, 10, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(OUTREACH_STATUS, true)
+         .setAllowInvalid(false)
+         .build());
+  queue.getRange(FIRST_ROW, 11, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(OUTREACH_MODE, true)
+         .setAllowInvalid(false)
+         .build());
+
+  [170, 240, 115, 85, 85, 70, 100, 145, 145, 105, 80, 180, 160, 180, 145, 280,
+   200, 120, 70]
+    .forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
+
+  colourQueueColumn_(queue, 10, OUTREACH_STATUS_COLOURS);
+  colourQueueColumn_(queue, 11, OUTREACH_MODE_COLOURS);
+
+  ss.toast(
+    created
+      ? 'Created an empty Email tab. No application was queued and no email was sent.'
+      : 'Email tab headers and formatting are already set. No queue items changed.',
+    'Email',
+    8
+  );
+}
+
+
+/**
+ * Paint one dropdown column by value.
+ *
+ * Rules belonging to other columns are kept and only this column's are replaced,
+ * so running setupOutreachQueue again does not stack a second identical set on
+ * top of the first — the same care setup_process_dropdown.gs takes.
+ */
+function colourQueueColumn_(queue, column, palette) {
+  var range = queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1);
+  var kept = queue.getConditionalFormatRules().filter(function (rule) {
+    return rule.getRanges().every(function (r) { return r.getColumn() !== column; });
+  });
+  var added = palette.map(function (entry) {
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(entry.name)
+      .setBackground(entry.bg)
+      .setFontColor(entry.fg)
+      .setRanges([range])
+      .build();
+  });
+  queue.setConditionalFormatRules(kept.concat(added));
 }
 
 

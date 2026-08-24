@@ -1,0 +1,16 @@
+# clasp pushes everything under rootDir by default. These belong to the
+# repository, not to the Apps Script project: the harness is Node and the editor
+# would reject it, and the rest is documentation and clasp's own config.
+#
+# Both the bare and the **/ form are listed because clasp has matched only one of
+# them depending on the version.
+harness.js
+**/harness.js
+README.md
+**/README.md
+.claspignore
+**/.claspignore
+.clasp.json
+**/.clasp.json
+.clasp.json.example
+**/.clasp.json.example

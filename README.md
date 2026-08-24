@@ -6,8 +6,16 @@ the duplicate copies of one posting, then appends them to the `Jobs` tab of a Go
 Tick one checkbox and the row moves itself to the `App` tab; the other way round, a job
 already applied to is ticked for you.
 
+For a job you found outside those trackers, the included personal Chrome extension can add
+Company, Role and the current page link directly to `App`; it fills the property number,
+date and initial status. See [docs/external-applications.md](docs/external-applications.md).
+
 No browser automation, no database, no AI, no queue, no web dashboard. One Python package,
-two GitHub Actions workflows, two Apps Script files.
+two GitHub Actions workflows, and two Apps Script projects.
+
+Once an application is a few days old, a second Apps Script project writes to a recruiter
+at that company from a different address, one email at a time, and stops the moment the
+company replies or says no. See [docs/outreach.md](docs/outreach.md).
 
 ```mermaid
 flowchart LR
@@ -36,6 +44,7 @@ Everything only flows into it; there is no flow the other way.
 
 | You are | Read |
 |---|---|
+| Taking this over and needing the whole picture | [docs/workflow.md](docs/workflow.md) |
 | Wanting to rebuild from scratch | [docs/setup.md](docs/setup.md) |
 | Using the sheet day to day, wanting to know what each column means | [docs/spreadsheet.md](docs/spreadsheet.md) |
 | Wondering why two rows were merged, or why a job was not ticked | [docs/matching.md](docs/matching.md) |
