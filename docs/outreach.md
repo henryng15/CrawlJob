@@ -196,6 +196,41 @@ oldest-first ordering, the oldest application at that company spends the allowan
 > emails in a single pass. A queued row is an email that company is going to get. `Cancelled` and
 > `Failed` rows do not count — nothing is going to arrive from those.
 
+### One posting, one wave
+
+Before either cap is consulted, an application is skipped if a **sibling application for the same
+posting at the same employer** already owns a wave.
+
+This exists because the cap alone was the wrong instrument. American Express advertised one
+programme in three cities and three applications went in; each asked for three emails to three
+different recruiters. The cap held the week to five, which is five of American Express's five
+contacts spent on one job, with nobody left for the next posting. IBM was worse: ten applications
+against eight contacts, so a single employer consumed the entire list. Across the sheet, 21
+employers carried more than one open application — 48 emails where 23 were meant.
+
+Two roles at one employer are the same posting when they share at least `ROLE_MATCH` (0.6) of
+their words, after the city and state are dropped. Equality is the wrong test: the three American
+Express postings read `Software Engineer, Enterprise Technology Services- Charlotte, NC`,
+`Software Engineer, Technology - New York, NY` and `Software Engineer I, Enterprise Technology
+Services- Phoenix, AZ` — three different sentences, not one string with a suffix. Stripping the
+city still leaves them unequal.
+
+0.6 was measured against the 39 duplicated applications in the sheet, not guessed. It folds those
+three into one and IBM's seven vendor practices into one, while keeping IBM's sales and strategy
+programmes separate and NVIDIA's Dynamo team apart from its general posting. 0.5 also folded
+`Software Engineer Intern` into `AI Software Engineering - Edge` at Microsoft, which are not the
+same job.
+
+The intake and the year are deliberately kept in the comparison — Notion's Summer 2027 and Winter
+2027 postings share every other word, and folding them would spend one wave on two openings. This
+mirrors `role_key` in `job_sync/sources.py`, which refuses the same merge for the same pair.
+
+> **Skipped, not merged.** The queue row still belongs to the one application that owns it. A
+> rejection arriving for that application cancels exactly its own rows, and the sibling becomes
+> eligible on the next firing — a refusal from the Charlotte posting must not silence New York.
+> A blank role never matches anything, including another blank, because otherwise every
+> unfilled cell at one employer would read as one job and silence the lot.
+
 It is a loose cap on purpose, because the contact list is the tighter one almost everywhere:
 
 | Contacts at a company | Companies | Share with at least this many |

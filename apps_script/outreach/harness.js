@@ -380,6 +380,93 @@ console.log('the contact list — two tabs, and why they are two');
   });
 }
 
+console.log('one posting, one wave — however many times it was applied to');
+{
+  const AMEX = [
+    'Campus Undergraduate Summer Internship Program - 2027 Software Engineer, Enterprise Technology Services- Charlotte, NC',
+    'Campus Undergraduate Summer Internship Program - 2027 Software Engineer, Technology - New York, NY',
+    'Campus Undergraduate Summer Internship Program - 2027 Software Engineer I, Enterprise Technology Services- Phoenix, AZ'
+  ];
+  const alike = (a, b) => S.outreachSameRole_(S.outreachRoleTokens_(a), S.outreachRoleTokens_(b));
+
+  run('the city and state are not part of what the job is', () => {
+    assert.ok(S.outreachRoleTokens_(AMEX[0]).indexOf('charlotte') === -1);
+    assert.ok(S.outreachRoleTokens_(AMEX[2]).indexOf('az') === -1);
+  });
+  run('one programme posted in three cities is one posting', () => {
+    assert.ok(alike(AMEX[0], AMEX[1]));
+    assert.ok(alike(AMEX[0], AMEX[2]));
+    assert.ok(alike(AMEX[1], AMEX[2]));
+  });
+  run('two spellings of one role are one posting', () => {
+    assert.ok(alike('Software Engineering Intern', 'Software Engineer Internship'));
+    assert.ok(alike('NHRC Software Engineering Internship - Summer 2027',
+                    'Software Engineer Intern - NHRC'));
+  });
+  run("one IBM programme's vendor practices are one posting", () => {
+    assert.ok(alike('Intern Application Developer - Adobe - 2027',
+                    'Intern Application Developer 2027-ServiceNow'));
+  });
+  run("IBM's other programmes are not that posting", () => {
+    assert.ok(!alike('Intern Application Developer - Adobe - 2027',
+                     'Software Developer Intern 2027'));
+    assert.ok(!alike('Intern Application Developer - Adobe - 2027',
+                     'Software Engineer Intern - Entry Level Sales Program 2027'));
+  });
+  run('a named team is not the general posting', () => {
+    assert.ok(!alike('Software Engineering Intern, Dynamo - Fall 2026',
+                     'Software Engineering Intern'));
+  });
+  run('a blank role is never the same posting as anything, including another blank', () => {
+    assert.ok(!alike('', ''));
+    assert.ok(!alike('', 'Software Engineer Intern'));
+  });
+
+  const contacts = [
+    contact('American Express', 'R One', 'r1@amex.com', { angle: 'a' }),
+    contact('American Express', 'R Two', 'r2@amex.com', { angle: 'a' }),
+    contact('American Express', 'R Three', 'r3@amex.com', { angle: 'a' }),
+    contact('American Express', 'R Four', 'r4@amex.com', { angle: 'a' }),
+    contact('American Express', 'R Five', 'r5@amex.com', { angle: 'a' })
+  ];
+  const apps = AMEX.map((role, i) => app(String(i + 1), 'American Express', role, day(2026, 8, 1)));
+  const plan = S.outreachPlanEnqueue_(apps, [], contacts, day(2026, 8, 20), SALT);
+
+  run('three applications to one programme queue one wave, not three', () => {
+    assert.strictEqual(plan.planned.length, 3);
+    assert.ok(plan.planned.every((row) => row.property === '1'));
+  });
+  run('the siblings are skipped by name, not silently dropped', () => {
+    assert.strictEqual(plan.skipped.length, 2);
+    assert.ok(plan.skipped.every((row) => /already being written about on P1/.test(row.why)));
+  });
+  run('two recruiters are left for the next American Express posting', () => {
+    const spent = {};
+    plan.planned.forEach((row) => { spent[row.contact.email] = true; });
+    assert.strictEqual(Object.keys(spent).length, 3);
+  });
+  run('a genuinely different role at the same employer still gets its own wave', () => {
+    const mixed = S.outreachPlanEnqueue_(
+      apps.concat([app('9', 'American Express', 'Quantitative Developer Intern', day(2026, 8, 2))]),
+      [], contacts, day(2026, 8, 20), SALT);
+    assert.ok(mixed.planned.some((row) => row.property === '9'));
+  });
+  run('a refusal from one city does not silence the other two', () => {
+    // The Charlotte posting is turned down: its rows are cancelled and its App row
+    // leaves Applied. New York should pick the wave up rather than the programme
+    // going quiet because one of three locations said no.
+    const dead = plan.planned.map((row) => ({
+      rowNumber: 2, property: '1', company: 'American Express', role: AMEX[0],
+      status: 'Cancelled', fingerprint: row.fingerprint, sentAt: null
+    }));
+    const after = [app('1', 'American Express', AMEX[0], day(2026, 8, 1), 'Rejected')]
+      .concat(apps.slice(1));
+    const again = S.outreachPlanEnqueue_(after, dead, contacts, day(2026, 8, 20), SALT);
+    assert.ok(again.planned.some((row) => row.property === '2'));
+    assert.ok(!again.planned.some((row) => row.property === '3'));
+  });
+}
+
 console.log('planning — the whole decision, end to end');
 {
   const today = day(2026, 8, 21);

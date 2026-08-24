@@ -22,6 +22,63 @@ function outreachDate_(value) {
  * of the application, so the oldest row is the one nearest to being worthless.
  * A 25-day-old application sent today beats the same one sent in six days at 31.
  */
+// The endings two trackers disagree about. Mirrors ROLE_SYNONYMS in
+// job_sync/sources.py: "Software Engineering Intern" and "Software Engineer
+// Internship" are one posting typed twice, and the sheet holds both spellings.
+var ROLE_SYNONYMS = {
+  engineering: 'engineer', engineers: 'engineer',
+  internship: 'intern', internships: 'intern', interns: 'intern',
+  development: 'developer', developers: 'developer'
+};
+
+var US_STATE = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI'
+  + '|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA'
+  + '|WV|WI|WY|DC|BC|ON';
+
+// "- Charlotte, NC" and "(Clifton, NJ)" are where the job is, not what it is. Only
+// a city followed by a state code is taken: a bare "New York" in the middle of a
+// title is left alone, because dropping every word that could be a place name is
+// how "Jersey" walks out of a title that meant the company.
+var ROLE_LOCATION = new RegExp('[-,\u2013\u2014]?\\s*[A-Za-z .]+,\\s*(' + US_STATE + ')\\b', 'g');
+
+/**
+ * A role as the bag of words that say what the job is.
+ *
+ * Order is dropped because the two halves of the sheet describe one job from
+ * opposite ends — "2027 Internship - Software Engineer" against "Software
+ * Engineer Intern" — and word order is the last thing they agree on.
+ *
+ * The intake and the year are kept. Notion's Summer 2027 and Winter 2027 postings
+ * share every other word, and a rule loose enough to fold them together would
+ * spend one wave on two openings — the same reasoning role_key carries in
+ * job_sync/sources.py, for the same pair of postings.
+ */
+function outreachRoleTokens_(role) {
+  var text = String(role == null ? '' : role).replace(ROLE_LOCATION, ' ');
+  var seen = {};
+  text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').forEach(function (word) {
+    if (!word) return;
+    seen[ROLE_SYNONYMS[word] || word] = true;
+  });
+  return Object.keys(seen);
+}
+
+/**
+ * Whether two roles at one employer are the same posting written twice.
+ *
+ * The share of words they have in common, against ROLE_MATCH. Two empty roles are
+ * never the same posting: a blank role says nothing, and treating every blank as
+ * one job would silence a whole employer on the strength of a cell nobody filled.
+ */
+function outreachSameRole_(left, right) {
+  if (!left.length || !right.length) return false;
+  var seen = {};
+  left.forEach(function (word) { seen[word] = true; });
+  var shared = 0;
+  right.forEach(function (word) { if (seen[word]) shared++; });
+  return shared / (left.length + right.length - shared) >= ROLE_MATCH;
+}
+
 function outreachRankApplications_(appRows) {
   return appRows.slice().sort(function (a, b) {
     var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
@@ -174,6 +231,38 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
   var skipped = [];
   var pretendSent = queueRows.slice();
 
+  // One posting gets one wave, however many times it was applied to.
+  //
+  // American Express advertised a single programme in Charlotte, New York and
+  // Phoenix; three applications went in, and each asked for three emails to three
+  // different recruiters. The company cap held the total to five that week, which
+  // is five of American Express's five contacts spent on one job — and nobody left
+  // to write to when the next one opens. IBM was worse: ten applications against
+  // eight contacts, so the entire list went on a single employer.
+  //
+  // The wave is skipped, not merged. The queue row still belongs to the one
+  // application that owns it, so a rejection arriving for that application still
+  // cancels exactly its own rows, and a sibling application becomes eligible again
+  // on the next firing — a refusal from the Charlotte posting should not silence
+  // the New York one.
+  var waves = [];
+  queueRows.forEach(function (row) {
+    if (STATUS_SPENDS_CONTACT.indexOf(row.status) === -1) return;
+    waves.push({
+      property: row.property,
+      tokens: outreachCompanyTokens_(row.company),
+      role: outreachRoleTokens_(row.role)
+    });
+  });
+  var waveOwner = function (tokens, role, property) {
+    for (var i = 0; i < waves.length; i++) {
+      if (waves[i].property === property) continue;
+      if (!outreachSameEmployer_(tokens, waves[i].tokens)) continue;
+      if (outreachSameRole_(role, waves[i].role)) return waves[i].property;
+    }
+    return null;
+  };
+
   outreachRankApplications_(appRows).forEach(function (app) {
     var existing = byProperty[app.property] || [];
     var companyContacts = outreachContactsFor_(contacts, app.company);
@@ -184,6 +273,18 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
     // single run must share the allowance, not each be told it is free.
     var headroom = COMPANY_WEEKLY_CAP
       - outreachCompanySendsThisWeek_(pretendSent, app.company, today);
+
+    var tokens = outreachCompanyTokens_(app.company);
+    var role = outreachRoleTokens_(app.role);
+    var owner = waveOwner(tokens, role, app.property);
+    if (owner) {
+      skipped.push({
+        property: app.property,
+        company: app.company,
+        why: 'the same posting is already being written about on P' + owner
+      });
+      return;
+    }
 
     var want = outreachAttemptsWanted_(app, existing, free.length, headroom, today);
 
@@ -200,6 +301,9 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
       if (!pick) break;
       usedFingerprints[pick.fingerprint] = true;
       pretendSent.push({ company: app.company, status: STATUS_QUEUED, sentAt: null });
+      if (n === 0) {
+        waves.push({ property: app.property, tokens: tokens, role: role });
+      }
       planned.push({
         id: 'P' + app.property + '-A' + attempt,
         recruiters: companyContacts.length,

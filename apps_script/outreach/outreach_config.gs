@@ -106,6 +106,23 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 var WAVE_SIZE      = 3;
 var WAVE_GAP_DAYS  = 14;
 
+// How alike two roles at one employer have to read before they are treated as one
+// posting, as the share of words they have in common.
+//
+// A role and its locations are not one string with a city on the end. American
+// Express posted the same programme three times as "Software Engineer, Enterprise
+// Technology Services- Charlotte, NC", "Software Engineer, Technology - New York,
+// NY" and "Software Engineer I, Enterprise Technology Services- Phoenix, AZ" —
+// three different sentences, not three suffixes. Stripping the city leaves them
+// still unequal, so equality is the wrong test and overlap is the right one.
+//
+// 0.6 was measured against the 39 duplicated applications in the sheet rather than
+// guessed. It folds those three into one, and Teledyne FLIR's two spellings of
+// NHRC, while leaving IBM's ten practice areas as four and NVIDIA's Dynamo team
+// apart from its general posting. 0.5 also folded "Software Engineer Intern" into
+// "AI Software Engineering - Edge" at Microsoft, which are not the same job.
+var ROLE_MATCH = 0.6;
+
 // A Date Applied in the future is a typing slip, not a plan. One row read
 // "August 14, 2029" and the projection walked a year of weekday caps without
 // reaching it, so it silently held no send date at all — and would have sat in
