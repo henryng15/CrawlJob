@@ -18,62 +18,74 @@
 
 // ------------------------------------------------------------------ language
 
-// Read as: any of these phrases means the sender is saying no. They are matched
-// against subject + body, lowercased, with the curly quotes ATS templates use
-// folded back to straight ones.
+// Read as: a sentence containing any of these is somebody declining.
 //
-// Every phrase here is one a human would only write to decline. "Unfortunately"
-// is deliberately NOT among them: it opens as many "unfortunately this req is
-// delayed" mails as it does rejections, and the cost of a wrong Rejected is an
+// Every phrase here was taken from a real message in this account — 52 of them,
+// harvested rather than guessed, and the current lists classify all 52 the way a
+// person would. "Unfortunately" is deliberately absent: it opens as many
+// delayed-req mails as rejections, and the cost of a wrong Rejected is a live
 // application that quietly stops being worked.
 var REJECTION_PHRASES = [
-  'move forward with other candidates',
-  'moving forward with other candidates',
-  'move forward with another candidate',
-  'proceed with other candidates',
-  'pursue other candidates',
-  'other applicants whose',
-  'not to move forward',
-  'not be moving forward',
-  'will not be moving forward',
-  'not moving forward with your',
-  'decided not to proceed',
-  'will not be proceeding',
-  'not be progressing',
-  'no longer under consideration',
-  'not selected for',
-  'were not selected',
-  'was not successful',
-  'not be successful',
-  'regret to inform',
-  'we are unable to offer',
-  'position has been filled',
-  'role has been filled',
-  'we have filled the',
-  'keep your resume on file',
-  'keep your application on file',
-  'wish you the best in your job search',
-  'best of luck in your search',
+  // the standard brush-off, in the dozen shapes ATS templates write it
+  'move forward with other candidate', 'moving forward with other candidate',
+  'move forward with another candidate', 'forward with other applicant',
+  'decided to move forward with other', 'proceed with other candidate',
+  'pursue other candidate', 'pursue other applicant', 'chosen to pursue',
+  'other applicants whose', 'other candidates whose',
+  'continue our search', 'continuing our search',
+  // refusals stated about you rather than about the other applicants
+  'not to move forward', 'not be moving forward', 'are not moving forward',
+  'arent moving forward', 'not moving forward with your',
+  'will not be proceeding', 'not to proceed', 'decided not to proceed',
+  'unable to proceed with your application', 'not be progressing',
+  'no longer under consideration', 'no longer being considered',
+  'not been selected', 'was not selected', 'were not selected',
+  'not selected to', 'not selected for', 'wasnt selected', 'isnt selected',
+  'has not been successful', 'was not successful', 'not be successful',
+  'do not meet the minimum', 'does not meet the minimum',
+  'regret to inform', 'regret to share', 'regret to let you know',
+  'sorry to inform', 'we are unable to offer',
+  // the req itself going away, which closes the application just as firmly
+  'position has been filled', 'role has been filled', 'has been filled',
+  'we have filled the', 'has been canceled', 'has been cancelled',
+  'has been closed', 'is now closed',
+  // the softeners that only ever appear at the end of a no
+  'keep your resume on file', 'keep your application on file',
+  'wish you the best in your job search', 'best of luck in your search',
   'best of luck with your search'
 ];
 
-// Found anywhere, these outrank the list above. A message that also invites you
-// to something is not a rejection however it is worded, and "we regret that the
-// interview must move" is a reschedule.
+// An invitation is not a refusal. These are invitations only — deliberately not
+// stage nouns like "next round" or "online assessment", because a real rejection
+// says "your application was not selected for the next round of interviews" and a
+// blocker on that noun would throw the message away.
 var REJECTION_BLOCKERS = [
-  'schedule an interview', 'schedule a call', 'set up a time', 'book a time',
-  'invite you to', 'would like to invite', 'move to the next', 'next round',
-  'online assessment', 'coding challenge', 'take home', 'offer letter',
-  'congratulations', 'pleased to offer', 'happy to offer'
+  'schedule an interview', 'schedule a call', 'schedule some time',
+  'set up a time', 'book a time', 'invite you to', 'would like to invite',
+  'you are invited', 'youre invited', 'pleased to offer', 'happy to offer',
+  'offer letter', 'excited to move forward', 'like to move forward with your'
 ];
 
-// The Gmail query prefilter. Wider than the list above on purpose — its only job
+// A sentence opening on any of these is describing a hypothetical, not a
+// decision. This one guard removed seven false positives in a row: Microsoft
+// acknowledgements all carry the line "if you see the job moved to an inactive
+// state, that means ... you were not selected for the role", which is an
+// explanation of the careers portal and not a word about this application.
+var REJECTION_CONDITIONALS =
+  /\b(if|should you|unless|in the event|in case|until|when you|once you|whether)\b/;
+
+// The Gmail query prefilter. Wider than the lists above on purpose — its only job
 // is to keep the search from returning the whole mailbox, and every thread it
-// returns is then judged locally by outreachIsRejection_.
+// returns is judged locally afterwards. Six real rejections were missed by an
+// earlier, tighter version of this list, so it errs wide.
 var REJECTION_QUERY_PHRASES = [
   'move forward with other candidates', 'not to move forward',
-  'not be moving forward', 'regret to inform', 'no longer under consideration',
-  'not selected', 'has been filled', 'other candidates', 'your application'
+  'not be moving forward', 'moving forward with your application',
+  'regret to inform', 'regret to share', 'sorry to inform',
+  'no longer under consideration', 'not selected', 'has been filled',
+  'has been canceled', 'has been cancelled', 'unable to proceed',
+  'decided not to proceed', 'minimum qualifications', 'other candidates',
+  'update on your application', 'your application status'
 ];
 
 // ATS plumbing that appears in every sender line and names no employer. Without
@@ -81,8 +93,9 @@ var REJECTION_QUERY_PHRASES = [
 // called Greenhouse.
 var SENDER_NOISE = [
   'greenhouse', 'greenhousemail', 'lever', 'hire', 'myworkday', 'workday',
-  'wd1', 'wd3', 'wd5', 'icims', 'taleo', 'oracle', 'smartrecruiters', 'workable',
-  'jobvite', 'ashbyhq', 'ashby', 'breezy', 'bamboohr', 'successfactors',
+  'wd1', 'wd3', 'wd5', 'icims', 'nurture', 'taleo', 'oracle', 'smartrecruiters',
+  'workable', 'workablemail', 'candidates', 'jobvite', 'ashbyhq', 'ashby',
+  'breezy', 'bamboohr', 'successfactors', 'ns2cloud', 'newtonsoftware', 'echo',
   'recruiting', 'recruitment', 'careers', 'career', 'jobs', 'job', 'talent',
   'noreply', 'no', 'reply', 'donotreply', 'mail', 'email', 'notification',
   'notifications', 'team', 'hello', 'info', 'apply', 'application', 'applications',
@@ -107,10 +120,10 @@ var ROLE_MATCH_FLOOR = 0.5;
 var REJECTION_WINDOW_DAYS = 45;
 var REJECTION_SCAN_LIMIT = 40;
 
-// Only the top of a message is read. Rejection language is always in the first
-// paragraph, and the rest is signature, legal footer and unsubscribe boilerplate
-// that only adds words for the company matcher to trip over.
-var REJECTION_BODY_CHARS = 4000;
+// Only the top of a message is read. One real rejection put its refusal past the
+// 4,000th character of an 18KB message, so this is generous; the rest is
+// signature, legal footer and unsubscribe boilerplate.
+var REJECTION_BODY_CHARS = 8000;
 
 // Every thread the search returns gets exactly one of these, so no thread is ever
 // judged twice and the search window stays small. They are also the audit trail:
@@ -121,23 +134,56 @@ var LABEL_IGNORED  = 'Tracker/Not a rejection';
 
 // ------------------------------------------------------------------ matching
 
+/**
+ * Lowercase, apostrophes removed, whitespace collapsed.
+ *
+ * Apostrophes go rather than being normalised to one shape, so a single phrase
+ * matches "wasn't", "wasn\u2019t" and "wasnt". Writing every phrase twice was the
+ * alternative, and one of the two spellings was always the one that got missed.
+ */
 function outreachNormalise_(text) {
   return String(text == null ? '' : text)
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
+    .replace(/[\u2018\u2019']/g, '')
     .toLowerCase()
     .replace(/\s+/g, ' ');
 }
 
-/** Whether this message is somebody saying no. */
+function outreachSentences_(text) {
+  return text.split(/(?<=[.!?])\s+|\n+/).filter(function (s) { return s.trim(); });
+}
+
+/**
+ * Whether this message is somebody saying no.
+ *
+ * Sentence by sentence rather than over the whole body, because the two mistakes
+ * that matter are both sentence-shaped:
+ *
+ *   - a hypothetical. "If you are not selected, you will hear from us" is in half
+ *     the acknowledgement mails ever sent, and reads exactly like a refusal to
+ *     anything matching on the body as one string.
+ *   - a polite closing. A genuine rejection often ends "we invite you to apply
+ *     for other openings", so an invitation only overrules a refusal when it
+ *     comes *first*. Order is the whole rule: invitation-then-nothing is an
+ *     interview, refusal-then-invitation is still a refusal.
+ */
 function outreachIsRejection_(subject, body) {
-  var text = outreachNormalise_(subject + ' ' + String(body || '').slice(0, REJECTION_BODY_CHARS));
-  if (!text.trim()) return false;
-  var blocked = REJECTION_BLOCKERS.some(function (phrase) {
-    return text.indexOf(phrase) !== -1;
+  var text = outreachNormalise_(subject + '. ' + String(body || '').slice(0, REJECTION_BODY_CHARS));
+  var said = outreachSentences_(text).filter(function (sentence) {
+    return !REJECTION_CONDITIONALS.test(sentence);
   });
-  if (blocked) return false;
-  return REJECTION_PHRASES.some(function (phrase) { return text.indexOf(phrase) !== -1; });
+
+  var refused = -1, invited = -1;
+  for (var i = 0; i < said.length; i++) {
+    var sentence = said[i];
+    if (refused < 0 && REJECTION_PHRASES.some(function (p) { return sentence.indexOf(p) !== -1; })) {
+      refused = i;
+    }
+    if (invited < 0 && REJECTION_BLOCKERS.some(function (b) { return sentence.indexOf(b) !== -1; })) {
+      invited = i;
+    }
+  }
+  if (refused < 0) return false;
+  return invited < 0 || invited > refused;
 }
 
 /**

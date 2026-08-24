@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 154 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 158 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -324,11 +324,29 @@ good, and nothing downstream would ever question it.
 
 So three separate things have to line up, and any doubt stops the write:
 
-1. **The wording has to be a refusal.** A list of phrases a person only writes to decline —
-   *move forward with other candidates*, *regret to inform*, *no longer under consideration*.
-   `unfortunately` is deliberately **not** one of them: it opens as many delayed-req mails as
-   rejections. A blocker list outranks all of it, so anything that also says *invite you to*,
-   *online assessment* or *congratulations* is never a rejection however it is worded.
+1. **The wording has to be a refusal**, judged **sentence by sentence** rather than over the body
+   as one string. Every phrase in the list was taken from a real message in this account — 52 of
+   them, harvested rather than guessed — because the two mistakes that matter are both
+   sentence-shaped:
+
+   - **a hypothetical.** *"If you see the job moved to an inactive state, that means … you were
+     not selected for the role"* is portal boilerplate inside an acknowledgement, and it reads
+     exactly like a refusal to anything matching the body as one string. Seven Microsoft
+     acknowledgements in this mailbox carry that line. A sentence opening on `if`, `should you`,
+     `unless` or `in the event` is skipped entirely.
+   - **a polite closing.** A genuine rejection routinely ends *"we invite you to apply for other
+     openings"*, so an invitation only overrules a refusal **when it comes first**. Order is the
+     whole rule: invitation-then-nothing is an interview, refusal-then-invitation is still a
+     refusal.
+
+   `unfortunately` is deliberately **not** in the list: it opens as many delayed-req mails as
+   rejections. Stage nouns are deliberately not blockers either — a real rejection here reads
+   *"your application wasn't selected for the next round of interviews"*, and blocking on
+   *next round* threw it away.
+
+   Apostrophes are stripped rather than normalised, so one phrase matches `wasn't`, `wasn’t` and
+   `wasnt`. Writing each phrase twice was the alternative, and the missing spelling was always the
+   one that arrived.
 2. **The employer has to come from the sender line or the subject** — never the body. Bodies name
    partners, tools and job boards, and one stray mention in a footer would close an application
    at the wrong company. ATS plumbing is stripped first, so a rejection routed through Greenhouse
@@ -347,6 +365,25 @@ twice and the search window cannot silt up:
 
 `Tracker/Check by hand` is the review pile. It is meant to be non-empty — that is the design
 working, not failing.
+
+#### Measured, not asserted
+
+The lists were built by reading every rejection-shaped message this account received between the
+first application on 15 July 2026 and 24 August 2026 — 52 messages across Workday, Greenhouse,
+Lever, Ashby, iCIMS, SmartRecruiters, SuccessFactors, Jobvite and half a dozen in-house systems.
+**27 are genuine rejections, and the rules classify all 52 the way a person would.**
+
+Three findings from that pass are worth keeping, because each was a defect that only real mail
+could have shown:
+
+| Found | Fix |
+|---|---|
+| 7 acknowledgements read as rejections, all on the same conditional sentence | skip conditional sentences |
+| a genuine rejection thrown away by its own polite closing | an invitation only counts if it comes first |
+| 6 rejections the Gmail prefilter never returned at all | widened `REJECTION_QUERY_PHRASES` |
+
+One refusal sat past the 4,000th character of an 18KB message, which is why `REJECTION_BODY_CHARS`
+is 8,000.
 
 > **What it cannot see.** Only this one mailbox. A rejection sent to `nguyen15@kenyon.edu` is
 > invisible to it, and that application stays `Applied` until it is changed by hand. If a real

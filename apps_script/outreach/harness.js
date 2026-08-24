@@ -637,27 +637,59 @@ console.log('reading a rejection out of the mailbox');
     rowNumber: 2, property, company, role, process: 'Applied', dateApplied: day(2026, 8, 1)
   });
 
+  // Every body below is the real sentence from a real message in this account.
   run('the plain refusals are all recognised', () => {
     [
-      'We have decided to move forward with other candidates.',
-      'We regret to inform you that we will not be proceeding.',
-      'Your application is no longer under consideration.',
-      'Unfortunately you were not selected for this role.',
-      'This position has been filled.'
-    ].forEach((body) => assert.ok(S.outreachIsRejection_('Your application', body), body));
+      ['Rivian', "Unfortunately, we've decided to move forward with other candidates whose qualifications more closely align to this role."],
+      ['Valeo', 'After careful consideration of your application, we regret to inform you that we will not be proceeding with your application for this position.'],
+      ['SAP', 'After carefully reviewing your application, we regret to inform you that we have chosen to pursue other applicants.'],
+      ['Schweitzer', 'We wanted to inform you that we have decided to continue our search for other candidates.'],
+      ['Schneider', 'Your application was impressive; however, you were not selected to continue forward in the process.'],
+      ['Salesforce', 'The Software Engineering Intern position has been filled and is now closed.'],
+      ['RTX', 'Unfortunately, the position of Software Engineering Intern has been canceled by our hiring team.'],
+      ['Melaleuca', 'We are sorry to inform you that you do not meet the minimum qualifications for this position.'],
+      ['Appian', "The hiring team has reviewed your resume and unfortunately your application wasn't selected for the next round of interviews."],
+      ['Apprenticely', 'Unfortunately, we are unable to proceed with your application at this time.']
+    ].forEach(([who, body]) => assert.ok(S.outreachIsRejection_('Update on your application', body), who));
   });
-  run('curly quotes in an ATS template do not hide the phrase', () => {
-    assert.ok(S.outreachIsRejection_('Update', 'We’ve decided not to proceed at this time.'));
+  run('an apostrophe in any of its three spellings still matches', () => {
+    ['wasn\u2019t selected', "wasn't selected", 'wasnt selected'].forEach((spelling) => {
+      assert.ok(S.outreachIsRejection_('Update', 'Your application ' + spelling + ' for the role.'), spelling);
+    });
   });
-  run('an invitation is never a rejection, however it is worded', () => {
+  // The seven Microsoft acknowledgements in this account all carry this line, and
+  // it was seven false positives before the conditional guard existed.
+  run('a hypothetical refusal in an acknowledgement is not a refusal', () => {
+    assert.ok(!S.outreachIsRejection_('Thank you for your application!',
+      'If you see the job moved to an inactive state, that means the position is either no longer '
+      + 'open, you withdrew from consideration, or you were not selected for the role.'));
+  });
+  run('a pre-declared refusal is still hypothetical', () => {
+    // impact.com: a rejection that has not happened yet is not a rejection.
+    assert.ok(!S.outreachIsRejection_('Thank you for applying',
+      'If you have not heard back from us within four weeks, we regret to inform you that your '
+      + 'application has not been successful on this occasion.'));
+  });
+  run('an invitation that comes first outranks anything after it', () => {
     assert.ok(!S.outreachIsRejection_('Next steps',
-      'We regret to inform you of the delay. We would like to invite you to an online assessment.'));
+      "You're invited to complete an assessment. Others were not selected for this round."));
+  });
+  run('a polite closing does not undo a refusal already stated', () => {
+    // Real rejections routinely end this way, and an unordered blocker threw them out.
+    assert.ok(S.outreachIsRejection_('Update',
+      'We regret to inform you that we have chosen to pursue other applicants. '
+      + 'We invite you to apply for other openings.'));
   });
   run('an ordinary email is not a rejection', () => {
     assert.ok(!S.outreachIsRejection_('Your receipt', 'Thanks for your order.'));
   });
+  run('an acknowledgement that only promises to review is not a rejection', () => {
+    assert.ok(!S.outreachIsRejection_('Thank you for your application to Figma',
+      'We received your application for Software Engineer Intern, and we are delighted that you '
+      + 'would consider joining our team. Our team will review your application.'));
+  });
   run('"unfortunately" on its own is not enough to close an application', () => {
-    assert.ok(!S.outreachIsRejection_('Update', 'Unfortunately the req is delayed until March.'));
+    assert.ok(!S.outreachIsRejection_('Update', 'Unfortunately the req is delayed.'));
   });
 
   run('the employer is read out of the sender, not the ATS around it', () => {
@@ -666,6 +698,13 @@ console.log('reading a rejection out of the mailbox');
       'stripe');
     assert.strictEqual(
       S.outreachSenderTokens_('Databricks <databricks@myworkday.com>').join(','), 'databricks');
+    // Real senders from this account, each of which used to read as an ATS vendor.
+    assert.strictEqual(
+      Array.from(S.outreachSenderTokens_('Textron Recruiting <recruiting-noreply@hrtextron.textron.com>'))
+        .sort().join(','), 'hrtextron,textron');
+    assert.strictEqual(
+      Array.from(S.outreachSenderTokens_('RTX Workday Notifications <globalhr@myworkday.com>'))
+        .sort().join(','), 'globalhr,rtx');
   });
 
   run('a rejection from one open application is pinned to it', () => {
