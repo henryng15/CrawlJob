@@ -385,19 +385,25 @@ function previewOutreachEmail() {
  * One firing, doing the whole round in the order the steps depend on each other.
  *
  *   1. what came back      a reply seen now stops an attempt being created below
- *   2. what is new         applications ticked Applied since the last firing
- *   3. what goes out       the drafts written an hour ago, unless one was deleted
- *   4. what is written     this hour's share of the cap, into Drafts, to sit an hour
- *   5. what happens next   the projection, recomputed over everything that is left
+ *   2. who said no         rejections in the mailbox, closing App rows and drafts
+ *   3. what is new         applications ticked Applied since the last firing
+ *   4. what goes out       the drafts written an hour ago, unless one was deleted
+ *   5. what is written     this hour's share of the cap, into Drafts, to sit an hour
+ *   6. what happens next   the projection, recomputed over everything that is left
  *
  * Reversing any pair of these produces a table that is one firing out of date:
  * projecting before sending would date rows that are about to leave, and
  * enqueueing before scanning would create an attempt for a contact whose bounce
  * has not been recorded yet.
+ *
+ * Step 2 is where it is for the same reason: a rejection read now deletes the
+ * draft that was about to go to that company, and stops step 3 opening a fresh
+ * attempt underneath it.
  */
 function runOutreachCycle() {
   var summary = {};
   summary.scan = scanOutreachReplies();
+  summary.rejections = scanRejectionEmails();
   var plan = enqueueOutreach();
   summary.queued = plan.planned.length;
   // Send before writing, never the other way round. Drafting first would let a
@@ -426,7 +432,8 @@ function installOutreachTriggers() {
 
 function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
-              'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies'];
+              'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
+              'scanRejectionEmails'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

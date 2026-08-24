@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 138 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 153 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -244,9 +244,13 @@ projection; once it is written both are what happened. That pair is the column t
 want to intervene, because the gap between them is the hour in which deleting the draft still
 calls the send off.
 
-**Nothing in this system writes to `App`.** An earlier version put the contact count in column J
-there, and it was one more machine-written column on a tab that is already dense enough to read
-past. Everything the outreach system knows now lives on one tab, and `App` is left as it was.
+**Almost nothing in this system writes to `App`.** An earlier version put the contact count in
+column J there, and it was one more machine-written column on a tab that is already dense enough
+to read past. Everything the outreach system knows lives on the `Email` tab instead.
+
+The one exception is a rejection, below — it writes `Process` and appends a line to `Update`,
+because an application that has been turned down has to stop being worked within the hour, and
+nothing else is watching the mailbox.
 
 `Recruiters` is that count, moved here: how many people could be written to at that company. It
 is rewritten every firing, so a name typed into `Contacts (manual)` five minutes ago shows up as
@@ -270,21 +274,84 @@ the table describing four different moments. `runOutreachCycle` does the round i
 steps depend on each other:
 
 1. **what came back** — replies and bounces, so a reply seen now stops an attempt being created
-   in step 2
-2. **what is new** — applications ticked `Applied` since the last firing
-3. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
-4. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
-5. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
+   in step 3
+2. **who said no** — rejections sitting in the mailbox, which close the application in `App` and
+   delete any draft already written for it
+3. **what is new** — applications ticked `Applied` since the last firing
+4. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
+5. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
+6. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
 
 Reversing any pair leaves the table a firing out of date: projecting before sending would put a
 date on rows that are about to leave, and enqueueing before scanning would create an attempt 2
-for someone who has already replied. **Step 3 before step 4** is the load-bearing one: drafting
+for someone who has already replied. **Step 4 before step 5** is the load-bearing one: drafting
 first would let a message be written and sent inside a single firing, and the hour in which it
-could have been read would never have existed.
+could have been read would never have existed. **Step 2 before step 3** is the other: a rejection
+read now has to close the application before anything opens a fresh attempt underneath it.
 
 Step 1 only asks Gmail about rows sent in the last 30 days. Every sent row would mean one API
 call per row on every firing, growing with the queue forever — and a reply to a two-month-old
 cold email is not a thing that happens.
+
+### A rejection in the mailbox closes the application on both tabs
+
+The rejections arrive at `hoanng15.work@gmail.com`, which is the account this project already
+runs as — so reading them needs no second credential, no forwarding rule and no extra scope.
+Step 2 of each firing searches for them.
+
+When one is recognised and can be pinned to a single open application, two things happen:
+
+| Tab | What changes |
+|---|---|
+| `App` | `Process` → `Rejected`, and `Update` gains a dated `Rejected: Aug 24, 2026` line |
+| `Email` | every `Queued` **and `Drafted`** row for that application → `Cancelled` |
+
+The `Drafted` half is the reason this is worth building. A draft written at 09:00 is addressed,
+complete and an hour from leaving; a rejection arriving at 09:30 would otherwise be followed at
+10:00 by a cold email to the company that just said no. The draft is deleted from Gmail, not
+merely marked.
+
+The `Update` line is written by hand here rather than left to `onEdit`. A simple trigger does not
+fire for a write made by another script, and `audit_app` in `job_sync/sheet.py` reports
+`UNLOGGED` whenever the bottom line of `Update` disagrees with `Process` — so skipping it would
+make every automatic rejection show up as a defect in the next audit.
+
+#### It says no rather than guessing
+
+Recognising the language is the easy half; deciding *which* application it belongs to is where a
+wrong answer costs something. A wrong `Rejected` takes a live application out of the queue for
+good, and nothing downstream would ever question it.
+
+So three separate things have to line up, and any doubt stops the write:
+
+1. **The wording has to be a refusal.** A list of phrases a person only writes to decline —
+   *move forward with other candidates*, *regret to inform*, *no longer under consideration*.
+   `unfortunately` is deliberately **not** one of them: it opens as many delayed-req mails as
+   rejections. A blocker list outranks all of it, so anything that also says *invite you to*,
+   *online assessment* or *congratulations* is never a rejection however it is worded.
+2. **The employer has to come from the sender line or the subject** — never the body. Bodies name
+   partners, tools and job boards, and one stray mention in a footer would close an application
+   at the wrong company. ATS plumbing is stripped first, so a rejection routed through Greenhouse
+   does not read as coming from a company called Greenhouse.
+3. **It has to land on exactly one open row.** Two employers matching the sender, or one employer
+   with several roles open and an email that names none of them, both stop the write.
+
+Everything the search returns leaves with exactly one Gmail label, so nothing is ever judged
+twice and the search window cannot silt up:
+
+| Label | Meaning |
+|---|---|
+| `Tracker/Rejected` | acted on — `App` and `Email` are already updated |
+| `Tracker/Check by hand` | reads as a rejection, could not be pinned to one application |
+| `Tracker/Not a rejection` | looked at and ruled out |
+
+`Tracker/Check by hand` is the review pile. It is meant to be non-empty — that is the design
+working, not failing.
+
+> **What it cannot see.** Only this one mailbox. A rejection sent to `nguyen15@kenyon.edu` is
+> invisible to it, and that application stays `Applied` until it is changed by hand. If a real
+> share of them land there, a Gmail forwarding rule into the sending account is the fix — the
+> original `From` survives forwarding, which is the line the employer is read from.
 
 ### Every email waits an hour in Drafts, and deleting it is how you call it off
 

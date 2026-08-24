@@ -34,11 +34,20 @@ var TAB_QUEUE          = 'Email';
 var TAB_CONTACTS_SEED  = 'Contacts (seed)';
 var TAB_CONTACTS_MANUAL= 'Contacts (manual)';
 
-// App tab, 1-based. Read only — this project never writes a cell in App. The
-// tab is already dense, and one more machine-written column there would be one
-// more thing to read past. Everything this system knows lives in TAB_QUEUE.
+// App tab, 1-based. Read only with one exception: a rejection found in the
+// mailbox writes Process and appends a line to Update, because an application
+// that has been turned down must stop being worked within the hour. Nothing else
+// here writes to App — the tab is already dense, and one more machine-written
+// column would be one more thing to read past.
 var APP_PROPERTY = 1, APP_COMPANY = 2, APP_DATE_APPLIED = 4;
-var APP_PROCESS = 6, APP_ROLE = 7, APP_RECRUITERS = 10;
+var APP_PROCESS = 6, APP_ROLE = 7, APP_RECRUITERS = 10, APP_UPDATE = 11;
+
+// The stage a recognised rejection moves an application to, and the date format
+// its line in Update is written in. Both mirror the bound script — STAGES and
+// UPDATE_DATE_FORMAT in sync_applied_to_app.gs — and the Python audit
+// (job_sync/sheet.py) reads the result, so all three have to agree.
+var STAGE_REJECTED = 'Rejected';
+var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 
 // The Email tab, 1-based. The three columns copied from App lead it.
 //

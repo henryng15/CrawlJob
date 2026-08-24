@@ -47,7 +47,7 @@ function load() {
   };
   vm.createContext(context);
   ['outreach_config.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
-   'outreach_send.gs']
+   'outreach_send.gs', 'outreach_rejections.gs']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context));
   return context;
 }
@@ -627,6 +627,116 @@ console.log('the message');
   run('the long role name is not repeated in the ask', () => {
     assert.ok(nasty.plain.indexOf('The ask:') !== -1);
     assert.ok(nasty.plain.split('The ask:')[1].indexOf('alert(1)') === -1);
+  });
+}
+
+console.log('reading a rejection out of the mailbox');
+{
+  const msg = (from, subject, body) => ({ from, subject, body: body || '' });
+  const opening = (property, company, role) => ({
+    rowNumber: 2, property, company, role, process: 'Applied', dateApplied: day(2026, 8, 1)
+  });
+
+  run('the plain refusals are all recognised', () => {
+    [
+      'We have decided to move forward with other candidates.',
+      'We regret to inform you that we will not be proceeding.',
+      'Your application is no longer under consideration.',
+      'Unfortunately you were not selected for this role.',
+      'This position has been filled.'
+    ].forEach((body) => assert.ok(S.outreachIsRejection_('Your application', body), body));
+  });
+  run('curly quotes in an ATS template do not hide the phrase', () => {
+    assert.ok(S.outreachIsRejection_('Update', 'We’ve decided not to proceed at this time.'));
+  });
+  run('an invitation is never a rejection, however it is worded', () => {
+    assert.ok(!S.outreachIsRejection_('Next steps',
+      'We regret to inform you of the delay. We would like to invite you to an online assessment.'));
+  });
+  run('an ordinary email is not a rejection', () => {
+    assert.ok(!S.outreachIsRejection_('Your receipt', 'Thanks for your order.'));
+  });
+  run('"unfortunately" on its own is not enough to close an application', () => {
+    assert.ok(!S.outreachIsRejection_('Update', 'Unfortunately the req is delayed until March.'));
+  });
+
+  run('the employer is read out of the sender, not the ATS around it', () => {
+    assert.strictEqual(
+      S.outreachSenderTokens_('"Stripe Recruiting" <no-reply@us.greenhouse-mail.io>').join(','),
+      'stripe');
+    assert.strictEqual(
+      S.outreachSenderTokens_('Databricks <databricks@myworkday.com>').join(','), 'databricks');
+  });
+
+  run('a rejection from one open application is pinned to it', () => {
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'),
+      [opening('1', 'Stripe', 'SWE Intern')]);
+    assert.strictEqual(target.app.property, '1');
+  });
+  run('an application already past Applied is not rejected twice', () => {
+    const row = opening('1', 'Stripe', 'SWE Intern');
+    row.process = 'Rejected';
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
+    assert.strictEqual(target.app, null);
+  });
+  run('a company nobody applied to is left alone', () => {
+    const target = S.outreachRejectionTarget_(
+      msg('Notion <no-reply@greenhouse.io>', 'Your application to Notion'),
+      [opening('1', 'Stripe', 'SWE Intern')]);
+    assert.strictEqual(target.app, null);
+    assert.match(target.why, /matches the sender/);
+  });
+  run('the body never names the employer, so a footer cannot close an application', () => {
+    const target = S.outreachRejectionTarget_(
+      msg('Careers <no-reply@jobboard.example>', 'An update on your application',
+          'We regret to inform you. Powered by Stripe.'),
+      [opening('1', 'Stripe', 'SWE Intern')]);
+    assert.strictEqual(target.app, null);
+  });
+  run('two employers matching one sender stops the write', () => {
+    const target = S.outreachRejectionTarget_(
+      msg('Careers <no-reply@x.com>', 'Your application to Stripe and Notion'),
+      [opening('1', 'Stripe', 'SWE Intern'), opening('2', 'Notion', 'SWE Intern')]);
+    assert.strictEqual(target.app, null);
+    assert.match(target.why, /different employers/);
+  });
+
+  run('two roles at one employer, and the email names one of them', () => {
+    const rows = [
+      opening('1', 'Stripe', 'Software Engineering Intern, Summer 2027'),
+      opening('2', 'Stripe', 'Data Science Intern, Summer 2027')
+    ];
+    rows[1].rowNumber = 3;
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>',
+          'Your application for Data Science Intern, Summer 2027'), rows);
+    assert.strictEqual(target.app.property, '2');
+  });
+  run('two roles at one employer and the email names neither: nothing is touched', () => {
+    const rows = [
+      opening('1', 'Stripe', 'Software Engineering Intern, Summer 2027'),
+      opening('2', 'Stripe', 'Data Science Intern, Summer 2027')
+    ];
+    rows[1].rowNumber = 3;
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>', 'An update on your application'), rows);
+    assert.strictEqual(target.app, null);
+    assert.match(target.why, /names none/);
+  });
+
+  run('the Update line goes on last, which is where the Python audit reads it', () => {
+    assert.strictEqual(S.outreachLastStage_('Applied: Aug 1, 2026'), 'Applied');
+    assert.strictEqual(
+      S.outreachLastStage_('Applied: Aug 1, 2026\nRejected: Aug 24, 2026'), 'Rejected');
+    assert.strictEqual(S.outreachLastStage_(''), '');
+  });
+  run('the search query excludes every label it can apply', () => {
+    const query = S.outreachRejectionQuery_();
+    [S.LABEL_REJECTED, S.LABEL_CHECK, S.LABEL_IGNORED].forEach((label) => {
+      assert.ok(query.indexOf('-label:"' + label + '"') !== -1, label);
+    });
   });
 }
 

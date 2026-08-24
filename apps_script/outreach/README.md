@@ -1,6 +1,6 @@
 # `outreach/` — the sender
 
-These five files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
+These six files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
 standalone project in the Apps Script editor of `hoanng15.work@gmail.com`.
 
 That separation is the reason the project exists. A bound script runs as whoever owns the
@@ -13,7 +13,8 @@ which is a different address, and the one that must never appear as the sender.
 | `outreach_contacts.gs` | reads both contact tabs, decides what one employer is, and counts per company |
 | `outreach_compose.gs` | the ten message variations and the HTML builder |
 | `outreach_queue.gs` | what earns a queue row, in what order, and how many go out this hour |
-| `outreach_send.gs` | the only file that touches Gmail, Drive or triggers |
+| `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
+| `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
 | `appsscript.json` | the manifest: timezone, and the five scopes spelled out |
 
 The scopes are declared rather than inferred. Apps Script works out what to ask for by scanning
@@ -26,12 +27,12 @@ the files arrived in.
 |---|---|
 | `spreadsheets` | the tracker and the contacts book |
 | `drive.readonly` | reading the resume to attach it — nothing is written to Drive |
-| `mail.google.com` | drafting, sending, and reading a thread to see if it was answered |
+| `mail.google.com` | drafting, sending, reading a thread to see if it was answered, and labelling rejections |
 | `script.scriptapp` | installing the hourly trigger |
 | `userinfo.email` | knowing whose account this is, so a preview can be addressed to you |
 
-Everything that *decides* lives in the first four files and is pure — it takes rows and a
-date and returns rows. That is what lets the rules be argued with without a Google account:
+Everything that *decides* is pure — it takes rows, a message and a date, and returns rows.
+Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
 
 ```
 node apps_script/outreach/harness.js     # 153 tests, sends nothing
