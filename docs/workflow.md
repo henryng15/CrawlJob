@@ -65,7 +65,7 @@ rejections already are, so reading them needs no extra credential and no token s
 
 | Part | Where it runs | How often | Cost |
 |---|---|---|---|
-| `job_sync` (Python) | GitHub Actions | 9 runs a day | ~1,080 of 2,000 free minutes/month |
+| `job_sync` (Python) | GitHub Actions | 9 runs a day | ~550 of 2,000 free minutes/month (measured: 1.7 min a run, billed rounded up to 2) |
 | `discover_boards` (Python) | GitHub Actions | Sunday 06:00 UTC | rebuilds the 902-board shortlist |
 | `sync_applied_to_app.gs` | bound Apps Script | on every edit | free, no quota |
 | `outreach/*.gs` | standalone Apps Script | 1 trigger, hourly | free, no Actions minutes |
