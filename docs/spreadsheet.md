@@ -132,6 +132,12 @@ shipped with the repo. Both are rewritten from scratch on every sync run, so a t
 cleared on the next one — the place to write anything you want kept is column H, `Note`.
 Details in [alumni.md](alumni.md).
 
+> Column J answers *is there a contact anywhere*. **How many of them can actually be written
+> to** is a different question with a different answer, and it lives in the `Email` tab rather
+> than here — see [outreach.md](outreach.md). Nothing in the outreach system writes to `App`.
+
+
+
 These two columns are the **only** cells outside the Jobs tab that the tool writes. They are
 kept narrow (70px and 90px) because nothing else ever goes in them; column K is 300px wide so
 a few stacked lines of history fit.
@@ -183,7 +189,7 @@ real.
 From the build onwards every stage change records itself, so `?` only shows up on the rows that
 came before it.
 
-## Tab `Outreach Queue` — empty queue scaffold
+## Tab `Email` — the outreach queue
 
 Run `setupOutreachQueue` in Apps Script to create this tab. At this stage it is only an empty,
 human-visible queue: it does **not** read the `App` tab, add an application, contact a recruiter,
@@ -198,7 +204,9 @@ recruiter's name, email address, or drafted message into this spreadsheet.
 | Queue ID | stable ID for one outreach attempt |
 | App Property | the `Property` value of the related App row |
 | Company / Role / Date Applied | snapshots of the application when queued |
-| Priority / Eligible At / Scheduled At | ordering and the permitted sending window |
+| Recruiters | how many contacts exist at that company, refreshed hourly |
+| Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
+| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
 | Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
 | Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
 | Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
@@ -206,6 +214,9 @@ recruiter's name, email address, or drafted message into this spreadsheet.
 
 All rows start empty. The future queue worker will be the only automation allowed to create or
 move them; until then this tab is safe to inspect and format manually.
+
+The design the worker will follow — what enters the queue, in what order, how many go out a
+day, and where the sender lives — is [outreach.md](outreach.md).
 
 ### Filling in Role lets the tool tick more
 

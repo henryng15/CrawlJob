@@ -11,6 +11,8 @@ function makeSheet(name, data) {
     getName: () => name,
     setColumnWidth(column, pixels) { widths.push([column, pixels]); return this; },
     setFrozenRows(rows) { frozen.push([name, rows]); return this; },
+    getConditionalFormatRules() { return formatRules[name] || []; },
+    setConditionalFormatRules(rules) { formatRules[name] = rules; return this; },
     getLastRow() {
       let last = 0;
       grid.forEach((row, i) => {
@@ -81,6 +83,7 @@ let validated = [];
 let copiedWidth = 0;
 let widths = [];
 let frozen = [];
+let formatRules = {};
 let jobs, app, outreach, ss;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -96,10 +99,10 @@ function load() {
   frozen = [];
   ss = {
     getSheetByName: (n) => (
-      n === 'Jobs' ? jobs : n === 'App' ? app : n === 'Outreach Queue' ? outreach : null
+      n === 'Jobs' ? jobs : n === 'App' ? app : n === 'Email' ? outreach : null
     ),
     insertSheet(name) {
-      if (name !== 'Outreach Queue') throw new Error('unexpected sheet ' + name);
+      if (name !== 'Email') throw new Error('unexpected sheet ' + name);
       outreach = makeSheet(name, []);
       return outreach;
     },
@@ -117,6 +120,20 @@ function load() {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       newDataValidation: () => validation,
+      newConditionalFormatRule() {
+        const rule = { ranges: [], background: '', fontColor: '', text: '' };
+        const builder = {
+          whenTextEqualTo(text) { rule.text = text; return builder; },
+          setBackground(colour) { rule.background = colour; return builder; },
+          setFontColor(colour) { rule.fontColor = colour; return builder; },
+          setRanges(ranges) { rule.ranges = ranges; return builder; },
+          build: () => ({
+            getRanges: () => rule.ranges,
+            text: rule.text, background: rule.background, fontColor: rule.fontColor
+          })
+        };
+        return builder;
+      },
       CopyPasteType: { PASTE_DATA_VALIDATION: 'PASTE_DATA_VALIDATION' },
       WrapStrategy: { WRAP: 'WRAP' },
     },
@@ -375,6 +392,11 @@ console.log('setupOutreachQueue');
   outreach = null;
   const s = load();
   s.setupOutreachQueue();
+  run('the two timestamps sit together, so one glance says written-then-goes', () => {
+    const header = Array.from(s.OUTREACH_HEADERS);
+    assert.strictEqual(header[7], 'Drafted At');
+    assert.strictEqual(header[8], 'Scheduled At');
+  });
   run('it creates the tab with the queue header only', () => {
     assert.ok(outreach);
     // OUTREACH_HEADERS came from the vm context, so copy it into this realm
@@ -383,13 +405,32 @@ console.log('setupOutreachQueue');
     assert.strictEqual(outreach.getLastRow(), 1);
   });
   run('it freezes the header and validates Status and Mode without adding rows', () => {
-    assert.deepStrictEqual(frozen, [['Outreach Queue', 1]]);
-    assert.deepStrictEqual(validated.slice(-2), [[2, 9, 499, 1], [2, 10, 499, 1]]);
+    assert.deepStrictEqual(frozen, [['Email', 1]]);
+    // Status and Mode, once the six columns a human reads and the two timestamps
+    // lead the table.
+    assert.deepStrictEqual(validated.slice(-2), [[2, 10, 499, 1], [2, 11, 499, 1]]);
     assert.strictEqual(outreach.getLastRow(), 1);
   });
-  run('running it again is idempotent and does not create a second tab', () => {
+  run('Status and Mode are coloured by value, and Queued is left plain', () => {
+    const rules = formatRules['Email'] || [];
+    const status = rules.filter((r) => r.getRanges()[0].getColumn() === 10);
+    const mode = rules.filter((r) => r.getRanges()[0].getColumn() === 11);
+    assert.strictEqual(status.length, 6);
+    assert.strictEqual(mode.length, 2);
+    assert.ok(!status.some((r) => r.text === 'Queued'));
+    assert.strictEqual(status.filter((r) => r.text === 'Replied')[0].background, '#D9EAD3');
+    assert.strictEqual(status.filter((r) => r.text === 'Bounced')[0].fontColor, '#CC0000');
+  });
+  run('every colour rule names a status that really exists', () => {
+    const named = (formatRules['Email'] || [])
+      .filter((r) => r.getRanges()[0].getColumn() === 10).map((r) => r.text);
+    named.forEach((name) => assert.ok(Array.from(s.OUTREACH_STATUS).indexOf(name) !== -1, name));
+  });
+  run('running it again is idempotent and does not stack a second set of rules', () => {
+    const before = (formatRules['Email'] || []).length;
     s.setupOutreachQueue();
     assert.strictEqual(outreach.getLastRow(), 1);
+    assert.strictEqual((formatRules['Email'] || []).length, before);
     assert.match(toasts[toasts.length - 1], /No queue items changed/);
   });
 }
