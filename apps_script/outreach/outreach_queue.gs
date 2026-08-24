@@ -137,10 +137,12 @@ function outreachParseQueue_(row, index) {
  * A reply does not stop the rest. One recruiter answering "we will pass this on"
  * is not the same as being in, and the person who actually owns the req may be
  * the second or the third. What does stop everything is the application's own
- * Process moving off Applied — that is the signal that means something.
+ * Process leaving the qualifying set — that is the signal that means something.
+ * Applied → Completed OA is not that: it is the same application, further along,
+ * and the wave carries on from where it was rather than starting over.
  */
 function outreachAttemptsWanted_(app, existing, available, headroom, today) {
-  if (app.process !== QUALIFYING_PROCESS) return { count: 0, from: 1, why: 'process is ' + app.process };
+  if (!outreachQualifies_(app.process)) return { count: 0, from: 1, why: 'process is ' + app.process };
   if (!app.company || !app.role) return { count: 0, from: 1, why: 'company or role is blank' };
   if (!app.dateApplied) return { count: 0, from: 1, why: 'no Date Applied to order by' };
   if (outreachDaysBetween_(today, app.dateApplied) > FUTURE_APPLICATION_GRACE_DAYS) {

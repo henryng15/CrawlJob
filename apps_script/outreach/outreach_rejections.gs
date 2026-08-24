@@ -304,7 +304,7 @@ function outreachRoleScore_(role, text) {
  */
 function outreachRejectionTarget_(message, appRows) {
   var open = appRows.filter(function (row) {
-    return row.process === QUALIFYING_PROCESS && row.company;
+    return outreachQualifies_(row.process) && row.company;
   });
   if (!open.length) return { app: null, why: 'no application is still open' };
 

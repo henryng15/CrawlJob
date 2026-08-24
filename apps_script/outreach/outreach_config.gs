@@ -153,9 +153,42 @@ function outreachEligibleDay_(dateApplied, attempt) {
   );
 }
 
-// Only Applied qualifies. Rejected is over; OA and past mean a human contact
-// already exists and a cold email is the wrong message on the wrong thread.
-var QUALIFYING_PROCESS = 'Applied';
+// Applied qualifies, and so does Completed OA. Rejected is over, and Interview
+// and Offer mean a human contact already exists — writing cold to a recruiter
+// there is the wrong message on the wrong thread.
+//
+// An automated assessment is not that contact. The invitation comes from Workday
+// or HackerRank, no person has read the application yet, and the silence after
+// submitting one is precisely when a recruiter is worth writing to: there is now
+// a finished piece of work sitting in their system with nobody assigned to look
+// at it.
+//
+// OA itself stays out, and the distinction is the whole point of splitting the
+// stage in two. While the assessment is owed, the email asks for attention on a
+// step the sender has not finished — the recruiter's first move would be to say
+// go and do it.
+var QUALIFYING_PROCESSES = ['Applied', 'Completed OA'];
+
+// Named on its own because outreach_compose.gs changes a sentence for it: an
+// application that has cleared an assessment says so.
+var STAGE_COMPLETED_OA = 'Completed OA';
+
+/**
+ * Whether an application's Process still admits a cold email.
+ *
+ * Trimmed but not case-folded. Column F is a locked dropdown — setAllowInvalid
+ * (false) in setup_process_dropdown.gs — so the spellings that reach here are the
+ * ones the list holds, and a value that somehow is not should fall through to
+ * "does not qualify" rather than be guessed at. Sending is the irreversible half
+ * of this system; the trim is for a stray space, not for accepting new spellings.
+ */
+function outreachQualifies_(process) {
+  var text = String(process == null ? '' : process).trim();
+  for (var i = 0; i < QUALIFYING_PROCESSES.length; i++) {
+    if (QUALIFYING_PROCESSES[i] === text) return true;
+  }
+  return false;
+}
 
 // Unverified addresses were never actually checked, and bounce rate — not
 // volume — is what gets a sending account penalised.

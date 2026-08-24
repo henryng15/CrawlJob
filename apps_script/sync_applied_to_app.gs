@@ -51,7 +51,7 @@ var ALUMNI_WIDTH_PX = 70, RECRUITER_WIDTH_PX = 90, UPDATE_WIDTH_PX = 300;
 
 // The pipeline setup_process_dropdown.gs builds, and the same list as
 // PROCESS_STAGES in job_sync/sheet.py. The first entry is where every row starts.
-var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
+var STAGES = ['Applied', 'OA', 'Completed OA', 'Interview', 'Offer', 'Rejected'];
 
 // Shorter than DATE_FORMAT because these lines stack inside one cell, but still
 // read the same way as the rest of the sheet.

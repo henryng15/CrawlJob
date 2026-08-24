@@ -231,6 +231,8 @@ function outreachFirstName_(name) {
  *
  * The application gets a line of its own because it is the strongest fact in the
  * message: it is the one thing the reader can go and verify in their own system.
+ * When it has cleared an assessment the line says so, because that is the same
+ * fact one stage stronger — there is finished work in their system already.
  *
  * Past STALE_APPLICATION_DAYS the date is dropped. A date from months ago is the
  * weakest fact in the email, and naming it invites exactly the wrong question.
@@ -307,14 +309,21 @@ function outreachShortRole_(role) {
   return written;
 }
 
-function outreachIntroBullets_(role, dateApplied, today, formatDate) {
+function outreachIntroBullets_(role, dateApplied, today, formatDate, process) {
   var who = 'I am **' + SENDER_NAME + '**, ' + SENDER_STUDY + '.';
   var stale = !dateApplied
     || outreachDaysBetween_(dateApplied, today) > STALE_APPLICATION_DAYS;
   var applied = stale
-    ? 'Applied for the **' + role + '** role earlier this year.'
-    : 'Applied for the **' + role + '** role on ' + formatDate(dateApplied) + '.';
-  return [who, applied];
+    ? 'Applied for the **' + role + '** role earlier this year'
+    : 'Applied for the **' + role + '** role on ' + formatDate(dateApplied);
+  // Appended rather than given a bullet of its own. It is the same fact as the
+  // application — how far it has got — and split across two lines the reader has
+  // to join them back up. The clause carries no date: the day the assessment was
+  // submitted is not in the App tab, and Date Applied is emphatically not it.
+  if (process === STAGE_COMPLETED_OA) {
+    applied += ' and have since completed the online assessment';
+  }
+  return [who, applied + '.'];
 }
 
 /**
@@ -333,7 +342,8 @@ function outreachCompose_(options) {
   };
 
   var greeting = 'Hi ' + outreachFirstName_(options.recruiterName) + ',';
-  var intro = outreachIntroBullets_(role, options.dateApplied, options.today, formatDate)
+  var intro = outreachIntroBullets_(
+      role, options.dateApplied, options.today, formatDate, options.process)
     .concat(variant.bullets.map(function (key) { return RESUME_BULLETS[key]; }));
   // Two bullets rather than a paragraph. The hook and the angle arrive as whole
   // sentences from two different files, and run together they make the block a

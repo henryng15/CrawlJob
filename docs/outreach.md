@@ -51,8 +51,13 @@ sending account**, exported from ColdEmail's `finals/9_emails.csv`. The tracker 
 Read from `App` on the sync run that already walks every row ([`job_sync/highlight.py`](../job_sync/highlight.py)):
 
 - `Recruiter` (J) is ticked
-- `Process` (F) is exactly `Applied` — not `Rejected`, and not `OA` / `Interview` / `Offer`,
-  where a human contact already exists and a cold email is the wrong message
+- `Process` (F) is `Applied` or `Completed OA` — not `Rejected`, and not `OA` / `Interview` /
+  `Offer`. `Interview` and `Offer` mean a human contact already exists and a cold email is the
+  wrong message; `OA` means the assessment is still owed, and the recruiter's first answer
+  would be to go and finish it. `Completed OA` is the opposite of both: there is finished work
+  sitting in their system and nobody assigned to look at it, which is the best moment in the
+  whole pipeline to write. The email says so — see the intro bullet in
+  [`outreach_compose.gs`](../apps_script/outreach/outreach_compose.gs)
 - `Company`, `Role` and `Date Applied` are all filled — an empty one cannot be written into a
   sentence, and an empty date cannot be ordered
 - the contact's `verify_tool` is not `local:Unknown`
@@ -60,6 +65,12 @@ Read from `App` on the sync run that already walks every row ([`job_sync/highlig
 
 `Eligible At` is `Date Applied` + 2 days. Sending the same day reads as automation; two days in,
 the application has reached the ATS.
+
+It stays `Date Applied` for a row that moves to `Completed OA`, which is worth knowing before
+you tick one: an application from three weeks ago is already past its eligible day, so the wave
+opens on the next firing rather than two days later. That is the intent — the assessment is the
+event, and it has already happened — but it means ticking several `Completed OA` rows in one
+sitting queues all of them at once. `DAILY_CAP` is what stops that becoming a spike.
 
 > **Why `local:Unknown` is excluded.** Those 171 rows were never actually verified — ColdEmail's
 > own note says not to treat unknown as confirmed, but `generate_seed.py` applies no quality

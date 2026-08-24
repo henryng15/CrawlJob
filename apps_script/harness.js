@@ -558,6 +558,16 @@ console.log('stageLabel / hasStage / stamp');
     assert.strictEqual(s.hasStage(cell, 'OA'), true);
     assert.strictEqual(s.hasStage(cell, 'Offer'), false);
   });
+  run('Completed OA is its own stage, not the OA line read loosely', () => {
+    // Two stage names where one is a suffix of the other. Both the label lookup
+    // and the history check compare whole names, so having taken the assessment
+    // and having finished it stay two separate lines.
+    assert.strictEqual(s.stageLabel('completed oa'), 'Completed OA');
+    const cell = 'Applied: Jul 21, 2026\nOA: Aug 1, 2026';
+    assert.strictEqual(s.hasStage(cell, 'Completed OA'), false);
+    assert.strictEqual(s.hasStage(cell + '\nCompleted OA: Aug 9, 2026', 'OA'), true);
+    assert.strictEqual(s.hasStage(cell + '\nCompleted OA: Aug 9, 2026', 'Completed OA'), true);
+  });
   run('an empty cell holds no stage yet', () => {
     assert.strictEqual(s.hasStage('', 'Applied'), false);
   });
@@ -601,16 +611,24 @@ console.log('onAppEdit');
     assert.strictEqual(app.grid[2][10], 'OA: ' + today());
   });
 
+  app.grid[2][5] = 'Completed OA';
+  s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
+  run('finishing the assessment appends its own line under OA', () => {
+    assert.strictEqual(app.grid[2][10], 'OA: ' + today() + '\nCompleted OA: ' + today());
+  });
+
   app.grid[2][5] = 'Interview';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('a new stage is appended below and the old ones are left as they were', () => {
-    assert.strictEqual(app.grid[2][10], 'OA: ' + today() + '\nInterview: ' + today());
+    assert.strictEqual(
+      app.grid[2][10],
+      'OA: ' + today() + '\nCompleted OA: ' + today() + '\nInterview: ' + today());
   });
 
   app.grid[2][5] = 'OA';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('going back to a stage already passed does not write it twice', () => {
-    assert.strictEqual(app.grid[2][10].split('\n').length, 2);
+    assert.strictEqual(app.grid[2][10].split('\n').length, 3);
   });
 
   const kept = app.grid[2][10];

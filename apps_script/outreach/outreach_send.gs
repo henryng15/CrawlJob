@@ -20,7 +20,7 @@
  */
 function outreachStillQualifies_(appRow) {
   if (!appRow) return { ok: false, why: 'the App row has gone' };
-  if (appRow.process !== QUALIFYING_PROCESS) {
+  if (!outreachQualifies_(appRow.process)) {
     return { ok: false, why: 'Process is now ' + (appRow.process || 'blank') };
   }
   return { ok: true };
@@ -250,6 +250,9 @@ function prepareOutreachDrafts() {
         role: appRow.role,
         recruiterName: contact.name,
         dateApplied: appRow.dateApplied,
+        // Read now, not when the row was queued. Days pass in between, and an
+        // application that cleared its assessment in that time should say so.
+        process: appRow.process,
         today: now,
         hook: contact.hook,
         angle: outreachAngleFor_(companyContacts)
@@ -433,6 +436,7 @@ function previewOutreachEmail() {
       role: appRow.role || item.role,
       recruiterName: contact.name,
       dateApplied: appRow.dateApplied || item.dateApplied,
+      process: appRow.process,
       today: now,
       hook: contact.hook,
       angle: outreachAngleFor_(companyContacts)

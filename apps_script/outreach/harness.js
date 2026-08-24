@@ -125,6 +125,25 @@ console.log('eligibility — how many people this application earns');
   run('a stage past Applied means a human contact already exists', () => {
     assert.strictEqual(want(app('1', 'A', 'r', day(2026, 8, 1), 'Interview')).count, 0);
   });
+  run('Completed OA qualifies — finished work, nobody assigned to it', () => {
+    assert.strictEqual(want(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA'), none, 5, 5).count, 3);
+  });
+  run('OA itself does not: the assessment is still owed', () => {
+    const out = want(app('1', 'A', 'r', day(2026, 8, 1), 'OA'));
+    assert.strictEqual(out.count, 0);
+    assert.match(out.why, /process is OA/);
+  });
+  run('moving Applied to Completed OA continues the wave, it does not restart it', () => {
+    // Two people already written to under Applied. The stage changing is the same
+    // application further along, so the third is attempt 3 — not a fresh attempt 1
+    // that would put a second first email in front of someone already contacted.
+    const spent = [
+      { property: '1', status: 'Sent', sentAt: day(2026, 8, 10), fingerprint: 'x' },
+      { property: '1', status: 'Sent', sentAt: day(2026, 8, 11), fingerprint: 'y' }
+    ];
+    const out = want(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA'), spent, 5, 5);
+    assert.strictEqual(out.from, 3);
+  });
   run('a blank Role cannot be written into a sentence', () => {
     assert.strictEqual(want(app('1', 'A', '', day(2026, 8, 1))).count, 0);
   });
@@ -725,6 +744,44 @@ console.log('the message');
     assert.ok(stale.plain.indexOf('reaching out:') === -1);
   });
 
+  const cleared = S.outreachCompose_({
+    variant: 'application', role: 'SWE Intern', recruiterName: 'Sam',
+    dateApplied: day(2026, 8, 4), today, process: 'Completed OA',
+    formatDate: (d) => 'Aug ' + d.getDate()
+  });
+  run('an application that cleared its assessment says so, in the same bullet', () => {
+    const second = cleared.plain.split('Quick intro:\n')[1].split('\n')[1];
+    assert.strictEqual(
+      second,
+      '  - Applied for the SWE Intern role on Aug 4 and have since completed the '
+        + 'online assessment.');
+  });
+  run('the assessment clause carries no date of its own', () => {
+    // The day the OA was submitted is not in the App tab, and Date Applied is not
+    // it. Naming one would mean inventing it.
+    const bullet = cleared.plain.split('completed the online assessment')[1].split('\n')[0];
+    assert.strictEqual(bullet, '.');
+  });
+  run('a stale application that cleared its assessment drops the date, not the clause', () => {
+    const old = S.outreachCompose_({
+      variant: 'application', role: 'SWE Intern', recruiterName: 'Sam',
+      dateApplied: day(2026, 5, 1), today, process: 'Completed OA',
+      formatDate: (d) => 'May ' + d.getDate()
+    });
+    assert.ok(old.plain.indexOf('May 1') === -1);
+    assert.match(
+      old.plain,
+      /Applied for the SWE Intern role earlier this year and have since completed the online assessment\./);
+  });
+  run('an Applied row is unchanged — no assessment it has not taken', () => {
+    assert.ok(mail.plain.indexOf('online assessment') === -1);
+    assert.ok(stale.plain.indexOf('online assessment') === -1);
+  });
+  run('the clause is bold-free, so it cannot be mistaken for the role', () => {
+    assert.ok(cleared.html.indexOf('<b>SWE Intern</b>') !== -1);
+    assert.ok(cleared.html.indexOf('<b>online assessment</b>') === -1);
+  });
+
   const nasty = S.outreachCompose_({
     variant: 'fintech', role: '<script>alert(1)</script>', recruiterName: 'Bo & Co',
     dateApplied: day(2026, 8, 20), today, formatDate: () => 'Aug 20'
@@ -924,6 +981,15 @@ console.log('reading a rejection out of the mailbox');
     const target = S.outreachRejectionTarget_(
       msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
     assert.strictEqual(target.app, null);
+  });
+  run('a rejection after a finished assessment still finds its row', () => {
+    // The stage that most often gets a rejection is the one just after an OA.
+    // Miss it here and the queue keeps writing to a company that has said no.
+    const row = opening('1', 'Stripe', 'SWE Intern');
+    row.process = 'Completed OA';
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
+    assert.strictEqual(target.app.property, '1');
   });
   run('a company nobody applied to is left alone', () => {
     const target = S.outreachRejectionTarget_(
@@ -1438,7 +1504,7 @@ console.log('a reply does not call off the rest');
       people, today, SALT);
     assert.strictEqual(out.planned.length, 0);
   });
-  run('what does stop everything is Process moving off Applied', () => {
+  run('what does stop everything is Process leaving the qualifying set', () => {
     assert.ok(!S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Rejected')).ok);
   });
 }
@@ -1458,6 +1524,34 @@ console.log('the last check before Gmail is touched');
   });
   run('an untouched application still qualifies', () => {
     assert.ok(S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Applied')).ok);
+  });
+  run('an application that finished its assessment while queued still goes', () => {
+    // The one direction a Process change does not cancel: the row was queued under
+    // Applied, and by the time it is drafted the assessment is done. Cancelling
+    // there would drop exactly the email worth sending.
+    assert.ok(S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA')).ok);
+  });
+  run('an OA still owed cancels a row queued before it arrived', () => {
+    const out = S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'OA'));
+    assert.ok(!out.ok);
+    assert.match(out.why, /Process is now OA/);
+  });
+
+  run('only the two qualifying stages qualify, and a stray space is forgiven', () => {
+    assert.ok(S.outreachQualifies_('Applied'));
+    assert.ok(S.outreachQualifies_('Completed OA'));
+    assert.ok(S.outreachQualifies_('  Completed OA '));
+    ['OA', 'Interview', 'Offer', 'Rejected', '', null, undefined].forEach((value) => {
+      assert.ok(!S.outreachQualifies_(value), String(value));
+    });
+  });
+  run('a spelling the dropdown cannot produce is not guessed at', () => {
+    // Column F is locked to the list, so anything else reached the sheet by some
+    // other route. Sending is the irreversible half of this system: fall through
+    // to "does not qualify" rather than decide what the writer meant.
+    assert.ok(!S.outreachQualifies_('completed oa'));
+    assert.ok(!S.outreachQualifies_('Completed  OA'));
+    assert.ok(!S.outreachQualifies_('OA Completed'));
   });
 
   run('the global switch can hold a Send row back to a draft', () => {

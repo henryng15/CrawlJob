@@ -401,7 +401,9 @@ def _mark_applied(
 
 APP_FIELDS = ("Property", "Company", "Application Link", "Date Applied", None, "Process", "Role")
 # The pipeline setup_process_dropdown.gs writes into the Process column.
-PROCESS_STAGES = frozenset({"applied", "oa", "interview", "offer", "rejected"})
+PROCESS_STAGES = frozenset(
+    {"applied", "oa", "completed oa", "interview", "offer", "rejected"}
+)
 
 
 def _last_stage(cell: str) -> str:

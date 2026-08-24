@@ -109,7 +109,7 @@ deleting.
 | C | Application Link | |
 | D | Date Applied | the day you ticked |
 | E | Location (State) | **always blank when generated** — the Jobs tab does not carry this |
-| F | Process | dropdown: Applied / OA / Interview / Offer / Rejected |
+| F | Process | dropdown: Applied / OA / Completed OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
 | I | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
@@ -156,6 +156,7 @@ cell, separated by line breaks (Alt+Enter):
 ```
 Applied: Jul 21, 2026
 OA: Aug 3, 2026
+Completed OA: Aug 9, 2026
 Interview: Aug 12, 2026
 ```
 
