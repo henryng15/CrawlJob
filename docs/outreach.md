@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 158 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 161 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -303,13 +303,18 @@ When one is recognised and can be pinned to a single open application, two thing
 
 | Tab | What changes |
 |---|---|
-| `App` | `Process` → `Rejected`, and `Update` gains a dated `Rejected: Aug 24, 2026` line |
+| `App` | `Process` → `Rejected`, and `Update` gains a `Rejected: Aug 19, 2026` line **dated the day the email was sent** |
 | `Email` | every `Queued` **and `Drafted`** row for that application → `Cancelled` |
 
 The `Drafted` half is the reason this is worth building. A draft written at 09:00 is addressed,
 complete and an hour from leaving; a rejection arriving at 09:30 would otherwise be followed at
 10:00 by a cold email to the company that just said no. The draft is deleted from Gmail, not
 merely marked.
+
+The date on that line is the message's own, not the hour the scan ran. A rejection that sat unread
+for three weeks still happened on the day it was sent, and `Update` is the one place the shape of a
+search over months can still be read — stamping the scan time would date every rejection found on a
+first run to that single morning. A missing or future header falls back to now.
 
 The `Update` line is written by hand here rather than left to `onEdit`. A simple trigger does not
 fire for a write made by another script, and `audit_app` in `job_sync/sheet.py` reports

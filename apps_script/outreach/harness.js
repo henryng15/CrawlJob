@@ -765,6 +765,21 @@ console.log('reading a rejection out of the mailbox');
     assert.match(target.why, /names none/);
   });
 
+  run('a rejection is dated the day it was sent, not the day it was found', () => {
+    const sent = day(2026, 7, 30), now = day(2026, 8, 24);
+    assert.strictEqual(S.outreachRejectedOn_(sent, now).getTime(), sent.getTime());
+  });
+  run('a missing or unreadable date falls back to the hour we are sure of', () => {
+    const now = day(2026, 8, 24);
+    assert.strictEqual(S.outreachRejectedOn_(null, now).getTime(), now.getTime());
+    assert.strictEqual(S.outreachRejectedOn_(undefined, now).getTime(), now.getTime());
+    assert.strictEqual(S.outreachRejectedOn_(new Date('nonsense'), now).getTime(), now.getTime());
+  });
+  run('a date in the future is not believed', () => {
+    // A header can say anything; a rejection cannot have arrived tomorrow.
+    const now = day(2026, 8, 24);
+    assert.strictEqual(S.outreachRejectedOn_(day(2027, 1, 1), now).getTime(), now.getTime());
+  });
   run('the Update line goes on last, which is where the Python audit reads it', () => {
     assert.strictEqual(S.outreachLastStage_('Applied: Aug 1, 2026'), 'Applied');
     assert.strictEqual(

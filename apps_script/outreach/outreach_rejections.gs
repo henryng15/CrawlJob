@@ -291,6 +291,20 @@ function outreachStamp_(date) {
 }
 
 /**
+ * The day the rejection was sent, which is the day it happened.
+ *
+ * Stamping the scan time instead would date every rejection found on a first run
+ * to that first run, and the Update column is the one place the shape of a search
+ * over months can still be read. A missing or future date falls back to now: a
+ * header that cannot be believed is worth less than the hour we are certain of.
+ */
+function outreachRejectedOn_(sentAt, now) {
+  if (!sentAt || Object.prototype.toString.call(sentAt) !== '[object Date]') return now;
+  if (isNaN(sentAt.getTime()) || sentAt.getTime() > now.getTime()) return now;
+  return sentAt;
+}
+
+/**
  * The stage named by the last line of the Update cell that names one.
  *
  * The Python audit reads the cell exactly this way and reports UNLOGGED when the
@@ -399,7 +413,10 @@ function scanRejectionEmails() {
       var subject = message.getSubject();
       var body = message.getPlainBody();
       if (!outreachIsRejection_(subject, body)) return;
-      found = { from: message.getFrom(), subject: subject, body: body };
+      // The message's own date, not the hour this happened to run. A rejection
+      // sat unread for three weeks still happened on the day it was sent, and
+      // that is the date the Update column and the Email tab both record.
+      found = { from: message.getFrom(), subject: subject, body: body, at: message.getDate() };
     });
 
     if (!found) {
@@ -416,7 +433,8 @@ function scanRejectionEmails() {
       return;
     }
 
-    tally.cancelled += outreachRecordRejection_(app, queue, target.app, queueRows, now);
+    tally.cancelled += outreachRecordRejection_(app, queue, target.app, queueRows,
+                                                outreachRejectedOn_(found.at, now));
     // The in-memory copy has to move too, or a second rejection for the same
     // employer in this same firing would still see the row as open.
     target.app.process = STAGE_REJECTED;
