@@ -786,11 +786,21 @@ console.log('reading a rejection out of the mailbox');
       S.outreachLastStage_('Applied: Aug 1, 2026\nRejected: Aug 24, 2026'), 'Rejected');
     assert.strictEqual(S.outreachLastStage_(''), '');
   });
-  run('the search query excludes every label it can apply', () => {
-    const query = S.outreachRejectionQuery_();
+  run('the ordinary search excludes every label it can apply', () => {
+    const query = S.outreachRejectionQuery_(false);
     [S.LABEL_REJECTED, S.LABEL_CHECK, S.LABEL_IGNORED].forEach((label) => {
       assert.ok(query.indexOf('-label:"' + label + '"') !== -1, label);
     });
+  });
+  run('a reopen re-reads the two piles the old rules could have got wrong', () => {
+    const query = S.outreachRejectionQuery_(true);
+    assert.ok(query.indexOf('-label:"' + S.LABEL_CHECK + '"') === -1);
+    assert.ok(query.indexOf('-label:"' + S.LABEL_IGNORED + '"') === -1);
+  });
+  run('a reopen never re-reads a closure, which it could only spoil', () => {
+    // Those applications are already Rejected, so re-judging finds no open row
+    // and would move a correct closure into the review pile.
+    assert.ok(S.outreachRejectionQuery_(true).indexOf('-label:"' + S.LABEL_REJECTED + '"') !== -1);
   });
 }
 

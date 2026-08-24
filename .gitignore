@@ -13,3 +13,6 @@ dist/
 
 # Recruiter contacts (names + emails) — never commit
 docs/seed_recruiters.csv
+
+# clasp writes the real script id here; the example file is the one that is tracked.
+apps_script/outreach/.clasp.json

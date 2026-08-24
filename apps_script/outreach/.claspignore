@@ -1,0 +1,7 @@
+# clasp pushes everything in this folder by default. These are the two files that
+# belong to the repository rather than to the Apps Script project: the test
+# harness runs on Node and would be a syntax error in the editor, and the README
+# is for whoever reads the repo.
+harness.js
+README.md
+.claspignore

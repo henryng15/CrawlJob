@@ -119,7 +119,7 @@ apps_script/
     outreach_queue.gs        who earns a row, in what order, how many this hour
     outreach_send.gs         drafting, sending, replies, bounces, the trigger
     outreach_rejections.gs   recognising a rejection and closing the application
-    harness.js               161 tests
+    harness.js               163 tests
 ```
 
 Everything that *decides* is a pure function over rows and a date, so the rules can be argued
@@ -145,6 +145,9 @@ node apps_script/harness.js && node apps_script/outreach/harness.js && pytest -q
 
 | Symptom | Look at |
 |---|---|
+| the editor and the repo disagree | you pasted. Use `clasp push` — see `apps_script/outreach/README.md` |
+| a rejection was missed after the rules improved | bump `REJECTION_RULES_VERSION`; the next firing reopens the last 45 days |
+| an application closed that should not have | open the `Tracker/Rejected` label in Gmail; every closure is one thread in it |
 | nothing is sending | is it a weekend? `DAILY_CAP` is 0 Sat/Sun. Then: is the trigger installed? |
 | everything queued, nothing drafted | the firing runs 09:00–16:00 ET; 17:00 only sends |
 | `Access denied: DriveApp` | scopes are inferred at Allow-time — re-authorise, `appsscript.json` lists them |

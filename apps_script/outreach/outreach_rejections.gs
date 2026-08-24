@@ -132,6 +132,22 @@ var LABEL_REJECTED = 'Tracker/Rejected';
 var LABEL_CHECK    = 'Tracker/Check by hand';
 var LABEL_IGNORED  = 'Tracker/Not a rejection';
 
+// Bump this whenever REJECTION_PHRASES, REJECTION_BLOCKERS, REJECTION_CONDITIONALS
+// or outreachIsRejection_ changes.
+//
+// A label is what stops a thread being judged twice, and that is also what makes
+// a bad run permanent: improved rules would never see the mail the old rules got
+// wrong. On the first firing after this number moves, the scan reopens the two
+// piles it is allowed to be wrong about — Check by hand, and Not a rejection —
+// and judges them again with the new rules.
+//
+// Tracker/Rejected is deliberately never reopened. Those applications are already
+// closed, so re-judging would find no open row to match and would move a correct
+// closure into the review pile. That label stays the human's to audit: it is
+// short, and every thread in it should read as a refusal at a glance.
+var REJECTION_RULES_VERSION = 2;
+var PROP_RULES_VERSION = 'REJECTION_RULES_SEEN';
+
 // ------------------------------------------------------------------ matching
 
 /**
@@ -360,15 +376,16 @@ function outreachLabel_(name) {
   return GmailApp.getUserLabelByName(name) || GmailApp.createLabel(name);
 }
 
-function outreachRejectionQuery_() {
+function outreachRejectionQuery_(reopen) {
   var phrases = REJECTION_QUERY_PHRASES.map(function (phrase) {
     return '"' + phrase + '"';
   }).join(' OR ');
-  return 'newer_than:' + REJECTION_WINDOW_DAYS + 'd -in:chats'
-       + ' -label:"' + LABEL_REJECTED + '"'
-       + ' -label:"' + LABEL_CHECK + '"'
-       + ' -label:"' + LABEL_IGNORED + '"'
-       + ' (' + phrases + ')';
+  var query = 'newer_than:' + REJECTION_WINDOW_DAYS + 'd -in:chats'
+            + ' -label:"' + LABEL_REJECTED + '"';
+  if (!reopen) {
+    query += ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"';
+  }
+  return query + ' (' + phrases + ')';
 }
 
 /**
@@ -400,8 +417,16 @@ function scanRejectionEmails() {
   var now = new Date();
   var unclear = [];
 
-  GmailApp.search(outreachRejectionQuery_(), 0, REJECTION_SCAN_LIMIT).forEach(function (thread) {
+  var props = PropertiesService.getScriptProperties();
+  var reopen = Number(props.getProperty(PROP_RULES_VERSION) || 0) < REJECTION_RULES_VERSION;
+  var threads = GmailApp.search(outreachRejectionQuery_(reopen), 0, REJECTION_SCAN_LIMIT);
+  if (reopen) Logger.log('Rules are newer than the last pass; reopening ' + threads.length + '.');
+
+  threads.forEach(function (thread) {
     var found = null;
+    // A reopened thread already carries a verdict from the old rules. Clearing it
+    // first is what lets this pass overwrite it rather than stack a second label.
+    if (reopen) { thread.removeLabel(check); thread.removeLabel(ignored); }
 
     thread.getMessages().forEach(function (message) {
       if (found) return;
@@ -441,6 +466,14 @@ function scanRejectionEmails() {
     thread.addLabel(rejected);
     tally.rejected++;
   });
+
+  // Only once the backlog is drained, because the scan is capped per firing and a
+  // reopen usually needs several. Recording the version after the first partial
+  // pass would leave most of the mail judged by the rules that were replaced.
+  if (reopen && threads.length < REJECTION_SCAN_LIMIT) {
+    props.setProperty(PROP_RULES_VERSION, String(REJECTION_RULES_VERSION));
+    Logger.log('Reopen complete; rules version ' + REJECTION_RULES_VERSION + ' recorded.');
+  }
 
   Logger.log('rejected ' + tally.rejected + ' (stopping ' + tally.cancelled + ' emails), '
            + tally.unclear + ' to check by hand, ' + tally.ignored + ' not rejections');

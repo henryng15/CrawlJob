@@ -16,6 +16,7 @@ which is a different address, and the one that must never appear as the sender.
 | `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
 | `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
 | `appsscript.json` | the manifest: timezone, and the five scopes spelled out |
+| `.claspignore` / `.clasp.json.example` | so the project is deployed with `clasp push` rather than pasted |
 
 The scopes are declared rather than inferred. Apps Script works out what to ask for by scanning
 the code at the moment you press Allow, so a project authorised before `outreach_send.gs` was
@@ -35,7 +36,34 @@ Everything that *decides* is pure — it takes rows, a message and a date, and r
 Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
 
 ```
-node apps_script/outreach/harness.js     # 161 tests, sends nothing
+node apps_script/outreach/harness.js     # 163 tests, sends nothing
 ```
+
+## Deploying — do not paste by hand
+
+Pasting is how the project silently fell a version behind: the rejection matcher
+was rebuilt from 52 real messages, the new file was never pasted in, and the old rules
+went on closing the wrong applications for a day. Nothing in the editor says which
+version it is holding.
+
+[`clasp`](https://github.com/google/clasp) makes the repository the source of truth:
+
+```bash
+npm install -g @google/clasp
+clasp login                      # sign in as hoanng15.work@gmail.com
+cp .clasp.json.example .clasp.json   # then paste the script id into it
+clasp push                       # ships every .gs file plus appsscript.json
+```
+
+The script id is in the Apps Script editor under Project Settings, or in its URL
+between `/projects/` and `/edit`. `clasp login` needs the Apps Script API switched
+on once, at [script.google.com/home/usersettings](https://script.google.com/home/usersettings).
+
+`.claspignore` keeps `harness.js` out of the push — it is Node, and the editor would
+refuse it. `.clasp.json` holds the real id and is gitignored; the example file is what
+is tracked.
+
+After that, deploying is `clasp push` and nothing else. `clasp pull` brings back
+anything edited in the browser, so the two can never quietly disagree.
 
 Install steps, and the design each rule comes from: [../../docs/outreach.md](../../docs/outreach.md).
