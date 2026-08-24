@@ -50,10 +50,18 @@ version it is holding.
 
 ```bash
 npm install -g @google/clasp
-clasp login                      # sign in as hoanng15.work@gmail.com
-cp .clasp.json.example .clasp.json   # then paste the script id into it
-clasp push                       # ships every .gs file plus appsscript.json
+clasp login                                   # sign in as hoanng15.work@gmail.com
+cd apps_script/outreach                       # from the repo root — clasp reads
+cp .clasp.json.example .clasp.json            #   .clasp.json in the folder you are in
+$EDITOR .clasp.json                           # paste the script id
+clasp status                                  # what would be pushed, what is ignored
+clasp push                                    # ships every .gs plus appsscript.json
 ```
+
+**Do not run `clasp pull` to "check first".** It overwrites the local files with
+whatever is in the editor, which is the older copy — the exact direction that caused
+the problem this setup exists to prevent. The repository is the source of truth; push
+from it. `clasp status` answers the same question without touching anything.
 
 The script id is in the Apps Script editor under Project Settings, or in its URL
 between `/projects/` and `/edit`. `clasp login` needs the Apps Script API switched
