@@ -1254,6 +1254,58 @@ console.log('the Priority tick — asked for by hand goes first');
       assert.ok(!S.outreachTicked_(value), JSON.stringify(value));
     });
   });
+  run('Done reads as a tick, because a retired one still has to lift the queue', () => {
+    ['Done', 'done', '  Done  '].forEach((v) => assert.ok(S.outreachTicked_(v), JSON.stringify(v)));
+  });
+  run('parsing keeps both the reading and the raw word', () => {
+    const raw = new Array(S.Q_WIDTH).fill('');
+    raw[S.Q_PRIORITY - 1] = 'Done';
+    const parsed = S.outreachParseQueue_(raw, 0);
+    assert.strictEqual(parsed.priority, true);
+    assert.strictEqual(parsed.priorityText, 'Done');
+  });
+  run('a retired tick lifts the ones behind it exactly as the tick it replaced did', () => {
+    // The same arrangement as the sent-tick test above, with the tick already
+    // retired. This is the regression the word is capable of causing: read as
+    // false, Stripe row 4 would fall behind the older Acme application.
+    const rows = [
+      qrow({ rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+             sentAt: day(2026, 8, 3), priority: true, priorityText: 'Done' }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 20))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,3');
+  });
+
+  const gone = (over) => qrow(Object.assign({
+    rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+    sentAt: day(2026, 8, 3), priority: true, priorityText: 'TRUE'
+  }, over || {}));
+
+  run('a tick whose email has gone is retired to Done', () => {
+    assert.strictEqual(S.outreachPrioritiesToRetire_([gone()]).length, 1);
+  });
+  run('Done is not written over Done on every firing', () => {
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priorityText: 'Done' })]).length, 0);
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priorityText: '  Done  ' })]).length, 0);
+  });
+  run('a tick still waiting to go stays a tick', () => {
+    // Nothing has left a Queued or Drafted row, so the request is still live.
+    ['Queued', 'Drafted'].forEach((status) => {
+      assert.strictEqual(
+        S.outreachPrioritiesToRetire_([gone({ status: status, sentAt: null })]).length, 0, status);
+    });
+  });
+  run('a row nobody ticked is never marked Done', () => {
+    // Done reads as ticked, so writing it here would enrol every sent row in the
+    // priority groups — the feature inverted rather than extended.
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priority: false, priorityText: 'FALSE' })]).length, 0);
+  });
+
   run('the tick is read off the last column of the row', () => {
     const row = new Array(S.Q_WIDTH).fill('');
     row[S.Q_PRIORITY - 1] = true;

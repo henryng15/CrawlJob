@@ -118,7 +118,7 @@ function sendPreparedDrafts() {
   var app = tracker.getSheetByName(TAB_APP);
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var last = queue.getLastRow();
-  if (last < 2) return { sent: 0, cancelled: 0, failed: 0 };
+  if (last < 2) return { sent: 0, cancelled: 0, failed: 0, retired: 0 };
 
   var now = new Date();
   var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
@@ -136,7 +136,7 @@ function sendPreparedDrafts() {
        .map(outreachParseApp_).forEach(function (row) { byProperty[row.property] = row; });
   }
 
-  var tally = { sent: 0, cancelled: 0, failed: 0 };
+  var tally = { sent: 0, cancelled: 0, failed: 0, retired: 0 };
 
   outreachDraftsToSend_(rows, now, globalMode).forEach(function (row) {
     var updates = {};
@@ -170,9 +170,39 @@ function sendPreparedDrafts() {
     outreachWriteRow_(queue, row.rowNumber, updates);
   });
 
+  // After the sends, so a row that went out this very firing is retired in the
+  // same run rather than waiting an hour to catch up with itself.
+  outreachPrioritiesToRetire_(rows).forEach(function (row) {
+    var done = {};
+    done[Q_PRIORITY] = PRIORITY_DONE;
+    outreachWriteRow_(queue, row.rowNumber, done);
+    tally.retired++;
+  });
+
   Logger.log('sent ' + tally.sent + ', called off ' + tally.cancelled
-           + ', failed ' + tally.failed);
+           + ', failed ' + tally.failed + ', priorities retired ' + tally.retired);
   return tally;
+}
+
+/**
+ * The ticked rows whose email has gone, and whose tick has not been retired yet.
+ *
+ * Three conditions, and each excludes a case that would be wrong to write:
+ *
+ *   sentAt      — nothing has gone from a Queued or Drafted row, so its tick is
+ *                 still a live request and must stay a tick.
+ *   priority    — a row nobody ticked has nothing to retire. Writing Done there
+ *                 would claim a request that was never made, and because Done
+ *                 reads as ticked it would enrol every sent row in the priority
+ *                 groups, which is the whole feature inverted.
+ *   not already — Done is already Done. Without this the same cells would be
+ *                 rewritten on every firing, for nothing.
+ */
+function outreachPrioritiesToRetire_(rows) {
+  return rows.filter(function (row) {
+    if (!row.sentAt || !row.priority) return false;
+    return String(row.priorityText == null ? '' : row.priorityText).trim() !== PRIORITY_DONE;
+  });
 }
 
 /**

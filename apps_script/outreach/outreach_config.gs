@@ -215,6 +215,24 @@ var STATUS_SPENDS_CONTACT = [
 var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
 
 /**
+ * What a tick becomes once the row it is on has gone.
+ *
+ * A checkbox that stays ticked forever cannot say whether it still means
+ * anything, so the word replaces it the run after the email leaves. It is the
+ * same column because it is the same fact — this row was asked for — read at a
+ * later point in its life: blank is nobody asked, ticked is asked and waiting,
+ * Done is asked and gone.
+ *
+ * It must keep counting as ticked, and that is not cosmetic. outreachPriority-
+ * Groups_ reads the tick from the whole queue precisely so that a tick on a row
+ * that has already gone still lifts the ones behind it at the same posting —
+ * which is the normal case, because by the time a company is worth chasing its
+ * first attempt has usually left. Retiring the tick to a word that read as
+ * false would silently drop that lift, and nothing downstream would report it.
+ */
+var PRIORITY_DONE = 'Done';
+
+/**
  * Draft or send, for one row.
  *
  * The global switch can only ever be more cautious than the row: it can hold a
@@ -273,7 +291,8 @@ function setupOutreachProperties() {
 function outreachTicked_(value) {
   if (value === true) return true;
   var text = String(value == null ? '' : value).trim().toLowerCase();
-  return text === 'true' || text === 'yes' || text === 'y' || text === 'x' || text === '1';
+  return text === 'true' || text === 'yes' || text === 'y' || text === 'x' || text === '1'
+      || text === PRIORITY_DONE.toLowerCase();
 }
 
 /** Today at midnight, so day arithmetic never trips over the clock time. */

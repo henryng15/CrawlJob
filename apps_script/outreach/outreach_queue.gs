@@ -122,7 +122,11 @@ function outreachParseQueue_(row, index) {
     fingerprint: outreachCell_(row, Q_FINGERPRINT),
     draftId: outreachCell_(row, Q_DRAFT_ID),
     sentAt: outreachDate_(row[Q_SENT_AT - 1]),
-    priority: outreachTicked_(row[Q_PRIORITY - 1])
+    priority: outreachTicked_(row[Q_PRIORITY - 1]),
+    // The raw cell as well as the reading of it. Both are ticked; only the text
+    // says whether it has already been retired, and without that the sweep would
+    // rewrite the same cell on every firing.
+    priorityText: outreachCell_(row, Q_PRIORITY)
   };
 }
 
