@@ -56,10 +56,19 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // both are the projection; once it is written both are what happened.
 var Q_COMPANY = 1, Q_ROLE = 2, Q_DATE_APPLIED = 3, Q_PROPERTY = 4, Q_RECRUITERS = 5;
 var Q_ATTEMPT = 6, Q_TEMPLATE = 7, Q_DRAFTED_AT = 8, Q_SCHEDULED = 9;
-var Q_STATUS = 10, Q_MODE = 11, Q_FINGERPRINT = 12, Q_DRAFT_ID = 13;
-var Q_MESSAGE_ID = 14, Q_SENT_AT = 15, Q_RESULT = 16, Q_ERROR = 17;
-var Q_ID = 18, Q_VERSION = 19;
-var Q_WIDTH = 19;
+var Q_PRIORITY = 10, Q_STATUS = 11, Q_MODE = 12, Q_FINGERPRINT = 13;
+var Q_DRAFT_ID = 14, Q_MESSAGE_ID = 15, Q_SENT_AT = 16, Q_RESULT = 17;
+var Q_ERROR = 18, Q_ID = 19, Q_VERSION = 20;
+var Q_WIDTH = 20;
+
+// Priority leads Status because the two are read as one answer: whether this row
+// was asked for, and where it has got to. It is the only column here a person
+// writes to, and putting it out past the audit references would have made the one
+// column with a job for the reader the one they have to scroll to find.
+//
+// Adding it moved ten columns right, which is why migrateOutreachPriorityColumn
+// exists and why the sender must be stopped while it runs — see the note there.
+
 
 // Contacts tabs, 1-based. The manual tab stops at Email: everything past it is
 // derived, and asking for it by hand is what stops the tab being used.
@@ -218,6 +227,20 @@ function setupOutreachProperties() {
   }
   Logger.log('Set these under Project Settings -> Script Properties:');
   missing.forEach(function (w) { Logger.log('  ' + w[0] + ' — ' + w[1]); });
+}
+
+/**
+ * Whether a hand-ticked cell counts as ticked.
+ *
+ * A checkbox hands back a real boolean, but the column is editable by a person in
+ * a hurry, and "TRUE", "yes" and "x" are all things a person types into a box they
+ * mean to tick. Reading only `=== true` would silently ignore every one of them,
+ * on the one column whose entire purpose is to be obeyed.
+ */
+function outreachTicked_(value) {
+  if (value === true) return true;
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'y' || text === 'x' || text === '1';
 }
 
 /** Today at midnight, so day arithmetic never trips over the clock time. */

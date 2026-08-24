@@ -1060,6 +1060,181 @@ console.log('the sending window');
   });
 }
 
+console.log('the Priority tick — asked for by hand goes first');
+{
+  const queued = (n, company, role, applied, over) => qrow(Object.assign({
+    rowNumber: n, status: 'Queued', company, role, sentAt: null,
+    dateApplied: applied, eligibleAt: day(2026, 8, 1), priority: false
+  }, over || {}));
+  const monday = day(2026, 8, 24);
+  const friday3pm = new Date(2026, 7, 21, 15);   // Friday caps at 10
+
+  run('a tick moves its own row past an older application', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 15), { priority: true }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '2,3');
+  });
+  run('with nothing ticked the order is unchanged — oldest application first', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 15)),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+  run('one tick lifts the other attempts at the same company and role', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'Software Engineer Intern', day(2026, 8, 15), { priority: true }),
+      queued(4, 'Stripe', 'Software Engineering Internship', day(2026, 8, 16)),
+      queued(5, 'Stripe Inc.', 'Software Engineer, Intern - Seattle, WA', day(2026, 8, 17))
+    ];
+    // 3 is ticked; 4 and 5 ride on it through the same employer and role tests the
+    // one-posting-one-wave rule uses — the legal form and the location are dropped
+    // before either is compared — and only then does the old Acme row follow.
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,4,5,2');
+  });
+  run('a tick does not reach an abbreviation the role matcher has never folded', () => {
+    // "SWE Intern" and "Software Engineer Intern" share only the word intern, which
+    // is a quarter of their words against a ROLE_MATCH of 0.6. This is not new here:
+    // the one-posting-one-wave rule has always read them as two postings, and a tick
+    // grouping them would be a second, looser idea of what one job is. Worth pinning
+    // so it is a decision rather than a surprise the day somebody ticks the wrong one.
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20)),
+      queued(3, 'Stripe', 'Software Engineer Intern', day(2026, 8, 15), { priority: true })
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+  run('a tick does not lift a different role at the same company', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'Data Scientist Intern', day(2026, 8, 15)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 16), { priority: true })
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,2,3');
+  });
+  run('a tick on a row that has already gone still lifts the ones behind it', () => {
+    const rows = [
+      qrow({ rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+             sentAt: day(2026, 8, 3), priority: true }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 20))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,3');
+  });
+  run('within one tick group the oldest application still leads', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20), { priority: true }),
+      queued(3, 'Stripe', 'SWE Intern', day(2026, 7, 2))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+
+  run('a tick does not make a row eligible before its wait is over', () => {
+    const early = queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20), {
+      priority: true, eligibleAt: day(2026, 9, 30)
+    });
+    assert.strictEqual(S.outreachDueNow_([early], friday3pm).length, 0);
+  });
+  run('a tick does not raise the day cap — it decides who gets the slots', () => {
+    const rows = [];
+    for (let i = 0; i < 30; i++) {
+      rows.push(queued(i + 2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true }));
+    }
+    // Friday caps at 10, and 15:00 leaves two writing firings: five, ticked or not.
+    assert.strictEqual(S.outreachDueNow_(rows, friday3pm).length, 5);
+  });
+  run('a tick cannot send at the weekend', () => {
+    const row = queued(2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true });
+    assert.strictEqual(S.outreachDueNow_([row], new Date(2026, 7, 22, 10)).length, 0);
+  });
+
+  run('the projection shows the tick, so the date on the row is the date it lands on', () => {
+    const rows = [];
+    for (let i = 0; i < 20; i++) rows.push(queued(i + 2, 'Acme', 'SWE Intern', day(2026, 6, 1)));
+    rows.push(queued(30, 'Stripe', 'SWE Intern', day(2026, 8, 20), { priority: true }));
+    const plan = S.outreachProjectSchedule_(rows, monday);
+    // Twenty older rows against a Monday cap of 15 would have put Stripe on Tuesday.
+    assert.strictEqual(plan[0].rowNumber, 30);
+    assert.strictEqual(S.outreachDaysBetween_(monday, plan[0].sendAt), 0);
+  });
+  run('a ticked row that is not yet eligible is still projected for its own day', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'SWE Intern', day(2026, 8, 20),
+             { priority: true, eligibleAt: day(2026, 8, 27) })
+    ];
+    const plan = S.outreachProjectSchedule_(rows, monday);
+    const stripe = plan.filter((p) => p.rowNumber === 3)[0];
+    assert.strictEqual(S.outreachDaysBetween_(day(2026, 8, 27), stripe.sendAt), 0);
+  });
+
+  run('TRUE, yes and x all count as ticked, because people type them', () => {
+    ['TRUE', 'true', 'yes', 'Y', 'x', '1', true].forEach((value) => {
+      assert.ok(S.outreachTicked_(value), JSON.stringify(value));
+    });
+  });
+  run('an empty box, FALSE and stray text are not a tick', () => {
+    ['', '  ', 'FALSE', 'false', 'no', 'later', null, undefined, false, 0].forEach((value) => {
+      assert.ok(!S.outreachTicked_(value), JSON.stringify(value));
+    });
+  });
+  run('the tick is read off the last column of the row', () => {
+    const row = new Array(S.Q_WIDTH).fill('');
+    row[S.Q_PRIORITY - 1] = true;
+    assert.strictEqual(S.outreachParseQueue_(row, 0).priority, true);
+  });
+  run('a row appended by the worker is unticked, not blank', () => {
+    const values = S.outreachQueueRowValues_({
+      id: 'P1-A1', property: '1', company: 'Acme', role: 'SWE Intern',
+      dateApplied: day(2026, 8, 1), attempt: 1, status: 'Queued', mode: 'Send',
+      fingerprint: 'abc', recruiters: 3
+    });
+    assert.strictEqual(values.length, S.Q_WIDTH);
+    assert.strictEqual(values[S.Q_PRIORITY - 1], false);
+  });
+}
+
+console.log('the Priority column opens itself, because the schema and the code move together');
+{
+  const header = (at10) => {
+    const row = new Array(S.Q_WIDTH).fill('');
+    row[9] = at10;
+    return row;
+  };
+  run('a tab that already has the column is left alone', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('Priority')), 'ready');
+  });
+  run('a tab still on the old layout is migrated', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('Status')), 'insert');
+  });
+  run('a header nobody recognises is refused rather than shifted blind', () => {
+    // Shifting a rearranged tab would put every row under the wrong name, and the
+    // sender would then read Status out of whatever landed in column 11.
+    assert.throws(() => S.outreachPriorityColumnAction_(header('Mode')), /"Mode"/);
+    assert.throws(() => S.outreachPriorityColumnAction_(header('')), /""/);
+    assert.throws(() => S.outreachPriorityColumnAction_([]), /""/);
+  });
+  run('surrounding whitespace in a header is not a different tab', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('  Priority ')), 'ready');
+    assert.strictEqual(S.outreachPriorityColumnAction_(header(' Status')), 'insert');
+  });
+  run('the column it guards is the one left of Status', () => {
+    assert.strictEqual(S.Q_PRIORITY, 10);
+    assert.strictEqual(S.Q_STATUS, 11);
+    assert.strictEqual(S.Q_WIDTH, 20);
+  });
+}
+
 console.log('written an hour early, so there is an hour to read it in');
 {
   const at = (h) => new Date(2026, 7, 24, h, 0, 0);      // Monday 24 Aug 2026

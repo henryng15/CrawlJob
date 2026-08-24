@@ -11,6 +11,21 @@ function makeSheet(name, data) {
     getName: () => name,
     setColumnWidth(column, pixels) { widths.push([column, pixels]); return this; },
     setFrozenRows(rows) { frozen.push([name, rows]); return this; },
+    // Models the one thing the real insert does that these tests turn on: values
+    // and conditional-format rules to the right of the new column move with it.
+    // Without the second half a rule left behind at its old column would look
+    // like colourQueueColumn_ had stacked a duplicate set, which it had not.
+    insertColumnBefore(at) {
+      grid.forEach((row) => row.splice(at - 1, 0, ''));
+      formatRules[name] = (formatRules[name] || []).map((rule) => {
+        const moved = rule.getRanges().map((r) => {
+          const column = r.getColumn() >= at ? r.getColumn() + 1 : r.getColumn();
+          return Object.assign({}, r, { getColumn: () => column });
+        });
+        return Object.assign({}, rule, { getRanges: () => moved });
+      });
+      return sheet;
+    },
     getConditionalFormatRules() { return formatRules[name] || []; },
     setConditionalFormatRules(rules) { formatRules[name] = rules; return this; },
     getLastRow() {
@@ -404,17 +419,25 @@ console.log('setupOutreachQueue');
     assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
     assert.strictEqual(outreach.getLastRow(), 1);
   });
-  run('it freezes the header and validates Status and Mode without adding rows', () => {
+  run('it freezes the header and validates Priority, Status and Mode without adding rows', () => {
     assert.deepStrictEqual(frozen, [['Email', 1]]);
-    // Status and Mode, once the six columns a human reads and the two timestamps
-    // lead the table.
-    assert.deepStrictEqual(validated.slice(-2), [[2, 10, 499, 1], [2, 11, 499, 1]]);
+    // Left to right: Priority, then Status and Mode, once the six columns a human
+    // reads and the two timestamps lead the table.
+    assert.deepStrictEqual(
+      validated.slice(-3), [[2, 10, 499, 1], [2, 11, 499, 1], [2, 12, 499, 1]]);
     assert.strictEqual(outreach.getLastRow(), 1);
+  });
+  run('Priority is the column left of Status, and Version is still last', () => {
+    const header = Array.from(s.OUTREACH_HEADERS);
+    assert.strictEqual(header[9], 'Priority');
+    assert.strictEqual(header[10], 'Status');
+    assert.strictEqual(header[header.length - 1], 'Version');
+    assert.strictEqual(header.length, 20);
   });
   run('Status and Mode are coloured by value, and Queued is left plain', () => {
     const rules = formatRules['Email'] || [];
-    const status = rules.filter((r) => r.getRanges()[0].getColumn() === 10);
-    const mode = rules.filter((r) => r.getRanges()[0].getColumn() === 11);
+    const status = rules.filter((r) => r.getRanges()[0].getColumn() === 11);
+    const mode = rules.filter((r) => r.getRanges()[0].getColumn() === 12);
     assert.strictEqual(status.length, 6);
     assert.strictEqual(mode.length, 2);
     assert.ok(!status.some((r) => r.text === 'Queued'));
@@ -423,7 +446,7 @@ console.log('setupOutreachQueue');
   });
   run('every colour rule names a status that really exists', () => {
     const named = (formatRules['Email'] || [])
-      .filter((r) => r.getRanges()[0].getColumn() === 10).map((r) => r.text);
+      .filter((r) => r.getRanges()[0].getColumn() === 11).map((r) => r.text);
     named.forEach((name) => assert.ok(Array.from(s.OUTREACH_STATUS).indexOf(name) !== -1, name));
   });
   run('running it again is idempotent and does not stack a second set of rules', () => {
@@ -433,6 +456,90 @@ console.log('setupOutreachQueue');
     assert.strictEqual((formatRules['Email'] || []).length, before);
     assert.match(toasts[toasts.length - 1], /No queue items changed/);
   });
+}
+
+console.log('migrateOutreachPriorityColumn — opening a gap on a tab that is already live');
+{
+  // The tab exactly as it stood before Priority existed: Status at column 10.
+  const OLD_HEADER = [
+    'Company', 'Role', 'Date Applied', 'Property', 'Recruiters', 'Attempt',
+    'Template', 'Drafted At', 'Scheduled At', 'Status', 'Mode',
+    'Contact Fingerprint', 'Gmail Draft ID', 'Gmail Message ID', 'Sent At',
+    'Result', 'Last Error', 'Queue ID', 'Version'
+  ];
+  const oldRow = (company, status) => [
+    company, 'SWE Intern', 'Aug 1, 2026', '12', 3, 1, 'a', '', '', status, 'Send',
+    'fp-' + company, 'draft-1', '', '', '', '', 'P12-A1', 1
+  ];
+  const freshOld = () => makeSheet('Email', [OLD_HEADER, oldRow('Acme', 'Sent'),
+                                             oldRow('Stripe', 'Queued')]);
+
+  {
+    jobs = freshJobs(); app = freshApp();
+    const s = load();
+    outreach = freshOld();
+    s.migrateOutreachPriorityColumn();
+
+    run('the header ends up as the new layout, Priority ahead of Status', () => {
+      assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
+    });
+    run('every value to the right of the gap moved with it', () => {
+      // Status was column 10 and is column 11; the whole tail shifted one right,
+      // which is the half a header rewrite over live data would have got wrong.
+      assert.strictEqual(outreach.grid[1][9], '');
+      assert.strictEqual(outreach.grid[1][10], 'Sent');
+      assert.strictEqual(outreach.grid[1][11], 'Send');
+      assert.strictEqual(outreach.grid[2][10], 'Queued');
+      assert.strictEqual(outreach.grid[1][18], 'P12-A1');
+      assert.strictEqual(outreach.grid[1][19], 1);
+    });
+    run('the rows themselves are left alone — a migration adds a column, not data', () => {
+      assert.strictEqual(outreach.getLastRow(), 3);
+      assert.strictEqual(outreach.grid[1][0], 'Acme');
+      assert.strictEqual(outreach.grid[2][0], 'Stripe');
+    });
+    run('the colour rules follow Status and Mode rather than stacking at the old columns', () => {
+      const rules = formatRules['Email'] || [];
+      assert.strictEqual(rules.filter((r) => r.getRanges()[0].getColumn() === 10).length, 0);
+      assert.strictEqual(rules.filter((r) => r.getRanges()[0].getColumn() === 11).length, 6);
+      assert.strictEqual(rules.filter((r) => r.getRanges()[0].getColumn() === 12).length, 2);
+    });
+    run('the toast says to deploy the sender before the trigger goes back on', () => {
+      assert.match(toasts[toasts.length - 1], /Deploy the sender now/);
+    });
+    run('running it again does not open a second gap', () => {
+      const width = outreach.grid[0].length;
+      s.migrateOutreachPriorityColumn();
+      assert.strictEqual(outreach.grid[0].length, width);
+      assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
+      assert.strictEqual(outreach.grid[1][10], 'Sent');
+      assert.match(toasts[toasts.length - 1], /already column 10/);
+    });
+  }
+
+  {
+    jobs = freshJobs(); app = freshApp();
+    const s = load();
+    outreach = makeSheet('Email', [OLD_HEADER.slice()]);
+    outreach.grid[0][9] = 'Something Else';
+    run('a tab somebody has already rearranged is refused, and named in the error', () => {
+      assert.throws(() => s.migrateOutreachPriorityColumn(), /Something Else/);
+    });
+    run('the refusal moves nothing', () => {
+      assert.strictEqual(outreach.grid[0].length, OLD_HEADER.length);
+    });
+  }
+
+  {
+    jobs = freshJobs(); app = freshApp();
+    outreach = null;
+    const s = load();
+    run('with no Email tab at all it just builds the current layout', () => {
+      s.migrateOutreachPriorityColumn();
+      assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
+      assert.strictEqual(outreach.getLastRow(), 1);
+    });
+  }
 }
 
 console.log('stageLabel / hasStage / stamp');

@@ -476,6 +476,16 @@ function runOutreachCycle() {
   var summary = {};
   var failures = [];
 
+  // Before anything reads the queue, and deliberately outside the isolation
+  // below: the schema has to be right or nothing may run. A tab still on the
+  // pre-Priority layout read by this code has Status where Mode should be, so no
+  // row matches any status, no row counts as having spent a contact, and enqueue
+  // writes a second cold email to people already written to. A failure here must
+  // stop the run, not be collected and worked around.
+  summary.schema = outreachEnsurePriorityColumn_(
+    SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true))
+  ) ? 'inserted Priority' : 'ready';
+
   // Each step is allowed to fail on its own. Run as one unbroken expression, a
   // Gmail search that throws in step 1 takes step 4 with it, so nothing is sent
   // that hour and the Email tab shows a row still Drafted with an empty Error

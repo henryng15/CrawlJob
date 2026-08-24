@@ -121,7 +121,8 @@ function outreachParseQueue_(row, index) {
     mode: outreachCell_(row, Q_MODE),
     fingerprint: outreachCell_(row, Q_FINGERPRINT),
     draftId: outreachCell_(row, Q_DRAFT_ID),
-    sentAt: outreachDate_(row[Q_SENT_AT - 1])
+    sentAt: outreachDate_(row[Q_SENT_AT - 1]),
+    priority: outreachTicked_(row[Q_PRIORITY - 1])
   };
 }
 
@@ -345,6 +346,9 @@ function outreachQueueRowValues_(item) {
   row[Q_FINGERPRINT - 1] = item.fingerprint;
   row[Q_RESULT - 1] = item.result || '';
   row[Q_VERSION - 1] = 1;
+  // false, not blank: the column carries a checkbox, and a blank cell under a
+  // checkbox rule renders as one nobody has decided about yet.
+  row[Q_PRIORITY - 1] = false;
   return row;
 }
 
@@ -406,6 +410,144 @@ function enqueueAndProject() {
 }
 
 /**
+ * What the Email tab's header says about where Priority is.
+ *
+ * Kept apart from the sheet work so the one decision that can get this wrong —
+ * reading a tab somebody has rearranged and shifting it anyway — is a pure
+ * function with tests, rather than something only a live spreadsheet can prove.
+ *
+ * 'ready' means the column is already there. 'insert' means the tab predates it
+ * and column 10 is still Status. Anything else throws: a header this does not
+ * recognise is a tab that must not be shifted blind, because every row under it
+ * would end up beneath the wrong name.
+ */
+function outreachPriorityColumnAction_(headerRow) {
+  var at = String((headerRow || [])[Q_PRIORITY - 1] || '').trim();
+  if (at === 'Priority') return 'ready';
+  if (at === 'Status') return 'insert';
+  throw new Error(
+    'Email column ' + Q_PRIORITY + ' is ' + JSON.stringify(at) + ', expected '
+    + '"Priority" or "Status". This tab is not a layout the sender knows how to '
+    + 'migrate, and it will not shift rows under a header it cannot read.'
+  );
+}
+
+/**
+ * Open the Priority column on a tab built before it existed.
+ *
+ * This runs inside the sender rather than as a button somebody remembers to press,
+ * because the two have to change together. The column constants moved ten headers
+ * to the right; a sheet on the old layout read by the new code has Status where
+ * Mode should be, so no row matches any status, no row counts as having spent a
+ * contact, and the next enqueue writes a second cold email to people already
+ * written to. That is not a state to leave a gap for.
+ *
+ * As the first thing runOutreachCycle does, and outside the per-step isolation,
+ * there is no gap: either the layout is right before anything reads the queue, or
+ * the run stops without reading it.
+ *
+ * insertColumnBefore is what does the move — values, validation and colour rules
+ * to the right of it travel with their columns. Writing headers over live rows
+ * would have renamed the columns and left the data where it was.
+ */
+function outreachEnsurePriorityColumn_(tracker) {
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  if (outreachPriorityColumnAction_(queue.getRange(1, 1, 1, Q_WIDTH).getValues()[0]) === 'ready') {
+    return false;
+  }
+
+  queue.insertColumnBefore(Q_PRIORITY);
+  queue.getRange(1, Q_PRIORITY)
+       .setValue('Priority')
+       .setFontWeight('bold')
+       .setBackground('#D9EAD3')
+       .setHorizontalAlignment('center');
+  // allowInvalid stays on: a row that already holds something in this cell is not
+  // worth failing a whole run over, and outreachTicked_ reads the spellings a
+  // person types anyway.
+  queue.getRange(2, Q_PRIORITY, Math.max(queue.getMaxRows() - 1, 1), 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireCheckbox()
+         .setAllowInvalid(true)
+         .build());
+  queue.setColumnWidth(Q_PRIORITY, 75);
+  Logger.log('Inserted the Priority column at ' + Q_PRIORITY + '.');
+  return true;
+}
+
+/**
+ * The company-and-role pairs someone has asked for by hand.
+ *
+ * Read from the whole queue rather than from the rows being ordered, so a tick on
+ * a row that has already gone still lifts the ones behind it. That is the normal
+ * case, not the corner: the row you notice is the one you can see, and by the time
+ * a company is worth chasing its first attempt has usually already left.
+ */
+function outreachPriorityGroups_(queueRows) {
+  var groups = [];
+  queueRows.forEach(function (row) {
+    if (!row.priority) return;
+    groups.push({
+      tokens: outreachCompanyTokens_(row.company),
+      role: outreachRoleTokens_(row.role)
+    });
+  });
+  return groups;
+}
+
+/**
+ * Whether a row rides on someone else's tick.
+ *
+ * One tick lifts every row for the same posting, because the unit a person cares
+ * about is the job, not the row: nobody wants attempt 2 at Stripe moved up and
+ * attempt 3 left three days behind it. The same employer test and the same role
+ * test the one-posting-one-wave rule already uses, so a tick groups rows exactly
+ * as the rest of the system groups them, rather than by a second private idea of
+ * what "the same job" means.
+ */
+function outreachPrioritised_(row, groups) {
+  if (row.priority) return true;
+  var tokens = outreachCompanyTokens_(row.company);
+  var role = outreachRoleTokens_(row.role);
+  for (var i = 0; i < groups.length; i++) {
+    if (outreachSameEmployer_(tokens, groups[i].tokens)
+        && outreachSameRole_(role, groups[i].role)) return true;
+  }
+  return false;
+}
+
+/**
+ * The order rows are worked in: asked for first, then oldest application.
+ *
+ * A tick reorders and does nothing else. It does not make a row eligible before
+ * its two-day wait, does not raise the day's cap, and does not lift the weekly cap
+ * on one company — it decides which rows get the slots that already existed. A
+ * flag that could also grant slots would be a way to send forty emails on a Friday
+ * by ticking forty boxes, which is the failure this whole cap table exists to
+ * prevent.
+ *
+ * Decorated before sorting rather than tokenising inside the comparator: a
+ * comparator runs O(n log n) times and would re-tokenise the same company name on
+ * every one of them.
+ *
+ * `all` is the full queue and `rows` the subset being ordered; they differ because
+ * a tick is read from everywhere and applied here.
+ */
+function outreachOrderForSending_(rows, all) {
+  var groups = outreachPriorityGroups_(all);
+  return rows.map(function (row) {
+    return { row: row, first: outreachPrioritised_(row, groups) ? 0 : 1 };
+  }).sort(function (a, b) {
+    if (a.first !== b.first) return a.first - b.first;
+    var left = a.row.dateApplied ? a.row.dateApplied.getTime() : Infinity;
+    var right = b.row.dateApplied ? b.row.dateApplied.getTime() : Infinity;
+    return left === right ? a.row.rowNumber - b.row.rowNumber : left - right;
+  }).map(function (entry) { return entry.row; });
+}
+
+/**
  * The rows allowed to go out on this firing.
  *
  * The day's cap is spread across the firings left in the window rather than
@@ -438,15 +580,11 @@ function outreachDueNow_(queueRows, now) {
     return r.status === STATUS_QUEUED && r.eligibleAt
         && outreachMidnight_(r.eligibleAt).getTime() <= outreachMidnight_(now).getTime();
   });
-  // Oldest application first, exactly as at enqueue time. Row order would be a
-  // near-enough proxy most days and wrong on the day an old application is
-  // queued after a new one — which is every day the backlog is still draining.
-  due.sort(function (a, b) {
-    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
-    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
-    return left === right ? a.rowNumber - b.rowNumber : left - right;
-  });
-  return due.slice(0, slots);
+  // Anything ticked by hand first, then oldest application, exactly as at enqueue
+  // time. Row order would be a near-enough proxy most days and wrong on the day an
+  // old application is queued after a new one — which is every day the backlog is
+  // still draining.
+  return outreachOrderForSending_(due, queueRows).slice(0, slots);
 }
 
 /**
@@ -466,12 +604,12 @@ function outreachProjectSchedule_(queueRows, from) {
     return r.sentAt && outreachMidnight_(r.sentAt).getTime() === start.getTime();
   }).length;
 
-  var pending = queueRows.filter(function (r) { return r.status === STATUS_QUEUED; });
-  pending.sort(function (a, b) {
-    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
-    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
-    return left === right ? a.rowNumber - b.rowNumber : left - right;
-  });
+  // The same order the writer itself will pick in, ticks included, so the date a
+  // row shows is the date it lands on rather than the date it would have landed on
+  // before anybody asked for anything.
+  var pending = outreachOrderForSending_(
+    queueRows.filter(function (r) { return r.status === STATUS_QUEUED; }), queueRows
+  );
 
   var out = [];
   var day = start;
