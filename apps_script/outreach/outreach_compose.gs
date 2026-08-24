@@ -235,6 +235,67 @@ function outreachFirstName_(name) {
  * Past STALE_APPLICATION_DAYS the date is dropped. A date from months ago is the
  * weakest fact in the email, and naming it invites exactly the wrong question.
  */
+/**
+ * What to call the job in the email, whatever the posting called it.
+ *
+ * A posting title is written for a job board, not for a sentence. "Campus
+ * Undergraduate Summer Internship Program - 2027 Software Engineer, Enterprise
+ * Technology Services- Charlotte, NC" is a real title out of the sheet, and
+ * dropped whole into "Applied for the ... role on Aug 21" it buries the one fact
+ * the line exists to carry. The recruiter owns the req; what they need from that
+ * bullet is which kind of job, in three words.
+ *
+ * Ordered, most specific first. Every name here has to be true of every title that
+ * can reach it — a short wrong answer is worse than a long right one, because this
+ * is the bullet the recipient is most likely to check.
+ *
+ * Tokens come from outreachRoleTokens_ in outreach_queue.gs, so the city and the
+ * state are already gone and the endings are already settled: one place decides
+ * what a role's words are, and both the grouping and this line read it.
+ */
+var SHORT_ROLES = [
+  { any: [['quantitative']], name: 'Quantitative Developer Intern' },
+  { any: [['firmware']], name: 'Firmware Engineer Intern' },
+  { any: [['embedded']], name: 'Embedded Software Engineer Intern' },
+  { any: [['devops']], name: 'DevOps Engineer Intern' },
+  { any: [['full', 'stack'], ['fullstack']], name: 'Full Stack Engineer Intern' },
+  { any: [['frontend']], name: 'Frontend Engineer Intern' },
+  { any: [['web']], name: 'Web Developer Intern' },
+  // Software beats systems when a title claims both: "Software Engineering Intern
+  // - Systems Engineering - Vancouver BC" is a software job on a systems team, and
+  // calling it a systems internship would be answering a question nobody asked.
+  { any: [['software', 'engineer']], name: 'Software Engineer Intern' },
+  { any: [['software', 'developer'], ['software', 'dev']], name: 'Software Developer Intern' },
+  { any: [['systems']], name: 'Systems Engineer Intern' },
+  { any: [['software']], name: 'Software Engineer Intern' },
+  { any: [['engineer']], name: 'Software Engineer Intern' },
+  { any: [['developer'], ['programmer']], name: 'Software Developer Intern' },
+  // Only reached when nothing above found a software or engineering word at all.
+  // These are the bank programmes that name a whole department rather than a job:
+  // "2027 Truist Analyst Program - Technology, Data, and Operations Track". They
+  // are not internships in software, and saying so would be inventing a req.
+  { any: [['technology'], ['it']], name: 'Technology' }
+];
+
+// What an unreadable or empty title is called. It was already the fallback here
+// before anything was shortened, and it is what 91 of the 144 titles in the sheet
+// resolve to anyway.
+var DEFAULT_SHORT_ROLE = 'Software Engineer Intern';
+
+function outreachShortRole_(role) {
+  var seen = {};
+  outreachRoleTokens_(role).forEach(function (word) { seen[word] = true; });
+  for (var i = 0; i < SHORT_ROLES.length; i++) {
+    var alternatives = SHORT_ROLES[i].any;
+    for (var j = 0; j < alternatives.length; j++) {
+      var every = true;
+      alternatives[j].forEach(function (word) { if (!seen[word]) every = false; });
+      if (every) return SHORT_ROLES[i].name;
+    }
+  }
+  return DEFAULT_SHORT_ROLE;
+}
+
 function outreachIntroBullets_(role, dateApplied, today, formatDate) {
   var who = 'I am **' + SENDER_NAME + '**, ' + SENDER_STUDY + '.';
   var stale = !dateApplied
@@ -255,7 +316,7 @@ function outreachIntroBullets_(role, dateApplied, today, formatDate) {
  */
 function outreachCompose_(options) {
   var variant = VARIANTS[options.variant] || VARIANTS.application;
-  var role = options.role || 'Software Engineer Intern';
+  var role = outreachShortRole_(options.role);
   var formatDate = options.formatDate || function (d) {
     return Utilities.formatDate(d, Session.getScriptTimeZone(), 'MMM d');
   };

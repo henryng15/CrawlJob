@@ -717,7 +717,7 @@ console.log('the message');
   });
   run('past 45 days the date is dropped rather than volunteered', () => {
     assert.ok(stale.plain.indexOf('May 1') === -1);
-    assert.match(stale.plain, /Applied for the SWE Intern role earlier this year/);
+    assert.match(stale.plain, /Applied for the Software Engineer Intern role earlier this year/);
     assert.match(stale.plain, /I am Henry Nguyen/);
   });
   run('with no hook or angle the Why section is left out, not left empty', () => {
@@ -730,8 +730,13 @@ console.log('the message');
     dateApplied: day(2026, 8, 20), today, formatDate: () => 'Aug 20'
   });
   run('a role from the sheet cannot inject markup into the email', () => {
+    // Stronger than escaping now: the posting title never reaches the reader at
+    // all, escaped or otherwise. What lands is one of the names in SHORT_ROLES,
+    // and none of them came from the sheet.
     assert.ok(nasty.html.indexOf('<script>') === -1);
-    assert.ok(nasty.html.indexOf('&lt;script&gt;') !== -1);
+    assert.ok(nasty.html.indexOf('&lt;script&gt;') === -1);
+    assert.ok(nasty.html.indexOf('alert(1)') === -1);
+    assert.match(nasty.plain, /Applied for the Software Engineer Intern role/);
   });
   run('an ampersand in a name is escaped, not swallowed', () => {
     assert.ok(nasty.html.indexOf('Bo &amp; Co') !== -1 || nasty.html.indexOf('Hi Bo,') !== -1);
@@ -739,6 +744,60 @@ console.log('the message');
   run('the long role name is not repeated in the ask', () => {
     assert.ok(nasty.plain.indexOf('The ask:') !== -1);
     assert.ok(nasty.plain.split('The ask:')[1].indexOf('alert(1)') === -1);
+  });
+}
+
+console.log('the job is named in three words, not in the job board\'s words');
+{
+  const short = (r) => S.outreachShortRole_(r);
+
+  run('a job board title is reduced to the kind of job', () => {
+    assert.strictEqual(short('Campus Undergraduate Summer Internship Program - 2027 '
+      + 'Software Engineer, Enterprise Technology Services- Charlotte, NC'),
+      'Software Engineer Intern');
+    assert.strictEqual(short('2027 Technology, Data, AI & Ventures Summer Internship '
+      + 'Program - Software Engineer Intern Job Details / New York Life Insurance Co'),
+      'Software Engineer Intern');
+  });
+  run('a title that is already three words is left saying the same thing', () => {
+    assert.strictEqual(short('Software Engineer Intern'), 'Software Engineer Intern');
+    assert.strictEqual(short('Quantitative Developer Intern'), 'Quantitative Developer Intern');
+  });
+  run('the specific disciplines keep their own name', () => {
+    assert.strictEqual(short('Intern Firmware Engineering'), 'Firmware Engineer Intern');
+    assert.strictEqual(short('Spring 2027 Co-op, Embedded Software Engineer (January 2027)'),
+      'Embedded Software Engineer Intern');
+    assert.strictEqual(short('Fullstack Engineering Internship - Product Team'),
+      'Full Stack Engineer Intern');
+    assert.strictEqual(short('Web Developer/Programmer Internship'), 'Web Developer Intern');
+  });
+  run('software beats systems when a title claims both', () => {
+    assert.strictEqual(short('Software Engineering Intern - Systems Engineering - Vancouver BC'),
+      'Software Engineer Intern');
+    assert.strictEqual(short('Systems Engineering Intern (New York) - Summer 2027'),
+      'Systems Engineer Intern');
+  });
+  run('a programme that names a department, not a job, is called Technology', () => {
+    assert.strictEqual(short('2027 Truist Analyst Program - Technology, Data, and Operations Track'),
+      'Technology');
+    assert.strictEqual(short('Deutsche Bank Internship Programme - Technology, Data and '
+      + 'Innovation (TDI) - Cary 2027'), 'Technology');
+    assert.strictEqual(short('College Internship Information Technology (20097565)'), 'Technology');
+  });
+  run('a title that says nothing falls back rather than guessing', () => {
+    assert.strictEqual(short(''), 'Software Engineer Intern');
+    assert.strictEqual(short('Ad Infra'), 'Software Engineer Intern');
+  });
+  run('the name is still the bold half of the bullet', () => {
+    const mail = S.outreachCompose_({
+      variant: 'application', role: 'Campus Undergraduate Summer Internship Program - 2027 '
+        + 'Software Engineer, Enterprise Technology Services- Charlotte, NC',
+      recruiterName: 'Ada L', dateApplied: day(2026, 8, 20),
+      today: day(2026, 8, 21), formatDate: () => 'Aug 20'
+    });
+    assert.ok(mail.html.indexOf('<b>Software Engineer Intern</b>') !== -1);
+    assert.ok(mail.html.indexOf('Charlotte') === -1);
+    assert.ok(mail.html.indexOf('Campus Undergraduate') === -1);
   });
 }
 

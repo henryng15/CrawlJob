@@ -609,7 +609,7 @@ Hi Michelle,
 Quick intro:
   • I am Henry Nguyen, a Math and Computer Science student at Kenyon College
     (class of 2028, 4.0 GPA).
-  • Applied for the Software Engineering Intern role on Jul 20.
+  • Applied for the Software Engineer Intern role on Jul 20.
   • Removed 340K malformed records from a 2.1M-record dataset that were
     inflating severity rates by 8%.
   • Fixed a crash model that ignored location, raising the share of groups
@@ -636,6 +636,38 @@ in the middle of it.
 
 Two things carry bold, and only two: the numbers in the intro, and the request itself in the
 ask. Bold on a third thing is bold on nothing.
+
+### The job is named in three words, not in the job board's
+
+The application bullet says `Software Engineer Intern`, never the posting's own title. Titles are
+written for a job board, not for a sentence, and the sheet holds real ones like `Campus
+Undergraduate Summer Internship Program - 2027 Software Engineer, Enterprise Technology Services-
+Charlotte, NC`. Dropped whole into "Applied for the ... role on Aug 20" it buries the fact the
+line exists to carry, and it is the bullet the recipient is most likely to check.
+
+`SHORT_ROLES` in `outreach_compose.gs` maps a title to the kind of job, most specific rule first,
+reading the same tokens the wave grouping reads — so the city and state are already gone. Across
+the 144 titles in the sheet:
+
+| Name in the email | Titles |
+|---|---|
+| Software Engineer Intern | 91 |
+| Software Developer Intern | 19 |
+| Full Stack Engineer Intern | 11 |
+| Technology | 7 |
+| Web Developer Intern | 4 |
+| Quantitative / Embedded / Firmware / Systems / DevOps | 12 |
+
+Every name has to be **true of every title that can reach it**, which is why the list is ordered
+and why software beats systems: `Software Engineering Intern - Systems Engineering - Vancouver BC`
+is a software job on a systems team. `Technology` is only reached when nothing in the title said
+software or engineering at all — the bank programmes that name a department rather than a job,
+like `2027 Truist Analyst Program - Technology, Data, and Operations Track`. Calling those a
+software internship would be inventing a req.
+
+> **A side effect worth naming.** The posting title no longer reaches the reader in any form, so
+> a role cell cannot carry markup into the message even escaped. What lands is one of the names
+> above, and none of them came from the sheet.
 
 **No dashes.** Not in a subject, not in a bullet, not in the ask. Text arriving from ColdEmail
 does use them, and `outreachNoDashes_` turns each into a full stop on the way in, so a long
