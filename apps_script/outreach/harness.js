@@ -46,7 +46,8 @@ function load() {
     }
   };
   vm.createContext(context);
-  ['outreach_config.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs']
+  ['outreach_config.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
+   'outreach_send.gs']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context));
   return context;
 }
@@ -674,6 +675,40 @@ console.log('the sending window');
   });
 }
 
+console.log('written an hour early, so there is an hour to read it in');
+{
+  const at = (h) => new Date(2026, 7, 24, h, 0, 0);      // Monday 24 Aug 2026
+  const row = (over) => qrow(Object.assign({
+    rowNumber: 2, status: 'Drafted', mode: 'Send', draftId: 'draft-1',
+    scheduledAt: at(10), sentAt: null
+  }, over));
+
+  run('a draft whose hour has come is sent', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(10)).length, 1);
+  });
+  run('a draft whose hour has not come waits', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(9)).length, 0);
+  });
+  run('a row still Queued is not sent — it has not been written yet', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({ status: 'Queued' })], at(11)).length, 0);
+  });
+  run('a row whose Mode is Draft is written but never sent on its own', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({ mode: 'Draft' })], at(11)).length, 0);
+  });
+  run('a draft with no id cannot be sent, and is not guessed at', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({ draftId: '' })], at(11)).length, 0);
+  });
+  run('an already sent row is not sent twice', () => {
+    assert.strictEqual(
+      S.outreachDraftsToSend_([row({ status: 'Sent', sentAt: at(10) })], at(11)).length, 0);
+  });
+  run('deleting the draft in Gmail is what calls a send off', () => {
+    // The selector still offers it; sendPreparedDrafts finds no draft behind the
+    // id and marks the row Cancelled. That is the whole review mechanism.
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(12)).length, 1);
+  });
+}
+
 console.log('a draft spends the day the same as a send');
 {
   const queued = (n) => qrow({
@@ -803,6 +838,76 @@ console.log('a reply does not call off the rest');
       [qrow({ rowNumber: 2, property: '8', company: 'Acme', status: 'Replied', fingerprint: print })],
       people, today, SALT);
     assert.strictEqual(out.planned.length, 0);
+  });
+  run('what does stop everything is Process moving off Applied', () => {
+    assert.ok(!S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Rejected')).ok);
+  });
+}
+
+console.log('the last check before Gmail is touched');
+{
+  run('an application rejected since it was queued is cancelled, not sent', () => {
+    const out = S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Rejected'));
+    assert.ok(!out.ok);
+    assert.match(out.why, /Process is now Rejected/);
+  });
+  run('an application that advanced past Applied is cancelled too', () => {
+    assert.ok(!S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'OA')).ok);
+  });
+  run('a deleted App row cancels rather than throwing', () => {
+    assert.match(S.outreachStillQualifies_(null).why, /has gone/);
+  });
+  run('an untouched application still qualifies', () => {
+    assert.ok(S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Applied')).ok);
+  });
+
+  run('the global switch can hold a Send row back to a draft', () => {
+    assert.strictEqual(S.outreachModeFor_('Send', 'Draft'), 'Draft');
+  });
+  run('the global switch can never promote a Draft row into a send', () => {
+    assert.strictEqual(S.outreachModeFor_('Draft', 'Send'), 'Draft');
+    assert.strictEqual(S.outreachModeFor_('Draft', ''), 'Draft');
+  });
+  run('with the switch unset, the row decides', () => {
+    assert.strictEqual(S.outreachModeFor_('Send', ''), 'Send');
+  });
+
+  run('the fingerprint round-trips back to the contact it came from', () => {
+    const people = [contact('Acme', 'A One', 'a@acme.com'), contact('Acme', 'B Two', 'b@acme.com')];
+    const print = S.outreachFingerprint_('b@acme.com', SALT);
+    assert.strictEqual(S.outreachContactByFingerprint_(people, print, SALT).name, 'B Two');
+  });
+  run('a fingerprint whose contact has been deleted resolves to nothing', () => {
+    assert.strictEqual(S.outreachContactByFingerprint_([], 'deadbeef', SALT), null);
+  });
+}
+
+console.log('how much Gmail is asked on each firing');
+{
+  const now = day(2026, 8, 21);
+  const rows = [
+    qrow({ rowNumber: 2, status: 'Sent', sentAt: day(2026, 8, 20) }),
+    qrow({ rowNumber: 3, status: 'Sent', sentAt: day(2026, 6, 1) }),
+    qrow({ rowNumber: 4, status: 'Queued', sentAt: null }),
+    qrow({ rowNumber: 5, status: 'Replied', sentAt: day(2026, 8, 19) }),
+    qrow({ rowNumber: 6, status: 'Sent', sentAt: null })
+  ];
+  const scanned = S.outreachRowsToScan_(rows, now).map((r) => r.rowNumber);
+  run('a recent send is checked for a reply', () => {
+    assert.ok(scanned.indexOf(2) !== -1);
+  });
+  run('a send from months ago is left alone — nobody answers those', () => {
+    assert.ok(scanned.indexOf(3) === -1);
+  });
+  run('rows that never went out, or are already settled, cost no API call', () => {
+    assert.ok(scanned.indexOf(4) === -1);
+    assert.ok(scanned.indexOf(5) === -1);
+    assert.ok(scanned.indexOf(6) === -1);
+  });
+  run('the work per firing is bounded by the window, not by the queue length', () => {
+    const many = [];
+    for (let i = 0; i < 500; i++) many.push(qrow({ rowNumber: i + 2, status: 'Sent', sentAt: day(2026, 1, 5) }));
+    assert.strictEqual(S.outreachRowsToScan_(many, now).length, 0);
   });
 }
 

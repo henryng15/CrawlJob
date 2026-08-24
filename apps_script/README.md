@@ -52,3 +52,7 @@ A few things to know when editing the harness:
 - `Utilities.formatDate` is stubbed for exactly one format, `'MMM d, yyyy'`, and **throws**
   on any other. Change `UPDATE_DATE_FORMAT` in the `.gs` and forget the harness, and the
   test goes red rather than quietly comparing the wrong thing.
+
+## `outreach/`
+
+A separate standalone project, owned by the sending account rather than by the spreadsheet — see [outreach/README.md](outreach/README.md).
