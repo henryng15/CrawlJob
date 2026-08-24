@@ -45,15 +45,34 @@ var REJECTION_PHRASES = [
   'do not meet the minimum', 'does not meet the minimum',
   'regret to inform', 'regret to share', 'regret to let you know',
   'sorry to inform', 'we are unable to offer',
-  // the req itself going away, which closes the application just as firmly
-  'position has been filled', 'role has been filled', 'has been filled',
-  'we have filled the', 'has been canceled', 'has been cancelled',
-  'has been closed', 'is now closed',
+  // the req itself going away, which closes the application just as firmly.
+  // Only the spellings that name what went away live here; the bare ones are in
+  // REJECTION_PHRASES_NEEDING_SUBJECT below.
+  'position has been filled', 'role has been filled', 'we have filled the',
   // the softeners that only ever appear at the end of a no
   'keep your resume on file', 'keep your application on file',
   'wish you the best in your job search', 'best of luck in your search',
   'best of luck with your search'
 ];
+
+// The same refusals with the noun left out. "has been canceled" is a rejection
+// when it is the req that was cancelled and nothing at all when it is a
+// subscription — an Overleaf receipt reading "your Digital Science & Research
+// Solutions Inc. subscription for Standard monthly has been canceled" was scored
+// as a refusal, and only survived because no open application matched the sender.
+//
+// So these count only when the same sentence also says what was closed. The noun
+// has to be in the sentence, not the message: every rejection mentions the
+// application somewhere.
+var REJECTION_PHRASES_NEEDING_SUBJECT = [
+  'has been filled', 'has been canceled', 'has been cancelled',
+  'has been closed', 'is now closed'
+];
+
+// What those phrases have to be talking about. "account" and "subscription" are
+// pointedly absent.
+var REJECTION_SUBJECT_NOUNS =
+  /\b(position|role|req|requisition|posting|opening|vacancy|job|application|candidacy)\b/;
 
 // An invitation is not a refusal. These are invitations only — deliberately not
 // stage nouns like "next round" or "online assessment", because a real rejection
@@ -132,8 +151,9 @@ var LABEL_REJECTED = 'Tracker/Rejected';
 var LABEL_CHECK    = 'Tracker/Check by hand';
 var LABEL_IGNORED  = 'Tracker/Not a rejection';
 
-// Bump this whenever REJECTION_PHRASES, REJECTION_BLOCKERS, REJECTION_CONDITIONALS
-// or outreachIsRejection_ changes.
+// Bump this whenever REJECTION_PHRASES, REJECTION_PHRASES_NEEDING_SUBJECT,
+// REJECTION_SUBJECT_NOUNS, REJECTION_BLOCKERS, REJECTION_CONDITIONALS or
+// outreachIsRejection_ changes.
 //
 // A label is what stops a thread being judged twice, and that is also what makes
 // a bad run permanent: improved rules would never see the mail the old rules got
@@ -145,7 +165,7 @@ var LABEL_IGNORED  = 'Tracker/Not a rejection';
 // closed, so re-judging would find no open row to match and would move a correct
 // closure into the review pile. That label stays the human's to audit: it is
 // short, and every thread in it should read as a refusal at a glance.
-var REJECTION_RULES_VERSION = 2;
+var REJECTION_RULES_VERSION = 3;
 var PROP_RULES_VERSION = 'REJECTION_RULES_SEEN';
 
 // A reopen needs to remember what it has already been through, and the verdict
@@ -193,6 +213,15 @@ function outreachSentences_(text) {
  *     comes *first*. Order is the whole rule: invitation-then-nothing is an
  *     interview, refusal-then-invitation is still a refusal.
  */
+/** Whether one sentence, on its own, is a refusal. */
+function outreachSentenceRefuses_(sentence) {
+  if (REJECTION_PHRASES.some(function (p) { return sentence.indexOf(p) !== -1; })) return true;
+  if (!REJECTION_SUBJECT_NOUNS.test(sentence)) return false;
+  return REJECTION_PHRASES_NEEDING_SUBJECT.some(function (p) {
+    return sentence.indexOf(p) !== -1;
+  });
+}
+
 function outreachIsRejection_(subject, body) {
   var text = outreachNormalise_(subject + '. ' + String(body || '').slice(0, REJECTION_BODY_CHARS));
   var said = outreachSentences_(text).filter(function (sentence) {
@@ -202,7 +231,7 @@ function outreachIsRejection_(subject, body) {
   var refused = -1, invited = -1;
   for (var i = 0; i < said.length; i++) {
     var sentence = said[i];
-    if (refused < 0 && REJECTION_PHRASES.some(function (p) { return sentence.indexOf(p) !== -1; })) {
+    if (refused < 0 && outreachSentenceRefuses_(sentence)) {
       refused = i;
     }
     if (invited < 0 && REJECTION_BLOCKERS.some(function (b) { return sentence.indexOf(b) !== -1; })) {

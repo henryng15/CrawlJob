@@ -691,6 +691,34 @@ console.log('reading a rejection out of the mailbox');
   run('"unfortunately" on its own is not enough to close an application', () => {
     assert.ok(!S.outreachIsRejection_('Update', 'Unfortunately the req is delayed.'));
   });
+  run('a cancelled subscription is not a cancelled req', () => {
+    // Real: an Overleaf receipt scored as a refusal on the bare phrase "has been
+    // canceled", and only escaped closing an application because no open row
+    // matched the sender.
+    assert.ok(!S.outreachIsRejection_(
+      'Digital Science & Research Solutions Inc. subscription cancellation confirmation '
+      + '- we\u2019re sorry to see you go.',
+      'Your subscription has been canceled. This email confirms that your Digital Science & '
+      + 'Research Solutions Inc. subscription for Standard monthly has been canceled. '
+      + 'You won\u2019t be charged again.'));
+  });
+  run('a cancelled req still closes the application', () => {
+    assert.ok(S.outreachIsRejection_('Update on your application',
+      'We are sorry to say the position has been canceled for this cycle.'));
+  });
+  run('a closed application closes the application', () => {
+    assert.ok(S.outreachIsRejection_('Update',
+      'Your application has been closed.'));
+  });
+  run('a filled req needs to say what was filled', () => {
+    assert.ok(S.outreachIsRejection_('Update', 'The opening has been filled.'));
+    assert.ok(!S.outreachIsRejection_('Your table is ready',
+      'The last seating has been filled.'));
+  });
+  run('a closed account is not a closed application', () => {
+    assert.ok(!S.outreachIsRejection_('Account notice',
+      'Your account has been closed at your request.'));
+  });
 
   run('the employer is read out of the sender, not the ATS around it', () => {
     assert.strictEqual(
