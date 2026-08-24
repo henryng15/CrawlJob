@@ -14,8 +14,10 @@ spreadsheet, all inside free tiers.
 
 ```mermaid
 flowchart TB
-    subgraph crawl["Crawling — GitHub Actions, 9 runs a day"]
-        T["5 public trackers + ~19,900 ATS boards"] --> P["job_sync"]
+    subgraph crawl["Crawling — GitHub Actions"]
+        D["discover_boards<br/>weekly · probes 19,899 slugs"]
+        T["5 public trackers"] --> P["job_sync<br/>9 runs a day"]
+        D -->|"902 boards that post interns"| P
     end
 
     subgraph sheet["The spreadsheet — owned by nguyen15@kenyon.edu"]
@@ -64,6 +66,7 @@ rejections already are, so reading them needs no extra credential and no token s
 | Part | Where it runs | How often | Cost |
 |---|---|---|---|
 | `job_sync` (Python) | GitHub Actions | 9 runs a day | ~1,080 of 2,000 free minutes/month |
+| `discover_boards` (Python) | GitHub Actions | Sunday 06:00 UTC | rebuilds the 902-board shortlist |
 | `sync_applied_to_app.gs` | bound Apps Script | on every edit | free, no quota |
 | `outreach/*.gs` | standalone Apps Script | 1 trigger, hourly | free, no Actions minutes |
 | Chrome side panel | your browser | when you use it | free |
