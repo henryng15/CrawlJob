@@ -1380,11 +1380,25 @@ console.log('the table stays one block — no gap between the rows and the new o
       gaps([H, full('A'), blank(), full('B'), blank(), blank(), full('C')]),
       '[{"start":5,"count":2},{"start":3,"count":1}]');
   });
-  run('a row is real if anything at all is in it, including an unticked box', () => {
-    const ticked = new Array(S.Q_WIDTH).fill('');
-    ticked[S.Q_PRIORITY - 1] = false;
-    assert.ok(S.outreachRowHasContent_(ticked));
+  run('an unticked box is not content — it is what a blank row wearing one reads as', () => {
+    // Sheets returns false, not '', for a checkbox cell nobody has touched. Reading
+    // that as content is what made the first version of this find no gap and do
+    // nothing at all, so it is pinned here rather than left to be rediscovered.
+    const box = new Array(S.Q_WIDTH).fill('');
+    box[S.Q_PRIORITY - 1] = false;
+    assert.ok(!S.outreachRowHasContent_(box));
     assert.ok(!S.outreachRowHasContent_(blank()));
+  });
+  run('a ticked box is content, so a row somebody marked is never deleted', () => {
+    const box = new Array(S.Q_WIDTH).fill('');
+    box[S.Q_PRIORITY - 1] = true;
+    assert.ok(S.outreachRowHasContent_(box));
+  });
+  run('the gap is found even when every blank row wears an unticked box', () => {
+    const boxed = () => { const r = new Array(S.Q_WIDTH).fill(''); r[S.Q_PRIORITY - 1] = false; return r; };
+    assert.strictEqual(
+      gaps([H, full('Acme'), boxed(), boxed(), full('Capital One')]),
+      '[{"start":3,"count":2}]');
   });
   run('an empty table has no gaps rather than one enormous one', () => {
     assert.strictEqual(gaps([H]), '[]');

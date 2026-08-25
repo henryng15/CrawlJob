@@ -483,10 +483,10 @@ function outreachEnsurePriorityColumn_(tracker) {
  * shift the ones still to come. Pure, because the alternative is proving a
  * row-deleting function correct against a live sheet.
  *
- * A row counts as real if any cell in it holds anything at all. Checkbox
- * validation is not a value and leaves the cell empty, which is exactly why a
- * blank row wearing one still reads as blank here — and why it should never have
- * been counted as content in the first place.
+ * A row counts as real if any cell in it holds anything beyond an unticked
+ * checkbox. Sheets reads a blank checkbox cell back as false rather than '', so
+ * an emptiness test that trusted '' alone saw eight hundred occupied rows where
+ * there were none.
  */
 function outreachQueueGaps_(values) {
   var last = 0;
@@ -506,7 +506,13 @@ function outreachQueueGaps_(values) {
 function outreachRowHasContent_(row) {
   for (var i = 0; i < row.length; i++) {
     var cell = row[i];
-    if (cell === '' || cell === null || cell === undefined) continue;
+    // false counts as empty, and that is the whole point rather than a shortcut.
+    // A blank row wearing checkbox validation reads back as false, not '', so
+    // treating false as content made every row in the gap look real, found no gap
+    // at all, and deleted nothing — the first version of this shipped and did
+    // visibly nothing for exactly that reason. No real queue row is a bare
+    // unticked box either: it would still have a Company and a Queue ID.
+    if (cell === '' || cell === null || cell === undefined || cell === false) continue;
     return true;
   }
   return false;
