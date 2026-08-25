@@ -569,6 +569,34 @@ function outreachRepairQueueLayout_(queue) {
 }
 
 /**
+ * Close the gap by hand, right now, without sending anything.
+ *
+ * runOutreachCycle does this every hour, but it also scans, drafts and sends, and
+ * sendPreparedDrafts is not gated by the sending window — run at one in the
+ * morning it would post anything already Drafted and due. This is the half worth
+ * running on demand: it deletes empty rows and re-dresses the ones left, and it
+ * touches Gmail not at all.
+ *
+ * Public, and named without the trailing underscore, so it shows up in the Run
+ * menu of the editor. That is the whole reason it exists.
+ */
+function repairOutreachQueueLayout() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  var before = queue.getLastRow();
+  var removed = outreachRepairQueueLayout_(queue);
+  Logger.log(
+    removed
+      ? 'Closed the gap: deleted ' + removed + ' empty rows, and the rows below '
+        + 'them moved up. Last row was ' + before + ', is now ' + queue.getLastRow() + '.'
+      : 'No gap found — the table was already one block. Last row is ' + before + '.'
+  );
+  return removed;
+}
+
+/**
  * The company-and-role pairs someone has asked for by hand.
  *
  * Read from the whole queue rather than from the rows being ordered, so a tick on
