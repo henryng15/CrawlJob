@@ -75,6 +75,12 @@ var Q_WIDTH = 20;
 var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
 var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
 
+// How Drafted At, Scheduled At and Sent At are written. The same string as
+// OUTREACH_TIMESTAMP_FORMAT in the bound script, and it has to stay the same: a
+// row whose format was never applied falls back to a bare date, which drops the
+// hour — and the hour is the whole point of those three columns.
+var QUEUE_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
+
 // ------------------------------------------------------------------- policy
 
 // Sunday through Saturday. Fixed rather than random: there is nothing to debug

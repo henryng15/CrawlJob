@@ -516,9 +516,8 @@ function runOutreachCycle() {
   // row matches any status, no row counts as having spent a contact, and enqueue
   // writes a second cold email to people already written to. A failure here must
   // stop the run, not be collected and worked around.
-  summary.schema = outreachEnsurePriorityColumn_(
-    SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true))
-  ) ? 'inserted Priority' : 'ready';
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  summary.schema = outreachEnsurePriorityColumn_(tracker) ? 'inserted Priority' : 'ready';
 
   // Each step is allowed to fail on its own. Run as one unbroken expression, a
   // Gmail search that throws in step 1 takes step 4 with it, so nothing is sent
@@ -534,6 +533,12 @@ function runOutreachCycle() {
     }
   };
 
+  // Before enqueue, so rows appended this run land against the ones above them
+  // rather than below whatever gap was already there. Isolated rather than fatal:
+  // a table with a gap in it still sends correctly, it only reads badly.
+  step('layout', function () {
+    return outreachRepairQueueLayout_(tracker.getSheetByName(TAB_QUEUE));
+  });
   step('scan', scanOutreachReplies);
   step('rejections', scanRejectionEmails);
   step('queued', function () { return enqueueOutreach().planned.length; });

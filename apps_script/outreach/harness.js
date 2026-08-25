@@ -1353,6 +1353,45 @@ console.log('the Priority column opens itself, because the schema and the code m
   });
 }
 
+console.log('the table stays one block — no gap between the rows and the new ones');
+{
+  const H = new Array(S.Q_WIDTH).fill('h');
+  const full = (company) => { const r = new Array(S.Q_WIDTH).fill(''); r[0] = company; return r; };
+  // A blank row wearing checkbox validation: Sheets counts it as content for
+  // getLastRow, which is the whole bug, but the cells themselves are empty.
+  const blank = () => new Array(S.Q_WIDTH).fill('');
+  // The result objects carry the vm realm's prototype, so compare shape as text.
+  const gaps = (rows) => JSON.stringify(S.outreachQueueGaps_(rows));
+
+  run('a table with no gap is left alone', () => {
+    assert.strictEqual(gaps([H, full('Acme'), full('Stripe')]), '[]');
+  });
+  run('the block between the old rows and the appended ones is found, as sheet rows', () => {
+    // header, Acme(2), Stripe(3), blank(4), blank(5), Capital One(6)
+    assert.strictEqual(
+      gaps([H, full('Acme'), full('Stripe'), blank(), blank(), full('Capital One')]),
+      '[{"start":4,"count":2}]');
+  });
+  run('blank rows below the last real row are not touched — the sheet may keep spares', () => {
+    assert.strictEqual(gaps([H, full('Acme'), blank(), blank()]), '[]');
+  });
+  run('several gaps come back bottom-up, so deleting them in order stays correct', () => {
+    assert.strictEqual(
+      gaps([H, full('A'), blank(), full('B'), blank(), blank(), full('C')]),
+      '[{"start":5,"count":2},{"start":3,"count":1}]');
+  });
+  run('a row is real if anything at all is in it, including an unticked box', () => {
+    const ticked = new Array(S.Q_WIDTH).fill('');
+    ticked[S.Q_PRIORITY - 1] = false;
+    assert.ok(S.outreachRowHasContent_(ticked));
+    assert.ok(!S.outreachRowHasContent_(blank()));
+  });
+  run('an empty table has no gaps rather than one enormous one', () => {
+    assert.strictEqual(gaps([H]), '[]');
+    assert.strictEqual(gaps([H, blank(), blank()]), '[]');
+  });
+}
+
 console.log('written an hour early, so there is an hour to read it in');
 {
   const at = (h) => new Date(2026, 7, 24, h, 0, 0);      // Monday 24 Aug 2026

@@ -470,17 +470,96 @@ function outreachEnsurePriorityColumn_(tracker) {
        .setFontWeight('bold')
        .setBackground('#D9EAD3')
        .setHorizontalAlignment('center');
-  // allowInvalid stays on: a row that already holds something in this cell is not
-  // worth failing a whole run over, and outreachTicked_ reads the spellings a
-  // person types anyway.
-  queue.getRange(2, Q_PRIORITY, Math.max(queue.getMaxRows() - 1, 1), 1)
-       .setDataValidation(SpreadsheetApp.newDataValidation()
-         .requireCheckbox()
-         .setAllowInvalid(true)
-         .build());
   queue.setColumnWidth(Q_PRIORITY, 75);
+  outreachDressQueueRows_(queue);
   Logger.log('Inserted the Priority column at ' + Q_PRIORITY + '.');
   return true;
+}
+
+/**
+ * Which blocks of rows inside the table are empty and should not be there.
+ *
+ * Returned as 1-based sheet rows, bottom-up, so deleting them in order does not
+ * shift the ones still to come. Pure, because the alternative is proving a
+ * row-deleting function correct against a live sheet.
+ *
+ * A row counts as real if any cell in it holds anything at all. Checkbox
+ * validation is not a value and leaves the cell empty, which is exactly why a
+ * blank row wearing one still reads as blank here — and why it should never have
+ * been counted as content in the first place.
+ */
+function outreachQueueGaps_(values) {
+  var last = 0;
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (outreachRowHasContent_(values[i])) { last = i; break; }
+  }
+  var blocks = [];
+  var run = 0;
+  for (var r = 1; r <= last; r++) {
+    if (!outreachRowHasContent_(values[r])) { run++; continue; }
+    if (run) blocks.push({ start: r - run + 1, count: run });
+    run = 0;
+  }
+  return blocks.reverse();
+}
+
+function outreachRowHasContent_(row) {
+  for (var i = 0; i < row.length; i++) {
+    var cell = row[i];
+    if (cell === '' || cell === null || cell === undefined) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Put the checkbox and the timestamp formats on the rows that exist, and only
+ * those.
+ *
+ * The first version of this reached to getMaxRows, which was a thousand. Sheets
+ * counts a cell carrying checkbox validation as content, so getLastRow answered
+ * 1000 on a table of 123 rows and enqueueOutreach appended at 1001 — Capital One
+ * and Goldman Sachs landed eight hundred blank rows below everything else. Those
+ * rows were also past the 500 the bound script formats, so their Drafted At and
+ * Scheduled At rendered as bare dates with the hour dropped.
+ *
+ * Bounded to the real last row and re-applied every cycle, so rows appended since
+ * the last run are dressed without the range ever running away again.
+ */
+function outreachDressQueueRows_(queue) {
+  var last = Math.max(queue.getLastRow(), 2);
+  var rows = last - 1;
+  queue.getRange(2, Q_PRIORITY, rows, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         // allowInvalid stays on: a cell somebody typed into is not worth failing
+         // a run over, and outreachTicked_ reads those spellings anyway.
+         .requireCheckbox().setAllowInvalid(true).build());
+  [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT].forEach(function (column) {
+    queue.getRange(2, column, rows, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
+  });
+}
+
+/**
+ * Pull the table back together after rows were appended below a gap.
+ *
+ * Deletes only rows that are empty across their whole width and sit above a row
+ * that is not, then re-dresses what is left. Idempotent: with no gap it reads the
+ * sheet once, finds nothing, and writes nothing.
+ */
+function outreachRepairQueueLayout_(queue) {
+  var last = queue.getLastRow();
+  if (last < 2) return 0;
+  var gaps = outreachQueueGaps_(queue.getRange(1, 1, last, Q_WIDTH).getValues());
+  if (!gaps.length) return 0;
+
+  var removed = 0;
+  gaps.forEach(function (gap) {
+    queue.deleteRows(gap.start, gap.count);
+    removed += gap.count;
+  });
+  outreachDressQueueRows_(queue);
+  Logger.log('Closed ' + gaps.length + ' gap(s), ' + removed + ' empty rows.');
+  return removed;
 }
 
 /**
