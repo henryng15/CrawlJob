@@ -160,8 +160,8 @@ One day apart rather than one morning, because three near-identical emails landi
 inside an hour is what reads as spray. Spread over three days it reads as a person working
 through a list — which is what it is.
 
-The three subjects and the two bullets under each differ, so what arrives is three different
-emails, not three copies.
+The three subjects, the result bullet under each and the ask all differ, so what arrives is
+three different emails, not three copies.
 
 ### Three at a time, not three in total
 
@@ -607,6 +607,9 @@ hook.
 
 ## The message
 
+> Every subject line, every variation and every bullet is catalogued verbatim in
+> [email-templates.md](email-templates.md). This section is why the message has the shape it has.
+
 The template lives in `outreach_compose.gs`, not in a generated CSV. ColdEmail supplies only the
 two things that genuinely vary per row — the company angle and the per-person hook — so changing
 a sentence is an edit to one file rather than a pipeline run and a re-export of two thousand
@@ -623,30 +626,34 @@ Quick intro:
   • Applied for the Software Engineer Intern role on Jul 20.
   • Removed 340K malformed records from a 2.1M-record dataset that were
     inflating severity rates by 8%.
-  • Fixed a crash model that ignored location, raising the share of groups
-    reflecting it from 0% to 24.7%.
 
 Why I'm reaching out:
-  • Since you recruit on the engineering side at Google, I wanted to reach
-    you directly.
-  • What I find interesting about Google is that infrastructure earns its
-    keep under concurrency, when correctness is easiest to lose.
+  • I saw that you recruit for engineering roles at Google.
+  • I'm especially interested in Google because correctness under concurrency
+    is what I work on.
 
 The ask:
-Would you be able to take a look at my application? A pointer to whoever is
-closest to this req would help just as much. Resume attached.
+Would you be able to take a quick look at my application? Or point me to
+whoever is closest to this req. Resume attached.
 
 Thanks either way,
 Henry Nguyen
 ```
 
-Three labelled sections, and **every one of them is bullets or two short sentences**. An earlier
+Three labelled sections, and **every one of them is bullets or one short sentence**. An earlier
 version folded the introduction and the reason into a single ninety-word paragraph, and it read
 as a wall: nothing to scan by, and the application — the strongest fact in the message — buried
 in the middle of it.
 
 Two things carry bold, and only two: the numbers in the intro, and the request itself in the
 ask. Bold on a third thing is bold on nothing.
+
+**Six bullets and one sentence, none of them over twenty words.** The headings survived a rewrite
+that the length did not: three labelled sections is what makes an email skimmable, but a section
+holding four bullets is a paragraph wearing a label. The body ran to between 140 and 166 words
+depending on which hook and angle a contact drew, so each heading was cut back to doing exactly
+one job and it now lands at about 105. The ceilings and what each cut removed are in
+[email-templates.md](email-templates.md#the-budget-each-section-is-held-to).
 
 ### The job is named in three words, not in the job board's
 
@@ -701,16 +708,21 @@ Each slot is doing one job:
   fact in the message the reader can go and verify in their own system. Gmail shows the first
   ~90 characters as preview text, and these two bullets are what fills it. `Hope you're doing
   well` used to sit there and spent that slot saying nothing.
-- **Two result bullets** — numbers in bold, prose plain. Every number is taken verbatim from
-  `henryng_swe.tex`: a recruiter who checks must find the two documents saying one thing.
+- **One result bullet** — numbers in bold, prose plain, and it is the bullet the subject is
+  about, so the email answers its own subject on the third line. Every number is taken verbatim
+  from `henryng_swe.tex`: a recruiter who checks must find the two documents saying one thing.
+  There used to be a second, and it bought nothing the subject had not already promised.
 - **Why I'm reaching out** — two bullets, never a paragraph. The hook and the angle arrive as
   whole sentences from two different files, and run together they make the block that gets
-  skipped.
+  skipped. One purpose and one sentence each: why this person, why this company. Neither reaches
+  back into the resume, because the bullet above them already carries the number in bold.
 - **The ask** — one bolded question and one short way out, so the easiest reply is a useful one.
+  Under twenty-five words, and the way out is worded differently in each variation, because it is
+  the clause a recruiter forwarding to a colleague actually quotes.
 
 ### Ten hooks, matched to what the company does
 
-Identical skeleton, identical bolding. Only the subject, the two bullets and the ask move —
+Identical skeleton, identical bolding. Only the subject, the result bullet and the ask move —
 three people at one company must not receive three copies, and a run of identical bodies is a
 spam signal in its own right.
 
