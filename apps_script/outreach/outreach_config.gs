@@ -221,6 +221,39 @@ var STATUS_SPENDS_CONTACT = [
 var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
 
 /**
+ * What the Status and Mode dropdowns offer, and the colours behind them.
+ *
+ * Mirrors OUTREACH_STATUS, OUTREACH_MODE and their two colour tables in the bound
+ * script's sync_applied_to_app.gs. Two Apps Script projects cannot share a file,
+ * so the lists have to agree by hand — the same arrangement COMPANY_NOISE already
+ * has with job_sync/sources.py, and a change to one has to be a change to both.
+ *
+ * The bound script paints rows 2..500 once, when the tab is built. That is why a
+ * row appended afterwards arrived as bare text: no dropdown, no colour, nothing
+ * but the string. This copy is what dresses the rows that show up later.
+ *
+ * Queued is deliberately absent from the colours: it is what most rows read most
+ * of the time, and a colour on the ordinary case is a colour that stops meaning
+ * anything.
+ */
+var QUEUE_STATUSES = [STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED,
+                      STATUS_BOUNCED, STATUS_CANCELLED, STATUS_FAILED];
+var QUEUE_MODES = [MODE_DRAFT, MODE_SEND];
+
+var QUEUE_STATUS_COLOURS = [
+  { name: STATUS_DRAFTED,   bg: '#FFF2CC', fg: '#BF9000' },
+  { name: STATUS_SENT,      bg: '#CFE2F3', fg: '#1155CC' },
+  { name: STATUS_REPLIED,   bg: '#D9EAD3', fg: '#38761D' },
+  { name: STATUS_BOUNCED,   bg: '#F4CCCC', fg: '#CC0000' },
+  { name: STATUS_FAILED,    bg: '#FCE5CD', fg: '#B45F06' },
+  { name: STATUS_CANCELLED, bg: '#EFEFEF', fg: '#999999' }
+];
+var QUEUE_MODE_COLOURS = [
+  { name: MODE_DRAFT, bg: '#FFF2CC', fg: '#BF9000' },
+  { name: MODE_SEND,  bg: '#CFE2F3', fg: '#1155CC' }
+];
+
+/**
  * What a tick becomes once the row it is on has gone.
  *
  * A checkbox that stays ticked forever cannot say whether it still means

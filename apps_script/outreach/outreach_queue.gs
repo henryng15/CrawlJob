@@ -555,6 +555,54 @@ function outreachDressQueueRows_(queue) {
   [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT].forEach(function (column) {
     queue.getRange(2, column, rows, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
   });
+  // Status and Mode are dropdowns everywhere or they are dropdowns nowhere.
+  //
+  // A validation is a property of the cell, not of the range it happens to sit in,
+  // and the bound script sets these once over rows 2..500 when it builds the tab.
+  // Rows that arrived later never had one, and deleting the gap above them did not
+  // give them one: the cells moved up carrying exactly what they held, which was
+  // the bare string. Capital One read "Sent" as plain text next to a hundred rows
+  // where the same word was a coloured chip you could open.
+  //
+  // allowInvalid is false here and true on the checkbox above, and the difference
+  // is deliberate: a status nobody's code can produce is a bug worth seeing, while
+  // a Priority cell somebody typed "yes" into is read correctly anyway.
+  queue.getRange(2, Q_STATUS, rows, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(QUEUE_STATUSES, true).setAllowInvalid(false).build());
+  queue.getRange(2, Q_MODE, rows, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(QUEUE_MODES, true).setAllowInvalid(false).build());
+  outreachColourQueueColumn_(queue, Q_STATUS, QUEUE_STATUS_COLOURS, rows);
+  outreachColourQueueColumn_(queue, Q_MODE, QUEUE_MODE_COLOURS, rows);
+}
+
+/**
+ * Repaint one column's colour rules over the rows that exist.
+ *
+ * Conditional formatting is the opposite of a validation: it belongs to a range
+ * rather than to a cell, so deleting eight hundred rows out of the middle shrank
+ * the painted range from row 500 to row 130 and left everything below it grey.
+ * Rebuilt against the real last row every cycle, it cannot fall behind the table
+ * again in either direction.
+ *
+ * Rules on other columns are kept as they were found; only this column's are
+ * replaced, so the two calls do not undo each other.
+ */
+function outreachColourQueueColumn_(queue, column, palette, rows) {
+  var range = queue.getRange(2, column, rows, 1);
+  var kept = queue.getConditionalFormatRules().filter(function (rule) {
+    return rule.getRanges().every(function (r) { return r.getColumn() !== column; });
+  });
+  var added = palette.map(function (entry) {
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(entry.name)
+      .setBackground(entry.bg)
+      .setFontColor(entry.fg)
+      .setRanges([range])
+      .build();
+  });
+  queue.setConditionalFormatRules(kept.concat(added));
 }
 
 /**

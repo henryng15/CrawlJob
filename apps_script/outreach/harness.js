@@ -1439,26 +1439,44 @@ console.log('the table stays one block — no gap between the rows and the new o
   // and what was dressed, and splices its own rows so a deletion is visible to the
   // call that follows it.
   const fakeQueue = (rows) => {
-    const calls = { deleted: [], formatted: [], validated: 0 };
+    const calls = { deleted: [], formatted: [], validated: [], rules: [] };
     const sheet = {
       getLastRow: () => rows.length,
       getRange(r, c, nr) {
         return {
+          getColumn: () => c,
           getValues: () => rows.slice(r - 1, r - 1 + nr),
-          setDataValidation() { calls.validated += nr; return this; },
+          setDataValidation(v) { calls.validated.push([c, nr, v]); return this; },
           setNumberFormat(f) { calls.formatted.push([c, nr, f]); return this; }
         };
       },
       deleteRows(start, count) {
         calls.deleted.push([start, count]);
         rows.splice(start - 1, count);
-      }
+      },
+      getConditionalFormatRules: () => calls.rules,
+      setConditionalFormatRules(next) { calls.rules = next; }
     };
     return { sheet, calls, rows };
   };
   S.SpreadsheetApp.newDataValidation = () => {
+    const spec = { kind: null, list: null };
     const b = {
-      requireCheckbox: () => b, setAllowInvalid: () => b, build: () => ({})
+      requireCheckbox() { spec.kind = 'checkbox'; return b; },
+      requireValueInList(list) { spec.kind = 'list'; spec.list = list; return b; },
+      setAllowInvalid(v) { spec.allowInvalid = v; return b; },
+      build: () => spec
+    };
+    return b;
+  };
+  S.SpreadsheetApp.newConditionalFormatRule = () => {
+    const spec = { ranges: [] };
+    const b = {
+      whenTextEqualTo(t) { spec.text = t; return b; },
+      setBackground(c) { spec.bg = c; return b; },
+      setFontColor(c) { spec.fg = c; return b; },
+      setRanges(r) { spec.ranges = r; return b; },
+      build: () => ({ spec, getRanges: () => spec.ranges })
     };
     return b;
   };
@@ -1487,7 +1505,7 @@ console.log('the table stays one block — no gap between the rows and the new o
     const columns = q.calls.formatted.map((f) => f[0]).sort((a, b) => a - b);
     assert.deepStrictEqual(columns, [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
     q.calls.formatted.forEach((f) => assert.strictEqual(f[2], S.QUEUE_TIMESTAMP_FORMAT));
-    assert.ok(q.calls.validated > 0);
+    assert.ok(q.calls.validated.length > 0);
   });
   run('an appended row is dressed on the very next cycle', () => {
     const q = fakeQueue([H, full('Acme')]);
@@ -1499,6 +1517,43 @@ console.log('the table stays one block — no gap between the rows and the new o
     assert.deepStrictEqual(q.calls.formatted.map((f) => f[1]), [2, 2, 2]);
   });
 
+  run('Status and Mode are dressed as dropdowns, not left as bare text', () => {
+    const q = fakeQueue([H, full('Acme'), full('Capital One')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    const byColumn = {};
+    q.calls.validated.forEach(([c, nr, v]) => { byColumn[c] = [nr, v]; });
+    assert.deepStrictEqual(byColumn[S.Q_STATUS][1].list, S.QUEUE_STATUSES);
+    assert.deepStrictEqual(byColumn[S.Q_MODE][1].list, S.QUEUE_MODES);
+    // Two data rows, so the dropdown has to reach both of them.
+    assert.strictEqual(byColumn[S.Q_STATUS][0], 2);
+    assert.strictEqual(byColumn[S.Q_MODE][0], 2);
+    assert.strictEqual(byColumn[S.Q_PRIORITY][1].kind, 'checkbox');
+  });
+  run('the dropdown offers exactly the statuses the sender can write', () => {
+    // Compared as text: arrays built inside the vm carry that realm's prototype.
+    assert.strictEqual(JSON.stringify(S.QUEUE_STATUSES), JSON.stringify([
+      S.STATUS_QUEUED, S.STATUS_DRAFTED, S.STATUS_SENT, S.STATUS_REPLIED,
+      S.STATUS_BOUNCED, S.STATUS_CANCELLED, S.STATUS_FAILED]));
+    assert.strictEqual(JSON.stringify(S.QUEUE_MODES),
+                       JSON.stringify([S.MODE_DRAFT, S.MODE_SEND]));
+    S.QUEUE_STATUS_COLOURS.concat(S.QUEUE_MODE_COLOURS).forEach((entry) => {
+      assert.ok(S.QUEUE_STATUSES.concat(S.QUEUE_MODES).indexOf(entry.name) !== -1,
+        entry.name + ' is painted but is not a value the dropdown offers');
+    });
+  });
+  run('the colour rules are rebuilt over the rows that exist', () => {
+    const q = fakeQueue([H, full('Acme'), full('Capital One')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    const columns = q.calls.rules.map((r) => r.getRanges()[0].getColumn());
+    assert.strictEqual(columns.filter((c) => c === S.Q_STATUS).length,
+                       S.QUEUE_STATUS_COLOURS.length);
+    assert.strictEqual(columns.filter((c) => c === S.Q_MODE).length,
+                       S.QUEUE_MODE_COLOURS.length);
+    // Run twice: the rules are replaced, never stacked.
+    S.outreachRepairQueueLayout_(q.sheet);
+    assert.strictEqual(q.calls.rules.length,
+      S.QUEUE_STATUS_COLOURS.length + S.QUEUE_MODE_COLOURS.length);
+  });
   run('a real row whose company has zero recruiters is still a real row', () => {
     const r = full('Acme');
     r[S.Q_RECRUITERS - 1] = 0;
