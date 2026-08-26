@@ -558,17 +558,26 @@ function outreachDressQueueRows_(queue) {
 }
 
 /**
- * Pull the table back together after rows were appended below a gap.
+ * Pull the table back together after rows were appended below a gap, and dress
+ * whatever rows are there afterwards.
  *
  * Deletes only rows that are empty across their whole width and sit above a row
- * that is not, then re-dresses what is left. Idempotent: with no gap it reads the
- * sheet once, finds nothing, and writes nothing.
+ * that is not. Idempotent in what it deletes: with no gap it finds nothing and
+ * removes nothing.
+ *
+ * The dressing runs either way, and that is the point rather than an oversight.
+ * enqueueOutreach appends with setValues and no format, so a Date written into a
+ * fresh cell gets whatever Sheets picks — a bare DATE, hour dropped. Dressing
+ * only after a deletion meant the one path that fixed the format was the one that
+ * almost never ran: Capital One and Goldman Sachs sat for days showing a day and
+ * no hour, which is unreadable on a queue whose whole job is which hour a thing
+ * goes out. Cheap enough to stop reasoning about — one validation and three
+ * number formats over the rows that actually exist.
  */
 function outreachRepairQueueLayout_(queue) {
   var last = queue.getLastRow();
   if (last < 2) return 0;
   var gaps = outreachQueueGaps_(queue.getRange(1, 1, last, Q_WIDTH).getValues());
-  if (!gaps.length) return 0;
 
   var removed = 0;
   gaps.forEach(function (gap) {
@@ -576,7 +585,7 @@ function outreachRepairQueueLayout_(queue) {
     removed += gap.count;
   });
   outreachDressQueueRows_(queue);
-  Logger.log('Closed ' + gaps.length + ' gap(s), ' + removed + ' empty rows.');
+  if (removed) Logger.log('Closed ' + gaps.length + ' gap(s), ' + removed + ' empty rows.');
   return removed;
 }
 

@@ -1435,6 +1435,70 @@ console.log('the table stays one block — no gap between the rows and the new o
       gaps([H, full('Acme'), stamped(), stamped(), stamped(), full('Goldman Sachs')]),
       '[{"start":3,"count":3}]');
   });
+  // A sheet stub thin enough to be obviously right: it records what was deleted
+  // and what was dressed, and splices its own rows so a deletion is visible to the
+  // call that follows it.
+  const fakeQueue = (rows) => {
+    const calls = { deleted: [], formatted: [], validated: 0 };
+    const sheet = {
+      getLastRow: () => rows.length,
+      getRange(r, c, nr) {
+        return {
+          getValues: () => rows.slice(r - 1, r - 1 + nr),
+          setDataValidation() { calls.validated += nr; return this; },
+          setNumberFormat(f) { calls.formatted.push([c, nr, f]); return this; }
+        };
+      },
+      deleteRows(start, count) {
+        calls.deleted.push([start, count]);
+        rows.splice(start - 1, count);
+      }
+    };
+    return { sheet, calls, rows };
+  };
+  S.SpreadsheetApp.newDataValidation = () => {
+    const b = {
+      requireCheckbox: () => b, setAllowInvalid: () => b, build: () => ({})
+    };
+    return b;
+  };
+  const stampedRow = () => {
+    const r = new Array(S.Q_WIDTH).fill('');
+    r[S.Q_RECRUITERS - 1] = 0;
+    r[S.Q_PRIORITY - 1] = false;
+    return r;
+  };
+
+  run('the gap is closed and what is left is dressed', () => {
+    const q = fakeQueue([H, full('Acme'), stampedRow(), stampedRow(), full('Capital One')]);
+    const removed = S.outreachRepairQueueLayout_(q.sheet);
+    assert.strictEqual(removed, 2);
+    assert.deepStrictEqual(q.calls.deleted, [[3, 2]]);
+    assert.strictEqual(q.rows.length, 3);
+    assert.strictEqual(q.rows[2][0], 'Capital One');
+  });
+  // Capital One and Goldman Sachs showed a date and no hour for days because the
+  // only path that set the format was the one behind a deletion, and no deletion
+  // was ever found. Dressing has to happen on a clean table too.
+  run('rows are dressed even when there is no gap to close', () => {
+    const q = fakeQueue([H, full('Acme'), full('Goldman Sachs')]);
+    assert.strictEqual(S.outreachRepairQueueLayout_(q.sheet), 0);
+    assert.deepStrictEqual(q.calls.deleted, []);
+    const columns = q.calls.formatted.map((f) => f[0]).sort((a, b) => a - b);
+    assert.deepStrictEqual(columns, [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
+    q.calls.formatted.forEach((f) => assert.strictEqual(f[2], S.QUEUE_TIMESTAMP_FORMAT));
+    assert.ok(q.calls.validated > 0);
+  });
+  run('an appended row is dressed on the very next cycle', () => {
+    const q = fakeQueue([H, full('Acme')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    q.rows.push(full('Goldman Sachs'));
+    q.calls.formatted.length = 0;
+    S.outreachRepairQueueLayout_(q.sheet);
+    // Two data rows now, so the dressed range has to have grown to cover both.
+    assert.deepStrictEqual(q.calls.formatted.map((f) => f[1]), [2, 2, 2]);
+  });
+
   run('a real row whose company has zero recruiters is still a real row', () => {
     const r = full('Acme');
     r[S.Q_RECRUITERS - 1] = 0;
