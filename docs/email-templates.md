@@ -271,7 +271,7 @@ floor, reached only when neither a school nor a headline was found.
 
 | Shape | Sentence | Words |
 |---|---|---|
-| school + role | `I noticed you studied at {school}, and that you're now {role} at {company}.` | ~15 |
+| school + role | `I noticed you studied at {school}, and that you're now {role} at {company}.` | 15 to 22 |
 | school only | `I noticed you studied at {school}.` | 7 |
 | role only | `I saw your work as {role} at {company}.` | 9 |
 | focus `university` | `I saw that you work on university hiring at {company}.` | 10 |
@@ -280,9 +280,21 @@ floor, reached only when neither a school nor a headline was found.
 | focus `sourcing` | `I saw that you source engineering candidates at {company}.` | 9 |
 | nothing found | *(empty — the bullet is dropped)* | 0 |
 
+**The ceiling does not hold on the school + role shape.** `{role}` is a headline scraped from a
+search snippet, and 57 of the 1,863 hooks in the current export (3.1%) run past twenty words
+because the snippet was a LinkedIn tagline rather than a job title: *"and that you're now (He/Him).
+Principal Technical Recruiter..."*, *"and that you're now Recruiting the experts who keep the
+world..."*. This predates the rewrite, which only made it measurable. `extract_headline` is where
+it would be fixed.
+
 `recruiting` is deliberately not in the table. The classifier falls back to it for anything with
 "recruit" or "talent" in the blob, which is every recruiter alive, and a line saying so tells the
 reader nothing they did not already know. Those contacts lose the bullet instead.
+
+**`FOCUS_LINE` fires on nothing in the current export.** All 406 contacts without a hook have an
+empty `person_focus`, not `leadership` or `sourcing`, so the four focus shapes are reached only by
+rows that do not exist yet. They cost nothing and are correct when the classifier starts labelling
+those people; they are not why anyone gains a bullet today.
 
 **The tail is gone.** Every one of the first three shapes used to append a second sentence off a
 `FOCUS_TAIL` table — `Since you own early-career and intern hiring there, I wanted to reach you
@@ -341,14 +353,19 @@ the problem and stops; whoever wants the implementation has the attachment.
 An angle is mandatory for an unattended send. A contact without one — a hand-typed row at a
 company ColdEmail never wrote for — is queued as `Draft` rather than sent.
 
-**Regenerating after a wording change.** Both files rebuild their output from the on-disk cache,
-so re-running costs no Serper credits:
+**Regenerating after a wording change.** Both sentences are assembled at write time, so a change
+to `build_hook` or to `PULL` only needs the profiles already cached on disk. `--no-lookup` writes
+the CSV straight from that cache and returns before the search loop:
 
 ```bash
-python src/process7_personalize.py      # -> finals/7_personalized.csv
-python src/process8_company_angle.py    # -> finals/8_company_angle.csv
-python src/export_contacts.py           # -> finals/contacts_seed.csv
+.venv/bin/python src/process7_personalize.py --no-lookup   # -> finals/7_hooks.csv
+.venv/bin/python src/process8_company_angle.py --no-lookup # -> finals/8_company_angle.csv
+.venv/bin/python src/export_contacts.py                    # -> finals/contacts_seed.csv
 ```
+
+**The flag is not optional.** Without it `process7_personalize.py` sees 340 rows that were parked
+as `no_budget` on an earlier run and spends 340 Serper credits looking them up, which has nothing
+to do with a wording change. Run it bare only when the intent is to buy those 340 profiles.
 
 Until the export is re-run and the `Contacts (seed)` tab re-imported, the sheet still holds the
 old sentences and the old sentences are what sends.
