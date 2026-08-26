@@ -1415,6 +1415,32 @@ console.log('the table stays one block — no gap between the rows and the new o
     assert.strictEqual(gaps([H]), '[]');
     assert.strictEqual(gaps([H, blank(), blank()]), '[]');
   });
+  // The live Email tab sat like this for days. refreshOutreachSchedule rewrites
+  // Recruiters across every row getLastRow admits to, so each blank row in the gap
+  // carried a literal 0. 0 === false is false, so the emptiness test read all eight
+  // hundred and seventy of them as occupied and the repair found nothing to do.
+  run('a zero left by the recruiter count is not content', () => {
+    const zeroed = new Array(S.Q_WIDTH).fill('');
+    zeroed[S.Q_RECRUITERS - 1] = 0;
+    assert.ok(!S.outreachRowHasContent_(zeroed));
+  });
+  run('the gap is found when every blank row carries a zero and an unticked box', () => {
+    const stamped = () => {
+      const r = new Array(S.Q_WIDTH).fill('');
+      r[S.Q_RECRUITERS - 1] = 0;
+      r[S.Q_PRIORITY - 1] = false;
+      return r;
+    };
+    assert.strictEqual(
+      gaps([H, full('Acme'), stamped(), stamped(), stamped(), full('Goldman Sachs')]),
+      '[{"start":3,"count":3}]');
+  });
+  run('a real row whose company has zero recruiters is still a real row', () => {
+    const r = full('Acme');
+    r[S.Q_RECRUITERS - 1] = 0;
+    r[S.Q_PRIORITY - 1] = false;
+    assert.ok(S.outreachRowHasContent_(r));
+  });
 }
 
 console.log('written an hour early, so there is an hour to read it in');

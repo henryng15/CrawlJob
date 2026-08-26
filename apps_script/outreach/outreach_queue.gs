@@ -506,13 +506,25 @@ function outreachQueueGaps_(values) {
 function outreachRowHasContent_(row) {
   for (var i = 0; i < row.length; i++) {
     var cell = row[i];
-    // false counts as empty, and that is the whole point rather than a shortcut.
+    // false counts as empty, and so does 0, and neither is a shortcut.
+    //
     // A blank row wearing checkbox validation reads back as false, not '', so
     // treating false as content made every row in the gap look real, found no gap
     // at all, and deleted nothing — the first version of this shipped and did
-    // visibly nothing for exactly that reason. No real queue row is a bare
-    // unticked box either: it would still have a Company and a Queue ID.
-    if (cell === '' || cell === null || cell === undefined || cell === false) continue;
+    // visibly nothing for exactly that reason.
+    //
+    // The zero is the same mistake one column over, and it is the one that kept
+    // the gap alive after false was handled. refreshOutreachSchedule rewrites the
+    // Recruiters column across everything getLastRow admits to, so every blank row
+    // in the gap was stamped with a literal 0 once an hour. 0 === false is false in
+    // JavaScript, so the guard above walked straight past it and read the row as
+    // occupied. Eight hundred and seventy rows of nothing, each holding one zero,
+    // and a gap that could not be seen from inside the function meant to find it.
+    //
+    // No real queue row is a bare unticked box or a bare zero: it would still have
+    // a Company and a Queue ID, both strings.
+    if (cell === '' || cell === null || cell === undefined
+        || cell === false || cell === 0) continue;
     return true;
   }
   return false;
@@ -786,8 +798,13 @@ function refreshOutreachSchedule() {
     projected[item.rowNumber] = item;
   });
 
+  // A row with no company gets no count. Writing one puts a literal 0 on a blank
+  // row, and a blank row holding a 0 is content as far as getLastRow is concerned:
+  // that is what pinned the table's last row at 1000 and sent every later append
+  // eight hundred rows below the rest. Leave the cell as it was found.
   var counts = {};
   queue.getRange(2, Q_RECRUITERS, rows.length, 1).setValues(rows.map(function (row) {
+    if (!row.company) return [''];
     if (counts[row.company] === undefined) {
       counts[row.company] = outreachRecruiterCount_(contacts, row.company);
     }
