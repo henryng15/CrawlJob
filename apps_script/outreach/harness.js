@@ -635,11 +635,22 @@ console.log('the message');
     assert.strictEqual(new Set(subjects).size, 10);
     subjects.forEach((line) => assert.ok(line.length <= 60, line));
   });
-  run('every variation names two bullets that exist', () => {
+  run('every variation names one bullet that exists', () => {
     Object.keys(S.VARIANTS).forEach((key) => {
       const v = S.VARIANTS[key];
-      assert.strictEqual(v.bullets.length, 2);
-      v.bullets.forEach((b) => assert.ok(S.RESUME_BULLETS[b], key + ' -> ' + b));
+      assert.strictEqual(typeof v.bullet, 'string');
+      assert.ok(S.RESUME_BULLETS[v.bullet], key + ' -> ' + v.bullet);
+    });
+  });
+  // The ceilings the template is documented to hold: 20 words a bullet, 25 an
+  // ask. They are asserted here rather than trusted, because the whole point of
+  // the rewrite was length and nothing else in the file measures it.
+  run('no bullet runs past twenty words, and no ask past twenty-five', () => {
+    const words = (t) => t.replace(/\*\*/g, '').split(/\s+/).filter(Boolean).length;
+    Object.keys(S.VARIANTS).forEach((key) => {
+      const v = S.VARIANTS[key];
+      assert.ok(words(S.RESUME_BULLETS[v.bullet]) <= 20, key + ' bullet');
+      assert.ok(words(v.ask) <= 25, key + ' ask');
     });
   });
 
@@ -684,7 +695,7 @@ console.log('the message');
     assert.ok(!/[\u2014\u2013]/.test(mail.html));
   });
   run('the ask carries its own bold, so the eye lands on it', () => {
-    assert.ok(mail.html.split('<b>The ask:</b>')[1].indexOf('<b>take a look at my application</b>') !== -1);
+    assert.ok(mail.html.split('<b>The ask:</b>')[1].indexOf('<b>take a quick look at my application</b>') !== -1);
   });
   run('an em dash in the angle becomes two sentences, not a long breath', () => {
     const split = S.outreachNoDashes_('systems fail loudly — at Vietcombank I shipped it');
@@ -700,15 +711,15 @@ console.log('the message');
   });
   run('every bullet stays short enough to be read at a glance', () => {
     mail.plain.split('\n').filter((l) => l.startsWith('  - ')).forEach((line) => {
-      assert.ok(line.split(/\s+/).length <= 26, line);
+      assert.ok(line.split(/\s+/).length <= 22, line);
     });
   });
   run('only the first name is used', () => {
     assert.match(mail.plain, /^Hi Julie,/);
   });
-  run('four intro bullets: who I am, what I applied to, then two results', () => {
+  run('three intro bullets: who I am, what I applied to, then one result', () => {
     const intro = mail.html.split('<b>Quick intro:</b>')[1].split('</ul>')[0];
-    assert.strictEqual((intro.match(/<li>/g) || []).length, 4);
+    assert.strictEqual((intro.match(/<li>/g) || []).length, 3);
   });
   run('the reason is two bullets, not a paragraph', () => {
     const why = mail.html.split('reaching out:</b></p>')[1].split('</ul>')[0];
