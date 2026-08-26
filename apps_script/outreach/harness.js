@@ -1364,6 +1364,45 @@ console.log('the Priority column opens itself, because the schema and the code m
   });
 }
 
+console.log('a tick is answered when it is made, not an hour later');
+{
+  // getColumn is the first column of the edited block and getLastColumn the last,
+  // which is how paste and fill-down arrive.
+  const edit = (col, lastCol, row, lastRow) => ({
+    getColumn: () => col,
+    getLastColumn: () => lastCol === undefined ? col : lastCol,
+    getLastRow: () => lastRow === undefined ? row : lastRow
+  });
+  const touches = (tab, range) => S.outreachEditTouchesPriority_(tab, range);
+
+  run('ticking a Priority cell on a data row is worth reprojecting', () => {
+    assert.ok(touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+  });
+  run('an edit one column either side of Priority is not', () => {
+    assert.ok(!touches('Email', edit(S.Q_STATUS, S.Q_STATUS, 5)));
+    assert.ok(!touches('Email', edit(S.Q_PRIORITY - 1, S.Q_PRIORITY - 1, 5)));
+  });
+  run('the same cell on another tab is not', () => {
+    assert.ok(!touches('App', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+    assert.ok(!touches('Jobs', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+  });
+  run('the header is not a data row, so renaming the column reprojects nothing', () => {
+    assert.ok(!touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 1, 1)));
+  });
+  // A paste across the row covers Priority without starting or ending on it, which
+  // an equality test would miss.
+  run('a paste spanning the row counts, because it covers Priority', () => {
+    assert.ok(touches('Email', edit(1, S.Q_WIDTH, 2, 40)));
+  });
+  run('a paste that stops short of Priority does not', () => {
+    assert.ok(!touches('Email', edit(1, S.Q_PRIORITY - 1, 2, 40)));
+  });
+  // Fill-down from the header downwards still reaches data rows.
+  run('a block starting at the header but reaching data rows counts', () => {
+    assert.ok(touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 1, 9)));
+  });
+}
+
 console.log('the table stays one block — no gap between the rows and the new ones');
 {
   const H = new Array(S.Q_WIDTH).fill('h');

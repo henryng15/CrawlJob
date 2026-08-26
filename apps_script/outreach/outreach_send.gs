@@ -567,18 +567,62 @@ function runOutreachCycle() {
  * Existing outreach triggers are cleared first, so running this twice does not
  * leave the queue being worked twice an hour.
  */
+/**
+ * Reproject the queue the moment somebody ticks Priority.
+ *
+ * The tick changes one thing — the order — and the order is what every projected
+ * time in the table is computed from. Waiting for the hourly cycle meant ticking a
+ * box and watching nothing happen, with no way to tell a tick that had registered
+ * from one that had not.
+ *
+ * Three things make this safe to hang off an edit:
+ *
+ *   the filter    outreachEditTouchesPriority_ throws out every edit in the
+ *                 spreadsheet that is not a Priority cell on a data row, which is
+ *                 nearly all of them, before anything is opened or read.
+ *   the lock      taken briefly and given up rather than waited on. If the hourly
+ *                 cycle holds it, it is already going to project on its way out,
+ *                 so there is nothing to do and nothing to report.
+ *   no recursion  Apps Script does not fire an edit trigger for a change a script
+ *                 made, so writing the two columns back cannot call this again.
+ *
+ * Installable, not simple: this project is standalone rather than bound to the
+ * tracker, and a simple onEdit only exists in a bound script. Installable also
+ * means it runs as whoever installed it, which is the account that owns the Gmail
+ * side — the edit itself can come from either person with access.
+ */
+function onOutreachQueueEdit(e) {
+  if (!e || !e.range) return;
+  var sheet = e.range.getSheet();
+  if (!outreachEditTouchesPriority_(sheet.getName(), e.range)) return;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    outreachWriteProjection_(sheet);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function installOutreachTriggers() {
   removeOutreachTriggers();
   // One hourly trigger rather than four on separate clocks. Four would drift
   // apart and leave the table describing four different moments.
   ScriptApp.newTrigger('runOutreachCycle').timeBased().everyHours(1).create();
+  // And one that answers a tick straight away. It sends nothing and drafts
+  // nothing; all it can do is rewrite the two projected columns.
+  ScriptApp.newTrigger('onOutreachQueueEdit')
+           .forSpreadsheet(outreachProperty_(PROP_TRACKER_ID, true))
+           .onEdit()
+           .create();
   Logger.log('Installed. The kill switch is removeOutreachTriggers, and it is the only one.');
 }
 
 function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
-              'scanRejectionEmails'];
+              'scanRejectionEmails', 'onOutreachQueueEdit'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

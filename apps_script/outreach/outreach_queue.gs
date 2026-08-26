@@ -850,11 +850,6 @@ function refreshOutreachSchedule() {
   var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
   var contacts = outreachReadContacts_(contactsBook);
 
-  var projected = {};
-  outreachProjectSchedule_(rows, new Date()).forEach(function (item) {
-    projected[item.rowNumber] = item;
-  });
-
   // A row with no company gets no count. Writing one puts a literal 0 on a blank
   // row, and a blank row holding a 0 is content as far as getLastRow is concerned:
   // that is what pinned the table's last row at 1000 and sent every later append
@@ -867,6 +862,30 @@ function refreshOutreachSchedule() {
     }
     return [counts[row.company]];
   }));
+  return outreachWriteProjection_(queue);
+}
+
+/**
+ * Rewrite the two projected times, and nothing else.
+ *
+ * Split out of refreshOutreachSchedule because the two halves answer to different
+ * things. The Recruiters count changes when somebody adds a contact, which is a
+ * different spreadsheet and a two-thousand-row read; the projection changes when
+ * the order changes, which is one tick in one cell. Tying them together meant the
+ * cheap half could only run at the speed of the expensive one, so a tick could not
+ * be answered until the next hour.
+ *
+ * Nothing here opens the contacts book. That is the point.
+ */
+function outreachWriteProjection_(queue) {
+  var last = queue.getLastRow();
+  if (last < 2) return 0;
+  var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+
+  var projected = {};
+  outreachProjectSchedule_(rows, new Date()).forEach(function (item) {
+    projected[item.rowNumber] = item;
+  });
   // Only a Queued row gets a fresh projection. A row that has already been drafted
   // or sent keeps the two times it really happened at, which is both the honest
   // record and the only timestamp a draft has to be counted by.
@@ -876,4 +895,20 @@ function refreshOutreachSchedule() {
     return [row.draftedAt || '', row.scheduledAt || ''];
   }));
   return Object.keys(projected).length;
+}
+
+/**
+ * Whether an edit is one worth reprojecting for.
+ *
+ * Pure and separate from the handler so it can be argued with in the harness: an
+ * onEdit fires on every keystroke-sized change in the whole spreadsheet, and the
+ * only one that moves the queue is a Priority cell on a data row.
+ *
+ * A range rather than a cell, because paste and fill-down hand over a block. The
+ * test is overlap, not equality: a paste across the whole row includes Priority.
+ */
+function outreachEditTouchesPriority_(tabName, range) {
+  if (tabName !== TAB_QUEUE) return false;
+  if (range.getColumn() > Q_PRIORITY || range.getLastColumn() < Q_PRIORITY) return false;
+  return range.getLastRow() >= 2;
 }
