@@ -10,14 +10,21 @@
  *
  *   Subject       a true number, stated so it is not yet explained. The subject's
  *                 only job is the open; an unopened email has no other qualities.
- *   Quick intro   four bullets: the name and the school, the application and its
- *                 date, then two results with the numbers in bold.
+ *   Quick intro   three bullets: the name and the school, the application and its
+ *                 date, then the one result the subject just promised.
  *   Why I'm       two bullets: what this person recruits for, and what is worth
  *   reaching out  saying about this company. Never a paragraph: the two arrive as
  *                 whole sentences from two different files and run together into
  *                 the block a recruiter skips.
  *   The ask       one bolded question and one short way out, so the easiest reply
  *                 is still a useful one.
+ *
+ * Six bullets and one sentence, and none of them over twenty words. The headings
+ * survived a rewrite that the length did not: three labelled sections is what makes
+ * the email skimmable, but a section holding four bullets is a paragraph wearing a
+ * label. Each heading now does exactly one job — who is writing, why this person,
+ * what is being asked — and the body lands near ninety words rather than a hundred
+ * and forty. Anything a recruiter wants past that is in the attachment.
  *
  * Nothing here uses a dash. Text arriving from ColdEmail does, and outreachNoDashes_
  * turns each one into a full stop on the way in: two short sentences carry the same
@@ -74,7 +81,7 @@ var RESUME_BULLETS = {
  * Ten variations on one skeleton.
  *
  * Format, bolding and order are identical across all ten — only the subject, the
- * two bullets and the ask move. Three people at one company must not receive
+ * result bullet and the ask move. Three people at one company must not receive
  * three copies, and a run of identical bodies is a spam signal in its own right.
  *
  * Every subject is a true number from henryng_swe.tex, stated so that it is not
@@ -82,67 +89,77 @@ var RESUME_BULLETS = {
  * what happened. None is over 60 characters, because a recruiter reads them on a
  * phone. Nothing here is rounded up, because a recruiter who checks the resume
  * must find the two documents saying one thing.
+ *
+ * One result bullet, not two. The second was always the weaker of the pair, and
+ * it bought nothing the subject had not already promised: the reader who wants a
+ * second number opens the attachment, and the reader who does not was going to
+ * skip the fourth line either way. The bullet named here is the one the subject
+ * is about, so the email answers its own subject on the third line.
+ *
+ * Every ask is one sentence under twenty-five words: the bolded request, then one
+ * short way out. The way out is worded differently in each, because it is the
+ * clause a recruiter forwarding to a colleague actually quotes.
  */
 var VARIANTS = {
   application: {
     subject: 'Cut a 30-minute research loop to 60 seconds',
-    bullets: ['mcp', 'polars'],
-    ask: 'Would you be able to **take a look at my application**? If this role is not '
-       + 'your team, pointing me to the right person helps just as much.'
+    bullet: 'mcp',
+    ask: 'Would you be able to **take a quick look at my application**? If someone else '
+       + 'owns the req, a pointer would help just as much.'
   },
   data: {
     subject: '340K bad records were inflating severity by 8%',
-    bullets: ['polars', 'calibration'],
-    ask: 'Would you be able to **take a look at my application**? A pointer to whoever is '
-       + 'closest to this req would help just as much.'
+    bullet: 'polars',
+    ask: 'Would you be able to **take a quick look at my application**? Or point me to '
+       + 'whoever is closest to this req.'
   },
   fintech: {
     subject: '50 duplicate webhooks, exactly one order',
-    bullets: ['webhooks', 'locks'],
-    ask: 'Would you be able to **take a look at my application**? If you can tell me who '
-       + 'owns this req, I will go to them directly.'
+    bullet: 'webhooks',
+    ask: 'Would you be able to **take a quick look at my application**? If someone else '
+       + 'owns this req, I will go to them.'
   },
   cloud: {
     subject: '500 concurrent requests, zero overbookings',
-    bullets: ['locks', 'lambda'],
-    ask: 'Would you be able to **take a look at my application**? Or tell me who is running '
-       + 'intern hiring this cycle.'
+    bullet: 'locks',
+    ask: 'Would you be able to **take a quick look at my application**? Or tell me who '
+       + 'runs intern hiring this cycle.'
   },
   ai: {
     subject: 'Repeat checks: 4 seconds to 400 milliseconds',
-    bullets: ['rag', 'mcp'],
-    ask: 'Would you be open to a **short chat about the role**? If it is not yours, a pointer '
-       + 'to the closest team helps just as much.'
+    bullet: 'rag',
+    ask: 'Would you be open to a **short chat about the role**? If it is not yours, a '
+       + 'pointer to the closest team helps.'
   },
   security: {
     subject: 'Four high-severity CVEs, one export path',
-    bullets: ['cves', 'coverage'],
-    ask: 'Would you be able to **take a look at my application**? Or tell me who I should be '
-       + 'talking to about it.'
+    bullet: 'cves',
+    ask: 'Would you be able to **take a quick look at my application**? Or tell me who I '
+       + 'should be talking to.'
   },
   hardware: {
     subject: 'A daily report was 3 days stale and nobody knew',
-    bullets: ['freshness', 'locks'],
-    ask: 'Would you be able to **take a look at my application**? If the intern cohort is not '
-       + 'yours, a pointer to the right person helps just as much.'
+    bullet: 'freshness',
+    ask: 'Would you be able to **take a quick look at my application**? If the intern '
+       + 'cohort is not yours, a pointer helps.'
   },
   consumer: {
     subject: '480 dishes, top 5 matches in under 300ms',
-    bullets: ['menulens', 'rag'],
-    ask: 'Would you be able to **take a look at my application**? Or point me at whoever owns '
-       + 'intern hiring there.'
+    bullet: 'menulens',
+    ask: 'Would you be able to **take a quick look at my application**? Or point me at '
+       + 'whoever owns intern hiring there.'
   },
   edtech: {
     subject: '90 students a semester, zero local setup',
-    bullets: ['workspaces', 'mcp'],
-    ask: 'Would you be able to **take a look at my application**? Or tell me who is closest to '
-       + 'this req.'
+    bullet: 'workspaces',
+    ask: 'Would you be able to **take a quick look at my application**? Or send me toward '
+       + 'whoever is reading these applications.'
   },
   campus: {
     subject: 'The model was ignoring location: 0% to 24.7%',
-    bullets: ['calibration', 'mcp'],
-    ask: 'Would you be able to **take a look at my application**? I would also like to know '
-       + 'whether Kenyon sits on the campus list this cycle.'
+    bullet: 'calibration',
+    ask: 'Would you be able to **take a quick look at my application**? I would also like '
+       + 'to know whether Kenyon is on the campus list.'
   }
 };
 
@@ -222,6 +239,8 @@ function outreachFirstName_(name) {
 
 /**
  * The two bullets that open Quick intro: who is writing, and what they applied to.
+ * The variant's single result bullet is appended to these by outreachCompose_, so
+ * the section is three lines: a person, a verifiable fact, and one number.
  *
  * Two bullets rather than one. An earlier version compressed both into a single
  * fragment — "Math and Computer Science at Kenyon College, class of 2028. Applied
@@ -344,7 +363,7 @@ function outreachCompose_(options) {
   var greeting = 'Hi ' + outreachFirstName_(options.recruiterName) + ',';
   var intro = outreachIntroBullets_(
       role, options.dateApplied, options.today, formatDate, options.process)
-    .concat(variant.bullets.map(function (key) { return RESUME_BULLETS[key]; }));
+    .concat([RESUME_BULLETS[variant.bullet]]);
   // Two bullets rather than a paragraph. The hook and the angle arrive as whole
   // sentences from two different files, and run together they make the block a
   // recruiter skips.
