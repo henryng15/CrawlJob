@@ -12,29 +12,38 @@ on:
         type: boolean
         default: false
   schedule:
-    # Every 90 minutes from 09:00 to 21:00 ET: 9:00, 10:30, 12:00, 13:30, 15:00,
-    # 16:30, 18:00, 19:30, 21:00. Nine firings, and every one does the work — the
-    # command's window check is a guard, not a filter, so nothing is wasted.
+    # Every 45 minutes from 09:00 to 21:00 ET: 9:00, 9:45, 10:30, 11:15, 12:00,
+    # 12:45, 13:30, 14:15, 15:00, 15:45, 16:30, 17:15, 18:00, 18:45, 19:30, 20:15,
+    # 21:00. Seventeen firings, and every one does the work — the command's window
+    # check is a guard, not a filter, so nothing is wasted.
+    #
+    # Forty-five minutes needs four cron lines rather than one. Cron has no notion
+    # of an interval that is not a whole number of hours, but 45 divides into 180,
+    # so the minute cycles :00 → :45 → :30 → :15 and repeats every three hours.
+    # One line per minute-of-the-hour is the whole schedule.
     #
     # The day used to end at 18:00. Databricks published a Software Engineering
     # Intern role at 19:40 ET and it waited until 09:00 the next morning; the two
     # evening runs exist to stop that.
     #
     # GitHub Actions only accepts UTC, and these times are EDT (UTC-4) — note that
-    # 21:00 ET is 01:00 UTC the following day. When EST starts on 1 November 2026
-    # they all land an hour early. To put them back, add one to each hour:
-    # "0 2,14,17,20,23" and "30 15,18,21,0".
+    # 21:00 ET is 01:00 UTC the following day, and 20:15 ET is 00:15. When EST
+    # starts on 1 November 2026 they all land an hour early. To put them back, add
+    # one to each hour: "0 2,14,17,20,23", "45 14,17,20,23", "30 15,18,21,0" and
+    # "15 1,16,19,22".
     - cron: "0 1,13,16,19,22 * * *"
+    - cron: "45 13,16,19,22 * * *"
     - cron: "30 14,17,20,23 * * *"
+    - cron: "15 0,15,18,21 * * *"
 
 permissions:
   contents: read
 
-# Two runs must never write the sheet at once. Ninety minutes apart with a 4-minute
-# run leaves no room to collide on its own, but a manual run fired during a
-# scheduled one would, and both would be rewriting the same rows. Queue rather than
-# cancel: a cancelled run could stop halfway through a rewrite. Queued time is not
-# billed.
+# Two runs must never write the sheet at once. Forty-five minutes apart with a run
+# that takes two (median 130s over 60 runs, worst 369s) leaves no room to collide on
+# its own, but a manual run fired during a scheduled one would, and both would be
+# rewriting the same rows. Queue rather than cancel: a cancelled run could stop
+# halfway through a rewrite. Queued time is not billed.
 concurrency:
   group: sheet-write
   cancel-in-progress: false
@@ -42,8 +51,9 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # A run takes four minutes. The default ceiling is six hours, so one hung run
-    # would eat 18% of the month's free minutes before Actions gave up on it.
+    # A run takes about two minutes: median 130s across the 60 runs to 27 August
+    # 2026, p90 251s, worst 369s. The default ceiling is six hours, so one hung run
+    # would eat 12% of the month's 3,000 minutes before Actions gave up on it.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

@@ -3,11 +3,11 @@ name: Rebuild the ATS board shortlist
 # Separate from the sync, and weekly rather than daily, because it is a different
 # shape of job: fifteen thousand requests and about half an hour, against the
 # sync's few hundred and two minutes. Running it inside the sync would put that
-# cost on all five daily runs to learn something that changes once a week.
+# cost on all seventeen daily runs to learn something that changes once a week.
 on:
   workflow_dispatch:
   schedule:
-    # 06:00 UTC Sunday — 01:00/02:00 ET, nowhere near the sync's 08:00–16:00 ET
+    # 06:00 UTC Sunday — 01:00/02:00 ET, nowhere near the sync's 08:00–22:59 ET
     # window, so the two never contend for the same APIs.
     - cron: "0 6 * * 0"
 

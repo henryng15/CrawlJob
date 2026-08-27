@@ -13,9 +13,9 @@ from job_sync.sheet import append_new_jobs, audit_app
 from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
 
 NEW_YORK = ZoneInfo("America/New_York")
-# The working day as a window, not a list of slots. The nine run times live in the
-# cron of sync.yml — 9:00, 10:30, 12:00, 13:30, 15:00, 16:30, 18:00, 19:30 and
-# 21:00 ET — and this only refuses a run that arrives outside those hours at all.
+# The working day as a window, not a list of slots. The seventeen run times live in
+# the cron of sync.yml — every 45 minutes from 09:00 to 21:00 ET — and this only
+# refuses a run that arrives outside those hours at all.
 #
 # The day runs to 21:00 rather than 18:00 because of what an 18:00 finish costs.
 # Databricks published a Software Engineering Intern role at 19:40 ET, an hour and
@@ -26,7 +26,7 @@ NEW_YORK = ZoneInfo("America/New_York")
 # Actions does not start a scheduled run on time: measured across one day, the
 # hourly cron fired between 16 and 36 minutes late, once at :36. Matching an
 # exact slot would have thrown away whichever run was unluckiest, and a
-# half-hour schedule makes that near-certain.
+# 45-minute schedule makes that near-certain.
 #
 # The window is also an hour wider than the schedule at each end, which is what
 # carries it through the November DST change: the same UTC cron lands an hour
