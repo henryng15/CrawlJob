@@ -320,19 +320,21 @@ the table describing four different moments. `runOutreachCycle` does the round i
 steps depend on each other:
 
 1. **what came back** — replies and bounces, so a reply seen now stops an attempt being created
-   in step 3
+   in step 4
 2. **who said no** — rejections sitting in the mailbox, which close the application in `App` and
    delete any draft already written for it
-3. **what is new** — applications ticked `Applied` since the last firing
-4. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
-5. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
-6. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
+3. **who said no elsewhere** — applications closed by hand in `App`, whose queue rows nothing had
+   called off, because the refusal arrived in a mailbox this project cannot read
+4. **what is new** — applications ticked `Applied` since the last firing
+5. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
+6. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
+7. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
 
 Reversing any pair leaves the table a firing out of date: projecting before sending would put a
 date on rows that are about to leave, and enqueueing before scanning would create an attempt 2
-for someone who has already replied. **Step 4 before step 5** is the load-bearing one: drafting
+for someone who has already replied. **Step 5 before step 6** is the load-bearing one: drafting
 first would let a message be written and sent inside a single firing, and the hour in which it
-could have been read would never have existed. **Step 2 before step 3** is the other: a rejection
+could have been read would never have existed. **Step 2 before step 4** is the other: a rejection
 read now has to close the application before anything opens a fresh attempt underneath it.
 
 Step 1 only asks Gmail about rows sent in the last 30 days. Every sent row would mean one API
@@ -461,6 +463,32 @@ is 8,000.
 > invisible to it, and that application stays `Applied` until it is changed by hand. If a real
 > share of them land there, a Gmail forwarding rule into the sending account is the fix — the
 > original `From` survives forwarding, which is the line the employer is read from.
+
+### A tick made by hand closes the queue too
+
+Most refusals arrive at `hoanng15.work@gmail.com` and step 2 handles them. Some do not: an
+application made from another address is answered at that address, and the way it gets recorded
+is a person setting `Process` to `Rejected` in the `App` tab. Both routes have to end in the same
+place, and for a while only one of them did.
+
+Step 2 closes the application *and* cancels its queue rows in a single call. A tick made by hand
+did neither — it changed one cell, and nothing was watching that cell. Belvedere Trading was
+marked `Rejected` on 24 August 2026; three days later its three rows were still `Queued`, each
+carrying a projected send time.
+
+Step 3 is what closes that gap. Every firing it compares the two tabs and cancels any `Queued` or
+`Drafted` row whose application no longer qualifies, whatever put it in that state.
+
+> **Nothing was ever going to be sent.** `outreachStillQualifies_` re-reads the `App` row in the
+> last moment before Gmail is touched, and it refused these rows every hour for three days. That
+> guarantee did not move. What the gap cost was quieter: a `Queued` row counts in
+> `STATUS_SPENDS_CONTACT`, so it holds a recruiter nobody else may be written to, and it takes one
+> of the day's slots in the projection — a live application waits in the table behind a row that
+> can never go out.
+
+A queue row whose application has disappeared from the tab is deliberately left alone. It cannot
+send either, for the same last-moment reason, and a row that is missing this minute is as easily a
+half-finished edit as a deletion.
 
 ### Every email waits an hour in Drafts, and deleting it is how you call it off
 

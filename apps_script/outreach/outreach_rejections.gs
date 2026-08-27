@@ -395,20 +395,111 @@ function outreachRecordRejection_(app, queue, appRow, queueRows, when) {
         .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
   }
 
-  // Anything still in flight for this application is called off. A Drafted row is
-  // the urgent one: its message is already addressed and sitting in Gmail, an
-  // hour from going out to a company that has just said no.
+  // Anything still in flight for this application is called off.
+  return outreachCancelQueueRows_(queue, queueRows, appRow.property,
+      'Rejected on ' + outreachStamp_(when) + '; nothing further goes out.');
+}
+
+/**
+ * Call off everything still in flight for one application.
+ *
+ * Split out of outreachRecordRejection_ because a refusal arriving by email is
+ * not the only way an application stops qualifying, and every caller owes the
+ * queue the same treatment. A Drafted row is the urgent one: its message is
+ * already addressed and sitting in Gmail, an hour from going out to a company
+ * that has already said no.
+ */
+function outreachCancelQueueRows_(queue, queueRows, property, reason) {
   var stopped = 0;
   queueRows.forEach(function (row) {
-    if (row.property !== appRow.property) return;
+    if (!property || row.property !== property) return;
     if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
     if (row.status === STATUS_DRAFTED) outreachDiscardDraft_(row.draftId);
     var updates = {};
     updates[Q_STATUS] = STATUS_CANCELLED;
-    updates[Q_RESULT] = 'Rejected on ' + outreachStamp_(when) + '; nothing further goes out.';
+    updates[Q_RESULT] = reason;
     outreachWriteRow_(queue, row.rowNumber, updates);
+    // The in-memory copy moves too. Two App rows can carry the same property, and
+    // the second pass would otherwise write the same cancellation a second time.
+    row.status = STATUS_CANCELLED;
     stopped++;
   });
+  return stopped;
+}
+
+/**
+ * Queue rows still in flight for an application that has stopped qualifying.
+ *
+ * scanRejectionEmails closes an application and cancels its queue in the same
+ * call, so the two tabs agree whenever a refusal arrives by email. Nothing did
+ * that when Process was set by hand — and by hand is the ordinary path, not the
+ * exception: the applications went in from nguyen15@kenyon.edu, most refusals
+ * are sent back there, and that mailbox is one this project cannot read.
+ *
+ * Belvedere Trading was marked Rejected on 24 August 2026 and three days later
+ * its three rows were still Queued, each holding a projected send time.
+ *
+ * Nothing would have gone out. outreachStillQualifies_ re-reads the App row and
+ * refuses at the last moment, which is the guarantee that actually matters. The
+ * cost is quieter than a wrong send. A Queued row counts in STATUS_SPENDS_CONTACT,
+ * so it holds a recruiter nobody else may be written to, and it takes one of the
+ * day's slots from outreachProjectSchedule_ — a live application waits behind a
+ * row that can never send.
+ *
+ * A queue row whose application has left the tab is deliberately left alone. It
+ * cannot send either, for the same last-moment reason, and a row that is missing
+ * this minute is as easily a half-finished edit as a deletion.
+ */
+function outreachStaleQueueRows_(appRows, queueRows) {
+  var byProperty = {};
+  appRows.forEach(function (app) {
+    if (app.property) byProperty[app.property] = app;
+  });
+  var stale = [];
+  queueRows.forEach(function (row) {
+    if (!row.property) return;
+    if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
+    var app = byProperty[row.property];
+    if (!app || outreachQualifies_(app.process)) return;
+    stale.push({
+      rowNumber: row.rowNumber,
+      property: row.property,
+      company: row.company,
+      process: app.process
+    });
+  });
+  return stale;
+}
+
+/**
+ * Bring the queue back in line with the App tab.
+ *
+ * Runs every firing rather than on an edit, because the tick that closes an
+ * application is made by a person in a spreadsheet the sending account only
+ * visits — there is no event here to hang it on.
+ */
+function cancelStaleOutreachRows() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var app = tracker.getSheetByName(TAB_APP);
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+
+  var appLast = app.getLastRow();
+  var queueLast = queue.getLastRow();
+  if (appLast < 2 || queueLast < 2) return 0;
+
+  var appRows = app.getRange(2, 1, appLast - 1, APP_RECRUITERS).getValues().map(outreachParseApp_);
+  var queueRows = queue.getRange(2, 1, queueLast - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+
+  var stopped = 0;
+  var seen = {};
+  outreachStaleQueueRows_(appRows, queueRows).forEach(function (item) {
+    if (seen[item.property]) return;
+    seen[item.property] = true;
+    stopped += outreachCancelQueueRows_(queue, queueRows, item.property,
+        'Process is ' + item.process + '; nothing further goes out.');
+    Logger.log('  ' + item.company + ' (' + item.property + ') is ' + item.process);
+  });
+  if (stopped) Logger.log('Closed applications still holding ' + stopped + ' queue row(s).');
   return stopped;
 }
 

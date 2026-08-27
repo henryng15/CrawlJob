@@ -1955,6 +1955,69 @@ console.log('the last check before Gmail is touched');
   });
 }
 
+console.log('the two tabs are reconciled, not just the ones a rejection email closed');
+{
+  run('a hand-ticked Rejected cancels the rows the email scanner never saw', () => {
+    // Belvedere Trading, 24 August 2026. Marked Rejected by hand because the
+    // refusal went to nguyen15@kenyon.edu, which this project cannot read; three
+    // days later its three rows were still Queued with a send time each.
+    const apps = [app('84', 'Belvedere Trading', 'SWE Intern', day(2026, 8, 17), 'Rejected')];
+    const rows = [
+      qrow({ rowNumber: 10, property: '84', company: 'Belvedere Trading', status: 'Queued' }),
+      qrow({ rowNumber: 11, property: '84', company: 'Belvedere Trading', status: 'Queued' }),
+      qrow({ rowNumber: 12, property: '84', company: 'Belvedere Trading', status: 'Queued' })
+    ];
+    const stale = S.outreachStaleQueueRows_(apps, rows);
+    assert.strictEqual(stale.length, 3);
+    assert.strictEqual(stale[0].process, 'Rejected');
+    assert.strictEqual(stale[0].company, 'Belvedere Trading');
+  });
+  run('a Drafted row is stale too — its message is already written', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    const stale = S.outreachStaleQueueRows_(apps, [qrow({ status: 'Drafted' })]);
+    assert.strictEqual(stale.length, 1);
+  });
+  run('an open application is left alone', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Applied')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('Completed OA still qualifies, so its queue survives', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Completed OA')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('a row already Sent is history and is not rewritten', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Sent' })]).length, 0);
+  });
+  run('a Cancelled row is not cancelled a second time', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Cancelled' })]).length, 0);
+  });
+  run('a queue row whose application has left the tab is left alone', () => {
+    // It cannot send either — outreachStillQualifies_ refuses on a missing row —
+    // and a row absent this minute is as easily a half-finished edit as a deletion.
+    assert.strictEqual(S.outreachStaleQueueRows_([], [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('a blank property does not match every other blank property', () => {
+    const apps = [app('', '', '', null, 'Rejected')];
+    assert.strictEqual(
+      S.outreachStaleQueueRows_(apps, [qrow({ property: '', status: 'Queued' })]).length, 0);
+  });
+  run('only the closed application loses its rows', () => {
+    const apps = [
+      app('84', 'Belvedere Trading', 'r', day(2026, 8, 17), 'Rejected'),
+      app('85', 'Optiver', 'r', day(2026, 8, 18), 'Applied')
+    ];
+    const rows = [
+      qrow({ rowNumber: 10, property: '84', status: 'Queued' }),
+      qrow({ rowNumber: 11, property: '85', status: 'Queued' })
+    ];
+    const stale = S.outreachStaleQueueRows_(apps, rows);
+    assert.strictEqual(stale.length, 1);
+    assert.strictEqual(stale[0].property, '84');
+  });
+}
+
 console.log('how much Gmail is asked on each firing');
 {
   const now = day(2026, 8, 21);

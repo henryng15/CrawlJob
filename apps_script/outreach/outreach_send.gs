@@ -541,6 +541,10 @@ function runOutreachCycle() {
   });
   step('scan', scanOutreachReplies);
   step('rejections', scanRejectionEmails);
+  // After the scanner, which closes applications of its own, and before enqueue,
+  // so a contact freed here is available to the wave planned below in this same
+  // firing rather than the next one.
+  step('stale', cancelStaleOutreachRows);
   step('queued', function () { return enqueueOutreach().planned.length; });
   // Send before writing, never the other way round. Drafting first would let a
   // message be written and sent inside one firing, and the hour in which it could
