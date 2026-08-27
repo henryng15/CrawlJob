@@ -125,6 +125,25 @@ console.log('eligibility — how many people this application earns');
   run('a stage past Applied means a human contact already exists', () => {
     assert.strictEqual(want(app('1', 'A', 'r', day(2026, 8, 1), 'Interview')).count, 0);
   });
+  run('Completed OA qualifies — finished work, nobody assigned to it', () => {
+    assert.strictEqual(want(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA'), none, 5, 5).count, 3);
+  });
+  run('OA itself does not: the assessment is still owed', () => {
+    const out = want(app('1', 'A', 'r', day(2026, 8, 1), 'OA'));
+    assert.strictEqual(out.count, 0);
+    assert.match(out.why, /process is OA/);
+  });
+  run('moving Applied to Completed OA continues the wave, it does not restart it', () => {
+    // Two people already written to under Applied. The stage changing is the same
+    // application further along, so the third is attempt 3 — not a fresh attempt 1
+    // that would put a second first email in front of someone already contacted.
+    const spent = [
+      { property: '1', status: 'Sent', sentAt: day(2026, 8, 10), fingerprint: 'x' },
+      { property: '1', status: 'Sent', sentAt: day(2026, 8, 11), fingerprint: 'y' }
+    ];
+    const out = want(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA'), spent, 5, 5);
+    assert.strictEqual(out.from, 3);
+  });
   run('a blank Role cannot be written into a sentence', () => {
     assert.strictEqual(want(app('1', 'A', '', day(2026, 8, 1))).count, 0);
   });
@@ -616,11 +635,22 @@ console.log('the message');
     assert.strictEqual(new Set(subjects).size, 10);
     subjects.forEach((line) => assert.ok(line.length <= 60, line));
   });
-  run('every variation names two bullets that exist', () => {
+  run('every variation names one bullet that exists', () => {
     Object.keys(S.VARIANTS).forEach((key) => {
       const v = S.VARIANTS[key];
-      assert.strictEqual(v.bullets.length, 2);
-      v.bullets.forEach((b) => assert.ok(S.RESUME_BULLETS[b], key + ' -> ' + b));
+      assert.strictEqual(typeof v.bullet, 'string');
+      assert.ok(S.RESUME_BULLETS[v.bullet], key + ' -> ' + v.bullet);
+    });
+  });
+  // The ceilings the template is documented to hold: 20 words a bullet, 25 an
+  // ask. They are asserted here rather than trusted, because the whole point of
+  // the rewrite was length and nothing else in the file measures it.
+  run('no bullet runs past twenty words, and no ask past twenty-five', () => {
+    const words = (t) => t.replace(/\*\*/g, '').split(/\s+/).filter(Boolean).length;
+    Object.keys(S.VARIANTS).forEach((key) => {
+      const v = S.VARIANTS[key];
+      assert.ok(words(S.RESUME_BULLETS[v.bullet]) <= 20, key + ' bullet');
+      assert.ok(words(v.ask) <= 25, key + ' ask');
     });
   });
 
@@ -665,7 +695,7 @@ console.log('the message');
     assert.ok(!/[\u2014\u2013]/.test(mail.html));
   });
   run('the ask carries its own bold, so the eye lands on it', () => {
-    assert.ok(mail.html.split('<b>The ask:</b>')[1].indexOf('<b>take a look at my application</b>') !== -1);
+    assert.ok(mail.html.split('<b>The ask:</b>')[1].indexOf('<b>take a quick look at my application</b>') !== -1);
   });
   run('an em dash in the angle becomes two sentences, not a long breath', () => {
     const split = S.outreachNoDashes_('systems fail loudly — at Vietcombank I shipped it');
@@ -681,15 +711,15 @@ console.log('the message');
   });
   run('every bullet stays short enough to be read at a glance', () => {
     mail.plain.split('\n').filter((l) => l.startsWith('  - ')).forEach((line) => {
-      assert.ok(line.split(/\s+/).length <= 26, line);
+      assert.ok(line.split(/\s+/).length <= 22, line);
     });
   });
   run('only the first name is used', () => {
     assert.match(mail.plain, /^Hi Julie,/);
   });
-  run('four intro bullets: who I am, what I applied to, then two results', () => {
+  run('three intro bullets: who I am, what I applied to, then one result', () => {
     const intro = mail.html.split('<b>Quick intro:</b>')[1].split('</ul>')[0];
-    assert.strictEqual((intro.match(/<li>/g) || []).length, 4);
+    assert.strictEqual((intro.match(/<li>/g) || []).length, 3);
   });
   run('the reason is two bullets, not a paragraph', () => {
     const why = mail.html.split('reaching out:</b></p>')[1].split('</ul>')[0];
@@ -723,6 +753,44 @@ console.log('the message');
   run('with no hook or angle the Why section is left out, not left empty', () => {
     assert.ok(stale.html.indexOf('reaching out:') === -1);
     assert.ok(stale.plain.indexOf('reaching out:') === -1);
+  });
+
+  const cleared = S.outreachCompose_({
+    variant: 'application', role: 'SWE Intern', recruiterName: 'Sam',
+    dateApplied: day(2026, 8, 4), today, process: 'Completed OA',
+    formatDate: (d) => 'Aug ' + d.getDate()
+  });
+  run('an application that cleared its assessment says so, in the same bullet', () => {
+    const second = cleared.plain.split('Quick intro:\n')[1].split('\n')[1];
+    assert.strictEqual(
+      second,
+      '  - Applied for the SWE Intern role on Aug 4 and have since completed the '
+        + 'online assessment.');
+  });
+  run('the assessment clause carries no date of its own', () => {
+    // The day the OA was submitted is not in the App tab, and Date Applied is not
+    // it. Naming one would mean inventing it.
+    const bullet = cleared.plain.split('completed the online assessment')[1].split('\n')[0];
+    assert.strictEqual(bullet, '.');
+  });
+  run('a stale application that cleared its assessment drops the date, not the clause', () => {
+    const old = S.outreachCompose_({
+      variant: 'application', role: 'SWE Intern', recruiterName: 'Sam',
+      dateApplied: day(2026, 5, 1), today, process: 'Completed OA',
+      formatDate: (d) => 'May ' + d.getDate()
+    });
+    assert.ok(old.plain.indexOf('May 1') === -1);
+    assert.match(
+      old.plain,
+      /Applied for the SWE Intern role earlier this year and have since completed the online assessment\./);
+  });
+  run('an Applied row is unchanged — no assessment it has not taken', () => {
+    assert.ok(mail.plain.indexOf('online assessment') === -1);
+    assert.ok(stale.plain.indexOf('online assessment') === -1);
+  });
+  run('the clause is bold-free, so it cannot be mistaken for the role', () => {
+    assert.ok(cleared.html.indexOf('<b>SWE Intern</b>') !== -1);
+    assert.ok(cleared.html.indexOf('<b>online assessment</b>') === -1);
   });
 
   const nasty = S.outreachCompose_({
@@ -925,6 +993,15 @@ console.log('reading a rejection out of the mailbox');
       msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
     assert.strictEqual(target.app, null);
   });
+  run('a rejection after a finished assessment still finds its row', () => {
+    // The stage that most often gets a rejection is the one just after an OA.
+    // Miss it here and the queue keeps writing to a company that has said no.
+    const row = opening('1', 'Stripe', 'SWE Intern');
+    row.process = 'Completed OA';
+    const target = S.outreachRejectionTarget_(
+      msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
+    assert.strictEqual(target.app.property, '1');
+  });
   run('a company nobody applied to is left alone', () => {
     const target = S.outreachRejectionTarget_(
       msg('Notion <no-reply@greenhouse.io>', 'Your application to Notion'),
@@ -1060,6 +1137,550 @@ console.log('the sending window');
   });
 }
 
+console.log('the Priority tick — asked for by hand goes first');
+{
+  const queued = (n, company, role, applied, over) => qrow(Object.assign({
+    rowNumber: n, status: 'Queued', company, role, sentAt: null,
+    dateApplied: applied, eligibleAt: day(2026, 8, 1), priority: false
+  }, over || {}));
+  const monday = day(2026, 8, 24);
+  const friday3pm = new Date(2026, 7, 21, 15);   // Friday caps at 10
+
+  run('a tick moves its own row past an older application', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 15), { priority: true }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '2,3');
+  });
+  run('with nothing ticked the order is unchanged — oldest application first', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 15)),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+  run('one tick lifts the other attempts at the same company and role', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'Software Engineer Intern', day(2026, 8, 15), { priority: true }),
+      queued(4, 'Stripe', 'Software Engineering Internship', day(2026, 8, 16)),
+      queued(5, 'Stripe Inc.', 'Software Engineer, Intern - Seattle, WA', day(2026, 8, 17))
+    ];
+    // 3 is ticked; 4 and 5 ride on it through the same employer and role tests the
+    // one-posting-one-wave rule uses — the legal form and the location are dropped
+    // before either is compared — and only then does the old Acme row follow.
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,4,5,2');
+  });
+  run('a tick does not reach an abbreviation the role matcher has never folded', () => {
+    // "SWE Intern" and "Software Engineer Intern" share only the word intern, which
+    // is a quarter of their words against a ROLE_MATCH of 0.6. This is not new here:
+    // the one-posting-one-wave rule has always read them as two postings, and a tick
+    // grouping them would be a second, looser idea of what one job is. Worth pinning
+    // so it is a decision rather than a surprise the day somebody ticks the wrong one.
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20)),
+      queued(3, 'Stripe', 'Software Engineer Intern', day(2026, 8, 15), { priority: true })
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+  run('a tick does not lift a different role at the same company', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'Data Scientist Intern', day(2026, 8, 15)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 16), { priority: true })
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,2,3');
+  });
+  run('a tick on a row that has already gone still lifts the ones behind it', () => {
+    const rows = [
+      qrow({ rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+             sentAt: day(2026, 8, 3), priority: true }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 20))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,3');
+  });
+  run('within one tick group the oldest application still leads', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20), { priority: true }),
+      queued(3, 'Stripe', 'SWE Intern', day(2026, 7, 2))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,2');
+  });
+
+  run('a tick does not make a row eligible before its wait is over', () => {
+    const early = queued(2, 'Stripe', 'SWE Intern', day(2026, 8, 20), {
+      priority: true, eligibleAt: day(2026, 9, 30)
+    });
+    assert.strictEqual(S.outreachDueNow_([early], friday3pm).length, 0);
+  });
+  run('a tick does not raise the day cap — it decides who gets the slots', () => {
+    const rows = [];
+    for (let i = 0; i < 30; i++) {
+      rows.push(queued(i + 2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true }));
+    }
+    // Friday caps at 10, and 15:00 leaves two writing firings: five, ticked or not.
+    assert.strictEqual(S.outreachDueNow_(rows, friday3pm).length, 5);
+  });
+  run('a tick cannot send at the weekend', () => {
+    const row = queued(2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true });
+    assert.strictEqual(S.outreachDueNow_([row], new Date(2026, 7, 22, 10)).length, 0);
+  });
+
+  run('the projection shows the tick, so the date on the row is the date it lands on', () => {
+    const rows = [];
+    for (let i = 0; i < 20; i++) rows.push(queued(i + 2, 'Acme', 'SWE Intern', day(2026, 6, 1)));
+    rows.push(queued(30, 'Stripe', 'SWE Intern', day(2026, 8, 20), { priority: true }));
+    const plan = S.outreachProjectSchedule_(rows, monday);
+    // Twenty older rows against a Monday cap of 15 would have put Stripe on Tuesday.
+    assert.strictEqual(plan[0].rowNumber, 30);
+    assert.strictEqual(S.outreachDaysBetween_(monday, plan[0].sendAt), 0);
+  });
+  run('a ticked row that is not yet eligible is still projected for its own day', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe', 'SWE Intern', day(2026, 8, 20),
+             { priority: true, eligibleAt: day(2026, 8, 27) })
+    ];
+    const plan = S.outreachProjectSchedule_(rows, monday);
+    const stripe = plan.filter((p) => p.rowNumber === 3)[0];
+    assert.strictEqual(S.outreachDaysBetween_(day(2026, 8, 27), stripe.sendAt), 0);
+  });
+
+  run('TRUE, yes and x all count as ticked, because people type them', () => {
+    ['TRUE', 'true', 'yes', 'Y', 'x', '1', true].forEach((value) => {
+      assert.ok(S.outreachTicked_(value), JSON.stringify(value));
+    });
+  });
+  run('an empty box, FALSE and stray text are not a tick', () => {
+    ['', '  ', 'FALSE', 'false', 'no', 'later', null, undefined, false, 0].forEach((value) => {
+      assert.ok(!S.outreachTicked_(value), JSON.stringify(value));
+    });
+  });
+  run('Done reads as a tick, because a retired one still has to lift the queue', () => {
+    ['Done', 'done', '  Done  '].forEach((v) => assert.ok(S.outreachTicked_(v), JSON.stringify(v)));
+  });
+  run('parsing keeps both the reading and the raw word', () => {
+    const raw = new Array(S.Q_WIDTH).fill('');
+    raw[S.Q_PRIORITY - 1] = 'Done';
+    const parsed = S.outreachParseQueue_(raw, 0);
+    assert.strictEqual(parsed.priority, true);
+    assert.strictEqual(parsed.priorityText, 'Done');
+  });
+  run('a retired tick lifts the ones behind it exactly as the tick it replaced did', () => {
+    // The same arrangement as the sent-tick test above, with the tick already
+    // retired. This is the regression the word is capable of causing: read as
+    // false, Stripe row 4 would fall behind the older Acme application.
+    const rows = [
+      qrow({ rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+             sentAt: day(2026, 8, 3), priority: true, priorityText: 'Done' }),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Stripe', 'SWE Intern', day(2026, 8, 20))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '4,3');
+  });
+
+  const gone = (over) => qrow(Object.assign({
+    rowNumber: 2, company: 'Stripe', role: 'SWE Intern', status: 'Sent',
+    sentAt: day(2026, 8, 3), priority: true, priorityText: 'TRUE'
+  }, over || {}));
+
+  run('a tick whose email has gone is retired to Done', () => {
+    assert.strictEqual(S.outreachPrioritiesToRetire_([gone()]).length, 1);
+  });
+  run('Done is not written over Done on every firing', () => {
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priorityText: 'Done' })]).length, 0);
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priorityText: '  Done  ' })]).length, 0);
+  });
+  run('a tick still waiting to go stays a tick', () => {
+    // Nothing has left a Queued or Drafted row, so the request is still live.
+    ['Queued', 'Drafted'].forEach((status) => {
+      assert.strictEqual(
+        S.outreachPrioritiesToRetire_([gone({ status: status, sentAt: null })]).length, 0, status);
+    });
+  });
+  run('a row nobody ticked is never marked Done', () => {
+    // Done reads as ticked, so writing it here would enrol every sent row in the
+    // priority groups — the feature inverted rather than extended.
+    assert.strictEqual(
+      S.outreachPrioritiesToRetire_([gone({ priority: false, priorityText: 'FALSE' })]).length, 0);
+  });
+
+  run('the tick is read off the last column of the row', () => {
+    const row = new Array(S.Q_WIDTH).fill('');
+    row[S.Q_PRIORITY - 1] = true;
+    assert.strictEqual(S.outreachParseQueue_(row, 0).priority, true);
+  });
+  run('a row appended by the worker is unticked, not blank', () => {
+    const values = S.outreachQueueRowValues_({
+      id: 'P1-A1', property: '1', company: 'Acme', role: 'SWE Intern',
+      dateApplied: day(2026, 8, 1), attempt: 1, status: 'Queued', mode: 'Send',
+      fingerprint: 'abc', recruiters: 3
+    });
+    assert.strictEqual(values.length, S.Q_WIDTH);
+    assert.strictEqual(values[S.Q_PRIORITY - 1], false);
+  });
+}
+
+console.log('the Priority column opens itself, because the schema and the code move together');
+{
+  const header = (at10) => {
+    const row = new Array(S.Q_WIDTH).fill('');
+    row[9] = at10;
+    return row;
+  };
+  run('a tab that already has the column is left alone', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('Priority')), 'ready');
+  });
+  run('a tab still on the old layout is migrated', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('Status')), 'insert');
+  });
+  run('a header nobody recognises is refused rather than shifted blind', () => {
+    // Shifting a rearranged tab would put every row under the wrong name, and the
+    // sender would then read Status out of whatever landed in column 11.
+    assert.throws(() => S.outreachPriorityColumnAction_(header('Mode')), /"Mode"/);
+    assert.throws(() => S.outreachPriorityColumnAction_(header('')), /""/);
+    assert.throws(() => S.outreachPriorityColumnAction_([]), /""/);
+  });
+  run('surrounding whitespace in a header is not a different tab', () => {
+    assert.strictEqual(S.outreachPriorityColumnAction_(header('  Priority ')), 'ready');
+    assert.strictEqual(S.outreachPriorityColumnAction_(header(' Status')), 'insert');
+  });
+  run('the column it guards is the one left of Status', () => {
+    assert.strictEqual(S.Q_PRIORITY, 10);
+    assert.strictEqual(S.Q_STATUS, 11);
+    assert.strictEqual(S.Q_WIDTH, 20);
+  });
+}
+
+console.log('the table reads in the order things go out');
+{
+  const at = (y, m, d, h) => new Date(y, m - 1, d, h, 0, 0);
+  const timed = (company, sched, drafted) => {
+    const r = new Array(S.Q_WIDTH).fill('');
+    r[0] = company;
+    if (sched !== undefined) r[S.Q_SCHEDULED - 1] = sched;
+    if (drafted !== undefined) r[S.Q_DRAFTED_AT - 1] = drafted;
+    return r;
+  };
+  const order = (rows) => S.outreachTimeOrder_(rows).map((r) => r[0]);
+  const header = new Array(S.Q_WIDTH).fill('h');
+  // Only what the sorter touches: the block below owns the fuller stub.
+  const sheetOf = (rows) => {
+    const seen = { written: null, writes: 0 };
+    return {
+      seen,
+      getLastRow: () => rows.length,
+      getRange: (r, c, nr) => ({
+        getValues: () => rows.slice(r - 1, r - 1 + nr),
+        setValues: (v) => { seen.written = v; seen.writes++; }
+      })
+    };
+  };
+
+  run('rows are filed by the hour they go out', () => {
+    assert.deepStrictEqual(
+      order([timed('C', at(2026, 9, 2, 15)), timed('A', at(2026, 8, 25, 10)),
+             timed('B', at(2026, 8, 27, 9))]),
+      ['A', 'B', 'C']);
+  });
+  run('an already sent row sits at its own hour, not where it was queued', () => {
+    // Capital One went on the 25th but was appended after everything else.
+    assert.deepStrictEqual(
+      order([timed('Humana', at(2026, 9, 2, 9)), timed('Capital One', at(2026, 8, 25, 10))]),
+      ['Capital One', 'Humana']);
+  });
+  run('Drafted At carries a row that has no Scheduled At yet', () => {
+    assert.deepStrictEqual(
+      order([timed('later', at(2026, 9, 2, 9)),
+             timed('earlier', undefined, at(2026, 8, 25, 9))]),
+      ['earlier', 'later']);
+  });
+  run('a row with no time at all sinks, and keeps its neighbours in order', () => {
+    assert.deepStrictEqual(
+      order([timed('cancelled'), timed('also cancelled'), timed('real', at(2026, 9, 2, 9))]),
+      ['real', 'cancelled', 'also cancelled']);
+  });
+  run('rows sharing an hour keep the order they arrived in', () => {
+    const h = at(2026, 9, 2, 9);
+    assert.deepStrictEqual(
+      order([timed('one', h), timed('two', h), timed('three', h)]),
+      ['one', 'two', 'three']);
+  });
+  run('a table already in order is left exactly as it is', () => {
+    const rows = [timed('A', at(2026, 8, 25, 9)), timed('B', at(2026, 8, 26, 9))];
+    const out = S.outreachTimeOrder_(rows);
+    assert.strictEqual(out[0], rows[0]);
+    assert.strictEqual(out[1], rows[1]);
+  });
+  run('nothing is written when nothing moved', () => {
+    const sheet = sheetOf([header, timed('A', at(2026, 8, 25, 9)),
+                           timed('B', at(2026, 8, 26, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 0);
+    assert.strictEqual(sheet.seen.writes, 0);
+  });
+  run('an out-of-order table is rewritten once, in order', () => {
+    const sheet = sheetOf([header, timed('late', at(2026, 9, 2, 9)),
+                           timed('early', at(2026, 8, 25, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 2);
+    assert.strictEqual(sheet.seen.writes, 1);
+    assert.deepStrictEqual(sheet.seen.written.map((r) => r[0]), ['early', 'late']);
+  });
+  run('a table too short to have an order is left alone', () => {
+    const sheet = sheetOf([header, timed('only', at(2026, 8, 25, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 0);
+    assert.strictEqual(sheet.seen.writes, 0);
+  });
+}
+
+console.log('a tick is answered when it is made, not an hour later');
+{
+  // getColumn is the first column of the edited block and getLastColumn the last,
+  // which is how paste and fill-down arrive.
+  const edit = (col, lastCol, row, lastRow) => ({
+    getColumn: () => col,
+    getLastColumn: () => lastCol === undefined ? col : lastCol,
+    getLastRow: () => lastRow === undefined ? row : lastRow
+  });
+  const touches = (tab, range) => S.outreachEditTouchesPriority_(tab, range);
+
+  run('ticking a Priority cell on a data row is worth reprojecting', () => {
+    assert.ok(touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+  });
+  run('an edit one column either side of Priority is not', () => {
+    assert.ok(!touches('Email', edit(S.Q_STATUS, S.Q_STATUS, 5)));
+    assert.ok(!touches('Email', edit(S.Q_PRIORITY - 1, S.Q_PRIORITY - 1, 5)));
+  });
+  run('the same cell on another tab is not', () => {
+    assert.ok(!touches('App', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+    assert.ok(!touches('Jobs', edit(S.Q_PRIORITY, S.Q_PRIORITY, 5)));
+  });
+  run('the header is not a data row, so renaming the column reprojects nothing', () => {
+    assert.ok(!touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 1, 1)));
+  });
+  // A paste across the row covers Priority without starting or ending on it, which
+  // an equality test would miss.
+  run('a paste spanning the row counts, because it covers Priority', () => {
+    assert.ok(touches('Email', edit(1, S.Q_WIDTH, 2, 40)));
+  });
+  run('a paste that stops short of Priority does not', () => {
+    assert.ok(!touches('Email', edit(1, S.Q_PRIORITY - 1, 2, 40)));
+  });
+  // Fill-down from the header downwards still reaches data rows.
+  run('a block starting at the header but reaching data rows counts', () => {
+    assert.ok(touches('Email', edit(S.Q_PRIORITY, S.Q_PRIORITY, 1, 9)));
+  });
+}
+
+console.log('the table stays one block — no gap between the rows and the new ones');
+{
+  const H = new Array(S.Q_WIDTH).fill('h');
+  const full = (company) => { const r = new Array(S.Q_WIDTH).fill(''); r[0] = company; return r; };
+  // A blank row wearing checkbox validation: Sheets counts it as content for
+  // getLastRow, which is the whole bug, but the cells themselves are empty.
+  const blank = () => new Array(S.Q_WIDTH).fill('');
+  // The result objects carry the vm realm's prototype, so compare shape as text.
+  const gaps = (rows) => JSON.stringify(S.outreachQueueGaps_(rows));
+
+  run('a table with no gap is left alone', () => {
+    assert.strictEqual(gaps([H, full('Acme'), full('Stripe')]), '[]');
+  });
+  run('the block between the old rows and the appended ones is found, as sheet rows', () => {
+    // header, Acme(2), Stripe(3), blank(4), blank(5), Capital One(6)
+    assert.strictEqual(
+      gaps([H, full('Acme'), full('Stripe'), blank(), blank(), full('Capital One')]),
+      '[{"start":4,"count":2}]');
+  });
+  run('blank rows below the last real row are not touched — the sheet may keep spares', () => {
+    assert.strictEqual(gaps([H, full('Acme'), blank(), blank()]), '[]');
+  });
+  run('several gaps come back bottom-up, so deleting them in order stays correct', () => {
+    assert.strictEqual(
+      gaps([H, full('A'), blank(), full('B'), blank(), blank(), full('C')]),
+      '[{"start":5,"count":2},{"start":3,"count":1}]');
+  });
+  run('an unticked box is not content — it is what a blank row wearing one reads as', () => {
+    // Sheets returns false, not '', for a checkbox cell nobody has touched. Reading
+    // that as content is what made the first version of this find no gap and do
+    // nothing at all, so it is pinned here rather than left to be rediscovered.
+    const box = new Array(S.Q_WIDTH).fill('');
+    box[S.Q_PRIORITY - 1] = false;
+    assert.ok(!S.outreachRowHasContent_(box));
+    assert.ok(!S.outreachRowHasContent_(blank()));
+  });
+  run('a ticked box is content, so a row somebody marked is never deleted', () => {
+    const box = new Array(S.Q_WIDTH).fill('');
+    box[S.Q_PRIORITY - 1] = true;
+    assert.ok(S.outreachRowHasContent_(box));
+  });
+  run('the gap is found even when every blank row wears an unticked box', () => {
+    const boxed = () => { const r = new Array(S.Q_WIDTH).fill(''); r[S.Q_PRIORITY - 1] = false; return r; };
+    assert.strictEqual(
+      gaps([H, full('Acme'), boxed(), boxed(), full('Capital One')]),
+      '[{"start":3,"count":2}]');
+  });
+  run('an empty table has no gaps rather than one enormous one', () => {
+    assert.strictEqual(gaps([H]), '[]');
+    assert.strictEqual(gaps([H, blank(), blank()]), '[]');
+  });
+  // The live Email tab sat like this for days. refreshOutreachSchedule rewrites
+  // Recruiters across every row getLastRow admits to, so each blank row in the gap
+  // carried a literal 0. 0 === false is false, so the emptiness test read all eight
+  // hundred and seventy of them as occupied and the repair found nothing to do.
+  run('a zero left by the recruiter count is not content', () => {
+    const zeroed = new Array(S.Q_WIDTH).fill('');
+    zeroed[S.Q_RECRUITERS - 1] = 0;
+    assert.ok(!S.outreachRowHasContent_(zeroed));
+  });
+  run('the gap is found when every blank row carries a zero and an unticked box', () => {
+    const stamped = () => {
+      const r = new Array(S.Q_WIDTH).fill('');
+      r[S.Q_RECRUITERS - 1] = 0;
+      r[S.Q_PRIORITY - 1] = false;
+      return r;
+    };
+    assert.strictEqual(
+      gaps([H, full('Acme'), stamped(), stamped(), stamped(), full('Goldman Sachs')]),
+      '[{"start":3,"count":3}]');
+  });
+  // A sheet stub thin enough to be obviously right: it records what was deleted
+  // and what was dressed, and splices its own rows so a deletion is visible to the
+  // call that follows it.
+  const fakeQueue = (rows) => {
+    const calls = { deleted: [], formatted: [], validated: [], rules: [] };
+    const sheet = {
+      getLastRow: () => rows.length,
+      getRange(r, c, nr) {
+        return {
+          getColumn: () => c,
+          getValues: () => rows.slice(r - 1, r - 1 + nr),
+          setDataValidation(v) { calls.validated.push([c, nr, v]); return this; },
+          setNumberFormat(f) { calls.formatted.push([c, nr, f]); return this; }
+        };
+      },
+      deleteRows(start, count) {
+        calls.deleted.push([start, count]);
+        rows.splice(start - 1, count);
+      },
+      getConditionalFormatRules: () => calls.rules,
+      setConditionalFormatRules(next) { calls.rules = next; }
+    };
+    return { sheet, calls, rows };
+  };
+  S.SpreadsheetApp.newDataValidation = () => {
+    const spec = { kind: null, list: null };
+    const b = {
+      requireCheckbox() { spec.kind = 'checkbox'; return b; },
+      requireValueInList(list) { spec.kind = 'list'; spec.list = list; return b; },
+      setAllowInvalid(v) { spec.allowInvalid = v; return b; },
+      build: () => spec
+    };
+    return b;
+  };
+  S.SpreadsheetApp.newConditionalFormatRule = () => {
+    const spec = { ranges: [] };
+    const b = {
+      whenTextEqualTo(t) { spec.text = t; return b; },
+      setBackground(c) { spec.bg = c; return b; },
+      setFontColor(c) { spec.fg = c; return b; },
+      setRanges(r) { spec.ranges = r; return b; },
+      build: () => ({ spec, getRanges: () => spec.ranges })
+    };
+    return b;
+  };
+  const stampedRow = () => {
+    const r = new Array(S.Q_WIDTH).fill('');
+    r[S.Q_RECRUITERS - 1] = 0;
+    r[S.Q_PRIORITY - 1] = false;
+    return r;
+  };
+
+  run('the gap is closed and what is left is dressed', () => {
+    const q = fakeQueue([H, full('Acme'), stampedRow(), stampedRow(), full('Capital One')]);
+    const removed = S.outreachRepairQueueLayout_(q.sheet);
+    assert.strictEqual(removed, 2);
+    assert.deepStrictEqual(q.calls.deleted, [[3, 2]]);
+    assert.strictEqual(q.rows.length, 3);
+    assert.strictEqual(q.rows[2][0], 'Capital One');
+  });
+  // Capital One and Goldman Sachs showed a date and no hour for days because the
+  // only path that set the format was the one behind a deletion, and no deletion
+  // was ever found. Dressing has to happen on a clean table too.
+  run('rows are dressed even when there is no gap to close', () => {
+    const q = fakeQueue([H, full('Acme'), full('Goldman Sachs')]);
+    assert.strictEqual(S.outreachRepairQueueLayout_(q.sheet), 0);
+    assert.deepStrictEqual(q.calls.deleted, []);
+    const columns = q.calls.formatted.map((f) => f[0]).sort((a, b) => a - b);
+    assert.deepStrictEqual(columns, [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
+    q.calls.formatted.forEach((f) => assert.strictEqual(f[2], S.QUEUE_TIMESTAMP_FORMAT));
+    assert.ok(q.calls.validated.length > 0);
+  });
+  run('an appended row is dressed on the very next cycle', () => {
+    const q = fakeQueue([H, full('Acme')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    q.rows.push(full('Goldman Sachs'));
+    q.calls.formatted.length = 0;
+    S.outreachRepairQueueLayout_(q.sheet);
+    // Two data rows now, so the dressed range has to have grown to cover both.
+    assert.deepStrictEqual(q.calls.formatted.map((f) => f[1]), [2, 2, 2]);
+  });
+
+  run('Status and Mode are dressed as dropdowns, not left as bare text', () => {
+    const q = fakeQueue([H, full('Acme'), full('Capital One')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    const byColumn = {};
+    q.calls.validated.forEach(([c, nr, v]) => { byColumn[c] = [nr, v]; });
+    assert.deepStrictEqual(byColumn[S.Q_STATUS][1].list, S.QUEUE_STATUSES);
+    assert.deepStrictEqual(byColumn[S.Q_MODE][1].list, S.QUEUE_MODES);
+    // Two data rows, so the dropdown has to reach both of them.
+    assert.strictEqual(byColumn[S.Q_STATUS][0], 2);
+    assert.strictEqual(byColumn[S.Q_MODE][0], 2);
+    assert.strictEqual(byColumn[S.Q_PRIORITY][1].kind, 'checkbox');
+  });
+  run('the dropdown offers exactly the statuses the sender can write', () => {
+    // Compared as text: arrays built inside the vm carry that realm's prototype.
+    assert.strictEqual(JSON.stringify(S.QUEUE_STATUSES), JSON.stringify([
+      S.STATUS_QUEUED, S.STATUS_DRAFTED, S.STATUS_SENT, S.STATUS_REPLIED,
+      S.STATUS_BOUNCED, S.STATUS_CANCELLED, S.STATUS_FAILED]));
+    assert.strictEqual(JSON.stringify(S.QUEUE_MODES),
+                       JSON.stringify([S.MODE_DRAFT, S.MODE_SEND]));
+    S.QUEUE_STATUS_COLOURS.concat(S.QUEUE_MODE_COLOURS).forEach((entry) => {
+      assert.ok(S.QUEUE_STATUSES.concat(S.QUEUE_MODES).indexOf(entry.name) !== -1,
+        entry.name + ' is painted but is not a value the dropdown offers');
+    });
+  });
+  run('the colour rules are rebuilt over the rows that exist', () => {
+    const q = fakeQueue([H, full('Acme'), full('Capital One')]);
+    S.outreachRepairQueueLayout_(q.sheet);
+    const columns = q.calls.rules.map((r) => r.getRanges()[0].getColumn());
+    assert.strictEqual(columns.filter((c) => c === S.Q_STATUS).length,
+                       S.QUEUE_STATUS_COLOURS.length);
+    assert.strictEqual(columns.filter((c) => c === S.Q_MODE).length,
+                       S.QUEUE_MODE_COLOURS.length);
+    // Run twice: the rules are replaced, never stacked.
+    S.outreachRepairQueueLayout_(q.sheet);
+    assert.strictEqual(q.calls.rules.length,
+      S.QUEUE_STATUS_COLOURS.length + S.QUEUE_MODE_COLOURS.length);
+  });
+  run('a real row whose company has zero recruiters is still a real row', () => {
+    const r = full('Acme');
+    r[S.Q_RECRUITERS - 1] = 0;
+    r[S.Q_PRIORITY - 1] = false;
+    assert.ok(S.outreachRowHasContent_(r));
+  });
+}
+
 console.log('written an hour early, so there is an hour to read it in');
 {
   const at = (h) => new Date(2026, 7, 24, h, 0, 0);      // Monday 24 Aug 2026
@@ -1099,6 +1720,37 @@ console.log('written an hour early, so there is an hour to read it in');
     // The selector still offers it; sendPreparedDrafts finds no draft behind the
     // id and marks the row Cancelled. That is the whole review mechanism.
     assert.strictEqual(S.outreachDraftsToSend_([row({})], at(12)).length, 1);
+  });
+
+  run('the hour a draft leaves in is the top of the hour, not the minute it was written', () => {
+    // The trigger fires at a minute Google picks. Scheduling for exactly one hour
+    // after an 12:05 write puts the target at 13:05, which a 13:03 firing arrives
+    // before — so the row waits until 14:03 with nothing on it saying why.
+    const written = new Date(2026, 7, 24, 12, 5, 30);
+    const goes = S.outreachSendHourAfter_(written);
+    assert.strictEqual(goes.getHours(), 13);
+    assert.strictEqual(goes.getMinutes(), 0);
+    assert.strictEqual(goes.getSeconds(), 0);
+  });
+  run('a firing that arrives early in the hour still sends what that hour is for', () => {
+    const goes = S.outreachSendHourAfter_(new Date(2026, 7, 24, 12, 5, 30));
+    const firing = new Date(2026, 7, 24, 13, 2, 0);
+    assert.strictEqual(S.outreachDraftsToSend_([row({ scheduledAt: goes })], firing).length, 1);
+  });
+  run('the last minute of an hour still leaves in the next one, not the one after', () => {
+    const goes = S.outreachSendHourAfter_(new Date(2026, 7, 24, 12, 59, 0));
+    assert.strictEqual(goes.getHours(), 13);
+  });
+
+  run('the global switch holds a row back even when its own Mode says Send', () => {
+    // This is the rollout switch. It was read only where drafts were written, so
+    // it changed the wording of the Result column and let every Send row go.
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), 'Draft').length, 0);
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), 'Send').length, 1);
+    assert.strictEqual(S.outreachDraftsToSend_([row({})], at(11), '').length, 1);
+  });
+  run('the global switch can only be more cautious than the row, never less', () => {
+    assert.strictEqual(S.outreachDraftsToSend_([row({ mode: 'Draft' })], at(11), 'Send').length, 0);
   });
 }
 
@@ -1232,7 +1884,7 @@ console.log('a reply does not call off the rest');
       people, today, SALT);
     assert.strictEqual(out.planned.length, 0);
   });
-  run('what does stop everything is Process moving off Applied', () => {
+  run('what does stop everything is Process leaving the qualifying set', () => {
     assert.ok(!S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Rejected')).ok);
   });
 }
@@ -1253,6 +1905,34 @@ console.log('the last check before Gmail is touched');
   run('an untouched application still qualifies', () => {
     assert.ok(S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Applied')).ok);
   });
+  run('an application that finished its assessment while queued still goes', () => {
+    // The one direction a Process change does not cancel: the row was queued under
+    // Applied, and by the time it is drafted the assessment is done. Cancelling
+    // there would drop exactly the email worth sending.
+    assert.ok(S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'Completed OA')).ok);
+  });
+  run('an OA still owed cancels a row queued before it arrived', () => {
+    const out = S.outreachStillQualifies_(app('1', 'A', 'r', day(2026, 8, 1), 'OA'));
+    assert.ok(!out.ok);
+    assert.match(out.why, /Process is now OA/);
+  });
+
+  run('only the two qualifying stages qualify, and a stray space is forgiven', () => {
+    assert.ok(S.outreachQualifies_('Applied'));
+    assert.ok(S.outreachQualifies_('Completed OA'));
+    assert.ok(S.outreachQualifies_('  Completed OA '));
+    ['OA', 'Interview', 'Offer', 'Rejected', '', null, undefined].forEach((value) => {
+      assert.ok(!S.outreachQualifies_(value), String(value));
+    });
+  });
+  run('a spelling the dropdown cannot produce is not guessed at', () => {
+    // Column F is locked to the list, so anything else reached the sheet by some
+    // other route. Sending is the irreversible half of this system: fall through
+    // to "does not qualify" rather than decide what the writer meant.
+    assert.ok(!S.outreachQualifies_('completed oa'));
+    assert.ok(!S.outreachQualifies_('Completed  OA'));
+    assert.ok(!S.outreachQualifies_('OA Completed'));
+  });
 
   run('the global switch can hold a Send row back to a draft', () => {
     assert.strictEqual(S.outreachModeFor_('Send', 'Draft'), 'Draft');
@@ -1272,6 +1952,69 @@ console.log('the last check before Gmail is touched');
   });
   run('a fingerprint whose contact has been deleted resolves to nothing', () => {
     assert.strictEqual(S.outreachContactByFingerprint_([], 'deadbeef', SALT), null);
+  });
+}
+
+console.log('the two tabs are reconciled, not just the ones a rejection email closed');
+{
+  run('a hand-ticked Rejected cancels the rows the email scanner never saw', () => {
+    // Belvedere Trading, 24 August 2026. Marked Rejected by hand because the
+    // refusal went to nguyen15@kenyon.edu, which this project cannot read; three
+    // days later its three rows were still Queued with a send time each.
+    const apps = [app('84', 'Belvedere Trading', 'SWE Intern', day(2026, 8, 17), 'Rejected')];
+    const rows = [
+      qrow({ rowNumber: 10, property: '84', company: 'Belvedere Trading', status: 'Queued' }),
+      qrow({ rowNumber: 11, property: '84', company: 'Belvedere Trading', status: 'Queued' }),
+      qrow({ rowNumber: 12, property: '84', company: 'Belvedere Trading', status: 'Queued' })
+    ];
+    const stale = S.outreachStaleQueueRows_(apps, rows);
+    assert.strictEqual(stale.length, 3);
+    assert.strictEqual(stale[0].process, 'Rejected');
+    assert.strictEqual(stale[0].company, 'Belvedere Trading');
+  });
+  run('a Drafted row is stale too — its message is already written', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    const stale = S.outreachStaleQueueRows_(apps, [qrow({ status: 'Drafted' })]);
+    assert.strictEqual(stale.length, 1);
+  });
+  run('an open application is left alone', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Applied')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('Completed OA still qualifies, so its queue survives', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Completed OA')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('a row already Sent is history and is not rewritten', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Sent' })]).length, 0);
+  });
+  run('a Cancelled row is not cancelled a second time', () => {
+    const apps = [app('1', 'Acme', 'r', day(2026, 8, 1), 'Rejected')];
+    assert.strictEqual(S.outreachStaleQueueRows_(apps, [qrow({ status: 'Cancelled' })]).length, 0);
+  });
+  run('a queue row whose application has left the tab is left alone', () => {
+    // It cannot send either — outreachStillQualifies_ refuses on a missing row —
+    // and a row absent this minute is as easily a half-finished edit as a deletion.
+    assert.strictEqual(S.outreachStaleQueueRows_([], [qrow({ status: 'Queued' })]).length, 0);
+  });
+  run('a blank property does not match every other blank property', () => {
+    const apps = [app('', '', '', null, 'Rejected')];
+    assert.strictEqual(
+      S.outreachStaleQueueRows_(apps, [qrow({ property: '', status: 'Queued' })]).length, 0);
+  });
+  run('only the closed application loses its rows', () => {
+    const apps = [
+      app('84', 'Belvedere Trading', 'r', day(2026, 8, 17), 'Rejected'),
+      app('85', 'Optiver', 'r', day(2026, 8, 18), 'Applied')
+    ];
+    const rows = [
+      qrow({ rowNumber: 10, property: '84', status: 'Queued' }),
+      qrow({ rowNumber: 11, property: '85', status: 'Queued' })
+    ];
+    const stale = S.outreachStaleQueueRows_(apps, rows);
+    assert.strictEqual(stale.length, 1);
+    assert.strictEqual(stale[0].property, '84');
   });
 }
 

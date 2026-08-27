@@ -1,0 +1,23 @@
+# clasp pushes everything under rootDir by default. These belong to the
+# repository, not to the Apps Script project: the harness is Node and the editor
+# would reject it, and the rest is documentation and clasp's own config.
+#
+# outreach/ is the other Apps Script project entirely — a standalone one owned by
+# the sending account. Without this line clasp would push the sender's six files
+# into the bound project, where they would run as the sheet owner. That is the
+# one identity the whole design exists to keep away from GmailApp.
+#
+# Both the bare and the **/ form are listed because clasp has matched only one of
+# them depending on the version.
+outreach/**
+**/outreach/**
+harness.js
+**/harness.js
+README.md
+**/README.md
+.claspignore
+**/.claspignore
+.clasp.json
+**/.clasp.json
+.clasp.json.example
+**/.clasp.json.example

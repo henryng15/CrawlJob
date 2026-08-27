@@ -56,15 +56,30 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // both are the projection; once it is written both are what happened.
 var Q_COMPANY = 1, Q_ROLE = 2, Q_DATE_APPLIED = 3, Q_PROPERTY = 4, Q_RECRUITERS = 5;
 var Q_ATTEMPT = 6, Q_TEMPLATE = 7, Q_DRAFTED_AT = 8, Q_SCHEDULED = 9;
-var Q_STATUS = 10, Q_MODE = 11, Q_FINGERPRINT = 12, Q_DRAFT_ID = 13;
-var Q_MESSAGE_ID = 14, Q_SENT_AT = 15, Q_RESULT = 16, Q_ERROR = 17;
-var Q_ID = 18, Q_VERSION = 19;
-var Q_WIDTH = 19;
+var Q_PRIORITY = 10, Q_STATUS = 11, Q_MODE = 12, Q_FINGERPRINT = 13;
+var Q_DRAFT_ID = 14, Q_MESSAGE_ID = 15, Q_SENT_AT = 16, Q_RESULT = 17;
+var Q_ERROR = 18, Q_ID = 19, Q_VERSION = 20;
+var Q_WIDTH = 20;
+
+// Priority leads Status because the two are read as one answer: whether this row
+// was asked for, and where it has got to. It is the only column here a person
+// writes to, and putting it out past the audit references would have made the one
+// column with a job for the reader the one they have to scroll to find.
+//
+// Adding it moved ten columns right, which is why migrateOutreachPriorityColumn
+// exists and why the sender must be stopped while it runs — see the note there.
+
 
 // Contacts tabs, 1-based. The manual tab stops at Email: everything past it is
 // derived, and asking for it by hand is what stops the tab being used.
 var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
 var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
+
+// How Drafted At, Scheduled At and Sent At are written. The same string as
+// OUTREACH_TIMESTAMP_FORMAT in the bound script, and it has to stay the same: a
+// row whose format was never applied falls back to a bare date, which drops the
+// hour — and the hour is the whole point of those three columns.
+var QUEUE_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 
 // ------------------------------------------------------------------- policy
 
@@ -144,9 +159,42 @@ function outreachEligibleDay_(dateApplied, attempt) {
   );
 }
 
-// Only Applied qualifies. Rejected is over; OA and past mean a human contact
-// already exists and a cold email is the wrong message on the wrong thread.
-var QUALIFYING_PROCESS = 'Applied';
+// Applied qualifies, and so does Completed OA. Rejected is over, and Interview
+// and Offer mean a human contact already exists — writing cold to a recruiter
+// there is the wrong message on the wrong thread.
+//
+// An automated assessment is not that contact. The invitation comes from Workday
+// or HackerRank, no person has read the application yet, and the silence after
+// submitting one is precisely when a recruiter is worth writing to: there is now
+// a finished piece of work sitting in their system with nobody assigned to look
+// at it.
+//
+// OA itself stays out, and the distinction is the whole point of splitting the
+// stage in two. While the assessment is owed, the email asks for attention on a
+// step the sender has not finished — the recruiter's first move would be to say
+// go and do it.
+var QUALIFYING_PROCESSES = ['Applied', 'Completed OA'];
+
+// Named on its own because outreach_compose.gs changes a sentence for it: an
+// application that has cleared an assessment says so.
+var STAGE_COMPLETED_OA = 'Completed OA';
+
+/**
+ * Whether an application's Process still admits a cold email.
+ *
+ * Trimmed but not case-folded. Column F is a locked dropdown — setAllowInvalid
+ * (false) in setup_process_dropdown.gs — so the spellings that reach here are the
+ * ones the list holds, and a value that somehow is not should fall through to
+ * "does not qualify" rather than be guessed at. Sending is the irreversible half
+ * of this system; the trim is for a stray space, not for accepting new spellings.
+ */
+function outreachQualifies_(process) {
+  var text = String(process == null ? '' : process).trim();
+  for (var i = 0; i < QUALIFYING_PROCESSES.length; i++) {
+    if (QUALIFYING_PROCESSES[i] === text) return true;
+  }
+  return false;
+}
 
 // Unverified addresses were never actually checked, and bounce rate — not
 // volume — is what gets a sending account penalised.
@@ -171,6 +219,57 @@ var STATUS_SPENDS_CONTACT = [
   STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED, STATUS_BOUNCED
 ];
 var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
+
+/**
+ * What the Status and Mode dropdowns offer, and the colours behind them.
+ *
+ * Mirrors OUTREACH_STATUS, OUTREACH_MODE and their two colour tables in the bound
+ * script's sync_applied_to_app.gs. Two Apps Script projects cannot share a file,
+ * so the lists have to agree by hand — the same arrangement COMPANY_NOISE already
+ * has with job_sync/sources.py, and a change to one has to be a change to both.
+ *
+ * The bound script paints rows 2..500 once, when the tab is built. That is why a
+ * row appended afterwards arrived as bare text: no dropdown, no colour, nothing
+ * but the string. This copy is what dresses the rows that show up later.
+ *
+ * Queued is deliberately absent from the colours: it is what most rows read most
+ * of the time, and a colour on the ordinary case is a colour that stops meaning
+ * anything.
+ */
+var QUEUE_STATUSES = [STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED,
+                      STATUS_BOUNCED, STATUS_CANCELLED, STATUS_FAILED];
+var QUEUE_MODES = [MODE_DRAFT, MODE_SEND];
+
+var QUEUE_STATUS_COLOURS = [
+  { name: STATUS_DRAFTED,   bg: '#FFF2CC', fg: '#BF9000' },
+  { name: STATUS_SENT,      bg: '#CFE2F3', fg: '#1155CC' },
+  { name: STATUS_REPLIED,   bg: '#D9EAD3', fg: '#38761D' },
+  { name: STATUS_BOUNCED,   bg: '#F4CCCC', fg: '#CC0000' },
+  { name: STATUS_FAILED,    bg: '#FCE5CD', fg: '#B45F06' },
+  { name: STATUS_CANCELLED, bg: '#EFEFEF', fg: '#999999' }
+];
+var QUEUE_MODE_COLOURS = [
+  { name: MODE_DRAFT, bg: '#FFF2CC', fg: '#BF9000' },
+  { name: MODE_SEND,  bg: '#CFE2F3', fg: '#1155CC' }
+];
+
+/**
+ * What a tick becomes once the row it is on has gone.
+ *
+ * A checkbox that stays ticked forever cannot say whether it still means
+ * anything, so the word replaces it the run after the email leaves. It is the
+ * same column because it is the same fact — this row was asked for — read at a
+ * later point in its life: blank is nobody asked, ticked is asked and waiting,
+ * Done is asked and gone.
+ *
+ * It must keep counting as ticked, and that is not cosmetic. outreachPriority-
+ * Groups_ reads the tick from the whole queue precisely so that a tick on a row
+ * that has already gone still lifts the ones behind it at the same posting —
+ * which is the normal case, because by the time a company is worth chasing its
+ * first attempt has usually left. Retiring the tick to a word that read as
+ * false would silently drop that lift, and nothing downstream would report it.
+ */
+var PRIORITY_DONE = 'Done';
 
 /**
  * Draft or send, for one row.
@@ -218,6 +317,21 @@ function setupOutreachProperties() {
   }
   Logger.log('Set these under Project Settings -> Script Properties:');
   missing.forEach(function (w) { Logger.log('  ' + w[0] + ' — ' + w[1]); });
+}
+
+/**
+ * Whether a hand-ticked cell counts as ticked.
+ *
+ * A checkbox hands back a real boolean, but the column is editable by a person in
+ * a hurry, and "TRUE", "yes" and "x" are all things a person types into a box they
+ * mean to tick. Reading only `=== true` would silently ignore every one of them,
+ * on the one column whose entire purpose is to be obeyed.
+ */
+function outreachTicked_(value) {
+  if (value === true) return true;
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'y' || text === 'x' || text === '1'
+      || text === PRIORITY_DONE.toLowerCase();
 }
 
 /** Today at midnight, so day arithmetic never trips over the clock time. */

@@ -9,6 +9,7 @@ from job_sync.sheet import (
     APPLIED,
     EXPIRED,
     HEADERS,
+    PROCESS_STAGES,
     SOURCE,
     _census,
     _divided,
@@ -656,6 +657,17 @@ def test_a_real_change_still_reads_as_a_change() -> None:
 
 def test_the_history_reads_from_the_bottom_line() -> None:
     assert _last_stage("Applied: Jul 21, 2026\nOA: Aug 1, 2026") == "oa"
+
+
+def test_completed_oa_is_read_as_its_own_stage() -> None:
+    # "OA" is a prefix of "Completed OA", and the split is on the colon rather than
+    # on the words, so the longer name survives whole. The audit compares this
+    # against Process: read loosely, a finished assessment would report as UNLOGGED
+    # on every row that has one.
+    assert _last_stage("Applied: Jul 21, 2026\nOA: Aug 1, 2026\nCompleted OA: Aug 9, 2026") == (
+        "completed oa"
+    )
+    assert "completed oa" in PROCESS_STAGES
 
 
 def test_a_hand_written_note_between_stages_is_stepped_over() -> None:

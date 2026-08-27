@@ -109,7 +109,7 @@ deleting.
 | C | Application Link | |
 | D | Date Applied | the day you ticked |
 | E | Location (State) | **always blank when generated** — the Jobs tab does not carry this |
-| F | Process | dropdown: Applied / OA / Interview / Offer / Rejected |
+| F | Process | dropdown: Applied / OA / Completed OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
 | I | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
@@ -156,6 +156,7 @@ cell, separated by line breaks (Alt+Enter):
 ```
 Applied: Jul 21, 2026
 OA: Aug 3, 2026
+Completed OA: Aug 9, 2026
 Interview: Aug 12, 2026
 ```
 
@@ -207,6 +208,7 @@ recruiter's name, email address, or drafted message into this spreadsheet.
 | Recruiters | how many contacts exist at that company, refreshed hourly |
 | Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
 | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
+| Priority | tick to move this posting to the front of the queue; a checkbox, and the only column here a person writes to |
 | Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
 | Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
 | Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
@@ -214,6 +216,34 @@ recruiter's name, email address, or drafted message into this spreadsheet.
 
 All rows start empty. The future queue worker will be the only automation allowed to create or
 move them; until then this tab is safe to inspect and format manually.
+
+`Priority` leads `Status` because the two read as one answer: whether this row was asked for, and
+where it has got to.
+
+A tab built before the column existed opens it by itself. `outreachEnsurePriorityColumn_` is the
+first thing `runOutreachCycle` does, before anything reads the queue and outside the per-step
+isolation, so either the layout is right or the run stops without touching a row. It is the sender
+that migrates rather than a button somebody presses because the schema and the code have to change
+together: a tab on the old layout read by the new constants has `Status` where `Mode` should be, so
+no row matches any status, no row counts as having spent a contact, and the next enqueue writes a
+second cold email to people already written to. Deploying the sender is the whole migration, and
+there is no window in between.
+
+`setupOutreachQueue` cannot do this itself — it refuses to write `Priority` over a header that says
+`Status`, which is the guard doing its job. `migrateOutreachPriorityColumn` in the bound script is
+the manual equivalent, for a tab being brought up to the current layout by hand; both are
+idempotent and safe to run after the other.
+
+One tick covers the job, not the row. Ticking any row lifts every row with the same company and
+the same role — the same two tests the one-posting-one-wave rule uses — so a tick on attempt 1 at
+Stripe also moves attempts 2 and 3, and a tick on a row that has already been sent still lifts the
+ones behind it. It groups only as tightly as those tests do: `Software Engineer Intern` and
+`Software Engineering Internship` are one posting, `SWE Intern` is not.
+
+A tick reorders and does nothing else. It cannot make a row eligible before its two-day wait, it
+cannot raise the day's cap or the weekly cap on one company, and it cannot send at the weekend —
+it decides who gets the slots that already existed. The new order shows up in `Scheduled At` on the
+next hourly run, which is where you check that a tick did what you expected.
 
 The design the worker will follow — what enters the queue, in what order, how many go out a
 day, and where the sender lives — is [outreach.md](outreach.md).

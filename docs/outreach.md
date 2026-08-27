@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 164 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 222 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -51,8 +51,13 @@ sending account**, exported from ColdEmail's `finals/9_emails.csv`. The tracker 
 Read from `App` on the sync run that already walks every row ([`job_sync/highlight.py`](../job_sync/highlight.py)):
 
 - `Recruiter` (J) is ticked
-- `Process` (F) is exactly `Applied` — not `Rejected`, and not `OA` / `Interview` / `Offer`,
-  where a human contact already exists and a cold email is the wrong message
+- `Process` (F) is `Applied` or `Completed OA` — not `Rejected`, and not `OA` / `Interview` /
+  `Offer`. `Interview` and `Offer` mean a human contact already exists and a cold email is the
+  wrong message; `OA` means the assessment is still owed, and the recruiter's first answer
+  would be to go and finish it. `Completed OA` is the opposite of both: there is finished work
+  sitting in their system and nobody assigned to look at it, which is the best moment in the
+  whole pipeline to write. The email says so — see the intro bullet in
+  [`outreach_compose.gs`](../apps_script/outreach/outreach_compose.gs)
 - `Company`, `Role` and `Date Applied` are all filled — an empty one cannot be written into a
   sentence, and an empty date cannot be ordered
 - the contact's `verify_tool` is not `local:Unknown`
@@ -60,6 +65,12 @@ Read from `App` on the sync run that already walks every row ([`job_sync/highlig
 
 `Eligible At` is `Date Applied` + 2 days. Sending the same day reads as automation; two days in,
 the application has reached the ATS.
+
+It stays `Date Applied` for a row that moves to `Completed OA`, which is worth knowing before
+you tick one: an application from three weeks ago is already past its eligible day, so the wave
+opens on the next firing rather than two days later. That is the intent — the assessment is the
+event, and it has already happened — but it means ticking several `Completed OA` rows in one
+sitting queues all of them at once. `DAILY_CAP` is what stops that becoming a spike.
 
 > **Why `local:Unknown` is excluded.** Those 171 rows were never actually verified — ColdEmail's
 > own note says not to treat unknown as confirmed, but `generate_seed.py` applies no quality
@@ -149,8 +160,8 @@ One day apart rather than one morning, because three near-identical emails landi
 inside an hour is what reads as spray. Spread over three days it reads as a person working
 through a list — which is what it is.
 
-The three subjects and the two bullets under each differ, so what arrives is three different
-emails, not three copies.
+The three subjects, the result bullet under each and the ask all differ, so what arrives is
+three different emails, not three copies.
 
 ### Three at a time, not three in total
 
@@ -309,19 +320,21 @@ the table describing four different moments. `runOutreachCycle` does the round i
 steps depend on each other:
 
 1. **what came back** — replies and bounces, so a reply seen now stops an attempt being created
-   in step 3
+   in step 4
 2. **who said no** — rejections sitting in the mailbox, which close the application in `App` and
    delete any draft already written for it
-3. **what is new** — applications ticked `Applied` since the last firing
-4. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
-5. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
-6. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
+3. **who said no elsewhere** — applications closed by hand in `App`, whose queue rows nothing had
+   called off, because the refusal arrived in a mailbox this project cannot read
+4. **what is new** — applications ticked `Applied` since the last firing
+5. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
+6. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
+7. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
 
 Reversing any pair leaves the table a firing out of date: projecting before sending would put a
 date on rows that are about to leave, and enqueueing before scanning would create an attempt 2
-for someone who has already replied. **Step 4 before step 5** is the load-bearing one: drafting
+for someone who has already replied. **Step 5 before step 6** is the load-bearing one: drafting
 first would let a message be written and sent inside a single firing, and the hour in which it
-could have been read would never have existed. **Step 2 before step 3** is the other: a rejection
+could have been read would never have existed. **Step 2 before step 4** is the other: a rejection
 read now has to close the application before anything opens a fresh attempt underneath it.
 
 Step 1 only asks Gmail about rows sent in the last 30 days. Every sent row would mean one API
@@ -450,6 +463,32 @@ is 8,000.
 > invisible to it, and that application stays `Applied` until it is changed by hand. If a real
 > share of them land there, a Gmail forwarding rule into the sending account is the fix — the
 > original `From` survives forwarding, which is the line the employer is read from.
+
+### A tick made by hand closes the queue too
+
+Most refusals arrive at `hoanng15.work@gmail.com` and step 2 handles them. Some do not: an
+application made from another address is answered at that address, and the way it gets recorded
+is a person setting `Process` to `Rejected` in the `App` tab. Both routes have to end in the same
+place, and for a while only one of them did.
+
+Step 2 closes the application *and* cancels its queue rows in a single call. A tick made by hand
+did neither — it changed one cell, and nothing was watching that cell. Belvedere Trading was
+marked `Rejected` on 24 August 2026; three days later its three rows were still `Queued`, each
+carrying a projected send time.
+
+Step 3 is what closes that gap. Every firing it compares the two tabs and cancels any `Queued` or
+`Drafted` row whose application no longer qualifies, whatever put it in that state.
+
+> **Nothing was ever going to be sent.** `outreachStillQualifies_` re-reads the `App` row in the
+> last moment before Gmail is touched, and it refused these rows every hour for three days. That
+> guarantee did not move. What the gap cost was quieter: a `Queued` row counts in
+> `STATUS_SPENDS_CONTACT`, so it holds a recruiter nobody else may be written to, and it takes one
+> of the day's slots in the projection — a live application waits in the table behind a row that
+> can never go out.
+
+A queue row whose application has disappeared from the tab is deliberately left alone. It cannot
+send either, for the same last-moment reason, and a row that is missing this minute is as easily a
+half-finished edit as a deletion.
 
 ### Every email waits an hour in Drafts, and deleting it is how you call it off
 
@@ -596,6 +635,9 @@ hook.
 
 ## The message
 
+> Every subject line, every variation and every bullet is catalogued verbatim in
+> [email-templates.md](email-templates.md). This section is why the message has the shape it has.
+
 The template lives in `outreach_compose.gs`, not in a generated CSV. ColdEmail supplies only the
 two things that genuinely vary per row — the company angle and the per-person hook — so changing
 a sentence is an edit to one file rather than a pipeline run and a re-export of two thousand
@@ -612,30 +654,34 @@ Quick intro:
   • Applied for the Software Engineer Intern role on Jul 20.
   • Removed 340K malformed records from a 2.1M-record dataset that were
     inflating severity rates by 8%.
-  • Fixed a crash model that ignored location, raising the share of groups
-    reflecting it from 0% to 24.7%.
 
 Why I'm reaching out:
-  • Since you recruit on the engineering side at Google, I wanted to reach
-    you directly.
-  • What I find interesting about Google is that infrastructure earns its
-    keep under concurrency, when correctness is easiest to lose.
+  • I saw that you recruit for engineering roles at Google.
+  • I'm especially interested in Google because correctness under concurrency
+    is what I work on.
 
 The ask:
-Would you be able to take a look at my application? A pointer to whoever is
-closest to this req would help just as much. Resume attached.
+Would you be able to take a quick look at my application? Or point me to
+whoever is closest to this req. Resume attached.
 
 Thanks either way,
 Henry Nguyen
 ```
 
-Three labelled sections, and **every one of them is bullets or two short sentences**. An earlier
+Three labelled sections, and **every one of them is bullets or one short sentence**. An earlier
 version folded the introduction and the reason into a single ninety-word paragraph, and it read
 as a wall: nothing to scan by, and the application — the strongest fact in the message — buried
 in the middle of it.
 
 Two things carry bold, and only two: the numbers in the intro, and the request itself in the
 ask. Bold on a third thing is bold on nothing.
+
+**Six bullets and one sentence, none of them over twenty words.** The headings survived a rewrite
+that the length did not: three labelled sections is what makes an email skimmable, but a section
+holding four bullets is a paragraph wearing a label. The body ran to between 140 and 166 words
+depending on which hook and angle a contact drew, so each heading was cut back to doing exactly
+one job and it now lands at about 105. The ceilings and what each cut removed are in
+[email-templates.md](email-templates.md#the-budget-each-section-is-held-to).
 
 ### The job is named in three words, not in the job board's
 
@@ -690,16 +736,21 @@ Each slot is doing one job:
   fact in the message the reader can go and verify in their own system. Gmail shows the first
   ~90 characters as preview text, and these two bullets are what fills it. `Hope you're doing
   well` used to sit there and spent that slot saying nothing.
-- **Two result bullets** — numbers in bold, prose plain. Every number is taken verbatim from
-  `henryng_swe.tex`: a recruiter who checks must find the two documents saying one thing.
+- **One result bullet** — numbers in bold, prose plain, and it is the bullet the subject is
+  about, so the email answers its own subject on the third line. Every number is taken verbatim
+  from `henryng_swe.tex`: a recruiter who checks must find the two documents saying one thing.
+  There used to be a second, and it bought nothing the subject had not already promised.
 - **Why I'm reaching out** — two bullets, never a paragraph. The hook and the angle arrive as
   whole sentences from two different files, and run together they make the block that gets
-  skipped.
+  skipped. One purpose and one sentence each: why this person, why this company. Neither reaches
+  back into the resume, because the bullet above them already carries the number in bold.
 - **The ask** — one bolded question and one short way out, so the easiest reply is a useful one.
+  Under twenty-five words, and the way out is worded differently in each variation, because it is
+  the clause a recruiter forwarding to a colleague actually quotes.
 
 ### Ten hooks, matched to what the company does
 
-Identical skeleton, identical bolding. Only the subject, the two bullets and the ask move —
+Identical skeleton, identical bolding. Only the subject, the result bullet and the ask move —
 three people at one company must not receive three copies, and a run of identical bodies is a
 spam signal in its own right.
 

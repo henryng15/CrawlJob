@@ -20,7 +20,7 @@
  */
 function outreachStillQualifies_(appRow) {
   if (!appRow) return { ok: false, why: 'the App row has gone' };
-  if (appRow.process !== QUALIFYING_PROCESS) {
+  if (!outreachQualifies_(appRow.process)) {
     return { ok: false, why: 'Process is now ' + (appRow.process || 'blank') };
   }
   return { ok: true };
@@ -59,17 +59,43 @@ function outreachDiscardDraft_(draftId) {
 }
 
 /**
+ * The hour a draft written now leaves in — the top of it, not the minute.
+ *
+ * A time-driven trigger fires at a minute Google picks and drifts a few either
+ * way, so `now + one hour` produces a target the next firing can arrive *before*.
+ * A draft written at 12:05 scheduled for exactly 13:05 is passed over by a 13:03
+ * firing and waits until 14:03 — an hour late, on a row whose Scheduled At says
+ * 13:05 and whose Error column is empty, which is the least debuggable shape a
+ * delay can have.
+ *
+ * Anchoring to the top of the hour also makes the row agree with the projection
+ * it replaces: outreachProjectSchedule_ has always promised whole hours, and a
+ * drafted row is the same fact after the event.
+ */
+function outreachSendHourAfter_(now) {
+  var goesAt = new Date(now.getTime() + DRAFT_LEAD_HOURS * 3600000);
+  goesAt.setMinutes(0, 0, 0);
+  return goesAt;
+}
+
+/**
  * The drafts whose hour has come.
  *
  * Mode is checked here rather than at drafting time, so a row whose message could
  * not be made specific — a hand-typed contact at a company ColdEmail never wrote
  * for — is written and then waits for a person, instead of never being written at
  * all. Its draft is in the mailbox either way; only this step passes it over.
+ *
+ * The global OUTREACH_MODE switch is read here too. It used to be consulted only
+ * where the drafts were written, which made it a switch over the wording of the
+ * Result column and nothing else: every row whose own Mode said Send still went
+ * out with the rollout switch set to Draft. A safety switch that fails open is
+ * worse than no switch, because it is believed.
  */
-function outreachDraftsToSend_(queueRows, now) {
+function outreachDraftsToSend_(queueRows, now, globalMode) {
   return queueRows.filter(function (row) {
     return row.status === STATUS_DRAFTED
-        && row.mode !== MODE_DRAFT
+        && outreachModeFor_(row.mode, globalMode) !== MODE_DRAFT
         && row.draftId
         && row.scheduledAt
         && row.scheduledAt.getTime() <= now.getTime();
@@ -88,10 +114,11 @@ function outreachDraftsToSend_(queueRows, now) {
  */
 function sendPreparedDrafts() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var globalMode = outreachProperty_(PROP_MODE, false);
   var app = tracker.getSheetByName(TAB_APP);
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var last = queue.getLastRow();
-  if (last < 2) return { sent: 0, cancelled: 0, failed: 0 };
+  if (last < 2) return { sent: 0, cancelled: 0, failed: 0, retired: 0 };
 
   var now = new Date();
   var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
@@ -109,9 +136,9 @@ function sendPreparedDrafts() {
        .map(outreachParseApp_).forEach(function (row) { byProperty[row.property] = row; });
   }
 
-  var tally = { sent: 0, cancelled: 0, failed: 0 };
+  var tally = { sent: 0, cancelled: 0, failed: 0, retired: 0 };
 
-  outreachDraftsToSend_(rows, now).forEach(function (row) {
+  outreachDraftsToSend_(rows, now, globalMode).forEach(function (row) {
     var updates = {};
 
     var check = outreachStillQualifies_(byProperty[row.property]);
@@ -143,9 +170,39 @@ function sendPreparedDrafts() {
     outreachWriteRow_(queue, row.rowNumber, updates);
   });
 
+  // After the sends, so a row that went out this very firing is retired in the
+  // same run rather than waiting an hour to catch up with itself.
+  outreachPrioritiesToRetire_(rows).forEach(function (row) {
+    var done = {};
+    done[Q_PRIORITY] = PRIORITY_DONE;
+    outreachWriteRow_(queue, row.rowNumber, done);
+    tally.retired++;
+  });
+
   Logger.log('sent ' + tally.sent + ', called off ' + tally.cancelled
-           + ', failed ' + tally.failed);
+           + ', failed ' + tally.failed + ', priorities retired ' + tally.retired);
   return tally;
+}
+
+/**
+ * The ticked rows whose email has gone, and whose tick has not been retired yet.
+ *
+ * Three conditions, and each excludes a case that would be wrong to write:
+ *
+ *   sentAt      — nothing has gone from a Queued or Drafted row, so its tick is
+ *                 still a live request and must stay a tick.
+ *   priority    — a row nobody ticked has nothing to retire. Writing Done there
+ *                 would claim a request that was never made, and because Done
+ *                 reads as ticked it would enrol every sent row in the priority
+ *                 groups, which is the whole feature inverted.
+ *   not already — Done is already Done. Without this the same cells would be
+ *                 rewritten on every firing, for nothing.
+ */
+function outreachPrioritiesToRetire_(rows) {
+  return rows.filter(function (row) {
+    if (!row.sentAt || !row.priority) return false;
+    return String(row.priorityText == null ? '' : row.priorityText).trim() !== PRIORITY_DONE;
+  });
 }
 
 /**
@@ -223,6 +280,9 @@ function prepareOutreachDrafts() {
         role: appRow.role,
         recruiterName: contact.name,
         dateApplied: appRow.dateApplied,
+        // Read now, not when the row was queued. Days pass in between, and an
+        // application that cleared its assessment in that time should say so.
+        process: appRow.process,
         today: now,
         hook: contact.hook,
         angle: outreachAngleFor_(companyContacts)
@@ -236,7 +296,7 @@ function prepareOutreachDrafts() {
 
       try {
         var draft = GmailApp.createDraft(contact.email, mail.subject, mail.plain, options);
-        var goesAt = new Date(now.getTime() + DRAFT_LEAD_HOURS * 3600000);
+        var goesAt = outreachSendHourAfter_(now);
         var updates = {};
         updates[Q_STATUS] = STATUS_DRAFTED;
         updates[Q_DRAFT_ID] = draft.getId();
@@ -406,6 +466,7 @@ function previewOutreachEmail() {
       role: appRow.role || item.role,
       recruiterName: contact.name,
       dateApplied: appRow.dateApplied || item.dateApplied,
+      process: appRow.process,
       today: now,
       hook: contact.hook,
       angle: outreachAngleFor_(companyContacts)
@@ -447,17 +508,65 @@ function previewOutreachEmail() {
  */
 function runOutreachCycle() {
   var summary = {};
-  summary.scan = scanOutreachReplies();
-  summary.rejections = scanRejectionEmails();
-  var plan = enqueueOutreach();
-  summary.queued = plan.planned.length;
+  var failures = [];
+
+  // Before anything reads the queue, and deliberately outside the isolation
+  // below: the schema has to be right or nothing may run. A tab still on the
+  // pre-Priority layout read by this code has Status where Mode should be, so no
+  // row matches any status, no row counts as having spent a contact, and enqueue
+  // writes a second cold email to people already written to. A failure here must
+  // stop the run, not be collected and worked around.
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  summary.schema = outreachEnsurePriorityColumn_(tracker) ? 'inserted Priority' : 'ready';
+
+  // Each step is allowed to fail on its own. Run as one unbroken expression, a
+  // Gmail search that throws in step 1 takes step 4 with it, so nothing is sent
+  // that hour and the Email tab shows a row still Drafted with an empty Error
+  // column — the delay is real and there is nothing on the row to read it from.
+  // The order below still matters and is unchanged; only the blast radius is.
+  var step = function (name, work) {
+    try {
+      summary[name] = work();
+    } catch (error) {
+      summary[name] = 'failed: ' + String(error.message || error);
+      failures.push(name);
+    }
+  };
+
+  // Before enqueue, so rows appended this run land against the ones above them
+  // rather than below whatever gap was already there. Isolated rather than fatal:
+  // a table with a gap in it still sends correctly, it only reads badly.
+  step('layout', function () {
+    return outreachRepairQueueLayout_(tracker.getSheetByName(TAB_QUEUE));
+  });
+  step('scan', scanOutreachReplies);
+  step('rejections', scanRejectionEmails);
+  // After the scanner, which closes applications of its own, and before enqueue,
+  // so a contact freed here is available to the wave planned below in this same
+  // firing rather than the next one.
+  step('stale', cancelStaleOutreachRows);
+  step('queued', function () { return enqueueOutreach().planned.length; });
   // Send before writing, never the other way round. Drafting first would let a
   // message be written and sent inside one firing, and the hour in which it could
   // have been read would never have existed.
-  summary.sent = sendPreparedDrafts();
-  summary.written = prepareOutreachDrafts();
-  summary.projected = refreshOutreachSchedule();
+  //
+  // Sending survives a failed scan on purpose: sendPreparedDrafts re-reads App
+  // for every draft it is about to send, so a rejection recorded by any route
+  // still stops it. A failed scan costs an hour of freshness, not the check.
+  step('sent', sendPreparedDrafts);
+  step('written', prepareOutreachDrafts);
+  step('projected', refreshOutreachSchedule);
+  // Last, because it sorts on the times the step above has just written. Sorting
+  // first would file the table by the previous hour's answer.
+  step('sorted', function () {
+    return outreachSortQueueByTime_(tracker.getSheetByName(TAB_QUEUE));
+  });
+
+  summary.failedSteps = failures;
   Logger.log(JSON.stringify(summary));
+  // Thrown after everything else has had its turn, so the run still shows up red
+  // in Executions rather than being quietly swallowed for the rest of the year.
+  if (failures.length) throw new Error('Outreach steps failed: ' + failures.join(', '));
   return summary;
 }
 
@@ -467,18 +576,66 @@ function runOutreachCycle() {
  * Existing outreach triggers are cleared first, so running this twice does not
  * leave the queue being worked twice an hour.
  */
+/**
+ * Reproject the queue the moment somebody ticks Priority.
+ *
+ * The tick changes one thing — the order — and the order is what every projected
+ * time in the table is computed from. Waiting for the hourly cycle meant ticking a
+ * box and watching nothing happen, with no way to tell a tick that had registered
+ * from one that had not.
+ *
+ * Three things make this safe to hang off an edit:
+ *
+ *   the filter    outreachEditTouchesPriority_ throws out every edit in the
+ *                 spreadsheet that is not a Priority cell on a data row, which is
+ *                 nearly all of them, before anything is opened or read.
+ *   the lock      taken briefly and given up rather than waited on. If the hourly
+ *                 cycle holds it, it is already going to project on its way out,
+ *                 so there is nothing to do and nothing to report.
+ *   no recursion  Apps Script does not fire an edit trigger for a change a script
+ *                 made, so writing the two columns back cannot call this again.
+ *
+ * Installable, not simple: this project is standalone rather than bound to the
+ * tracker, and a simple onEdit only exists in a bound script. Installable also
+ * means it runs as whoever installed it, which is the account that owns the Gmail
+ * side — the edit itself can come from either person with access.
+ */
+function onOutreachQueueEdit(e) {
+  if (!e || !e.range) return;
+  var sheet = e.range.getSheet();
+  if (!outreachEditTouchesPriority_(sheet.getName(), e.range)) return;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    outreachWriteProjection_(sheet);
+    // The tick changed the order, the projection changed the times, and the table
+    // is filed by those times — so it has to be refiled in the same breath or it
+    // is left describing an order that no longer exists.
+    outreachSortQueueByTime_(sheet);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function installOutreachTriggers() {
   removeOutreachTriggers();
   // One hourly trigger rather than four on separate clocks. Four would drift
   // apart and leave the table describing four different moments.
   ScriptApp.newTrigger('runOutreachCycle').timeBased().everyHours(1).create();
+  // And one that answers a tick straight away. It sends nothing and drafts
+  // nothing; all it can do is rewrite the two projected columns.
+  ScriptApp.newTrigger('onOutreachQueueEdit')
+           .forSpreadsheet(outreachProperty_(PROP_TRACKER_ID, true))
+           .onEdit()
+           .create();
   Logger.log('Installed. The kill switch is removeOutreachTriggers, and it is the only one.');
 }
 
 function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
-              'scanRejectionEmails'];
+              'scanRejectionEmails', 'onOutreachQueueEdit'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

@@ -51,7 +51,7 @@ var ALUMNI_WIDTH_PX = 70, RECRUITER_WIDTH_PX = 90, UPDATE_WIDTH_PX = 300;
 
 // The pipeline setup_process_dropdown.gs builds, and the same list as
 // PROCESS_STAGES in job_sync/sheet.py. The first entry is where every row starts.
-var STAGES = ['Applied', 'OA', 'Interview', 'Offer', 'Rejected'];
+var STAGES = ['Applied', 'OA', 'Completed OA', 'Interview', 'Offer', 'Rejected'];
 
 // Shorter than DATE_FORMAT because these lines stack inside one cell, but still
 // read the same way as the rest of the sheet.
@@ -70,9 +70,13 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // message appears in Drafts, and the hour it leaves them. Every email waits an
 // hour between the two, and deleting the draft inside that hour calls it off, so
 // the pair is the column you check when you want to intervene.
+//
+// Priority leads Status because the two read as one answer: whether this row was
+// asked for, and where it has got to. Ticking one lifts every row for the same
+// company and role, so it is ticked once per job rather than once per attempt.
 var OUTREACH_HEADERS = [
   'Company', 'Role', 'Date Applied', 'Property', 'Recruiters', 'Attempt',
-  'Template', 'Drafted At', 'Scheduled At', 'Status', 'Mode',
+  'Template', 'Drafted At', 'Scheduled At', 'Priority', 'Status', 'Mode',
   'Contact Fingerprint', 'Gmail Draft ID', 'Gmail Message ID', 'Sent At',
   'Result', 'Last Error', 'Queue ID', 'Version'
 ];
@@ -225,27 +229,36 @@ function setupOutreachQueue() {
 
   // Date Applied is a date; the other three fields record an exact sending slot.
   queue.getRange(FIRST_ROW, 3, LAST_ROW - FIRST_ROW + 1, 1).setNumberFormat(DATE_FORMAT);
-  [8, 9, 15].forEach(function (column) {
+  [8, 9, 16].forEach(function (column) {
     queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
          .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
   });
+  // A real checkbox rather than a free-text column: the worker obeys this cell, and
+  // the difference between a box and a cell you type TRUE into is how often it is
+  // ticked wrong. allowInvalid stays on so a row typed by hand before this ran is
+  // not rejected — outreachTicked_ reads those spellings too.
   queue.getRange(FIRST_ROW, 10, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireCheckbox()
+         .setAllowInvalid(true)
+         .build());
+  queue.getRange(FIRST_ROW, 11, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(OUTREACH_STATUS, true)
          .setAllowInvalid(false)
          .build());
-  queue.getRange(FIRST_ROW, 11, LAST_ROW - FIRST_ROW + 1, 1)
+  queue.getRange(FIRST_ROW, 12, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(OUTREACH_MODE, true)
          .setAllowInvalid(false)
          .build());
 
-  [170, 240, 115, 85, 85, 70, 100, 145, 145, 105, 80, 180, 160, 180, 145, 280,
-   200, 120, 70]
+  [170, 240, 115, 85, 85, 70, 100, 145, 145, 75, 105, 80, 180, 160, 180, 145,
+   280, 200, 120, 70]
     .forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
 
-  colourQueueColumn_(queue, 10, OUTREACH_STATUS_COLOURS);
-  colourQueueColumn_(queue, 11, OUTREACH_MODE_COLOURS);
+  colourQueueColumn_(queue, 11, OUTREACH_STATUS_COLOURS);
+  colourQueueColumn_(queue, 12, OUTREACH_MODE_COLOURS);
 
   ss.toast(
     created
@@ -253,6 +266,68 @@ function setupOutreachQueue() {
       : 'Email tab headers and formatting are already set. No queue items changed.',
     'Email',
     8
+  );
+}
+
+
+/**
+ * Make room for Priority on a tab that was built before it existed.
+ *
+ * setupOutreachQueue cannot do this itself. Its whole safety property is that it
+ * refuses to write a header over a different one, and on an existing tab column 10
+ * says Status where the new layout wants Priority — so it throws, correctly, and
+ * the column has to be opened first. insertColumnBefore is what moves the ten
+ * columns to its right along with their values, validation and colour rules;
+ * rewriting headers over live data would have left every row shifted under the
+ * wrong name.
+ *
+ * **Stop the sender before running this.** Run removeOutreachTriggers in the
+ * standalone sender project, run this, deploy the sender, then run
+ * installOutreachTriggers. Between the insert and the deploy the two disagree
+ * about which column is which, and the disagreement is not harmless: the sender
+ * would read Status from the new blank column, find no row that has spent a
+ * contact, and queue a second cold email to people already written to. An hour of
+ * no sending is the cheap half of that trade.
+ *
+ * Safe to run twice: a tab that already has Priority in column 10 is left alone.
+ */
+function migrateOutreachPriorityColumn() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(OUTREACH_QUEUE_TAB);
+  if (!queue) {
+    setupOutreachQueue();
+    return;
+  }
+
+  var header = queue.getRange(1, 1, 1, OUTREACH_HEADERS.length).getValues()[0];
+  var at10 = String(header[9] == null ? '' : header[9]).trim();
+
+  if (at10 === 'Priority') {
+    setupOutreachQueue();
+    ss.toast('Priority is already column 10. Nothing moved.', 'Email', 8);
+    return;
+  }
+  // Anything other than the layout this migration was written against is a tab
+  // somebody has already rearranged, and shifting it blind would put every row
+  // under the wrong header. Say what was found instead.
+  if (at10 !== 'Status') {
+    throw new Error(
+      'Email column 10 is ' + JSON.stringify(at10) + ', expected "Status" or '
+      + '"Priority". This tab is not the layout this migration moves; fix it by '
+      + 'hand or say what it should be.'
+    );
+  }
+
+  queue.insertColumnBefore(10);
+  // The insert leaves column 10 blank, including its header, so setupOutreachQueue
+  // no longer has a conflicting name to refuse — it fills in the header, the
+  // checkbox, the widths and the two dropdown colourings at their new positions.
+  setupOutreachQueue();
+  ss.toast(
+    'Inserted Priority as column 10. Deploy the sender now, before the hourly '
+    + 'trigger goes back on.',
+    'Email',
+    12
   );
 }
 
