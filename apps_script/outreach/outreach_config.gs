@@ -80,6 +80,11 @@ var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9
 // row whose format was never applied falls back to a bare date, which drops the
 // hour — and the hour is the whole point of those three columns.
 var QUEUE_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
+// Date Applied is a date and not a timestamp, and it has to be dressed for the
+// same reason the three timestamps are: the table is sorted by moving values
+// between cells, so a column where the format is not uniform shows a different
+// date style every time a row changes places.
+var QUEUE_DATE_FORMAT = 'mmmm d, yyyy';
 
 // ------------------------------------------------------------------- policy
 
@@ -381,11 +386,20 @@ function outreachDailyCap_(date) {
  *
  * These are drafting hours, not sending hours. Add DRAFT_LEAD_HOURS for the hour
  * a row actually leaves at.
+ *
+ * `firstHour` is the earliest hour still available. It defaults to the start of
+ * the day, which is right for every day but today: an hour that has already gone
+ * cannot be the hour a row is written in, and numbering today's rows from 09:00
+ * at half past ten stamped them with a time in the past. A queued row then sorted
+ * above the rows drafted an hour ago, which read as the queue running backwards —
+ * Datadog sat at 09:00 above an Anduril row really written at 10:21.
  */
-function outreachDraftHoursForDay_(count) {
+function outreachDraftHoursForDay_(count, firstHour) {
   var hours = [];
   var remaining = count;
-  for (var hour = SEND_HOUR_FIRST; hour <= DRAFT_HOUR_LAST && remaining > 0; hour++) {
+  var first = firstHour === undefined ? SEND_HOUR_FIRST
+                                      : Math.max(SEND_HOUR_FIRST, firstHour);
+  for (var hour = first; hour <= DRAFT_HOUR_LAST && remaining > 0; hour++) {
     var slots = Math.min(remaining, Math.ceil(remaining / (DRAFT_HOUR_LAST - hour + 1)));
     for (var i = 0; i < slots; i++) hours.push(hour);
     remaining -= slots;

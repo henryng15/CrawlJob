@@ -585,13 +585,17 @@ console.log('the tab says which template is coming, and at what hour');
   run('a small day still starts at nine and stops early', () => {
     assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '9,10,11');
   });
+  // Before the window opens, so the whole day is still ahead and these two say
+  // what they were written to say. The hour the projection runs at is load-bearing
+  // now: see "the day already under way" below.
+  const dawn = (y, m, d) => new Date(y, m - 1, d, 8, 0, 0);
   run('the projection carries the hour, so no two rows read as simultaneous', () => {
     const rows = [];
     for (let i = 0; i < 6; i++) {
       rows.push(qrow({ rowNumber: i + 2, status: 'Queued', sentAt: null, dateApplied: day(2026, 7, 21) }));
     }
     // Monday 24 Aug 2026 caps at 15, so all six land that day at six different hours.
-    const plan = S.outreachProjectSchedule_(rows, day(2026, 8, 24));
+    const plan = S.outreachProjectSchedule_(rows, dawn(2026, 8, 24));
     const hours = plan.map((p) => p.sendAt.getHours());
     assert.strictEqual(new Set(hours).size, 6);
     assert.ok(Math.min.apply(null, hours) >= 10);
@@ -599,10 +603,50 @@ console.log('the tab says which template is coming, and at what hour');
   });
   run('every projected row says when it appears in Drafts and when it leaves', () => {
     const rows = [qrow({ rowNumber: 2, status: 'Queued', sentAt: null, dateApplied: day(2026, 7, 21) })];
-    const slot = S.outreachProjectSchedule_(rows, day(2026, 8, 24))[0];
+    const slot = S.outreachProjectSchedule_(rows, dawn(2026, 8, 24))[0];
     assert.strictEqual(slot.draftAt.getHours(), 9);
     assert.strictEqual(slot.sendAt.getHours(), 10);
     assert.strictEqual(slot.sendAt.getTime() - slot.draftAt.getTime(), 3600000);
+  });
+}
+
+console.log('the day already under way — a queued row cannot be written at an hour that has gone');
+{
+  const at = (h) => new Date(2026, 7, 24, h, 21, 0);
+  const queued = (n) => Array.from({ length: n }, (unused, i) =>
+    qrow({ rowNumber: i + 2, status: 'Queued', sentAt: null, dateApplied: day(2026, 7, 21) }));
+
+  run('an hour already gone is not offered', () => {
+    // Drafting is step 6 and the projection step 7 of the same round, so a row
+    // still Queued here missed this hour: the earliest left is the next one.
+    const plan = S.outreachProjectSchedule_(queued(3), at(10));
+    plan.forEach((p) => assert.ok(p.draftAt.getHours() >= 11,
+      'drafted at ' + p.draftAt.getHours() + ', which has gone'));
+  });
+  run('this is what put a queued row above one already drafted', () => {
+    // Datadog, 27 August 2026. Queued, stamped 09:00 by a projection that ran at
+    // 10:21, filed above an Anduril row really drafted at 10:21 — the table read
+    // as though the queue ran backwards.
+    const slot = S.outreachProjectSchedule_(queued(1), at(10))[0];
+    assert.ok(slot.draftAt.getHours() > 10);
+  });
+  run('before the window, the whole day is still on offer', () => {
+    assert.strictEqual(S.outreachProjectSchedule_(queued(1), at(7))[0].draftAt.getHours(), 9);
+  });
+  run('after the last drafting hour, the rows belong to the next day', () => {
+    const from = at(16);
+    const slot = S.outreachProjectSchedule_(queued(1), from)[0];
+    assert.ok(slot.draftAt.getDate() !== from.getDate(), 'stayed on a day with no hours left');
+    assert.strictEqual(slot.draftAt.getHours(), 9);
+  });
+  run('the count still survives a day that starts late', () => {
+    const plan = S.outreachProjectSchedule_(queued(9), at(14));
+    assert.strictEqual(plan.length, 9);
+    plan.forEach((p) => assert.ok(!isNaN(p.draftAt.getTime()), 'an unset hour became Invalid Date'));
+  });
+  run('outreachDraftHoursForDay_ still defaults to the start of the day', () => {
+    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '9,10,11');
+    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3, 14)).join(','), '14,15,16');
   });
 }
 
@@ -1677,8 +1721,15 @@ console.log('the table stays one block — no gap between the rows and the new o
     assert.strictEqual(S.outreachRepairQueueLayout_(q.sheet), 0);
     assert.deepStrictEqual(q.calls.deleted, []);
     const columns = q.calls.formatted.map((f) => f[0]).sort((a, b) => a - b);
-    assert.deepStrictEqual(columns, [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
-    q.calls.formatted.forEach((f) => assert.strictEqual(f[2], S.QUEUE_TIMESTAMP_FORMAT));
+    assert.deepStrictEqual(columns,
+      [S.Q_DATE_APPLIED, S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
+    const format = {};
+    q.calls.formatted.forEach((f) => { format[f[0]] = f[2]; });
+    [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT].forEach((c) =>
+      assert.strictEqual(format[c], S.QUEUE_TIMESTAMP_FORMAT));
+    // A date, not a timestamp — but dressed all the same, because the sort moves
+    // values between cells and the format stays behind with the cell.
+    assert.strictEqual(format[S.Q_DATE_APPLIED], S.QUEUE_DATE_FORMAT);
     assert.ok(q.calls.validated.length > 0);
   });
   run('an appended row is dressed on the very next cycle', () => {
@@ -1687,8 +1738,10 @@ console.log('the table stays one block — no gap between the rows and the new o
     q.rows.push(full('Goldman Sachs'));
     q.calls.formatted.length = 0;
     S.outreachRepairQueueLayout_(q.sheet);
-    // Two data rows now, so the dressed range has to have grown to cover both.
-    assert.deepStrictEqual(q.calls.formatted.map((f) => f[1]), [2, 2, 2]);
+    // Two data rows now, so every dressed range has to have grown to cover both.
+    const heights = q.calls.formatted.map((f) => f[1]);
+    assert.strictEqual(heights.length, 4);
+    heights.forEach((h) => assert.strictEqual(h, 2));
   });
 
   run('Status and Mode are dressed as dropdowns, not left as bare text', () => {

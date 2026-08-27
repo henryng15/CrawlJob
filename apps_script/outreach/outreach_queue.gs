@@ -555,6 +555,13 @@ function outreachDressQueueRows_(queue) {
   [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT].forEach(function (column) {
     queue.getRange(2, column, rows, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
   });
+  // Date Applied belongs on that list even though it is not a timestamp. A cell
+  // written by enqueue carried whatever format it was created with, so the column
+  // held a mixture of "August 17, 2026" and "8/17/2026" — and because sorting
+  // moves values between cells rather than moving the cells, a row changing places
+  // changed how its date read. Dressing the column is what makes the sort's
+  // assumption true rather than nearly true.
+  queue.getRange(2, Q_DATE_APPLIED, rows, 1).setNumberFormat(QUEUE_DATE_FORMAT);
   // Status and Mode are dropdowns everywhere or they are dropdowns nowhere.
   //
   // A validation is a property of the cell, not of the range it happens to sit in,
@@ -841,7 +848,16 @@ function outreachProjectSchedule_(queueRows, from) {
   // A year of weekdays is far past the point where the projection means
   // anything; the bound is here so a bad cap table cannot spin forever.
   for (var guard = 0; pending.length && guard < 400; guard++) {
-    var room = outreachDailyCap_(day) - (day.getTime() === start.getTime() ? sentToday : 0);
+    var today_ = day.getTime() === start.getTime();
+    // The next firing, not this one. Drafting has already run by the time the
+    // projection does — it is step 6 against step 7 of the same round — so a row
+    // still Queued at this point missed its chance for this hour and the earliest
+    // it can be written is the next one.
+    var firstHour = today_ ? from.getHours() + 1 : SEND_HOUR_FIRST;
+    var room = outreachDailyCap_(day) - (today_ ? sentToday : 0);
+    // Past the last drafting hour there is no room left today whatever the cap
+    // says, and these rows belong to tomorrow.
+    if (firstHour > DRAFT_HOUR_LAST) room = 0;
     var today = [];
     for (var i = 0; i < pending.length && room > 0;) {
       var row = pending[i];
@@ -856,7 +872,7 @@ function outreachProjectSchedule_(queueRows, from) {
     // fifteen emails at once, which is the one thing this is built not to do.
     // Both hours are projected, an hour apart, because both are shown: the row
     // says when it will appear in Drafts and when it will leave them.
-    var hours = outreachDraftHoursForDay_(today.length);
+    var hours = outreachDraftHoursForDay_(today.length, firstHour);
     today.forEach(function (row, index) {
       var draftAt = new Date(day.getTime());
       draftAt.setHours(hours[index], 0, 0, 0);
@@ -1014,6 +1030,11 @@ function outreachTimeOrder_(values) {
  * dressing, so nothing travels with a row that needs to. The colours are keyed off
  * the values themselves, and the dropdowns and number formats are applied by
  * column to every row alike.
+ *
+ * That last part is a requirement, not an observation. Date Applied was outside
+ * outreachDressQueueRows_ for a while and held two date styles at once, so rows
+ * changing places changed how their dates read — the format stayed with the cell
+ * while the value moved on.
  *
  * Row numbers are read fresh on every pass and never stored between runs, so
  * moving a row is invisible to everything except a person looking at the tab.
