@@ -1364,6 +1364,86 @@ console.log('the Priority column opens itself, because the schema and the code m
   });
 }
 
+console.log('the table reads in the order things go out');
+{
+  const at = (y, m, d, h) => new Date(y, m - 1, d, h, 0, 0);
+  const timed = (company, sched, drafted) => {
+    const r = new Array(S.Q_WIDTH).fill('');
+    r[0] = company;
+    if (sched !== undefined) r[S.Q_SCHEDULED - 1] = sched;
+    if (drafted !== undefined) r[S.Q_DRAFTED_AT - 1] = drafted;
+    return r;
+  };
+  const order = (rows) => S.outreachTimeOrder_(rows).map((r) => r[0]);
+  const header = new Array(S.Q_WIDTH).fill('h');
+  // Only what the sorter touches: the block below owns the fuller stub.
+  const sheetOf = (rows) => {
+    const seen = { written: null, writes: 0 };
+    return {
+      seen,
+      getLastRow: () => rows.length,
+      getRange: (r, c, nr) => ({
+        getValues: () => rows.slice(r - 1, r - 1 + nr),
+        setValues: (v) => { seen.written = v; seen.writes++; }
+      })
+    };
+  };
+
+  run('rows are filed by the hour they go out', () => {
+    assert.deepStrictEqual(
+      order([timed('C', at(2026, 9, 2, 15)), timed('A', at(2026, 8, 25, 10)),
+             timed('B', at(2026, 8, 27, 9))]),
+      ['A', 'B', 'C']);
+  });
+  run('an already sent row sits at its own hour, not where it was queued', () => {
+    // Capital One went on the 25th but was appended after everything else.
+    assert.deepStrictEqual(
+      order([timed('Humana', at(2026, 9, 2, 9)), timed('Capital One', at(2026, 8, 25, 10))]),
+      ['Capital One', 'Humana']);
+  });
+  run('Drafted At carries a row that has no Scheduled At yet', () => {
+    assert.deepStrictEqual(
+      order([timed('later', at(2026, 9, 2, 9)),
+             timed('earlier', undefined, at(2026, 8, 25, 9))]),
+      ['earlier', 'later']);
+  });
+  run('a row with no time at all sinks, and keeps its neighbours in order', () => {
+    assert.deepStrictEqual(
+      order([timed('cancelled'), timed('also cancelled'), timed('real', at(2026, 9, 2, 9))]),
+      ['real', 'cancelled', 'also cancelled']);
+  });
+  run('rows sharing an hour keep the order they arrived in', () => {
+    const h = at(2026, 9, 2, 9);
+    assert.deepStrictEqual(
+      order([timed('one', h), timed('two', h), timed('three', h)]),
+      ['one', 'two', 'three']);
+  });
+  run('a table already in order is left exactly as it is', () => {
+    const rows = [timed('A', at(2026, 8, 25, 9)), timed('B', at(2026, 8, 26, 9))];
+    const out = S.outreachTimeOrder_(rows);
+    assert.strictEqual(out[0], rows[0]);
+    assert.strictEqual(out[1], rows[1]);
+  });
+  run('nothing is written when nothing moved', () => {
+    const sheet = sheetOf([header, timed('A', at(2026, 8, 25, 9)),
+                           timed('B', at(2026, 8, 26, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 0);
+    assert.strictEqual(sheet.seen.writes, 0);
+  });
+  run('an out-of-order table is rewritten once, in order', () => {
+    const sheet = sheetOf([header, timed('late', at(2026, 9, 2, 9)),
+                           timed('early', at(2026, 8, 25, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 2);
+    assert.strictEqual(sheet.seen.writes, 1);
+    assert.deepStrictEqual(sheet.seen.written.map((r) => r[0]), ['early', 'late']);
+  });
+  run('a table too short to have an order is left alone', () => {
+    const sheet = sheetOf([header, timed('only', at(2026, 8, 25, 9))]);
+    assert.strictEqual(S.outreachSortQueueByTime_(sheet), 0);
+    assert.strictEqual(sheet.seen.writes, 0);
+  });
+}
+
 console.log('a tick is answered when it is made, not an hour later');
 {
   // getColumn is the first column of the edited block and getLastColumn the last,

@@ -898,6 +898,86 @@ function outreachWriteProjection_(queue) {
 }
 
 /**
+ * The hour a row belongs at, for reading order.
+ *
+ * Scheduled At first because that is the hour the message goes or went, and it is
+ * the column a person scans. Drafted At is the fallback for the gap between being
+ * written and being due. A row with neither — cancelled before it was ever drafted
+ * — has no place on a timeline and sinks to the bottom rather than pretending to.
+ *
+ * Duck-typed rather than `instanceof Date`: the harness builds its rows outside
+ * the vm realm the script is loaded into, where Date is a different constructor
+ * and instanceof answers false for a perfectly good date.
+ */
+function outreachRowTime_(row) {
+  var columns = [Q_SCHEDULED, Q_DRAFTED_AT];
+  for (var i = 0; i < columns.length; i++) {
+    var value = row[columns[i] - 1];
+    if (value && typeof value.getTime === 'function') {
+      var time = value.getTime();
+      if (!isNaN(time)) return time;
+    }
+    if (typeof value === 'number' && value) return value;
+  }
+  return null;
+}
+
+/**
+ * The rows in the order a person would file them: earliest hour first.
+ *
+ * Pure, and returns the same row objects rearranged, so the caller can tell
+ * whether anything actually moved before writing a hundred and fifty rows back.
+ *
+ * Ties keep the order they arrived in. Several rows share an hour by design — the
+ * cap spreads three attempts across the same slot — and a comparator that reached
+ * for something else to separate them would reshuffle the table on every run for
+ * no reason a reader could see.
+ */
+function outreachTimeOrder_(values) {
+  return values.map(function (row, index) {
+    return { row: row, index: index, when: outreachRowTime_(row) };
+  }).sort(function (a, b) {
+    if (a.when === null || b.when === null) {
+      if (a.when === b.when) return a.index - b.index;
+      return a.when === null ? 1 : -1;
+    }
+    return a.when === b.when ? a.index - b.index : a.when - b.when;
+  }).map(function (entry) { return entry.row; });
+}
+
+/**
+ * Put the table in time order, and write only if that is not where it already is.
+ *
+ * The physical order was the order things were queued in, which stopped matching
+ * the order they go out the first time an old application was queued after a new
+ * one. After the gap was closed it read worse still: two blocks of already-sent
+ * rows sitting in the middle of the queue because that is where the compaction
+ * left them.
+ *
+ * Sorting values rather than calling Range.sort is what makes it testable, and it
+ * is safe for the same reason it is cheap: every data row carries identical
+ * dressing, so nothing travels with a row that needs to. The colours are keyed off
+ * the values themselves, and the dropdowns and number formats are applied by
+ * column to every row alike.
+ *
+ * Row numbers are read fresh on every pass and never stored between runs, so
+ * moving a row is invisible to everything except a person looking at the tab.
+ */
+function outreachSortQueueByTime_(queue) {
+  var last = queue.getLastRow();
+  if (last < 3) return 0;
+  var range = queue.getRange(2, 1, last - 1, Q_WIDTH);
+  var values = range.getValues();
+  var sorted = outreachTimeOrder_(values);
+
+  var moved = 0;
+  for (var i = 0; i < values.length; i++) if (sorted[i] !== values[i]) moved++;
+  if (!moved) return 0;
+  range.setValues(sorted);
+  return moved;
+}
+
+/**
  * Whether an edit is one worth reprojecting for.
  *
  * Pure and separate from the handler so it can be argued with in the harness: an

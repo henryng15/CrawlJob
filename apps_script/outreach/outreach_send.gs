@@ -552,6 +552,11 @@ function runOutreachCycle() {
   step('sent', sendPreparedDrafts);
   step('written', prepareOutreachDrafts);
   step('projected', refreshOutreachSchedule);
+  // Last, because it sorts on the times the step above has just written. Sorting
+  // first would file the table by the previous hour's answer.
+  step('sorted', function () {
+    return outreachSortQueueByTime_(tracker.getSheetByName(TAB_QUEUE));
+  });
 
   summary.failedSteps = failures;
   Logger.log(JSON.stringify(summary));
@@ -600,6 +605,10 @@ function onOutreachQueueEdit(e) {
   if (!lock.tryLock(5000)) return;
   try {
     outreachWriteProjection_(sheet);
+    // The tick changed the order, the projection changed the times, and the table
+    // is filed by those times — so it has to be refiled in the same breath or it
+    // is left describing an order that no longer exists.
+    outreachSortQueueByTime_(sheet);
   } finally {
     lock.releaseLock();
   }
