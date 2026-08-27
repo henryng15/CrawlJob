@@ -560,6 +560,27 @@ that does the same thing when remembered.
 > that list: nothing reached the person, so the address goes back in the pool. Burning a contact
 > nobody was ever emailed is a bug, not caution.
 
+#### `Cancelled` is the one state that sinks
+
+The table is filed by the hour a row goes out, so `Sent` sits at the hour it really left and
+`Failed` at the hour it was really attempted. Both are history and both read correctly in place.
+
+`Cancelled` is different: its hour was a plan that was then called off, so filing by it puts a row
+that can never go out in among the rows that will. Belvedere Trading held three of them, each
+stamped for a lunchtime it was never going to see, sitting between live rows.
+
+Cancelled rows are therefore filed **below every live row**, in time order among themselves. What
+had been planned stays readable; it just stops interrupting the queue.
+
+Nothing else has to move for the gap to close. `Drafted At` and `Scheduled At` are recomputed from
+scratch every firing across the rows that are still `Queued`, so the moment a row is cancelled it
+leaves the projection and everything behind it takes an earlier slot. The whole round happens
+inside one firing: cancelled at step 3, reprojected at step 7, and the table refiled last of all.
+
+> **The bottom of the table, not the bottom of the sheet.** The sort rearranges one block of
+> values and writes it back over itself, and step 1 has already deleted any empty row inside that
+> block. A row cannot be stranded at 1000 by this; that was a different bug, in a different place.
+
 A summary block of formulas, not code — nothing to maintain and nothing to break:
 
 ```

@@ -1375,6 +1375,61 @@ console.log('the table reads in the order things go out');
     return r;
   };
   const order = (rows) => S.outreachTimeOrder_(rows).map((r) => r[0]);
+  const called = (company, sched) => {
+    const r = timed(company, sched);
+    r[S.Q_STATUS - 1] = 'Cancelled';
+    return r;
+  };
+  const withStatus = (company, sched, status) => {
+    const r = timed(company, sched);
+    r[S.Q_STATUS - 1] = status;
+    return r;
+  };
+
+  run('a cancelled row sinks below the live ones, whatever hour it holds', () => {
+    // Belvedere was cancelled holding noon, between two rows that still go out.
+    assert.deepStrictEqual(order([
+      timed('Optiver', at(2026, 8, 27, 13)),
+      called('Belvedere', at(2026, 8, 27, 12)),
+      timed('Citadel', at(2026, 8, 27, 11))
+    ]), ['Citadel', 'Optiver', 'Belvedere']);
+  });
+  run('cancelled rows keep time order among themselves', () => {
+    assert.deepStrictEqual(order([
+      called('B', at(2026, 8, 27, 14)),
+      timed('Live', at(2026, 8, 27, 15)),
+      called('A', at(2026, 8, 27, 9))
+    ]), ['Live', 'A', 'B']);
+  });
+  run('Sent stays on the timeline — its hour is a thing that happened', () => {
+    assert.deepStrictEqual(order([
+      withStatus('Later', at(2026, 8, 27, 16), 'Queued'),
+      withStatus('Sent', at(2026, 8, 27, 9), 'Sent')
+    ]), ['Sent', 'Later']);
+  });
+  run('Failed stays on the timeline too — it was really attempted then', () => {
+    assert.deepStrictEqual(order([
+      withStatus('Later', at(2026, 8, 27, 16), 'Queued'),
+      withStatus('Failed', at(2026, 8, 27, 9), 'Failed')
+    ]), ['Failed', 'Later']);
+  });
+  run('a cancelled row with no hour sits at the very bottom', () => {
+    assert.deepStrictEqual(order([
+      called('Cancelled', undefined),
+      timed('Untimed', undefined),
+      timed('Live', at(2026, 8, 27, 10))
+    ]), ['Live', 'Untimed', 'Cancelled']);
+  });
+  run('the block is a permutation — nothing is dropped or invented', () => {
+    const rows = [
+      timed('A', at(2026, 8, 27, 13)),
+      called('B', at(2026, 8, 27, 12)),
+      timed('C', at(2026, 8, 27, 11))
+    ];
+    const out = S.outreachTimeOrder_(rows);
+    assert.strictEqual(out.length, rows.length);
+    rows.forEach((r) => assert.ok(out.indexOf(r) !== -1));
+  });
   const header = new Array(S.Q_WIDTH).fill('h');
   // Only what the sorter touches: the block below owns the fuller stub.
   const sheetOf = (rows) => {

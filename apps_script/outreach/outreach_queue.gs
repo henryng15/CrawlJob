@@ -923,10 +923,22 @@ function outreachRowTime_(row) {
 }
 
 /**
- * The rows in the order a person would file them: earliest hour first.
+ * The rows in the order a person would file them: earliest hour first, and the
+ * called-off ones underneath the rest.
  *
  * Pure, and returns the same row objects rearranged, so the caller can tell
  * whether anything actually moved before writing a hundred and fifty rows back.
+ *
+ * Cancelled is the one status whose time is not a fact about anything. Sent and
+ * Failed each name an hour something really happened in, and they belong on the
+ * timeline as the history they are. Cancelled names an hour that was planned and
+ * then called off, so filing by it drops a row that can never go out into the
+ * middle of the rows that will — Belvedere Trading held three of those, each
+ * stamped for a lunchtime it was never going to see, sitting among live rows.
+ *
+ * They sink rather than vanish. What had been planned is worth reading back, just
+ * not from among the rows still waiting; inside the block they stay in time order
+ * like everything else.
  *
  * Ties keep the order they arrived in. Several rows share an hour by design — the
  * cap spreads three attempts across the same slot — and a comparator that reached
@@ -935,8 +947,14 @@ function outreachRowTime_(row) {
  */
 function outreachTimeOrder_(values) {
   return values.map(function (row, index) {
-    return { row: row, index: index, when: outreachRowTime_(row) };
+    return {
+      row: row,
+      index: index,
+      when: outreachRowTime_(row),
+      calledOff: outreachCell_(row, Q_STATUS) === STATUS_CANCELLED ? 1 : 0
+    };
   }).sort(function (a, b) {
+    if (a.calledOff !== b.calledOff) return a.calledOff - b.calledOff;
     if (a.when === null || b.when === null) {
       if (a.when === b.when) return a.index - b.index;
       return a.when === null ? 1 : -1;
@@ -962,6 +980,11 @@ function outreachTimeOrder_(values) {
  *
  * Row numbers are read fresh on every pass and never stored between runs, so
  * moving a row is invisible to everything except a person looking at the tab.
+ *
+ * "The bottom" is the bottom of the table, never the bottom of the sheet. This
+ * rearranges one block of values and writes it back over itself, so the range it
+ * started with is the range it ends with; step 1 of the same firing has already
+ * deleted any empty row inside it. Nothing here can strand a row at 1000.
  */
 function outreachSortQueueByTime_(queue) {
   var last = queue.getLastRow();
