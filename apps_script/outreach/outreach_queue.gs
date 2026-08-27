@@ -978,6 +978,46 @@ function outreachSortQueueByTime_(queue) {
 }
 
 /**
+ * How the App tab is filed: by company, then oldest application first.
+ *
+ * Separate and pure so the harness can hold the order to account without a sheet.
+ */
+function outreachAppSortSpec_() {
+  return [{ column: APP_COMPANY, ascending: true },
+          { column: APP_DATE_APPLIED, ascending: true }];
+}
+
+/**
+ * File the App tab by company name.
+ *
+ * Range.sort rather than the read-sort-write the Email tab uses, and the reason is
+ * whose tab it is. Email is written only by this script, so a stale read cannot
+ * lose anything a person was in the middle of. App is typed into by hand, and a
+ * bulk setValues built from a read taken moments earlier would quietly overwrite
+ * whatever was entered in between. Range.sort happens server side in one step and
+ * cannot do that.
+ *
+ * The cost is that it sorts on the raw string, so The Hartford files under T. That
+ * is what a person asking for A to Z gets everywhere else, and it is worth more
+ * than a cleverer key nobody can predict.
+ *
+ * Sorted across the used width rather than the columns this script knows about: a
+ * column added to App later would otherwise be left behind while its row moved.
+ *
+ * Safe against everything that reads App because nothing joins to it by position.
+ * The queue carries `Property` and rebuilds `byProperty` on every pass; rejections
+ * write by a row number read moments earlier in the same execution, which is why
+ * this is its own step and never runs inside one.
+ */
+function outreachSortAppByCompany_(app) {
+  var last = app.getLastRow();
+  var width = app.getLastColumn();
+  if (last < 3 || width < APP_COMPANY) return 0;
+  app.getRange(2, 1, last - 1, width).sort(outreachAppSortSpec_());
+  return last - 1;
+}
+
+/**
  * Whether an edit is one worth reprojecting for.
  *
  * Pure and separate from the handler so it can be argued with in the harness: an

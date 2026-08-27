@@ -557,6 +557,12 @@ function runOutreachCycle() {
   step('sorted', function () {
     return outreachSortQueueByTime_(tracker.getSheetByName(TAB_QUEUE));
   });
+  // App is filed by company rather than by time: it is the tab a person reads to
+  // find one employer, not to find the next hour. Its own step, never folded into
+  // one that holds a row number.
+  step('filed', function () {
+    return outreachSortAppByCompany_(tracker.getSheetByName(TAB_APP));
+  });
 
   summary.failedSteps = failures;
   Logger.log(JSON.stringify(summary));
@@ -612,6 +618,21 @@ function onOutreachQueueEdit(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * File App by company now, without waiting for the hour.
+ *
+ * Public and underscore-free so it shows up in the Run menu. It sorts and does
+ * nothing else: no Gmail, no queue, no send.
+ */
+function sortAppByCompany() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var app = tracker.getSheetByName(TAB_APP);
+  if (!app) throw new Error('No ' + TAB_APP + ' tab.');
+  var rows = outreachSortAppByCompany_(app);
+  Logger.log(rows ? 'Filed ' + rows + ' rows by company.' : 'Nothing to file.');
+  return rows;
 }
 
 function installOutreachTriggers() {

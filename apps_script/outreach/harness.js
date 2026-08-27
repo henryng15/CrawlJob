@@ -1364,6 +1364,54 @@ console.log('the Priority column opens itself, because the schema and the code m
   });
 }
 
+console.log('App is filed by company');
+{
+  const appSheet = (last, width) => {
+    const seen = { sorted: null, range: null };
+    return {
+      seen,
+      getLastRow: () => last,
+      getLastColumn: () => width,
+      getRange: (r, c, nr, nc) => ({
+        sort: (spec) => { seen.range = [r, c, nr, nc]; seen.sorted = spec; }
+      })
+    };
+  };
+
+  run('the order is company first, then oldest application', () => {
+    const spec = S.outreachAppSortSpec_();
+    assert.strictEqual(spec.length, 2);
+    assert.strictEqual(spec[0].column, S.APP_COMPANY);
+    assert.strictEqual(spec[0].ascending, true);
+    assert.strictEqual(spec[1].column, S.APP_DATE_APPLIED);
+    assert.strictEqual(spec[1].ascending, true);
+  });
+  run('the sort covers the used width, so no column is left behind', () => {
+    const app = appSheet(300, 14);
+    assert.strictEqual(S.outreachSortAppByCompany_(app), 299);
+    // From row 2, column 1, 299 rows, all 14 columns.
+    assert.deepStrictEqual(app.seen.range, [2, 1, 299, 14]);
+  });
+  run('the header is never inside the sorted range', () => {
+    const app = appSheet(300, 11);
+    S.outreachSortAppByCompany_(app);
+    assert.strictEqual(app.seen.range[0], 2);
+  });
+  run('a tab with one row or none is left alone', () => {
+    const one = appSheet(2, 11);
+    assert.strictEqual(S.outreachSortAppByCompany_(one), 0);
+    assert.strictEqual(one.seen.sorted, null);
+    const none = appSheet(1, 11);
+    assert.strictEqual(S.outreachSortAppByCompany_(none), 0);
+    assert.strictEqual(none.seen.sorted, null);
+  });
+  run('a tab too narrow to hold a company is left alone', () => {
+    const narrow = appSheet(300, 1);
+    assert.strictEqual(S.outreachSortAppByCompany_(narrow), 0);
+    assert.strictEqual(narrow.seen.sorted, null);
+  });
+}
+
 console.log('the table reads in the order things go out');
 {
   const at = (y, m, d, h) => new Date(y, m - 1, d, h, 0, 0);
