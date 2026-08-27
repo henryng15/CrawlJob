@@ -168,6 +168,9 @@ def main() -> None:
         f"{result.open_} postings still to apply to."
     )
     print("Rewrote the sheet." if result.wrote else "Sheet already correct; nothing written.")
+    # Printed on both paths. A run that wrote nothing still moved the caption, and
+    # that is the run where a reader most wants to see the sync is alive.
+    print(f"H1 now reads {result.stamped!r}.")
     if result.separator:
         print(f"Row {result.separator} divides what is left from what is done.")
     marks = highlight(load_settings(), result.separator, result.written_rows)

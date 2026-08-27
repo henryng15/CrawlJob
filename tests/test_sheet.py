@@ -11,6 +11,7 @@ from job_sync.sheet import (
     HEADERS,
     PROCESS_STAGES,
     SOURCE,
+    STAMP,
     _census,
     _divided,
     _drop_blocked_rows,
@@ -26,7 +27,9 @@ from job_sync.sheet import (
     _mark_applied,
     _quote_tab,
     _sorted_rows,
+    _stamp,
     _trimmed,
+    _unstamped,
     _write,
 )
 from job_sync.sources import Job, dedupe_jobs, normalize_link, role_key, role_tokens
@@ -653,6 +656,47 @@ def test_a_real_change_still_reads_as_a_change() -> None:
     before = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "FALSE"]]
     after = [["Acme", "SWE Intern", "https://x/1", "2026-08-01", "TRUE"]]
     assert _trimmed(before) != _trimmed(after)
+
+
+def test_the_caption_sits_one_past_the_expired_checkbox() -> None:
+    """H1, and nothing about H1 is arbitrary. Every column past Expired is read as
+    an operator's note, so the caption has to start exactly where the notes do or it
+    would land on a checkbox; and it has to be row 1 or it would be a note."""
+    assert STAMP == EXPIRED + 1
+    assert chr(ord("A") + STAMP) == "H"
+
+
+def test_the_caption_is_text_a_sheet_will_not_read_as_a_date() -> None:
+    """It goes out through USER_ENTERED with the rest of the columns past E, which
+    parses what it can. A caption that led with the digits would come back a date
+    serial and the next run would compare against a number."""
+    assert _stamp().startswith("Last updated: ")
+
+
+def test_a_sheet_whose_only_difference_is_the_caption_reads_as_unchanged() -> None:
+    """The whole point of blanking it. The caption differs on every run by
+    construction, so a comparison that counted it would rewrite every row of the
+    tab, seventeen times a day, to record that nothing had happened."""
+    before = HEADERS + ["Applied", "Expired", "Last updated: 09:00 ET, 27 Aug 2026"]
+    after = HEADERS + ["Applied", "Expired", "Last updated: 12:45 ET, 27 Aug 2026"]
+    assert _trimmed([_unstamped(before)]) == _trimmed([_unstamped(after)])
+
+
+def test_a_real_change_under_a_new_caption_still_reads_as_a_change() -> None:
+    """Blanking the caption must not blank the run's judgement with it."""
+    head = HEADERS + ["Applied", "Expired", "Last updated: 09:00 ET, 27 Aug 2026"]
+    moved = HEADERS + ["Applied", "Expired", "Last updated: 12:45 ET, 27 Aug 2026"]
+    row = ["Acme", "SWE Intern", "https://x/1", "2026-08-01", "ashby", "FALSE", "FALSE"]
+    assert _trimmed([_unstamped(head), row]) != _trimmed(
+        [_unstamped(moved), row[:5] + ["TRUE", "FALSE"]]
+    )
+
+
+def test_a_job_row_is_never_touched_by_the_caption() -> None:
+    """A data row stops at the checkboxes, or carries a note of the operator's in H.
+    Neither is the header, and blanking H on one would eat that note."""
+    short = ["Acme", "SWE Intern", "https://x/1", "2026-08-01", "ashby", "FALSE", "FALSE"]
+    assert _unstamped(short) is short
 
 
 def test_the_history_reads_from_the_bottom_line() -> None:

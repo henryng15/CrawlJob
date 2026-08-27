@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -35,6 +37,18 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # operator ticks; a free-text note starts at H, past both of them.
 APPLIED = len(HEADERS)
 EXPIRED = APPLIED + 1
+# Column H of the header row, and only of the header row: the caption saying when
+# the sheet was last written. H is where an operator's free-text notes begin, so
+# this takes the one cell of it that no row will ever want — H1 sits beside the
+# column names, not beside a job.
+#
+# The caption went here rather than into a row of its own beneath the header. A
+# banner at row 2 would push every job down one, and three Apps Script files index
+# the Jobs tab from a shared FIRST_ROW = 2 that the App and Outreach tabs use too.
+# The two halves cannot ship together either — the Python lands on the next run,
+# the .gs files only when someone pastes them — so between the two there would be a
+# window where the scripts read the caption as a job.
+STAMP = EXPIRED + 1
 # The application tracker: Property | Company | Application Link | Date Applied |
 # Location (State) | Process | Role | Note | Alumni | Recruiter | Update.
 APP_COMPANY, APP_LINK, APP_PROCESS, APP_ROLE = 1, 2, 5, 6
@@ -75,6 +89,10 @@ class SyncResult:
     # Whether the sheet was actually written. A run that changes nothing looks the
     # same in every other count, and a silent no-op is the failure worth naming.
     wrote: bool = False
+    # What H1 was set to. Written on every run, including the ones that change
+    # nothing else, because "nothing has changed" and "nothing has run" are the two
+    # states the caption exists to tell apart.
+    stamped: str = ""
 
 
 def _service(settings: Settings):
@@ -135,6 +153,37 @@ def _divided(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     width = max(len(row) for row in rows)
     # +2 for the header row and for 1-based row numbering.
     return rows[:split] + [[""] * width] + rows[split:], split + 2
+
+
+def _stamp() -> str:
+    """The caption H1 carries: when this run wrote the sheet.
+
+    Not when the run finished, which it cannot know — it is still going when it
+    writes, and the workflow takes another three or four seconds to wind up after
+    this. Naming it "last updated" rather than "last run" is the honest reading:
+    the sheet is what was updated, and this is when.
+
+    Eastern, because every other time in this tracker is Eastern — the crawl
+    window, the schedule that fires it, the dates on the postings. A runner with no
+    tzdata would otherwise take the whole sync down for the sake of a caption, so
+    the fallback says UTC instead of quietly printing the wrong hour."""
+    try:
+        now, zone = datetime.now(ZoneInfo("America/New_York")), "ET"
+    except ZoneInfoNotFoundError:  # a runner shipped without tzdata
+        now, zone = datetime.now(UTC), "UTC"
+    return f"Last updated: {now:%H:%M} {zone}, {now:%-d %b %Y}"
+
+
+def _unstamped(row: list[str]) -> list[str]:
+    """The header with its caption blanked, for the comparison that decides whether
+    anything moved. The caption changes every run by construction, so leaving it in
+    would make every run find a difference and rewrite eight hundred rows to record
+    only that it had run."""
+    if len(row) <= STAMP:
+        return row
+    cleared = list(row)
+    cleared[STAMP] = ""
+    return cleared
 
 
 def _trimmed(rows: list[list[str]]) -> list[list[str]]:
@@ -743,15 +792,24 @@ def append_new_jobs(
     # list of the things that might have changed. Every earlier version of this test
     # named some of them and missed others — first a new sort order, then a divider
     # row — and each time the answer was computed, thrown away, and reported green.
-    unchanged = _trimmed([header] + laid_out) == _trimmed(existing)
+    # Both sides with the caption blanked: it is the one cell guaranteed to differ.
+    was = ([_unstamped(existing[0])] + existing[1:]) if existing else []
+    unchanged = _trimmed([_unstamped(header)] + laid_out) == _trimmed(was)
+    stamp = _stamp()
+    header = list(header) + [""] * max(0, STAMP + 1 - len(header))
+    header[STAMP] = stamp
     if unchanged and not rebuild:
-        return SyncResult(**standing)
+        # Only the caption moved, so only the caption is written. Rewriting the
+        # whole tab here would cost the sheet a revision per run to say that
+        # nothing had happened, and would touch every row's formatting to do it.
+        _update(values_api, settings, f"{tab}!{_column(STAMP)}1", [[stamp]], "RAW")
+        return SyncResult(stamped=stamp, **standing)
     _write(values_api, settings, tab, [header] + laid_out, clear_to_row=len(existing))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}
     appended = sum(1 for row in data if len(row) > 2 and row[2] in fresh_links)
-    return SyncResult(appended=appended, wrote=True, **standing)
+    return SyncResult(appended=appended, wrote=True, stamped=stamp, **standing)
 
 
 def _column(index: int) -> str:
