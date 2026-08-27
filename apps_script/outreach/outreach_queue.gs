@@ -649,6 +649,43 @@ function outreachRepairQueueLayout_(queue) {
  * Public, and named without the trailing underscore, so it shows up in the Run
  * menu of the editor. That is the whole reason it exists.
  */
+/**
+ * Bring the table up to date, without sending anything.
+ *
+ * The half of runOutreachCycle that only rearranges. It closes the gap, calls off
+ * the rows whose application was marked Rejected by hand, recomputes the two
+ * projected columns over what is left, and files the result — the same four steps
+ * in the same order the hourly firing runs them in, with the three that touch
+ * recruiters left out.
+ *
+ * sendPreparedDrafts is deliberately not in it. That step is not gated by the
+ * sending window, so the full cycle run at one in the morning would post anything
+ * already Drafted and due — which is the last thing a button pressed to look at
+ * the table should do.
+ *
+ * It can delete a draft, because a draft written for an application that has
+ * since closed must not outlive it. It never composes or sends one.
+ *
+ * Public, and named without the trailing underscore, so it shows up in the Run
+ * menu of the editor. That is the whole reason it exists, the same as
+ * repairOutreachQueueLayout above it.
+ */
+function refileOutreachQueue() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  var removed = outreachRepairQueueLayout_(queue);
+  var closed = cancelStaleOutreachRows();
+  var projected = refreshOutreachSchedule();
+  var moved = outreachSortQueueByTime_(queue);
+
+  Logger.log('Deleted ' + removed + ' empty row(s); called off ' + closed
+           + ' row(s) whose application had already closed; reprojected '
+           + projected + '; moved ' + moved + ' row(s) into place.');
+  return { removed: removed, closed: closed, projected: projected, moved: moved };
+}
+
 function repairOutreachQueueLayout() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var queue = tracker.getSheetByName(TAB_QUEUE);
