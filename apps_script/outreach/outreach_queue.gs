@@ -1233,8 +1233,14 @@ function outreachOrderForSending_(rows, all) {
  * The day's cap is spread across the firings left in the window rather than
  * being burned at 09:00, and it is recomputed each time, so a firing that was
  * missed is absorbed by the ones after it instead of being lost.
+ *
+ * Two limits now, not one. DAILY_CAP is what this path may send; the budget in
+ * outreach_budget.gs is what the account may send across all three paths, and it
+ * holds back the referral path's allowance before this one is served. Without
+ * that reservation the priority order would be decided by which trigger fired
+ * first, and this one has been firing hourly for weeks.
  */
-function outreachDueNow_(queueRows, now) {
+function outreachDueNow_(queueRows, now, referralRows) {
   var cap = outreachDailyCap_(now);
   if (!cap) return [];
   var hour = now.getHours();
@@ -1251,6 +1257,15 @@ function outreachDueNow_(queueRows, now) {
         && outreachDaysBetween_(r.scheduledAt, now) === 0;
   }).length;
   var remaining = cap - spentToday;
+  if (remaining <= 0) return [];
+
+  // And never past what the whole mailbox has left for the day, which is a
+  // different question from what this path's own cap allows. See
+  // outreach_budget.gs; referralRows is optional because this is also called
+  // from places that have no reason to have read the Referral tab, and an
+  // unknown path counts as having spent nothing rather than as unlimited.
+  remaining = Math.min(remaining,
+    outreachBudgetRoom_(queueRows, referralRows, now, 'cold'));
   if (remaining <= 0) return [];
 
   var firingsLeft = DRAFT_HOUR_LAST - hour + 1;

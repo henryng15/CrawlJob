@@ -576,6 +576,21 @@ function runOutreachCycle() {
   // so a contact freed here is available to the wave planned below in this same
   // firing rather than the next one.
   step('stale', cancelStaleOutreachRows);
+  // The referral path goes first, and first is the whole point.
+  //
+  // EMAIL_PATH_ORDER puts it ahead of the cold email because it is the scarcest
+  // thing here: three people per employer, no second attempt ever, so a referral
+  // ask that loses its place today is not delayed, it is one of three chances at
+  // that company spent on nothing. The budget in outreach_budget.gs reserves its
+  // share, and running it first is the other half of the same promise: a
+  // reservation nothing claims is a reservation that expires.
+  //
+  // Sending before writing, exactly as the cold path below does, so that no
+  // message can be written and sent inside one firing and the hour in which it
+  // could have been read always exists.
+  step('referralPlanned', function () { return planReferralAsks().booked; });
+  step('referralSent', sendReferralAsks);
+  step('referralDrafted', draftReferralAsks);
   step('queued', function () { return enqueueOutreach().planned.length; });
   // Send before writing, never the other way round. Drafting first would let a
   // message be written and sent inside one firing, and the hour in which it could
@@ -586,13 +601,16 @@ function runOutreachCycle() {
   // still stops it. A failed scan costs an hour of freshness, not the check.
   step('sent', sendPreparedDrafts);
   step('written', prepareOutreachDrafts);
-  // After both halves of the cold path, and in this order between themselves.
+  // Last of the three paths, and last is where it belongs. EMAIL_PATH_ORDER puts
+  // it behind both because it is the only one that loses nothing by slipping a
+  // day: the message it chases has already landed, and the window it may land in
+  // is five to ten days wide.
   //
-  // After, because a follow-up is the cheaper message of the two and the cold
-  // email is the one with a deadline attached: an application ages while it waits
-  // and a nudge does not, so on the firing where something has to give, the nudge
-  // is what gives. It also means a row sent minutes ago is on the tab as Sent
-  // before the planner reads it, and gets its day in the same run.
+  // After the cold path, because a follow-up is the cheaper message of the two and
+  // the cold email is the one with a deadline attached: an application ages while
+  // it waits and a nudge does not, so on the firing where something has to give,
+  // the nudge is what gives. It also means a row sent minutes ago is on the tab as
+  // Sent before the planner reads it, and gets its day in the same run.
   //
   // Planning before sending, because the plan is what the send reads. A row
   // booked for today by the step above may go out on this very firing rather than
@@ -714,7 +732,11 @@ function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
               'scanRejectionEmails', 'onOutreachQueueEdit',
-              'planFollowUpReplies', 'sendFollowUpReplies', 'replanOutreachFollowUps'];
+              'planFollowUpReplies', 'sendFollowUpReplies', 'replanOutreachFollowUps',
+              // The referral path's three. A kill switch that misses a handler is
+              // worse than no kill switch, because the log will say every trigger
+              // was removed and one of them will still be sending.
+              'planReferralAsks', 'draftReferralAsks', 'sendReferralAsks'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

@@ -4,8 +4,14 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 378 tests in its own
-harness that run on a laptop with no Google account and nothing that can send. What is not done
+There is a second path, and it runs the other way round: [asking an engineer at that company for a
+referral](#the-referral--asking-an-engineer-instead-of-a-recruiter), from a posting that may not
+have been applied to yet. Almost nothing is shared between the two but the company-matching rule
+and the mailbox they leave from — different reader, different favour, different template, different
+caps.
+
+The decision logic is built and tested: `apps_script/outreach/`, with every rule in its own
+harness, which runs on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
 ## What this is not
@@ -131,6 +137,51 @@ self-corrects if a firing is missed.
 
 Gmail allows a consumer account 100 recipients a day through Apps Script. The busiest day here
 asks for a quarter of that.
+
+### One budget for the mailbox
+
+Three features now send from one address: the cold email, the follow-up that chases it, and the
+[referral ask](#the-referral--asking-an-engineer-instead-of-a-recruiter). Each was given a daily cap
+in isolation and each is defensible on its own — 25 at the cold path's Tuesday peak, 6, and 6. None
+of them could see the other two, so the only thing bounding a day's total was arithmetic nobody had
+done.
+
+`DAILY_EMAIL_BUDGET` is **45**, and it is a limit on the account rather than on any path: what gets
+a sending address penalised is the volume leaving one mailbox in a day, and the mailbox neither
+knows nor cares which of three features asked. The three caps sum to thirty-seven today, so the
+budget does not bind — and saying that out loud is the point rather than an admission. The sum is a
+coincidence of three constants chosen separately, and the next person to raise one of them will not
+be thinking about the other two. A guard rail you are leaning on is one that was installed too late.
+
+`EMAIL_PATH_ORDER` is `referral`, `cold`, `followup`, and it decides who gives way when the budget
+binds:
+
+- **Referral first**, because it is the scarcest thing here. Three people per employer and no second
+  attempt ever, so an ask displaced today is not delayed — it is one of three chances at that
+  company spent on nothing.
+- **Cold email next.** It has by far the most rows, but one it cannot send today still goes tomorrow
+  with nothing lost, because the application it is about will still be there.
+- **Follow-up last**, and it is the right last. It is the only one of the three that loses nothing by
+  slipping: the message it chases has already landed, and the window it may land in is five to ten
+  days wide. Being late is what it is designed to be.
+
+The ordering only means something because room is **reserved**, not merely queued for. Before a path
+is served, the budget holds back whatever every path above it has not yet spent of its own cap.
+Without that, priority would be settled by whichever planner happened to run first — and the cold
+path is the one that has been firing hourly for weeks, so it would take the whole budget every
+morning and the ordering would be a comment rather than a rule.
+
+> **Counted at sending, not at planning.** A planner writes a date into a cell; it is the send that
+> costs the account something, and a budget enforced at planning time can be defeated by a row
+> planned last week under a cap that has since changed. A row that loses its place at send time is
+> not lost either: all three paths already treat a day they could not absorb as a day to catch up
+> on, because all three had to survive a weekend of downtime.
+>
+> A **`Drafted`** row counts as spent, not only a `Sent` one. A draft is a message that exists,
+> addressed and complete, and will leave within the hour unless somebody deletes it — not counting
+> it would let the firing at the top of the hour book against a budget the firing before it had
+> already committed. Spend is counted on the day a row is booked for, so a row that slipped from
+> Tuesday and went on Wednesday is Wednesday's spend, which is what the account actually did.
 
 > **Re-check immediately before sending.** Days pass between enqueue and send, and `Process` can
 > move in that time. Read the matching `App` row again; if it is now `Rejected` or has advanced
@@ -968,17 +1019,390 @@ It is a projection, not a promise. Anything queued tomorrow moves it. A row that
 been written stops being projected: from then on the two columns hold the minute the draft was
 made and the hour it goes, and neither is guesswork any more.
 
+## The referral — asking an engineer instead of a recruiter
+
+Everything above is one path: an application exists, a recruiter is paid to read applications, and
+the email asks them to go and read this one. The second path asks a different person for a
+different thing. An engineer at that company is not paid to read applications and is being asked to
+spend their own credibility, which is why almost nothing from the cold path carries over — not the
+trigger, not the ordering, not the caps, and not a single sentence of the template.
+
+Three files, split the way the cold path is split — everything that *decides* apart from
+everything that can touch a mailbox:
+
+| | |
+|---|---|
+| [`outreach_referral.gs`](../apps_script/outreach/outreach_referral.gs) | the forty messages, the tier resolver, the composer |
+| [`outreach_referral_queue.gs`](../apps_script/outreach/outreach_referral_queue.gs) | which link counts, which posting per company, who is asked and in which hour |
+| [`outreach_referral_send.gs`](../apps_script/outreach/outreach_referral_send.gs) | the three entry points that write rows, draft them and send them |
+
+The first two are pure and covered by the same harness as everything else, which still sends
+nothing when it runs.
+
+> **What is wired.** `planReferralAsks`, `draftReferralAsks` and `sendReferralAsks` are runnable —
+> by hand from the editor, or from a trigger — and `sendReferralAsks` really sends.
+> **`runOutreachCycle` does not call any of them**: the ten steps in
+> [One firing does the whole round](#one-firing-does-the-whole-round) are still the whole round, so
+> until that changes nothing happens on this path unless somebody starts it.
+
+### It starts from a posting, not from an application
+
+The cold queue reads `App`: something was applied to, so the company, the role and the date are
+already settled and the only open question is who to write to. The referral queue reads `Jobs`,
+one step earlier, and **does not require that the posting has been applied to at all.**
+
+That ordering is the point rather than a shortcut. A referral submitted before the application is
+the version of the favour that helps — the referrer's name goes on the file as it is created,
+rather than being attached to a record already sitting in the ATS. It is also the only ordering
+this tracker can offer: a row reaches the `App` tab the moment you tick `Applied`, and by then the
+referral is late.
+
+Three things have to be true, each its own function so a row nobody expected can be argued with one
+rule at a time:
+
+| | |
+|---|---|
+| the employer is one ColdEmail found engineers at | `outreachEmployeesFor_` |
+| the role names the intake | `outreachReferralSeason_` |
+| the link is one a referral can be submitted against | `outreachReferralLinkOk_` |
+
+`REFERRAL_SEASON_WORD` is `summer`, matched as a **whole word** and case-insensitively, on the role
+and never on the company. Whole word because `Summertime Analytics Intern` is not a summer
+internship and a surname is not a season; on the role alone because an employer with the word in
+its name would otherwise put every posting it has into the queue. Case-insensitive because the
+sources write it every way there is — `Summer 2027`, `SUMMER Intern`, `summer analyst`.
+
+### Only a link a referral can actually be submitted against
+
+A referral is a form with a job id in it. A crawled link is not usable merely because it resolves:
+half the trackers this project reads republish a posting under an id of their own, and a redirect
+is not a requisition. So `outreachReferralLinkOk_` is an **allowlist** — the ~29 domains in
+`REFERRAL_ATS_DOMAINS`, plus the employer's own domain out of the ColdEmail dataset — and
+everything else is refused.
+
+Deny by default, rather than a list of aggregators to reject. The rejects are unbounded and grow
+every time somebody launches another job board; the systems that actually receive applications are
+a list of about thirty and change roughly never. Under a rejection list, a new aggregator nobody
+had heard of passes silently and a referral ask goes out pointing at a redirect — the recipient
+opens it, finds no req, and the ask is spent. Under this one, the same unknown host turns a row
+yellow and asks a person to look at it. Being wrong in the second direction costs a minute.
+
+`REFERRAL_AGGREGATOR_DOMAINS` exists alongside it and **nothing is gated on it**. A second list
+that could also refuse would be a second place to be wrong. Its only job is to say which kind of
+wrong a link is, because *that is a Jobright redirect, paste the real one* and *I do not recognise
+this host* ask a person to do two different things.
+
+Three details the tests pin down:
+
+- **Matched as a suffix on a dot boundary.** Every one of these systems hands an employer its own
+  subdomain — `boards.greenhouse.io` and `job-boards.greenhouse.io` are both Greenhouse, and
+  Workday gives out numbered ones by the thousand. Without the dot this becomes a substring search
+  and `mygreenhouse.io` passes as Greenhouse.
+- **The employer's own board is the best link there is**, and no list will ever hold them all, so
+  `jobs.apple.com` is recognised by the `Domain` column of the employee dataset rather than by a
+  name. Somebody else's domain is still somebody else's: an Apple link does not pass for Google.
+- **`http` is refused.** Everything here is a form that will be typed into.
+
+### Yellow on the Jobs tab, and the link pasted by hand
+
+A refused row is not dropped. `outreachReferralNeedsLink_` returns it with a reason, and the bound
+script paints columns A to H yellow on the `Jobs` tab. Yellow means exactly one thing: *this is a
+posting worth asking about and there is no way in yet.* A row nobody would ask about is never
+painted — not a fall posting, not a company with nobody in the dataset — because a colour that
+appears on rows requiring no action is a colour people stop seeing.
+
+Column **H** on `Jobs` is where the link is pasted. When both columns hold something usable the
+pasted one wins: somebody typed it deliberately, and the only reason to type one over a crawled
+link that already works is knowing something the crawler does not.
+
+Clearing the colour is half the job, not a tidy-up, and it happens on the same keystroke. The
+`onEdit` trigger that already answers a tick in `Applied` repaints the rows an edit touched, so a
+link pasted into H stops the row shouting while you are still looking at it. Waiting for
+`paintJobsReferralRows` to be run by hand would leave the tab telling you to go and find a link you
+have already found. A fill-down over twenty rows is still one write, and the full sweep is one read
+and one write for the whole tab — row by row would be 499 round trips against a simple trigger's
+thirty-second ceiling, and the paint would die somewhere in the middle of the sheet.
+
+> **Writing in column H stops that row being retired.** `_is_annotated` in
+> [`job_sync/sheet.py`](../job_sync/sheet.py) reads every cell past `Expired` as a note of yours,
+> and a row carrying a note is never dropped by the liveness check or merged away as a duplicate.
+> A pasted referral link is such a note. That is accepted rather than regretted: a summer posting
+> you are hunting a way into is exactly the row that must not vanish underneath you.
+>
+> **The header cell is not a note.** `H1` does *not* annotate anything, because the sync splits
+> `header, data = existing[0], existing[1:]` before `_is_annotated` ever runs and only data rows
+> reach it. That is what lets the crawler keep its `Last updated: …` caption in H1 — it takes the
+> one cell of the notes column no job will ever want — without silencing the retirement sweep on
+> all five hundred rows. Only content on a job's own row marks that job.
+
+### One posting per company, three people, never two on a day
+
+A company with four summer reqs is not four referrals. `outreachPickReferralRole_` chooses **one
+representative posting per employer** and everybody there is asked about that one — three people
+asked about three different requisitions reads, if any two of them compare notes, as somebody
+applying to everything rather than to something.
+
+The choice is ordered and every tie is broken, so the answer does not move between runs: a role the
+shortener recognises as a software engineering internship first, because that is the job actually
+wanted and the rest are near misses that happen to say summer; then the most recently posted,
+because an older req is closer to being filled; then the role text, which settles whatever is left.
+A posting with no usable link is never the one chosen, so one aggregator row cannot hide a company's
+good link behind it.
+
+`REFERRAL_PER_COMPANY` is **3**, and the number is small on purpose. Reddit has twenty-three
+engineers in this dataset and Goldman Sachs twenty-two; asking all of them is not outreach, it is a
+mailing list that happens to be about one person. Three is enough that one ignored message is not
+the whole attempt at that employer.
+
+`REFERRAL_COMPANY_DAILY_CAP` is **1**: never two people at one employer on the same day. Colleagues
+talk, and two near-identical notes arriving at one company inside a day is the thing that gets
+reported rather than deleted. Spread over three days it is three people who each received one
+email, which is what it actually is.
+
+> **A person is asked once, ever.** By address, and by address only. There is no second attempt in
+> this design, because what is being asked for is a favour, and asking twice for a favour that was
+> not granted is not persistence.
+>
+> **`Cancelled` rows still count as asked**, and so do `Failed` ones. The row was made, the person
+> was chosen, and somebody decided against it; handing them back to the queue would undo that
+> decision every hour. A failure is almost never about the person either — retrying by picking
+> somebody else spends an employer's remaining names on one broken run. This is the plain opposite
+> of [which states spend a contact](#the-seven-states) on the cold path, and it is opposite because
+> the scarce thing is different: there a contact is spent only if the message reached them, here
+> the count is of decisions already made about a company with three names in it.
+
+### Six a day, weekends included, spread across eleven hours
+
+`REFERRAL_DAILY_CAP` is six, counted across every employer rather than within one. It is this
+path's own cap; what the *account* may send in a day across all three paths is a second, smaller
+question, and it has [its own section](#one-budget-for-the-mailbox).
+
+Weekends are not skipped, and the hours are the follow-up's rather than the cold path's — 08:00 to
+19:00, through `outreachSpaceHours_(6, 8, 19)`, which anchors both ends and spaces the rest
+between:
+
+```
+08:00   10:00   12:00   15:00   17:00   19:00
+```
+
+Neither is an oversight. A cold email arrives during a recruiter's working day and is read as work;
+a referral note lands in an engineer's personal inbox and is read whenever they read their mail. The
+same arithmetic the follow-up uses applies for the same reason: six across twelve hours filled from
+the front finishes by lunchtime, and nothing here is ageing badly enough to justify that.
+
+`outreachReferralSlot_` walks forward a day at a time from today and takes the first slot clearing
+both caps. **There is no window and no ceiling.** A follow-up has a window it can miss — past
+twenty-one days, *following up* stops being a true description of the message — but a referral ask
+is about a posting that is either open or not, so a backlog is spread rather than dropped, out to
+180 days if that is what the arithmetic asks for.
+
+An hour that has already gone by is never booked. A slot in the past would be sent by the very next
+firing whatever hour it claims, which quietly defeats the spreading the function exists to do — so
+a plan made at 23:00 starts tomorrow.
+
+### Booked, drafted an hour early, then sent
+
+Three steps rather than two, in the order they are written here, and each one is its own entry
+point:
+
+| | |
+|---|---|
+| `planReferralAsks` | reads `Jobs`, `Referral` and the employee export, and appends the rows the planner booked. Touches no mailbox, so it is safe at any hour and from any button |
+| `draftReferralAsks` | writes the message `DRAFT_LEAD_HOURS` before its slot — resume attached, real address in the `To` field — and leaves it in Drafts |
+| `sendReferralAsks` | sends whatever is still there when the hour arrives |
+
+The hour in the middle is the entire review mechanism, exactly as it is for a cold email:
+**deleting the draft in Gmail is how a referral ask is called off.** The send finds nothing behind
+the stored id, and the row says `Cancelled` with *"The draft was deleted before its hour, so it was
+called off."* — not `Failed`, because nothing failed. That line is not cosmetic. `Failed` is what
+the tab says when a send broke and the reason is worth reading, so a column of `Failed` rows that
+are really a person's own decisions is a column nobody can scan for problems any more.
+
+Appending only, like `enqueueOutreach`: nothing in the planning step edits a row that already
+exists, so a run that dies halfway leaves a shorter tab rather than a corrupted one. Running it
+twice books nothing the second time, and that property is not maintained anywhere — it falls out of
+the planner reading the tab it is about to append to. Every row carries the person's address, and an
+address on the tab is spent whatever became of the row, so the second run sees the first run's work
+as history. An idempotence that had to be remembered would be one that failed the first time
+somebody clicked Run out of curiosity.
+
+A slot that has already gone by is still drafted. Triggers miss firings — a quota, a deploy, a
+weekend of downtime — and a row whose hour passed unattended has to be able to catch up rather than
+sit on the tab with a date in the past and no explanation anywhere.
+
+Every row is drafted inside its own `try`. One address Gmail refuses is one `Failed` row with the
+reason on it; without the isolation it would be a thrown run, and the rows behind it — whose slots
+are the same afternoon — would never be written at all. `Failed` is terminal by design here, because
+[a failed row still spends the person and the place](#one-posting-per-company-three-people-never-two-on-a-day).
+
+> **Three columns doing something slightly different from the `Email` tab.**
+>
+> `Queue ID` is `R-` and the address, not a generated id. The id on this tab is not decoration: this
+> path asks one person once and never again, and an id drawn fresh each time it was computed would
+> let the same person be claimed by two rows without either row looking wrong. Derived from the one
+> field that identifies a referral row, a duplicate is visibly a duplicate.
+>
+> `Gmail Draft ID` is its own column, between `Mode` and `Sent At`, because that is where it sits in
+> the row's life: the draft exists under that id for an hour, and deleting it in Gmail is what calls
+> the message off. An earlier layout had no room for it and let the id ride in `Result` until the
+> send replaced it with the sent message's id — two different kinds of Gmail id in one cell,
+> tellable apart only by also reading `Status`, in the column whose entire job is to say how it
+> went. `Result` now holds one kind of thing and is empty until there is a result.
+>
+> `Mode` is left **blank** when a row is written, on purpose. The column carries the tab's own
+> default, and a value written at planning time would be this code overruling a person who set that
+> cell to `Draft` — the one direction the mode rules never allow.
+
+`checkReferralService` is the probe: it reads and sends nothing, and reports **all** the problems
+rather than the first. The three things that fail late and quietly are a `Referral` tab that was
+never created, an employee export nobody has run, and a resume id pointing at a file this account
+cannot open — the second books nothing and logs a perfectly ordinary zero, and the third throws once
+per row inside the per-row `try` and turns a whole afternoon of good rows into `Failed`. Every one of
+them is cheaper to find here.
+
+### Four tiers, ten templates each
+
+Forty messages, in `REFERRAL_TEMPLATES`. The tier is how far above the writer the reader sits, and
+it moves exactly two things: **how small the ask is, and whether the note admits it is reaching.**
+
+| Tier | Who | The ask, roughly |
+|---|---|---|
+| `peer` | interns, new grads, juniors, associates | *would you be willing to put a referral in for me* |
+| `mid` | the largest group by far | *would you be open to referring me for it* |
+| `senior` | senior, staff-adjacent, leads | *if it is something you do, would you consider referring me* |
+| `staff` | staff and above, plus managers and directors | *if you ever refer interns, would you consider doing it for me* |
+
+Read the four next to each other and the ask shrinks as the reader gets more senior. That is the
+whole gradient. Everything above the ask stays the same length in all four tiers, because seniority
+is not a reason to write more.
+
+What the tier deliberately does not move is the number of apologies. Only the **staff** openings
+name the reach, in half a sentence, once — and a test holds all ten of them to it and holds the
+other thirty to naming it nowhere. A full sentence of self-deprecation is not humility, it is an
+invitation to agree the email should not have been sent, and some readers will take it. Real
+humility in a cold email is being brief, being specific, and making the no easy.
+
+**No template asks for a call, a chat, a coffee or a meeting, and a test enforces the list.** A call
+turns a two-minute favour into a calendar item, and the safe answer to a calendar item is silence.
+The offer line runs the other way: resume attached, questions by email, and on several of them no
+reply needed at all if the answer is no.
+
+Ten per tier for the same reason the recruiter email has ten variations — twenty-three engineers at
+one employer means a run of identical bodies out of one mailbox, which is a spam signal on its own.
+Which of the ten a person gets is seeded on the company name and offset by the attempt, so the first
+person at an employer does not always draw template one and the second and third take the next ones
+down. No two templates inside a tier share an opening, an ask, an offer or a close; nothing uses a
+dash; everything is ASCII, so no client has to guess an encoding.
+
+### The tier is read off the title, not off the seniority column
+
+`outreachReferralTier_` walks `REFERRAL_TIER_TITLES` in order, most senior word first, matching
+**whole words** — `Senior Staff Software Engineer` holds both words and staff is the answer, `lead`
+must not fire inside `Leadership` or `misleading`, `sr` must not be found inside a longer word, and
+`ii` must not be found inside `iii`. Manager and director sit with staff: they are further from the
+work than a Principal engineer is, but they are the same distance above an intern, and it is that
+distance the tier measures.
+
+ColdEmail's `Seniority` column is read only when the title settles nothing, and the fallback of the
+fallback is `mid`. The column is blank on 361 of the 2,145 exported rows, so believing it first
+would send a Principal engineer the peer email on a blank cell alone.
+
+> **The numbered ladder is why this is title-first.** ColdEmail's `seniority` labels a
+> `Software Engineer II` as junior. On that column alone, every II and III in the dataset was being
+> sent the new-grad email — dozens of people who have shipped things for a couple of years being
+> written to as peers of somebody applying to intern. The ladder is now read from the title, last of
+> all so that a named level in the same title still wins: `Senior Software Engineer II` is senior,
+> `Software Engineer II` and `III` are mid, `IV` is senior, and a bare `I` is peer.
+
+### The openings say only that the note is cold
+
+Every one of the forty opens by admitting the note is cold and unasked for, and **none of them says
+why this person was chosen.**
+
+That is a deletion, not an omission. An earlier draft explained the choice, and with 2,145
+recipients every reason available is generic: *you do the work rather than recruit for it* is true
+of every single person being written to. A reason that is true of everybody is flattery
+reverse-engineered from the ask, and it reads as exactly that. The warmth lives in the sentences
+after the request instead, where it costs the reader nothing to believe.
+
+The admission goes first because it is the question the reader is already asking. What follows is
+one line of who is writing, one of what was applied to, the posting link, two resume bullets, the
+bolded ask with its way out, and the close. Around a hundred and ten words — longer than the
+recruiter email's, because the ask is bigger and earns a little more room to be honest in, and
+nowhere near double, because seven beats at two sentences each is a page and a page to a working
+engineer is an archive.
+
+### The email carries the posting link
+
+`outreachReferralApplied_` puts the link in the sentence, and the link is required: a row without
+one is never due, whatever hour it is booked for. Refusing to send is the right failure — a referral
+ask that cannot be acted on has spent the only message that person will ever get.
+
+Naming the role and the date is enough for a recruiter, because the req is already theirs. It is not
+enough for an engineer, who has to find the posting before they can do anything at all — and that
+errand is where a willing reader quietly becomes a reader who meant to get to it. A referral is a
+form with a job id in it; the email hands over the id.
+
+The sentence is `I applied for the {Role} role at {Company}: {link}`, with the date appended while
+the application is inside `STALE_APPLICATION_DAYS` and dropped past it, exactly as on the cold path.
+
+> **The date is never actually appended, and the sentence has a claim in it this path does not
+> check.** `draftReferralAsks` passes no `Date Applied` — there is no column on the `Referral` tab
+> to hold one, because [the path deliberately does not wait for an
+> application](#it-starts-from-a-posting-not-from-an-application) — so the dated variant is unreachable
+> from the sender and only the harness ever sees it. That much is harmless. What is not is the verb:
+> a posting queued before it was applied to still produces *I applied for the … role at …*, which is
+> a statement the queue never established. Either the planner has to require an application, which
+> gives up the ordering this path exists for, or the sentence has to stop asserting one. It has not
+> been resolved yet, and until it is, this is the line to check before a batch goes out. The subject lines are plain and deliberately **not** the recruiter email's trick: that
+subject is a bare number written so it is not yet explained, because a recruiter's inbox is a
+competition for the open. This one arrives at somebody not expecting mail about hiring at all, and a
+teaser subject on an unexpected favour reads as marketing. A test holds all ten under 66 characters
+against the longest company and the longest role in the dataset rather than the average ones,
+because a subject is read on a phone.
+
+The two resume bullets are chosen by **what the company does**, not by who is reading: a Staff
+engineer at Stripe and a new grad at Stripe both care about the payments number, and the tier is
+already doing its own work on the wording. The bucket is ColdEmail's, so it is the same judgement
+that wrote the company angle. Six numbers per bucket read as three pairs, one pair per person, so
+three people at one employer do not receive one list.
+
+`previewReferralTemplates` logs one example of every tier and every template and sends nothing.
+Forty messages is past what anybody holds in their head, and the thing worth checking is not any
+single one: it is that the ask really does shrink down the tiers and that no two openings have
+drifted into each other.
+
+### The `Referral` tab holds the name and the address
+
+This is the plain opposite of the rule the `Email` tab keeps, and it is a deliberate decision by the
+sheet's owner rather than an inconsistency nobody noticed.
+
+The `Email` tab sends in bulk and unattended, so a recruiter's name and address staying out of the
+tracker costs nothing and removes a whole class of accident — see
+[What this is not](#what-this-is-not). The `Referral` tab is read by a person before anybody is
+asked: the question it exists to answer is *who at this company have I already asked*, and a tab
+that answers it with a fingerprint is a tab you have to open the contacts spreadsheet to use.
+`Person`, `Email` and `Title` therefore lead the row, because they are the row. The columns are in
+[spreadsheet.md](spreadsheet.md#tab-referral--who-has-been-asked).
+
 ## The contact list
 
-A second spreadsheet, owned by the sending account, with two tabs:
+A second spreadsheet, owned by the sending account, with three tabs:
 
 | Tab | Written by | On the next export |
 |---|---|---|
 | `Contacts (seed)` | `src/export_contacts.py` in ColdEmail | **overwritten wholesale** |
 | `Contacts (manual)` | you, by hand | **never touched** |
+| `Employees (seed)` | `src/export_referrals.py` in ColdEmail | **overwritten wholesale** |
 
-The split is the whole point. One tab would mean a single re-export silently destroying months
-of contacts gathered by hand. Two tabs make that impossible rather than merely unlikely.
+The split between the first two is the whole point. One tab would mean a single re-export silently
+destroying months of contacts gathered by hand. Two tabs make that impossible rather than merely
+unlikely.
+
+`Employees (seed)` is separate from both for a different reason: it holds different people, asked
+for a different thing. Recruiters and engineers on one tab would mean one export able to erase the
+other's rows, and a referral ask and a cold email drawing from one list would eventually pick the
+same person for both.
 
 Columns are the same on both: `Company · Recruiter Name · Email · Role · Focus · Hook · Angle ·
 Verify · Bucket`. **A hand-typed row needs only the first three.** Hook and angle stay empty and
@@ -1003,6 +1427,37 @@ its own.
 The export writes 2,098 contacts across 650 companies, leaving out the 171 addresses that were
 never really verified. Every one of them carries a company angle; 1,714 also carry a personal
 hook.
+
+### `Employees (seed)` — the people who could make a referral
+
+`src/export_referrals.py` is the recruiter export's sibling: the same join, done for the people who
+would actually put the referral in. It writes **2,145 people across 221 companies** to
+`finals/employees_seed.csv`, and that file is imported over the tab wholesale, so nothing typed by
+hand belongs on it. There is no `Employees (manual)`; a name added by hand would be erased by the
+next export.
+
+Ten columns: `Company · Person Name · Email · Title · Domain · Seniority · LinkedIn · Angle ·
+Bucket · Verify`. Four of them are read by the sender and each answers one question — `Title`
+decides the tier, `Domain` is what lets a link on the employer's own careers site be told apart from
+an aggregator republishing the same posting, `Bucket` picks the two resume numbers, and `Angle` is
+the one company-specific sentence, borrowed from the same file the recruiter email borrows it from.
+1,990 of the rows carry an angle.
+
+Everything interesting is in what is left out, because a referral ask lands in a personal inbox and
+a bad address costs more there than it does in a recruiter queue:
+
+| Left out | Why |
+|---|---|
+| `anymail_status` short of `valid` | the cheapest bounce is the one never queued |
+| `active` explicitly `no` | confirmed gone from the company, so they cannot refer anybody |
+| a title reading `ex-` or `former` | the same fact written a different way |
+| a repeated address | one person, one message; the first occurrence wins |
+
+Only a positive `no` disqualifies on the active check. `unchecked` and `unknown` stay in, because
+absence of evidence is not evidence of absence and dropping them would throw away a hundred
+otherwise good people. `Seniority` is deliberately left **empty** rather than guessed when the source
+does not say — 361 rows are blank — because a guessed level would be believed by the tier resolver,
+and a wrong tier is the wrong email rather than a missing one.
 
 ## The message
 
@@ -1230,3 +1685,43 @@ to confirm the file arrived.
 
 Nothing leaves the account until `OUTREACH_MODE` is cleared, whatever else is installed. The
 `App` tab is not touched at any point, so nothing above needs undoing if you stop here.
+
+### Preparing the referral path
+
+None of this is a prerequisite of the eight steps above, and `runOutreachCycle` still does not call
+the referral path, so nothing below starts sending on its own.
+
+1. Add an `Employees (seed)` tab to the contacts spreadsheet, headed `Company · Person Name ·
+   Email · Title · Domain · Seniority · LinkedIn · Angle · Bucket · Verify`. In ColdEmail,
+   `uv run python src/export_referrals.py`, then import `finals/employees_seed.csv` over it.
+2. In the **bound** script — the one owned by the tracker's account, not the sender — run
+   `setupReferralQueue`. It creates the empty `Referral` tab with its headers, its dropdowns and
+   its timestamp formats, contacts nobody, and refuses to write over any header cell that already
+   holds something else, which would mean this is a different table.
+3. Run `installJobsReferralTrigger` once. It puts `paintJobsReferralRows` — which colours the rows
+   needing a link and lifts them to the top of `Jobs` — on an hourly trigger. It has to be on a
+   clock rather than run by hand, because `job_sync` re-sorts the whole tab by posting date on
+   every sync and puts the yellow block back into the middle of eight hundred rows. The `onEdit`
+   trigger still keeps the *colour* honest a row at a time and deliberately does not move anything:
+   sorting under somebody who is pasting a link pulls the row out from under their cursor.
+
+> **`setupJobsReferralColumn` writes no header, on purpose.** `Jobs!H1` is already the crawler's:
+> `STAMP` in [`job_sync/sheet.py`](../job_sync/sheet.py) writes the `Last updated: …` caption there
+> on every sync run, taking the one cell of the notes column that no job will ever want. An earlier
+> version of the setup wrote `Referral Link` into it, which the crawler overwrote within the hour
+> and which the setup then refused to run against, so it could only ever be run once. It now sets
+> the column width and leaves H1 alone. Column H's **data** cells are the referral link and work
+> exactly as described above; the paint, the `onEdit` repaint and the sender's reading of column H
+> none of them need a header.
+
+4. In the sender project, run `checkReferralService`. It reads and sends nothing and names every
+   missing piece at once — no tab, no export, a resume that will not open. `previewReferralTemplates`
+   logs all forty messages, which is the cheapest way to confirm the templates arrived in the push.
+5. Then `planReferralAsks` by hand, and read the `Referral` tab before letting anything near a
+   mailbox. It appends rows and touches no mailbox at all, so this step is free.
+
+`draftReferralAsks` and `sendReferralAsks` are the two that can reach Gmail, in that order and an
+hour apart. `OUTREACH_MODE = Draft` holds this path back exactly as it holds the cold one:
+`sendReferralAsks` reads the same property, so with it set the drafts are written and left for you.
+A blank `Mode` cell on a row means the tab's default, and a row set to `Draft` by hand is never
+overruled by the global switch being clear.

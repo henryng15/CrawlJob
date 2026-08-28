@@ -49,8 +49,9 @@ function load() {
     }
   };
   vm.createContext(context);
-  ['outreach_config.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
-   'outreach_send.gs', 'outreach_rejections.gs', 'outreach_followup.gs']
+  ['outreach_config.gs', 'outreach_budget.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
+   'outreach_send.gs', 'outreach_rejections.gs', 'outreach_followup.gs',
+   'outreach_referral.gs', 'outreach_referral_queue.gs', 'outreach_referral_send.gs']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context));
   return context;
 }
@@ -2896,6 +2897,1077 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.throws(() => S.outreachFollowUpColumnsAction_(header('')));
   });
 }
+
+{
+  console.log('\nreferral templates');
+
+  const REFERRAL_SAMPLE = {
+    personName: 'Priya Raman', personTitle: 'Software Engineer', company: 'Reddit',
+    bucket: 'consumer', angle: 'Reddit opened Answers to everyone on Jul 30, 2026.',
+    role: 'Software Engineering Intern, Summer 2027',
+    dateApplied: day(2026, 8, 21), today: day(2026, 8, 28),
+    jobLink: 'https://job-boards.greenhouse.io/reddit/jobs/7123456', attempt: 1
+  };
+  const referral = (extra) => {
+    const options = {};
+    Object.keys(REFERRAL_SAMPLE).forEach((k) => { options[k] = REFERRAL_SAMPLE[k]; });
+    Object.keys(extra || {}).forEach((k) => { options[k] = extra[k]; });
+    return S.outreachReferralCompose_(options);
+  };
+
+  run('four tiers of ten', () => {
+    assert.strictEqual(S.REFERRAL_TIERS.join(','), 'peer,mid,senior,staff');
+    S.REFERRAL_TIERS.forEach((tier) => {
+      assert.strictEqual(S.REFERRAL_TEMPLATES[tier].length, 10, tier);
+    });
+  });
+
+  run('every ask carries exactly one bolded request', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      const bolds = entry.ask.match(/\*\*.+?\*\*/g) || [];
+      assert.strictEqual(bolds.length, 1, tier + ' #' + (i + 1) + ': ' + entry.ask);
+    }));
+  });
+
+  // The recruiter email turns every dash arriving from ColdEmail into a full stop,
+  // and nothing written by hand in this project has ever used one. A template that
+  // did would be the only line in a message that reads as one long breath.
+  run('no template uses a dash, and every one is ASCII', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      ['open', 'ask', 'offer', 'close'].forEach((field) => {
+        const where = tier + ' #' + (i + 1) + '.' + field;
+        assert.ok(!/[–—-]/.test(entry[field].replace(/\*\*/g, '')), where);
+        assert.ok(!/[^\x20-\x7e]/.test(entry[field]), where);
+      });
+    }));
+  });
+
+  // Two people at one company always land on different indexes of the same tier,
+  // so a repeat inside one tier is a repeat someone could actually receive.
+  run('no two templates in one tier share any line', () => {
+    S.REFERRAL_TIERS.forEach((tier) => {
+      const seen = {};
+      S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+        ['open', 'ask', 'offer', 'close'].forEach((field) => {
+          const key = field + '|' + entry[field];
+          assert.ok(!seen[key], tier + ' #' + (i + 1) + ' repeats ' + seen[key]);
+          seen[key] = '#' + (i + 1) + '.' + field;
+        });
+      });
+    });
+  });
+
+  run('the title decides the tier, most senior word first', () => {
+    assert.strictEqual(S.outreachReferralTier_('Senior Staff Software Engineer', ''), 'staff');
+    assert.strictEqual(S.outreachReferralTier_('Principal Engineer', ''), 'staff');
+    assert.strictEqual(S.outreachReferralTier_('Director of Software Engineering', ''), 'staff');
+    assert.strictEqual(S.outreachReferralTier_('Sr. Software Engineer', ''), 'senior');
+    assert.strictEqual(S.outreachReferralTier_('Lead Software Engineer', ''), 'senior');
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer', ''), 'mid');
+    assert.strictEqual(S.outreachReferralTier_('Associate Software Engineer', ''), 'peer');
+    assert.strictEqual(S.outreachReferralTier_('SWE Intern', ''), 'peer');
+  });
+
+  // ColdEmail's seniority column calls a Software Engineer II junior. Believing it
+  // sent the new grad email to every II and III in the dataset, seventy people.
+  run('a numbered title beats the seniority column that mislabels it', () => {
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer II', 'junior'), 'mid');
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer III', 'junior'), 'mid');
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer 3', 'junior'), 'mid');
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer I', ''), 'peer');
+    assert.strictEqual(S.outreachReferralTier_('Software Engineer IV', ''), 'senior');
+    // A named level still outranks a number in the same title.
+    assert.strictEqual(S.outreachReferralTier_('Senior Software Engineer II', 'junior'), 'senior');
+  });
+
+  run('the seniority column is read only when the title settles nothing', () => {
+    assert.strictEqual(S.outreachReferralTier_('Engineering', 'staff'), 'staff');
+    assert.strictEqual(S.outreachReferralTier_('Engineering', 'senior'), 'senior');
+    assert.strictEqual(S.outreachReferralTier_('Engineering', 'new_grad'), 'peer');
+    assert.strictEqual(S.outreachReferralTier_('Engineering', ''), 'mid');
+    assert.strictEqual(S.outreachReferralTier_('', ''), 'mid');
+  });
+
+  run('three people at one company get three templates and three bullet pairs', () => {
+    const seen = [1, 2, 3].map((attempt) => referral({ attempt: attempt }));
+    const templates = seen.map((one) => one.template);
+    assert.strictEqual(new Set(templates).size, 3, templates.join(','));
+    const subjects = seen.map((one) => one.subject);
+    assert.strictEqual(new Set(subjects).size, 3, subjects.join(','));
+    const pairs = [1, 2, 3].map((attempt) =>
+      S.outreachReferralBullets_('consumer', attempt).join('|'));
+    assert.strictEqual(new Set(pairs).size, 3);
+  });
+
+  run('two companies do not both start at template one', () => {
+    const a = S.outreachReferralIndex_('Reddit', 1);
+    const b = S.outreachReferralIndex_('Stripe', 1);
+    assert.notStrictEqual(a, b);
+    assert.ok(a >= 0 && a < 10 && b >= 0 && b < 10);
+  });
+
+  run('a bucket nobody recognises still gets two real bullets', () => {
+    const pair = S.outreachReferralBullets_('', 1);
+    assert.strictEqual(pair.length, 2);
+    pair.forEach((line) => assert.ok(line && line.length > 20));
+  });
+
+  // A referral is a form with a job id in it. An email that names the role but not
+  // the posting sends a willing reader off to find it, and that errand is where
+  // the yes goes.
+  run('the posting link is in both renderings', () => {
+    const one = referral({});
+    assert.ok(one.plain.indexOf(REFERRAL_SAMPLE.jobLink) !== -1);
+    assert.ok(one.html.indexOf(REFERRAL_SAMPLE.jobLink) !== -1);
+  });
+
+  run('the job board title is shortened the same way the recruiter email does', () => {
+    assert.ok(referral({}).plain.indexOf('Software Engineer Intern role at Reddit') !== -1);
+  });
+
+  run('a stale application drops its date and keeps its link', () => {
+    const stale = referral({ dateApplied: day(2026, 1, 5) });
+    assert.ok(stale.plain.indexOf('on Jan 5') === -1);
+    assert.ok(stale.plain.indexOf(REFERRAL_SAMPLE.jobLink) !== -1);
+  });
+
+  run('a company with no angle still composes', () => {
+    const bare = referral({ angle: '' });
+    assert.ok(bare.plain.indexOf('Hi Priya,') === 0);
+    assert.ok(bare.plain.indexOf('undefined') === -1);
+    assert.ok(bare.plain.indexOf('Henry Nguyen') !== -1);
+  });
+
+  // Subjects are read on a phone, so the longest company and the longest role in
+  // the dataset are the case that has to fit, not the average one.
+  run('the subject fills in the company and the shortened role', () => {
+    [['Reddit', 'Software Engineer Intern'],
+     ['Activision Blizzard', 'Embedded Software Engineer Intern']].forEach((pair) => {
+      for (let i = 0; i < 10; i++) {
+        const subject = S.outreachReferralSubject_(i, pair[0], pair[1]);
+        assert.ok(subject.indexOf('{') === -1, subject);
+        assert.ok(subject.length <= 66, subject.length + ': ' + subject);
+      }
+    });
+  });
+
+  // The gradient the tiers exist for: the ask gets smaller as the reader gets more
+  // senior, and only the top tier names the reach.
+  run('only the staff tier admits it is reaching', () => {
+    const admits = (entry) => /reach|presumptuous|long shot|out of my depth|bold note|nervy|stretch|aimed higher|below what usually|liberty|several levels/.test(entry.open);
+    assert.strictEqual(S.REFERRAL_TEMPLATES.staff.filter(admits).length, 10);
+    ['peer', 'mid', 'senior'].forEach((tier) => {
+      assert.strictEqual(S.REFERRAL_TEMPLATES[tier].filter(admits).length, 0, tier);
+    });
+  });
+
+  // Never a meeting. A call turns a two minute favour into a calendar item, and
+  // the safe answer to a calendar item is silence.
+  run('no template asks for anyone time on a call', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      const words = (entry.ask + ' ' + entry.offer).toLowerCase();
+      ['chat', 'call', 'meeting', 'coffee', 'minutes of your'].forEach((banned) => {
+        assert.ok(words.indexOf(banned) === -1, tier + ' #' + (i + 1) + ': ' + banned);
+      });
+    }));
+  });
+}
+
+
+{
+  console.log('\nreferral: which link may be put in front of somebody');
+
+  const ATS = [
+    'https://boards.greenhouse.io/stripe/jobs/1234567',
+    'https://job-boards.greenhouse.io/reddit/jobs/7123456',
+    'https://jobs.lever.co/mongodb/9f2b-441',
+    'https://jobs.ashbyhq.com/openai/abc-123',
+    'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/JR2001',
+    'https://careers.smartrecruiters.com/Company/743999',
+    'https://cisco.wd1.myworkdaysite.com/en-US/careers/job/R-1',
+    'https://www.workatastartup.com/jobs/77123'
+  ];
+  const NOT_ATS = [
+    'https://jobright.ai/jobs/info/68b0c1',
+    'https://simplify.jobs/p/9f2b-441',
+    'https://www.linkedin.com/jobs/view/4290001',
+    'https://www.indeed.com/viewjob?jk=abc',
+    'https://builtin.com/job/engineer/1234',
+    'https://joinhandshake.com/jobs/8881'
+  ];
+
+  run('every applicant tracking system is accepted', () => {
+    ATS.forEach((url) => assert.ok(S.outreachReferralLinkOk_(url, ''), url));
+  });
+  run('every aggregator is refused', () => {
+    NOT_ATS.forEach((url) => assert.ok(!S.outreachReferralLinkOk_(url, ''), url));
+  });
+
+  // The employer's own careers site is the best link there is and no list will
+  // ever hold them all, so the company's domain is what recognises one.
+  run('the employer own domain is accepted, subdomains included', () => {
+    assert.ok(S.outreachReferralLinkOk_('https://jobs.apple.com/en-us/details/200', 'apple.com'));
+    assert.ok(S.outreachReferralLinkOk_('https://careers.google.com/jobs/results/91', 'google.com'));
+    assert.ok(S.outreachReferralLinkOk_('https://stripe.com/jobs/listing/x/61', 'www.stripe.com'));
+    // Somebody else's domain is still somebody else's.
+    assert.ok(!S.outreachReferralLinkOk_('https://jobs.apple.com/en-us/details/200', 'google.com'));
+  });
+
+  // Without the dot this is a substring search, and "mygreenhouse.io" passes as
+  // Greenhouse.
+  run('a host that merely ends in the same letters is refused', () => {
+    assert.ok(!S.outreachReferralLinkOk_('https://mygreenhouse.io/jobs/1', ''));
+    assert.ok(!S.outreachReferralLinkOk_('https://notlever.co/jobs/1', ''));
+    assert.ok(!S.outreachReferralLinkOk_('https://fakeapple.com/jobs/1', 'apple.com'));
+  });
+
+  run('anything that is not an https link is refused', () => {
+    assert.ok(!S.outreachReferralLinkOk_('http://boards.greenhouse.io/stripe/jobs/1', ''));
+    assert.ok(!S.outreachReferralLinkOk_('', ''));
+    assert.ok(!S.outreachReferralLinkOk_('boards.greenhouse.io/stripe/jobs/1', ''));
+    assert.ok(!S.outreachReferralLinkOk_(null, ''));
+  });
+
+  // What lands on the Jobs tab beside the row, so it has to say which kind of
+  // wrong the link is: a Jobright redirect and an unknown host ask a person to do
+  // two different things.
+  run('a refused link says why, and an accepted one says nothing', () => {
+    assert.strictEqual(S.outreachReferralLinkProblem_(ATS[0], ''), '');
+    assert.strictEqual(S.outreachReferralLinkProblem_('', ''), 'no link');
+    assert.ok(/aggregator link \(jobright\.ai\)/.test(
+      S.outreachReferralLinkProblem_(NOT_ATS[0], '')));
+    assert.strictEqual(S.outreachReferralLinkProblem_('http://boards.greenhouse.io/a/1', ''),
+                       'not https');
+    assert.strictEqual(S.outreachReferralLinkProblem_('nonsense', ''), 'not a link');
+    assert.ok(/unrecognised host \(example\.com\)/.test(
+      S.outreachReferralLinkProblem_('https://example.com/jobs/1', 'stripe.com')));
+  });
+
+  run('summer is a whole word, in any case', () => {
+    assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
+    assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
+    assert.ok(S.outreachReferralSeason_('2027 summer internship'));
+    assert.ok(!S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
+    assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
+    assert.ok(!S.outreachReferralSeason_(''));
+  });
+}
+
+{
+  console.log('\nreferral: which posting, and who at that company');
+
+  const jobRow = (company, role, link, posted, pasted) => {
+    const row = new Array(S.JOB_WIDTH).fill('');
+    row[S.JOB_COMPANY - 1] = company;
+    row[S.JOB_ROLE - 1] = role;
+    row[S.JOB_LINK - 1] = link || '';
+    row[S.JOB_POSTED - 1] = posted || '';
+    row[S.JOB_REFERRAL_LINK - 1] = pasted || '';
+    return row;
+  };
+  const job = (company, role, link, posted, pasted, index) =>
+    S.outreachParseJob_(jobRow(company, role, link, posted, pasted), index || 2,
+                        () => 'stripe.com');
+
+  const GH = 'https://boards.greenhouse.io/stripe/jobs/';
+
+  // Somebody typed the pasted link deliberately, and the only reason to type one
+  // over a crawled link that already works is knowing something the crawler does not.
+  run('a pasted link beats a crawled one, and rescues an aggregator row', () => {
+    assert.strictEqual(job('Stripe', 'Summer Intern', GH + '1', '', GH + '2').link, GH + '2');
+    assert.strictEqual(
+      job('Stripe', 'Summer Intern', 'https://jobright.ai/jobs/info/9', '', GH + '2').link,
+      GH + '2');
+    assert.strictEqual(
+      job('Stripe', 'Summer Intern', 'https://jobright.ai/jobs/info/9', '', '').link, '');
+  });
+
+  // A company with four summer reqs is not four referrals: three people asked
+  // about three requisitions reads as applying to everything.
+  run('one posting is chosen per company, the software one first', () => {
+    const jobs = [
+      job('Stripe', 'Data Science Intern, Summer 2027', GH + '1', new Date(2026, 7, 26)),
+      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '2', new Date(2026, 7, 20)),
+      job('Stripe', 'Product Design Intern, Summer 2027', GH + '3', new Date(2026, 7, 27))
+    ];
+    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+  });
+  run('between two software postings the newest wins', () => {
+    const jobs = [
+      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1', new Date(2026, 7, 20)),
+      job('Stripe', 'Software Engineering Intern, Summer 2027', GH + '2', new Date(2026, 7, 26))
+    ];
+    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+  });
+  run('a posting with no usable link is never the one chosen', () => {
+    const jobs = [
+      job('Stripe', 'Software Engineer Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
+      job('Stripe', 'Data Intern, Summer 2027', GH + '2')
+    ];
+    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+  });
+  run('a company with nothing in summer picks nothing', () => {
+    assert.strictEqual(
+      S.outreachPickReferralRole_([job('Stripe', 'Fall 2026 Intern', GH + '1')]), null);
+    assert.strictEqual(S.outreachPickReferralRole_([]), null);
+  });
+
+  // A colour that appears on rows needing no action is a colour people stop
+  // seeing, so only a row somebody could actually act on is ever painted.
+  run('yellow means a summer posting at a company we know, with no usable link', () => {
+    const people = [{ company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe') }];
+    const rows = [
+      job('Stripe', 'Software Engineer Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
+      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1'),
+      job('Stripe', 'Fall 2026 Intern', 'https://jobright.ai/jobs/info/9'),
+      job('Nowhere Inc', 'Summer 2027 Intern', 'https://jobright.ai/jobs/info/9')
+    ];
+    const painted = S.outreachReferralNeedsLink_(rows, people);
+    assert.strictEqual(painted.length, 1);
+    assert.ok(/aggregator link/.test(painted[0].reason));
+  });
+}
+
+{
+  console.log('\nreferral: the queue');
+
+  const REF_WIDTH = 17;
+  const person = (name, email, title, seniority) => ({
+    company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe'),
+    name: name, email: email, title: title || 'Software Engineer',
+    domain: 'stripe.com', seniority: seniority || '', angle: '', bucket: 'fintech'
+  });
+  const refRow = (company, email, scheduled, status) => {
+    const row = new Array(REF_WIDTH).fill('');
+    row[S.R_COMPANY - 1] = company;
+    row[S.R_EMAIL - 1] = email;
+    row[S.R_SCHEDULED - 1] = scheduled || '';
+    row[S.R_STATUS - 1] = status || 'Queued';
+    return S.outreachParseReferral_(row, 2);
+  };
+  const GH = 'https://boards.greenhouse.io/stripe/jobs/';
+  const jobRow = (company, role, link) => {
+    const row = new Array(S.JOB_WIDTH).fill('');
+    row[S.JOB_COMPANY - 1] = company;
+    row[S.JOB_ROLE - 1] = role;
+    row[S.JOB_LINK - 1] = link;
+    return S.outreachParseJob_(row, 2, () => 'stripe.com');
+  };
+  const TODAY = new Date(2026, 7, 28, 7, 0, 0);
+  const summerJob = [jobRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')];
+
+  run('three people at one employer, and never a fourth', () => {
+    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com'),
+                    person('C', 'c@stripe.com'), person('D', 'd@stripe.com')];
+    const plan = S.outreachReferralPlan_(summerJob, [], people, TODAY);
+    assert.strictEqual(plan.booked.length, S.REFERRAL_PER_COMPANY);
+    assert.strictEqual(plan.booked.length, 3);
+  });
+
+  // Colleagues talk. Two near identical notes arriving at one company inside a
+  // day is the thing that gets reported rather than deleted.
+  run('never two people at one employer on one day', () => {
+    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com'),
+                    person('C', 'c@stripe.com')];
+    const days = S.outreachReferralPlan_(summerJob, [], people, TODAY)
+      .booked.map((one) => one.scheduled.toDateString());
+    assert.strictEqual(new Set(days).size, 3, days.join(' | '));
+  });
+
+  run('a person already written to is never written to again', () => {
+    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com')];
+    const existing = [refRow('Stripe', 'a@stripe.com', new Date(2026, 7, 20, 9), 'Sent')];
+    const plan = S.outreachReferralPlan_(summerJob, existing, people, TODAY);
+    assert.strictEqual(plan.booked.length, 1);
+    assert.strictEqual(plan.booked[0].person.email, 'b@stripe.com');
+    assert.strictEqual(plan.skipped, 1);
+  });
+
+  // The row was made, the person was chosen, and somebody decided against it.
+  // Putting them back next run would undo that decision every hour.
+  run('a cancelled row still spends the person and the place', () => {
+    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com')];
+    const existing = [refRow('Stripe', 'a@stripe.com', new Date(2026, 7, 20, 9), 'Cancelled')];
+    const plan = S.outreachReferralPlan_(summerJob, existing, people, TODAY);
+    assert.strictEqual(plan.booked.length, 1);
+    assert.strictEqual(plan.booked[0].person.email, 'b@stripe.com');
+  });
+
+  run('a company already at three gets nothing more', () => {
+    const people = [person('D', 'd@stripe.com')];
+    const existing = ['a', 'b', 'c'].map((n) =>
+      refRow('Stripe', n + '@stripe.com', new Date(2026, 7, 20, 9), 'Sent'));
+    assert.strictEqual(
+      S.outreachReferralPlan_(summerJob, existing, people, TODAY).booked.length, 0);
+  });
+
+  run('no summer posting, no usable link, or no employees means no rows', () => {
+    const people = [person('A', 'a@stripe.com')];
+    const fall = [jobRow('Stripe', 'Fall 2026 Intern', GH + '1')];
+    const bad = [jobRow('Stripe', 'Summer 2027 Intern', 'https://jobright.ai/jobs/info/9')];
+    assert.strictEqual(S.outreachReferralPlan_(fall, [], people, TODAY).booked.length, 0);
+    assert.strictEqual(S.outreachReferralPlan_(bad, [], people, TODAY).booked.length, 0);
+    assert.strictEqual(S.outreachReferralPlan_(summerJob, [], [], TODAY).booked.length, 0);
+  });
+
+  // Nothing here waits for an application. A referral submitted before the
+  // application is the version of the favour that actually helps.
+  run('a posting nobody has applied to still queues', () => {
+    const plan = S.outreachReferralPlan_(summerJob, [], [person('A', 'a@stripe.com')], TODAY);
+    assert.strictEqual(plan.booked.length, 1);
+    assert.strictEqual(plan.booked[0].jobLink, GH + '1');
+    assert.strictEqual(plan.booked[0].role, 'Software Engineer Intern, Summer 2027');
+  });
+
+  run('the tier travels with the person, not with the company', () => {
+    const people = [person('A', 'a@stripe.com', 'Principal Software Engineer'),
+                    person('B', 'b@stripe.com', 'Software Engineer II', 'junior'),
+                    person('C', 'c@stripe.com', 'Associate Software Engineer')];
+    const tiers = S.outreachReferralPlan_(summerJob, [], people, TODAY)
+      .booked.map((one) => one.tier);
+    assert.strictEqual(tiers.join(','), 'staff,mid,peer');
+  });
+
+  run('a slot is never booked in an hour that has already gone', () => {
+    const late = new Date(2026, 7, 28, 23, 0, 0);
+    const slot = S.outreachReferralSlot_('Stripe', late, {});
+    assert.ok(slot > late);
+    assert.strictEqual(slot.getDate(), 29);
+  });
+
+  run('the daily cap holds across companies, not just within one', () => {
+    const jobs = [], people = [];
+    for (let i = 0; i < 10; i++) {
+      jobs.push(jobRow('Company' + i, 'Software Engineer Intern, Summer 2027', GH + i));
+      people.push({
+        company: 'Company' + i, tokens: S.outreachCompanyTokens_('Company' + i),
+        name: 'P' + i, email: 'p' + i + '@x.com', title: 'Software Engineer',
+        domain: 'x.com', seniority: '', angle: '', bucket: ''
+      });
+    }
+    const byDay = {};
+    S.outreachReferralPlan_(jobs, [], people, TODAY).booked.forEach((one) => {
+      const key = one.scheduled.toDateString();
+      byDay[key] = (byDay[key] || 0) + 1;
+    });
+    Object.keys(byDay).forEach((key) => {
+      assert.ok(byDay[key] <= S.REFERRAL_DAILY_CAP, key + ' had ' + byDay[key]);
+    });
+  });
+
+  // Six rows dated today are six people spread across eleven hours, and a day
+  // comparison would send all six at whichever firing first noticed the date.
+  run('due now compares the whole timestamp, and only takes Drafted rows', () => {
+    const at = (hour) => new Date(2026, 7, 28, hour, 0, 0);
+    const row = (hour, status) => {
+      const one = refRow('Stripe', 'a@stripe.com', at(hour), status);
+      one.jobLink = GH + '1';
+      return one;
+    };
+    assert.strictEqual(S.outreachReferralDueNow_([row(14, 'Drafted')], at(9)).length, 0);
+    assert.strictEqual(S.outreachReferralDueNow_([row(14, 'Drafted')], at(14)).length, 1);
+    // Queued is the state before the message has been written at all, so a queued
+    // row is not something to send. It was what this selected on while the path
+    // went straight from booked to sent, and it kept saying so after the drafting
+    // step landed, at which point it matched nothing at all.
+    ['Sent', 'Queued', 'Cancelled', 'Failed', 'Replied'].forEach((state) => {
+      assert.strictEqual(S.outreachReferralDueNow_([row(9, state)], at(14)).length, 0, state);
+    });
+  });
+
+  run('a row with no link or no address is never due, whatever its hour says', () => {
+    const at = (hour) => new Date(2026, 7, 28, hour, 0, 0);
+    const noLink = refRow('Stripe', 'a@stripe.com', at(9), 'Drafted');
+    const noEmail = refRow('Stripe', '', at(9), 'Drafted');
+    noEmail.jobLink = GH + '1';
+    assert.strictEqual(S.outreachReferralDueNow_([noLink], at(14)).length, 0);
+    assert.strictEqual(S.outreachReferralDueNow_([noEmail], at(14)).length, 0);
+  });
+}
+
+
+
+{
+  console.log('\nreferral: the row, the draft, and the send');
+
+  const GH = 'https://boards.greenhouse.io/stripe/jobs/';
+
+  // As much of a sheet as the three entry points touch: a header row getLastRow
+  // counts and getValues never returns, a block read, a block append, and the
+  // single-cell writes outreachWriteRow_ makes. The rows array is the tab, so a
+  // write made by one call is visible to the call after it.
+  const tab = (rows, width) => ({
+    rows,
+    getLastRow: () => rows.length + 1,
+    getRange(r, c, numRows, numCols) {
+      return {
+        getValues: () => {
+          const out = [];
+          for (let i = 0; i < numRows; i++) {
+            const row = rows[r - 2 + i] || new Array(width).fill('');
+            out.push(row.slice(c - 1, c - 1 + numCols));
+          }
+          return out;
+        },
+        setValues(values) { values.forEach((v, i) => { rows[r - 2 + i] = v.slice(); }); },
+        setValue(v) {
+          if (!rows[r - 2]) rows[r - 2] = new Array(width).fill('');
+          rows[r - 2][c - 1] = v;
+        }
+      };
+    }
+  });
+
+  // Both spreadsheet ids come out of the same stubbed property, so the tracker
+  // and the contacts book are one object here. That is not a shortcut: it proves
+  // the three entry points ask for their tabs by name rather than by position.
+  let sheets = {};
+  S.SpreadsheetApp.openById = () => ({ getSheetByName: (name) => sheets[name] || null });
+  S.LockService.getScriptLock = () => ({ tryLock: () => true, releaseLock() {} });
+  S.DriveApp.getFileById = () => ({ getBlob: () => 'resume.pdf' });
+
+  // Fakes all the way down. Nothing below can reach a mailbox: createDraft only
+  // remembers what it was handed, and send only renames an id it was given.
+  const gmail = { drafts: {}, made: [], refuse: {} };
+  S.GmailApp.createDraft = (to, subject, plain, options) => {
+    if (gmail.refuse[to]) throw new Error(gmail.refuse[to]);
+    const id = 'draft-' + (gmail.made.length + 1);
+    gmail.made.push({ id, to, subject, plain, options });
+    gmail.drafts[id] = true;
+    return { getId: () => id };
+  };
+  S.GmailApp.getDraft = (id) => {
+    if (!gmail.drafts[id]) throw new Error('Draft not found: ' + id);
+    return { send: () => ({ getId: () => 'msg-' + id }) };
+  };
+
+  const employeeRow = (company, name, email, title) => {
+    const row = new Array(S.E_WIDTH).fill('');
+    row[S.E_COMPANY - 1] = company;
+    row[S.E_NAME - 1] = name;
+    row[S.E_EMAIL - 1] = email;
+    row[S.E_TITLE - 1] = title || 'Software Engineer';
+    row[S.E_DOMAIN - 1] = 'stripe.com';
+    row[S.E_BUCKET - 1] = 'fintech';
+    return row;
+  };
+  const jobsRow = (company, role, link) => {
+    const row = new Array(S.JOB_WIDTH).fill('');
+    row[S.JOB_COMPANY - 1] = company;
+    row[S.JOB_ROLE - 1] = role;
+    row[S.JOB_LINK - 1] = link;
+    return row;
+  };
+  const referralRow = (email, name, scheduled, status, draftId) => {
+    const row = new Array(S.R_WIDTH).fill('');
+    row[S.R_COMPANY - 1] = 'Stripe';
+    row[S.R_ROLE - 1] = 'Software Engineer Intern, Summer 2027';
+    row[S.R_JOB_LINK - 1] = GH + '1';
+    row[S.R_PERSON - 1] = name;
+    row[S.R_EMAIL - 1] = email;
+    row[S.R_TITLE - 1] = 'Software Engineer';
+    row[S.R_TIER - 1] = 'mid';
+    row[S.R_TEMPLATE - 1] = 3;
+    row[S.R_SCHEDULED - 1] = scheduled;
+    row[S.R_STATUS - 1] = status;
+    row[S.R_DRAFT_ID - 1] = draftId || '';
+    return row;
+  };
+  const people = [employeeRow('Stripe', 'A One', 'a@stripe.com'),
+                  employeeRow('Stripe', 'B Two', 'b@stripe.com'),
+                  employeeRow('Stripe', 'C Three', 'c@stripe.com')];
+  const minutes = (n) => new Date(Date.now() + n * 60000);
+
+  const booked = {
+    company: 'Stripe',
+    role: 'Software Engineer Intern, Summer 2027',
+    jobLink: GH + '1',
+    person: {
+      company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe'),
+      name: 'A One', email: 'a@stripe.com', title: 'Software Engineer',
+      domain: 'stripe.com', seniority: '', angle: '', bucket: 'fintech'
+    },
+    tier: 'mid', template: 4, attempt: 1, scheduled: new Date(2026, 7, 31, 9, 0, 0)
+  };
+
+  run('a booked ask fills the whole row, Queued, with the link, person, tier and template placed', () => {
+    const row = S.outreachReferralRowValues_(booked);
+    assert.strictEqual(row.length, S.R_WIDTH);
+    assert.strictEqual(row[S.R_STATUS - 1], S.STATUS_QUEUED);
+    assert.strictEqual(row[S.R_COMPANY - 1], 'Stripe');
+    assert.strictEqual(row[S.R_JOB_LINK - 1], GH + '1');
+    assert.strictEqual(row[S.R_PERSON - 1], 'A One');
+    assert.strictEqual(row[S.R_EMAIL - 1], 'a@stripe.com');
+    assert.strictEqual(row[S.R_TITLE - 1], 'Software Engineer');
+    assert.strictEqual(row[S.R_TIER - 1], 'mid');
+    assert.strictEqual(row[S.R_TEMPLATE - 1], 4);
+    assert.strictEqual(row[S.R_SCHEDULED - 1], booked.scheduled);
+    assert.strictEqual(row[S.R_VERSION - 1], 1);
+  });
+
+  // A blank Mode is the tab's own default. A value written here would be the
+  // appender overruling a person who set the column to Draft, which is the one
+  // direction the mode rules never allow.
+  run('Mode is left to the tab, and the id names the person rather than being drawn', () => {
+    const one = S.outreachReferralRowValues_(booked);
+    const again = S.outreachReferralRowValues_(booked);
+    assert.strictEqual(one[S.R_MODE - 1], '');
+    assert.strictEqual(one[S.R_ID - 1], again[S.R_ID - 1]);
+    assert.ok(one[S.R_ID - 1].indexOf('a@stripe.com') !== -1, one[S.R_ID - 1]);
+  });
+
+  // The hourly trigger will run this again forty minutes later, and a planner
+  // that had to remember what it had done would be one that failed the first
+  // time somebody clicked Run out of curiosity.
+  run('planning twice in a row books nothing the second time', () => {
+    const rows = [];
+    sheets = {
+      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.JOB_WIDTH),
+      [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+      [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH)
+    };
+    const first = S.planReferralAsks();
+    assert.strictEqual(first.booked, 3);
+    assert.strictEqual(rows.length, 3);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_QUEUED);
+    assert.deepStrictEqual(rows.map((r) => r[S.R_EMAIL - 1]).sort(),
+                           ['a@stripe.com', 'b@stripe.com', 'c@stripe.com']);
+
+    const second = S.planReferralAsks();
+    assert.strictEqual(second.booked, 0);
+    assert.strictEqual(rows.length, 3);
+    assert.deepStrictEqual(rows.map((r) => r[S.R_STATUS - 1]),
+                           [S.STATUS_QUEUED, S.STATUS_QUEUED, S.STATUS_QUEUED]);
+  });
+
+  run('an empty employee export books nothing rather than reading every posting as empty', () => {
+    const rows = [];
+    sheets = {
+      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.JOB_WIDTH),
+      [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+      [S.TAB_EMPLOYEES_SEED]: tab([], S.E_WIDTH)
+    };
+    assert.strictEqual(S.planReferralAsks().booked, 0);
+    assert.strictEqual(rows.length, 0);
+  });
+
+  // The hour in Drafts is the entire review. A row whose slot is five hours away
+  // written now would be five hours of a message sitting there looking due.
+  run('only the rows inside the lead hours are written, and a missed slot catches up', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(30), S.STATUS_QUEUED),
+                  referralRow('b@stripe.com', 'B Two', minutes(300), S.STATUS_QUEUED),
+                  referralRow('c@stripe.com', 'C Three', minutes(-300), S.STATUS_QUEUED)];
+    const due = S.outreachReferralToDraft_(
+      rows.map((row, i) => S.outreachParseReferral_(row, i + 2)), new Date());
+    assert.deepStrictEqual(due.map((row) => row.email), ['c@stripe.com', 'a@stripe.com']);
+  });
+
+  run('a row with no link or no address is never written, whatever its hour says', () => {
+    const noLink = referralRow('a@stripe.com', 'A One', minutes(30), S.STATUS_QUEUED);
+    noLink[S.R_JOB_LINK - 1] = '';
+    const noEmail = referralRow('', 'B Two', minutes(30), S.STATUS_QUEUED);
+    const parsed = [noLink, noEmail].map((row, i) => S.outreachParseReferral_(row, i + 2));
+    assert.strictEqual(S.outreachReferralToDraft_(parsed, new Date()).length, 0);
+  });
+
+  // Failed is terminal and spends one of the employer's three people, so a run
+  // that threw on row two would cost the two rows after it their afternoon.
+  run('one address Gmail refuses is one Failed row, and the others are still written', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(30), S.STATUS_QUEUED),
+                  referralRow('b@stripe.com', 'B Two', minutes(30), S.STATUS_QUEUED),
+                  referralRow('c@stripe.com', 'C Three', minutes(30), S.STATUS_QUEUED)];
+    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
+    gmail.refuse['b@stripe.com'] = 'Invalid to header';
+    const tally = S.draftReferralAsks();
+    delete gmail.refuse['b@stripe.com'];
+
+    assert.strictEqual(tally.drafted, 2);
+    assert.strictEqual(tally.failed, 1);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_DRAFTED);
+    assert.strictEqual(rows[2][S.R_STATUS - 1], S.STATUS_DRAFTED);
+    assert.strictEqual(rows[1][S.R_STATUS - 1], S.STATUS_FAILED);
+    assert.match(String(rows[1][S.R_ERROR - 1]), /Invalid to header/);
+    // Drafted At and the draft's id are what the send has to find an hour later.
+    // Asked by its getTime and not by instanceof: these Dates are made inside the
+    // vm the .gs files run in, and a Date from there is not this file's Date.
+    assert.ok(typeof rows[0][S.R_DRAFTED_AT - 1].getTime === 'function');
+    assert.ok(String(rows[2][S.R_DRAFT_ID - 1]).indexOf('draft-') === 0);
+    // Result stays empty until there is a result. It is the column that says how
+    // the send went, and a draft id sitting in it before the send is a value that
+    // has to be read together with Status to mean anything.
+    assert.strictEqual(rows[2][S.R_RESULT - 1], '');
+  });
+
+  run('the draft carries the resume and the sending name, the same two the cold path attaches', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(30), S.STATUS_QUEUED)];
+    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
+    gmail.made.length = 0;
+    S.draftReferralAsks();
+    assert.strictEqual(gmail.made.length, 1);
+    assert.strictEqual(gmail.made[0].options.attachments.length, 1);
+    assert.strictEqual(gmail.made[0].options.attachments[0], 'resume.pdf');
+    assert.strictEqual(gmail.made[0].options.name, S.SENDER_NAME);
+    assert.strictEqual(gmail.made[0].to, 'a@stripe.com');
+    assert.ok(gmail.made[0].options.htmlBody.indexOf(GH + '1') !== -1);
+  });
+
+  // The tab says which of the ten is coming before it goes. Compose takes an
+  // attempt and derives the template from it, so composing from a row means
+  // recovering the number the planner used — and getting it wrong would hand the
+  // second person at a company the first person's wording and bullets.
+  run('the message made is the template the tab already promised', () => {
+    [1, 2, 3].forEach((template) => {
+      const attempt = S.outreachReferralAttemptFor_('Stripe', template);
+      const mail = S.outreachReferralCompose_({
+        personName: 'A One', personTitle: 'Software Engineer', company: 'Stripe',
+        role: 'Software Engineer Intern, Summer 2027', jobLink: GH + '1',
+        attempt: attempt, formatDate: () => 'Aug 3'
+      });
+      assert.strictEqual(mail.template, template);
+    });
+  });
+
+  // Deleting the draft in Gmail is how a person calls one off, and calling that
+  // Failed would fill the column people read for problems with their own
+  // decisions.
+  run('a draft somebody deleted is Cancelled, not Failed', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(-60), S.STATUS_DRAFTED, 'draft-live'),
+                  referralRow('b@stripe.com', 'B Two', minutes(-60), S.STATUS_DRAFTED, 'draft-gone')];
+    gmail.drafts['draft-live'] = true;
+    delete gmail.drafts['draft-gone'];
+    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    const tally = S.sendReferralAsks();
+
+    assert.strictEqual(tally.sent, 1);
+    assert.strictEqual(tally.cancelled, 1);
+    assert.strictEqual(tally.failed, 0);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_SENT);
+    assert.strictEqual(rows[0][S.R_RESULT - 1], 'msg-draft-live');
+    assert.ok(typeof rows[0][S.R_SENT_AT - 1].getTime === 'function');
+    assert.strictEqual(rows[1][S.R_STATUS - 1], S.STATUS_CANCELLED);
+    assert.strictEqual(rows[1][S.R_ERROR - 1], '');
+    assert.match(String(rows[1][S.R_RESULT - 1]), /deleted before its hour/);
+  });
+
+  // Nobody deleted anything here: the row lost the one reference that made it
+  // sendable, and calling that a person's decision would hide a real defect.
+  run('a Drafted row carrying no draft is Failed rather than called off', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(-60), S.STATUS_DRAFTED, '')];
+    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    const tally = S.sendReferralAsks();
+    assert.strictEqual(tally.failed, 1);
+    assert.strictEqual(tally.cancelled, 0);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_FAILED);
+    assert.match(String(rows[0][S.R_ERROR - 1]), /no draft to send/);
+  });
+
+  run('an hour that has not arrived sends nothing, and a row held to Draft waits for a person', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(120), S.STATUS_DRAFTED, 'draft-live'),
+                  referralRow('b@stripe.com', 'B Two', minutes(-60), S.STATUS_DRAFTED, 'draft-live')];
+    rows[1][S.R_MODE - 1] = S.MODE_DRAFT;
+    gmail.drafts['draft-live'] = true;
+    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    const tally = S.sendReferralAsks();
+    assert.strictEqual(tally.sent, 0);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_DRAFTED);
+    assert.strictEqual(rows[1][S.R_STATUS - 1], S.STATUS_DRAFTED);
+  });
+
+  // The whole way through, on one tab: booked, written an hour early, sent when
+  // the hour came, and never asking the same person twice on the way.
+  run('a row travels Queued to Drafted to Sent, and the plan does not book it again', () => {
+    const rows = [];
+    sheets = {
+      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.JOB_WIDTH),
+      [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+      [S.TAB_EMPLOYEES_SEED]: tab([employeeRow('Stripe', 'A One', 'a@stripe.com')], S.E_WIDTH)
+    };
+    S.planReferralAsks();
+    assert.strictEqual(rows.length, 1);
+    // Bring its slot forward: the planner books days out, and the point being
+    // made here is the order of the three steps rather than the calendar.
+    rows[0][S.R_SCHEDULED - 1] = minutes(-30);
+    S.draftReferralAsks();
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_DRAFTED);
+    S.sendReferralAsks();
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_SENT);
+    assert.match(String(rows[0][S.R_RESULT - 1]), /^msg-draft-/);
+    assert.strictEqual(S.planReferralAsks().booked, 0);
+    assert.strictEqual(rows.length, 1);
+  });
+
+  run('the probe reads, reports what is missing, and sends nothing', () => {
+    sheets = { [S.TAB_REFERRAL]: tab([], S.R_WIDTH), [S.TAB_EMPLOYEES_SEED]: tab([], S.E_WIDTH) };
+    assert.strictEqual(S.checkReferralService(), false);
+    sheets = {
+      [S.TAB_JOBS]: tab([], S.JOB_WIDTH),
+      [S.TAB_REFERRAL]: tab([referralRow('a@stripe.com', 'A One', minutes(60), S.STATUS_QUEUED)],
+                            S.R_WIDTH),
+      [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH)
+    };
+    gmail.made.length = 0;
+    assert.strictEqual(S.checkReferralService(), true);
+    assert.strictEqual(gmail.made.length, 0);
+  });
+}
+
+
+{
+  console.log('\nreferral: subjects, honesty, and finishing what is open');
+
+  const LONG_CO = 'Activision Blizzard';
+  const LONG_ROLE = 'Embedded Software Engineer Intern';
+
+  run('thirty six subjects, all different', () => {
+    assert.strictEqual(S.REFERRAL_SUBJECTS.length, 36);
+    assert.strictEqual(new Set(S.REFERRAL_SUBJECTS).size, 36);
+  });
+
+  // The longest company and the longest role in the dataset are the case that has
+  // to fit, not the average one: what is past sixty six is not read on a phone.
+  run('every subject fits a phone with the longest substitutions', () => {
+    for (let i = 0; i < S.REFERRAL_SUBJECTS.length; i++) {
+      const subject = S.outreachReferralSubject_(i, LONG_CO, LONG_ROLE);
+      assert.ok(subject.indexOf('{') === -1, subject);
+      assert.ok(subject.length <= 66, subject.length + ': ' + subject);
+    }
+  });
+
+  run('no subject uses a dash, and every one is ASCII', () => {
+    S.REFERRAL_SUBJECTS.forEach((subject) => {
+      assert.ok(!/[–—-]/.test(subject), subject);
+      assert.ok(!/[^\x20-\x7e]/.test(subject), subject);
+    });
+  });
+
+  // Naming the ask is what lets the reader decide in the preview pane. A subject
+  // that hides it spends ninety seconds of somebody who would have said no.
+  run('the subject says what the email is', () => {
+    const named = S.REFERRAL_SUBJECTS.filter((one) => /referral/i.test(one));
+    assert.ok(named.length >= 34, named.length + ' of ' + S.REFERRAL_SUBJECTS.length);
+  });
+
+  // Reusing the template index would leave twenty six subjects unreachable and
+  // show every eleventh reader a repeat.
+  run('subjects reach past the tenth, and move with the attempt', () => {
+    const seen = new Set();
+    for (let attempt = 1; attempt <= 36; attempt++) {
+      seen.add(S.outreachReferralSubjectIndex_('Reddit', attempt));
+    }
+    assert.strictEqual(seen.size, 36);
+    assert.notStrictEqual(S.outreachReferralSubjectIndex_('Reddit', 1),
+                          S.outreachReferralSubjectIndex_('Stripe', 1));
+  });
+
+  // The one sentence in the message a reader can check. This path queues from a
+  // posting and deliberately does not wait for an application, so claiming one
+  // would be a falsehood in an email whose whole argument is that it is honest.
+  run('an email sent before applying says so, in the present tense', () => {
+    const base = {
+      personName: 'Priya Raman', personTitle: 'Software Engineer', company: 'Stripe',
+      bucket: 'fintech', angle: '', role: 'Software Engineering Intern, Summer 2027',
+      today: day(2026, 8, 28), attempt: 1,
+      jobLink: 'https://boards.greenhouse.io/stripe/jobs/1'
+    };
+    const unapplied = S.outreachReferralCompose_(base);
+    assert.ok(unapplied.plain.indexOf('I am applying for the Software Engineer Intern role at Stripe') !== -1,
+              unapplied.plain);
+    assert.ok(unapplied.plain.indexOf('I applied') === -1);
+
+    const applied = {};
+    Object.keys(base).forEach((k) => { applied[k] = base[k]; });
+    applied.dateApplied = day(2026, 8, 21);
+    const withDate = S.outreachReferralCompose_(applied);
+    assert.ok(withDate.plain.indexOf('I applied for the Software Engineer Intern role at Stripe on Aug 21') !== -1,
+              withDate.plain);
+    // Either way the link is there, because that is what a referral form wants.
+    assert.ok(unapplied.plain.indexOf(base.jobLink) !== -1);
+    assert.ok(withDate.plain.indexOf(base.jobLink) !== -1);
+  });
+
+  // Two of three spent and the third never sent is the worst arrangement there is.
+  run('a company already started is finished before a new one is opened', () => {
+    const GH = 'https://boards.greenhouse.io/x/jobs/';
+    const jobRow = (company, link) => {
+      const row = new Array(S.JOB_WIDTH).fill('');
+      row[S.JOB_COMPANY - 1] = company;
+      row[S.JOB_ROLE - 1] = 'Software Engineer Intern, Summer 2027';
+      row[S.JOB_LINK - 1] = link;
+      return S.outreachParseJob_(row, 2, () => '');
+    };
+    const at = (company, email) => ({
+      company: company, tokens: S.outreachCompanyTokens_(company), name: 'P',
+      email: email, title: 'Software Engineer', domain: '', seniority: '',
+      angle: '', bucket: ''
+    });
+    const refRow = (company, email) => {
+      const row = new Array(17).fill('');
+      row[S.R_COMPANY - 1] = company;
+      row[S.R_EMAIL - 1] = email;
+      row[S.R_SCHEDULED - 1] = new Date(2026, 7, 20, 9);
+      row[S.R_STATUS - 1] = 'Sent';
+      return S.outreachParseReferral_(row, 2);
+    };
+    // Untouched company first in the Jobs order, started company second.
+    const jobs = [jobRow('Acme', GH + '1'), jobRow('Beta', GH + '2')];
+    const people = [at('Acme', 'a@acme.com'), at('Beta', 'b@beta.com')];
+    const open = [refRow('Beta', 'other@beta.com')];
+    const plan = S.outreachReferralPlan_(jobs, open, people, new Date(2026, 7, 28, 7));
+    assert.strictEqual(plan.booked.length, 2);
+    assert.strictEqual(plan.booked[0].company, 'Beta');
+    assert.strictEqual(plan.booked[1].company, 'Acme');
+
+    // With nothing open, the Jobs tab's own order is what decides.
+    const fresh = S.outreachReferralPlan_(jobs, [], people, new Date(2026, 7, 28, 7));
+    assert.strictEqual(fresh.booked[0].company, 'Acme');
+  });
+}
+
+
+{
+  console.log('\none budget across all three paths');
+
+  const TUE = day(2026, 8, 25);          // DAILY_CAP is 25 on a Tuesday
+  const SAT = day(2026, 8, 29);          // and 0 on a Saturday
+  const coldSent = (when, n) => {
+    const rows = [];
+    for (let i = 0; i < n; i++) rows.push({ status: 'Sent', sentAt: when, scheduledAt: when });
+    return rows;
+  };
+  const followUpSent = (when, n) => {
+    const rows = [];
+    for (let i = 0; i < n; i++) rows.push({ followUpStatus: 'Sent', followUpAt: when });
+    return rows;
+  };
+  const referralSent = (when, n) => {
+    const rows = [];
+    for (let i = 0; i < n; i++) rows.push({ status: 'Sent', scheduled: when });
+    return rows;
+  };
+
+  run('the three caps are what each path may send, before the budget is asked', () => {
+    assert.strictEqual(S.outreachPathCap_('cold', TUE), 25);
+    assert.strictEqual(S.outreachPathCap_('cold', SAT), 0);
+    assert.strictEqual(S.outreachPathCap_('followup', TUE), S.FOLLOWUP_DAILY_CAP);
+    assert.strictEqual(S.outreachPathCap_('referral', TUE), S.REFERRAL_DAILY_CAP);
+    // A path nobody has heard of may send nothing, rather than everything.
+    assert.strictEqual(S.outreachPathCap_('whatever', TUE), 0);
+  });
+
+  run('spend is counted per path and totalled', () => {
+    const queue = coldSent(TUE, 4).concat(followUpSent(TUE, 2));
+    const spend = S.outreachDaySpend_(queue, referralSent(TUE, 3), TUE);
+    assert.strictEqual(spend.cold, 4);
+    assert.strictEqual(spend.followup, 2);
+    assert.strictEqual(spend.referral, 3);
+    assert.strictEqual(spend.total, 9);
+  });
+
+  // A draft is a message that exists, addressed and complete, and leaves within
+  // the hour unless somebody deletes it. Not counting it lets the firing at the
+  // top of the hour book against a budget the firing before it already committed.
+  run('a draft is spent, not free', () => {
+    const drafted = [{ status: 'Drafted', scheduledAt: TUE }];
+    assert.strictEqual(S.outreachDaySpend_(drafted, [], TUE).cold, 1);
+    const followUpDrafted = [{ followUpStatus: 'Drafted', followUpAt: TUE }];
+    assert.strictEqual(S.outreachDaySpend_(followUpDrafted, [], TUE).followup, 1);
+    const referralDrafted = [{ status: 'Drafted', scheduled: TUE }];
+    assert.strictEqual(S.outreachDaySpend_([], referralDrafted, TUE).referral, 1);
+  });
+
+  run('another day is another budget', () => {
+    const spend = S.outreachDaySpend_(coldSent(TUE, 5), referralSent(TUE, 2), SAT);
+    assert.strictEqual(spend.total, 0);
+  });
+
+  run('a queued row has not spent anything', () => {
+    const queued = [{ status: 'Queued', scheduledAt: TUE }];
+    assert.strictEqual(S.outreachDaySpend_(queued, [], TUE).cold, 0);
+    assert.strictEqual(S.outreachDaySpend_([], [{ status: 'Queued', scheduled: TUE }], TUE).referral, 0);
+  });
+
+  run('an untouched day gives every path its own cap', () => {
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'referral'), S.REFERRAL_DAILY_CAP);
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'cold'), 25);
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), S.FOLLOWUP_DAILY_CAP);
+  });
+
+  // The whole point of the reservation. Without it the priority order would be
+  // decided by which trigger fired first, and the cold path has been firing
+  // hourly for weeks: it would take the budget every morning.
+  run('the referral path keeps its share even when the cold path got there first', () => {
+    const saved = S.DAILY_CAP[2];
+    S.DAILY_CAP[2] = 40;
+    try {
+      // Cold has sent 39 of a raised cap of 40. Its own cap says it may send one
+      // more; the six held back for referral say it may not.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 39), [], TUE, 'cold'), 0);
+      // And the referral path finds its room waiting for it.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 39), [], TUE, 'referral'),
+                         S.REFERRAL_DAILY_CAP);
+    } finally {
+      S.DAILY_CAP[2] = saved;
+    }
+  });
+
+  run('follow up is the path that gives way when the day is spent', () => {
+    const saved = S.DAILY_CAP[2];
+    S.DAILY_CAP[2] = 40;
+    try {
+      const queue = coldSent(TUE, 40);
+      const referral = referralSent(TUE, S.REFERRAL_DAILY_CAP);
+      assert.strictEqual(S.outreachBudgetRoom_(queue, referral, TUE, 'followup'), 0);
+      // Nothing is over budget: 40 and 6 is 46, and the cap is 45, so the one
+      // over is exactly what follow up was refused.
+      assert.strictEqual(S.outreachDaySpend_(queue, referral, TUE).total,
+                         S.DAILY_EMAIL_BUDGET + 1);
+    } finally {
+      S.DAILY_CAP[2] = saved;
+    }
+  });
+
+  run('room is never negative, whatever the day looks like', () => {
+    const flooded = coldSent(TUE, 200);
+    S.EMAIL_PATH_ORDER.forEach((path) => {
+      assert.ok(S.outreachBudgetRoom_(flooded, referralSent(TUE, 200), TUE, path) >= 0, path);
+    });
+  });
+
+  run('a path already at its own cap gets nothing more, budget or no budget', () => {
+    const referral = referralSent(TUE, S.REFERRAL_DAILY_CAP);
+    assert.strictEqual(S.outreachBudgetRoom_([], referral, TUE, 'referral'), 0);
+  });
+
+  // Saying so is the point rather than an admission: this is a guard rail, and a
+  // guard rail you are leaning on was installed too late.
+  run('the three caps sum under the budget on every day of the week', () => {
+    for (let d = 23; d <= 29; d++) {
+      const date = day(2026, 8, d);
+      const total = S.outreachPathCap_('cold', date)
+                  + S.outreachPathCap_('referral', date)
+                  + S.outreachPathCap_('followup', date);
+      assert.ok(total <= S.DAILY_EMAIL_BUDGET, date.toDateString() + ' reaches ' + total);
+    }
+  });
+
+  run('the order is referral, then cold, then follow up', () => {
+    assert.strictEqual(S.EMAIL_PATH_ORDER.join(','), 'referral,cold,followup');
+    assert.strictEqual(S.DAILY_EMAIL_BUDGET, 45);
+  });
+
+  // Called from places that have no reason to have read the Referral tab. An
+  // unknown path must count as having spent nothing, not as unlimited.
+  run('a missing set of rows counts as nothing spent rather than as no limit', () => {
+    assert.strictEqual(S.outreachDaySpend_(null, null, TUE).total, 0);
+    assert.strictEqual(S.outreachBudgetRoom_(undefined, undefined, TUE, 'cold'), 25);
+  });
+}
+
 
 console.log('');
 if (failures.length) {

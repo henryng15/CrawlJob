@@ -47,6 +47,20 @@ var TAB_SEASON         = 'Season';
 // write to — which is why a Role fixed in App used to sit wrong here until the next
 // time it was rebuilt.
 var TAB_ALPHABET       = 'Alphabet_Order';
+// The referral queue, and deliberately not more rows on the Email tab. One tab
+// answers "who have I written to about my application" and the other "who have I
+// asked for a referral", and those are two questions a person asks separately.
+// Mixed into one table neither can be scanned: the recruiter rows outnumber the
+// referral rows and both would have to carry the other's columns as blanks.
+var TAB_REFERRAL       = 'Referral';
+// The crawler's output, read here for the first time. Nothing in the sender has
+// ever needed it before: the cold path starts from an application, and this one
+// starts from a posting that may not have been applied to yet.
+var TAB_JOBS           = 'Jobs';
+// Employees, exported by ColdEmail beside Contacts (seed). A separate tab rather
+// than more rows on that one, because the two lists are different people asked
+// for different things, and an export of one must never be able to erase the other.
+var TAB_EMPLOYEES_SEED = 'Employees (seed)';
 
 // App tab, 1-based. Read only with one exception: a rejection found in the
 // mailbox writes Process and appends a line to Update, because an application
@@ -100,6 +114,36 @@ var Q_WIDTH = 23;
 var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
 var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
 
+// Employees (seed), 1-based, written by ColdEmail's export_referrals.py. Domain
+// is carried because it is what lets a link on a company's own careers site be
+// told apart from an aggregator republishing the same posting.
+var E_COMPANY = 1, E_NAME = 2, E_EMAIL = 3, E_TITLE = 4, E_DOMAIN = 5;
+var E_SENIORITY = 6, E_LINKEDIN = 7, E_ANGLE = 8, E_BUCKET = 9, E_VERIFY = 10;
+var E_WIDTH = 10;
+
+// Jobs tab, 1-based. Column H is the one a human types into: the official
+// application link, pasted by hand when the crawled one in C is an aggregator's.
+var JOB_COMPANY = 1, JOB_ROLE = 2, JOB_LINK = 3, JOB_POSTED = 4;
+var JOB_REFERRAL_LINK = 8;
+var JOB_WIDTH = 8;
+
+// Referral tab, 1-based. Unlike the Email tab this one does hold the recipient's
+// name and address: the Email tab's rule exists because nobody needs to read a
+// recruiter's address off the tracker, and here the whole purpose of the tab is
+// to be able to see who has already been asked at a company before asking again.
+var R_COMPANY = 1, R_ROLE = 2, R_JOB_LINK = 3, R_PERSON = 4, R_EMAIL = 5;
+var R_TITLE = 6, R_TIER = 7, R_TEMPLATE = 8, R_DRAFTED_AT = 9, R_SCHEDULED = 10;
+var R_STATUS = 11, R_MODE = 12;
+// A column of its own, exactly as the Email tab gives one. An earlier layout had
+// no room for it and let the draft's id ride in Result until the message went,
+// after which Result held the sent id instead. Both are Gmail ids and neither
+// says which it is, so reading Result meant also reading Status to know what you
+// were looking at, and Result stopped being the column that says how it went.
+var R_DRAFT_ID = 13;
+var R_SENT_AT = 14, R_RESULT = 15, R_ERROR = 16;
+var R_ID = 17, R_VERSION = 18;
+var R_WIDTH = 18;
+
 // How Drafted At, Scheduled At and Sent At are written. The same string as
 // OUTREACH_TIMESTAMP_FORMAT in the bound script, and it has to stay the same: a
 // row whose format was never applied falls back to a bare date, which drops the
@@ -138,6 +182,69 @@ var DRAFT_HOUR_LAST = SEND_HOUR_LAST - DRAFT_LEAD_HOURS;
 
 var ELIGIBLE_AFTER_DAYS = 2;   // after Date Applied, before anything may go
 var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
+
+// --------------------------------------------------- the mailbox budget
+
+// Everything this project sends in one day, all three paths counted together.
+//
+// The three paths were each given a cap and never measured against one another,
+// which meant the only thing bounding a day's total was arithmetic nobody had
+// done. The caps happen to sum under this number today. That is exactly why the
+// number is worth writing down: the sum is a coincidence of three constants that
+// were chosen separately, and the next person to raise one of them will not be
+// thinking about the other two.
+//
+// Forty five is a limit on the account, not on any path. What gets a sending
+// address penalised is the volume leaving one mailbox in a day, and the mailbox
+// does not know or care which of three features asked.
+var DAILY_EMAIL_BUDGET = 45;
+
+// Who gets the budget when it runs short, most important first.
+//
+// Referral leads because it is the scarcest thing here. Three people per employer
+// and no second attempt ever, so a referral ask displaced today is not delayed,
+// it is one of three chances at that company spent on nothing.
+//
+// Cold email next. It has by far the most rows, but a row it cannot send today is
+// a row that still goes tomorrow with nothing lost, because what it is asking
+// about is an application that will still be there.
+//
+// Follow up last, and it is the right last. It is the only one of the three that
+// loses nothing by slipping a day: the message it chases has already landed, and
+// the window it may land in is five to ten days wide. Being late is what it is
+// designed to be.
+var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
+
+// ------------------------------------------------- referral policy
+
+// How many people at one employer are ever asked for a referral.
+//
+// Three, and the number is small on purpose. Reddit has twenty three engineers in
+// the dataset and Goldman Sachs twenty two, and asking all of them is not outreach,
+// it is a mailing list that happens to be about one person. Three is enough that a
+// single ignored message is not the whole attempt at that company.
+var REFERRAL_PER_COMPANY = 3;
+
+// Never two people at one employer on the same day. Colleagues talk, and two
+// near-identical notes arriving at one company inside an hour is the thing that
+// gets reported rather than deleted. Spread over days it is three people who each
+// received one email.
+var REFERRAL_COMPANY_DAILY_CAP = 1;
+
+// The word a posting's title has to carry. A referral is being asked for one
+// specific intake, and "summer" is what distinguishes the intake worth asking
+// about from a co-op, a placement year, or a full-time req that happens to
+// mention interns.
+var REFERRAL_SEASON_WORD = 'summer';
+
+// Weekends are allowed, and the hours are the follow-up's rather than the cold
+// path's. A referral note is not a recruiting email arriving during a recruiter's
+// working hours; it lands in an engineer's inbox and is read whenever they read
+// their mail.
+var REFERRAL_HOUR_FIRST = 8;
+var REFERRAL_HOUR_LAST  = 19;
+var REFERRAL_DAILY_CAP  = 6;
+
 
 // People written to in one go, and how long the silence has to last before the
 // next three. Three was once the whole allowance per application, which left a

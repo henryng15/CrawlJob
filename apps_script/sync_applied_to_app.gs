@@ -143,6 +143,55 @@ var OUTREACH_FOLLOWUP_COLOURS = [
 ];
 var OUTREACH_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 
+// The Referral tab DOES hold the person's name and address, in Person and Email.
+// That is a deliberate decision by the sheet's owner and the plain opposite of the
+// rule the Email tab keeps a few lines above: a referral is asked for once, by
+// hand, from somebody you already have a reason to write to, so the tab has to be
+// readable end to end without opening the contacts spreadsheet to find out who
+// row 14 even is. The Email tab sends in bulk and unattended, which is why its
+// recipients stay out of a spreadsheet a screen-share can expose.
+//
+// Person, Email and Title lead because they are the row: which human this is.
+// Tier is how senior they are, and it changes what Template is worth using, so
+// the two sit together. Everything from Status rightwards is the same machinery
+// the Email tab carries, in the same order, so the two tabs read alike where they
+// do the same job.
+var REFERRAL_QUEUE_TAB = 'Referral';
+// Eighteen, and Gmail Draft ID is the one worth explaining. It sits between Mode
+// and Sent At because that is where it happens: the row is written, the draft
+// exists for an hour under this id, and deleting that draft in Gmail is what
+// calls the message off. An earlier layout had no column for it and let the id
+// ride in Result until the send replaced it with the sent message's id, which
+// meant Result held two different kinds of Gmail id and you had to read Status
+// to know which. The same arrangement the Email tab already uses, for the same
+// reason it uses it.
+var REFERRAL_HEADERS = [
+  'Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
+  'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Gmail Draft ID', 'Sent At',
+  'Result', 'Last Error', 'Queue ID', 'Version'
+];
+// Four rungs, and the reason they are a dropdown rather than free text is that a
+// tier typed by hand drifts — "Senior", "sr", "Sr." — and then no filter finds
+// the seniors. peer is somebody who interned there last summer; staff is somebody
+// whose referral carries weight but who owes you nothing.
+var REFERRAL_TIER = ['peer', 'mid', 'senior', 'staff'];
+
+// Jobs column H. Everything past Expired is read as a note of yours by the Python
+// half (see is_annotated in job_sync/sheet.py), so a header here marks every Jobs
+// row annotated and no row is ever retired automatically again. That is known and
+// accepted: a summer posting worth chasing a referral for is one you want to keep
+// looking at, and losing it to the retirement sweep costs more than the sweep is
+// worth.
+var REFERRAL_LINK_COL = 8;
+// No header constant. H1 is the crawler's caption cell and this tool never writes
+// there; see setupJobsReferralColumn for the whole of that reasoning.
+// Wide enough to see which company's board a link points at without opening it —
+// the same reason Link Apply is wide.
+var REFERRAL_LINK_WIDTH_PX = 230;
+// The same yellow the Email tab uses for "a person is involved", because it means
+// the same thing here: this row is waiting on you to go and find a way in.
+var JOBS_REFERRAL_YELLOW = '#FFF2CC';
+
 // A stage that really happened on a date nothing ever recorded. Mark it so it can
 // be found and filled in by hand, rather than inventing a date that looks real.
 var UNKNOWN_DATE = '?';
@@ -440,6 +489,343 @@ function colourQueueColumn_(queue, column, palette) {
   queue.setConditionalFormatRules(kept.concat(added));
 }
 
+/**
+ * Run once by hand: create the empty Referral tab.
+ *
+ * Like setupOutreachQueue this only builds the table. Nothing here reads Jobs or
+ * App, picks who to ask, or writes a message — a row arrives on this tab because
+ * somebody put it there.
+ *
+ * Safe to run again: it restores the known headers and formatting, but refuses to
+ * overwrite a non-empty header that means this is a different table.
+ */
+function setupReferralQueue() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(REFERRAL_QUEUE_TAB);
+  var created = !queue;
+  if (!queue) queue = ss.insertSheet(REFERRAL_QUEUE_TAB);
+
+  var existing = queue.getRange(1, 1, 1, REFERRAL_HEADERS.length).getValues()[0];
+  for (var i = 0; i < REFERRAL_HEADERS.length; i++) {
+    var found = String(existing[i] == null ? '' : existing[i]).trim();
+    if (found && found !== REFERRAL_HEADERS[i]) {
+      throw new Error(
+        'Referral column ' + (i + 1) + ' is ' + JSON.stringify(found)
+        + ', expected ' + JSON.stringify(REFERRAL_HEADERS[i]) + '. Refusing to overwrite it.'
+      );
+    }
+  }
+
+  var header = queue.getRange(1, 1, 1, REFERRAL_HEADERS.length);
+  header.setValues([REFERRAL_HEADERS])
+      .setFontWeight('bold')
+      .setBackground('#D9EAD3')
+      .setHorizontalAlignment('center');
+  queue.setFrozenRows(1);
+
+  // Drafted At, Scheduled At and Sent At, with the hour on them for the same
+  // reason the Email tab keeps it: a column of bare days cannot tell you whether
+  // four messages went out one at a time or all together at nine in the morning.
+  [9, 10, 14].forEach(function (column) {
+    queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
+         .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
+  });
+  queue.getRange(FIRST_ROW, 7, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(REFERRAL_TIER, true)
+         .setAllowInvalid(false)
+         .build());
+  queue.getRange(FIRST_ROW, 11, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(OUTREACH_STATUS, true)
+         .setAllowInvalid(false)
+         .build());
+  queue.getRange(FIRST_ROW, 12, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(OUTREACH_MODE, true)
+         .setAllowInvalid(false)
+         .build());
+
+  // Person, Email, Title and Result are the four that get read rather than
+  // glanced at, so they get the room; Tier and Version hold one short word each
+  // and would only push the readable columns off the screen if they were wider.
+  // Gmail Draft ID is narrow on purpose: it is an audit reference nobody reads
+  // until something has gone wrong, and it earns its column by existing, not by
+  // being legible at a glance.
+  [170, 240, 230, 150, 220, 180, 70, 100, 145, 145, 105, 80, 110, 145, 280, 200,
+   120, 70].forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
+
+  // The same palette as the Email tab, because it is the same seven words meaning
+  // the same seven things — a second colour language for one more tab would only
+  // have to be learned twice.
+  colourQueueColumn_(queue, 11, OUTREACH_STATUS_COLOURS);
+
+  ss.toast(
+    created
+      ? 'Created an empty Referral tab. Nobody was contacted and no email was sent.'
+      : 'Referral tab headers and formatting are already set. No rows changed.',
+    'Referral',
+    8
+  );
+}
+
+
+/**
+ * Run once by hand: put the Referral Link header on Jobs column H and give the
+ * column its width.
+ *
+ * Writing anything into column H makes every Jobs row look annotated to the
+ * Python half — see is_annotated in job_sync/sheet.py, which treats any cell past
+ * Expired as a note of yours and never retires a row that carries one. Only the
+ * header is written here, so the effect is the whole tab at once. It is accepted
+ * on purpose: the rows this column exists for are summer postings worth chasing,
+ * and having one swept away while you are still looking for a way in costs more
+ * than the sweep saves.
+ *
+ * Safe to run again: it restores the header, but refuses to overwrite a different
+ * one, which would mean column H is already somebody else's column.
+ */
+function setupJobsReferralColumn() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var jobs = ss.getSheetByName(JOBS_TAB);
+  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+
+  // No header is written, and that is not an oversight.
+  //
+  // H1 already belongs to the crawler. job_sync/sheet.py defines STAMP as the
+  // column after Expired, which is H, and writes its "Last updated" caption into
+  // H1 on every single run — including the runs where nothing else changed, which
+  // is the whole reason the caption is blanked before the two versions of the tab
+  // are compared. A header written here would be overwritten within the hour, and
+  // an earlier version of this function threw against the caption instead, which
+  // meant the setup could not be run twice.
+  //
+  // The column still works without one. Only H1 is the crawler's; H2 downward is
+  // operator space, and a link pasted there survives every sync because the
+  // crawler reads the tab out to column Z and writes each row back at its full
+  // width. What is lost by having no header is a word at the top of the column,
+  // and what is bought is a function that does not fight the other half of the
+  // system every hour.
+  jobs.setColumnWidth(REFERRAL_LINK_COL, REFERRAL_LINK_WIDTH_PX);
+  ss.toast(
+    'Jobs column H is ready for pasted links. H1 stays the crawler\'s caption.',
+    'Jobs', 5);
+}
+
+
+/** A link you can actually click: present, and going somewhere over http. */
+function jobsReferralUsableLink_(value) {
+  return String(value == null ? '' : value).trim().toLowerCase().indexOf('http') === 0;
+}
+
+
+/**
+ * Which Jobs rows are worth painting: a summer posting with no way in yet.
+ *
+ * Whole word, so "summertime" is not a summer internship and neither is a role
+ * that merely contains those letters. Case-insensitive because the sources write
+ * it every way — "Summer 2027", "SUMMER Intern", "summer analyst".
+ *
+ * "Usable" here means only non-empty and starting with http, and that is the
+ * whole rule on purpose. Telling an employer's own board from an aggregator is a
+ * judgement the sender project already makes, and duplicating it here would mean
+ * two copies drifting apart with nothing to catch it. This function stays crude
+ * so the two stay separable.
+ */
+function jobsReferralNeedsLink_(role, linkApply, referralLink) {
+  if (!/\bsummer\b/i.test(String(role == null ? '' : role))) return false;
+  return !jobsReferralUsableLink_(linkApply) && !jobsReferralUsableLink_(referralLink);
+}
+
+
+/**
+ * Paint A..H yellow on every Jobs row still needing a referral link, and clear the
+ * colour from every row that does not.
+ *
+ * Clearing is half the job, not a tidy-up: paste a link into column H and the row
+ * has to stop shouting, or the colour turns into decoration nobody trusts.
+ *
+ * One read and one write for the whole tab. Row by row this would be 499 calls to
+ * setBackground, each one a round trip to the spreadsheet service, and Apps Script
+ * stops a simple trigger at thirty seconds — the paint would die somewhere in the
+ * middle of the tab, leaving half of it coloured by the old rule.
+ *
+ * The rows are then brought into order, painted first and sorted second. That way
+ * round because the paint is what settles which rows are yellow and the sort needs
+ * that settled before it can act on it. The sort writes nothing at all when the
+ * rows are already where they belong, so the ordinary case is still one read and
+ * one write for the whole tab.
+ */
+function paintJobsReferralRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var jobs = ss.getSheetByName(JOBS_TAB);
+  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+  paintJobsReferralBlock_(jobs, FIRST_ROW, LAST_ROW);
+  sortJobsReferralBlock_(jobs);
+}
+
+
+/**
+ * The paint itself, over one block of rows, so the full sweep and the single row
+ * onEdit repaints cannot disagree about what yellow means.
+ */
+function paintJobsReferralBlock_(jobs, firstRow, lastRow) {
+  if (lastRow < firstRow) return;
+  var count = lastRow - firstRow + 1;
+  var rows = jobs.getRange(firstRow, 1, count, REFERRAL_LINK_COL).getValues();
+  var colours = [];
+  for (var i = 0; i < count; i++) {
+    var needed = jobsReferralNeedsLink_(
+      rows[i][JOB_ROLE], rows[i][JOB_LINK], rows[i][REFERRAL_LINK_COL - 1]);
+    var line = [];
+    // null rather than white: white is a colour, and it would paint over whatever
+    // banding or manual highlight the row already had.
+    for (var c = 0; c < REFERRAL_LINK_COL; c++) line.push(needed ? JOBS_REFERRAL_YELLOW : null);
+    colours.push(line);
+  }
+  jobs.getRange(firstRow, 1, count, REFERRAL_LINK_COL).setBackgrounds(colours);
+}
+
+
+/**
+ * Reorder the Jobs data rows so every row still needing a referral link sits at
+ * the top of the tab, then repaint.
+ *
+ * The colour on its own is not enough. A summer posting with no way in can be
+ * sitting at row 380, and the whole point of painting it was to be told about it
+ * without going hunting; a yellow row you have to scroll to find is a yellow row
+ * you find next month. The sort is what turns the colour into a worklist.
+ *
+ * Run by hand, and run again at the end of paintJobsReferralRows. Deliberately
+ * NOT run from onEdit — see the comment in onJobsEdit for why.
+ */
+function sortJobsReferralRowsToTop() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var jobs = ss.getSheetByName(JOBS_TAB);
+  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+  sortJobsReferralBlock_(jobs);
+}
+
+
+/**
+ * The sort itself, over one sheet, so paintJobsReferralRows can call it without
+ * going back through SpreadsheetApp for a sheet it is already holding.
+ *
+ * One read and one write of the whole block, for the same reason
+ * paintJobsReferralBlock_ paints in one write: moving rows one at a time would be
+ * hundreds of round trips to the spreadsheet service, and Apps Script stops a
+ * script at thirty seconds. A sort that dies halfway is far worse than a paint
+ * that dies halfway — a half-written block is a tab with rows duplicated above
+ * and missing below, which is lost work rather than a cosmetic problem.
+ *
+ * sheet.sort() is not used, and not because of the round trips. It orders by a
+ * key it reads out of a column, and "needs a referral link" is in no column: it
+ * is a function of Role, Link Apply and Referral Link together. Writing that key
+ * into a helper column would put a value past Expired on every row, which the
+ * Python half reads as a note of yours (is_annotated in job_sync/sheet.py) and
+ * which would stop the whole tab ever being retired. sheet.sort() is also not
+ * documented as stable, and stability is a requirement here rather than a nicety.
+ */
+function sortJobsReferralBlock_(jobs) {
+  var count = LAST_ROW - FIRST_ROW + 1;
+  // Not REFERRAL_LINK_COL: the Jobs tab really can hold data past column H. The
+  // Python half reads Jobs!A:Z and treats every cell past Source as a note of
+  // yours, and when it re-sorts the tab it carries those columns along, padding
+  // every row to the widest one (_write in job_sync/sheet.py). A row moved here
+  // with only A..H in hand would leave its note sitting on whatever row lands in
+  // its place, quietly attaching one job's note to another. getLastColumn is the
+  // real extent of the data, so the block widens by itself the day somebody adds
+  // a column and there is nothing here to remember to update.
+  var width = Math.max(jobs.getLastColumn(), REFERRAL_LINK_COL);
+  var rows = jobs.getRange(FIRST_ROW, 1, count, width).getValues();
+  var ordered = orderJobsReferralRows_(rows);
+
+  // Nothing moved, so nothing is written and nothing is repainted. This is what
+  // makes a second run a genuine no-op rather than a run that happens to write
+  // back the same bytes: if no row moved then no row's colour moved either, and
+  // the repaint below would have nothing to correct.
+  var moved = false;
+  for (var i = 0; i < count; i++) {
+    if (ordered[i] !== rows[i]) { moved = true; break; }
+  }
+  if (!moved) return false;
+
+  jobs.getRange(FIRST_ROW, 1, count, width).setValues(ordered);
+
+  // The colours are recomputed from the moved values rather than being permuted
+  // alongside them. Carrying them would work, but it means holding two grids in
+  // step through one permutation, and the moment they drift the tab paints the
+  // wrong rows yellow — worse than not sorting at all, because a colour that
+  // lies stops being read, and then the rows that really do need a link stop
+  // being read with it. Recomputing cannot drift: yellow is a pure function of
+  // the row's own Role, Link Apply and Referral Link, so whichever row now sits
+  // on a line gets exactly the colour that row earns.
+  paintJobsReferralBlock_(jobs, FIRST_ROW, LAST_ROW);
+  return true;
+}
+
+
+/**
+ * The ordering decision on its own — rows in, reordered rows out, no sheet — so
+ * that what the sort does can be checked without a spreadsheet to check it on.
+ *
+ * Three groups, in this order: rows needing a link, everything else, then the
+ * empty tail. Each group keeps the order it arrived in.
+ *
+ * Stable because the tab is something a person works down. Rebuilding the yellow
+ * group in some other order would mean the row you were half way through chasing
+ * has jumped three rows up, and the next link you paste lands on a different job
+ * from the one you were reading. The order the rows are already in is
+ * information somebody put there, and a sort asked only to bring yellow to the
+ * top has no business spending it.
+ *
+ * The empty tail is held back rather than left to fall into the second group. An
+ * empty row is not yellow, so a plain two-way split would leave the blanks
+ * wherever they were — which is fine while they are all at the bottom, and wrong
+ * the moment they are not. Pinning the tail makes "the blank rows are at the
+ * bottom" true for any input, instead of true by luck of this one.
+ *
+ * Only the genuinely trailing blanks are pinned. A blank row with real rows still
+ * below it is a gap somebody left on purpose, and moving that one would be the
+ * reshuffle the stability rule exists to prevent.
+ */
+function orderJobsReferralRows_(rows) {
+  var end = rows.length;
+  while (end > 0 && jobsRowIsEmpty_(rows[end - 1])) end--;
+
+  var needing = [];
+  var rest = [];
+  for (var i = 0; i < end; i++) {
+    if (jobsReferralNeedsLink_(
+          rows[i][JOB_ROLE], rows[i][JOB_LINK], rows[i][REFERRAL_LINK_COL - 1])) {
+      needing.push(rows[i]);
+    } else {
+      rest.push(rows[i]);
+    }
+  }
+  return needing.concat(rest, rows.slice(end));
+}
+
+
+/**
+ * A row with nothing on it. The same question _drop_empty_rows asks over in
+ * job_sync/sheet.py, and it has to be asked the same way: checkbox validation
+ * covers F2:G500 whether or not there is a job on that row, and an unticked
+ * checkbox reads back as false rather than as an empty cell. Counting false as
+ * content would make all 499 rows look occupied, no row would ever be pinned to
+ * the bottom, and the blank middle of the tab would sort as though it were data.
+ */
+function jobsRowIsEmpty_(row) {
+  for (var c = 0; c < row.length; c++) {
+    var cell = row[c];
+    if (cell === false || cell === null || cell === undefined) continue;
+    if (String(cell).trim() === '') continue;
+    return false;
+  }
+  return true;
+}
+
+
 
 /**
  * Run once by hand: build the last three columns of the App tab — Alumni (I),
@@ -632,8 +1018,34 @@ function onEdit(e) {
 
 function onJobsEdit(e) {
   var range = e.range;
-  if (range.getColumn() > APPLIED_COL || range.getLastColumn() < APPLIED_COL) return;
   var jobs = range.getSheet();
+
+  // Column H is its own question and it is answered here rather than on the next
+  // full sweep: paste a referral link and the row has to stop being yellow while
+  // you are still looking at it. Waiting for paintJobsReferralRows to be run by
+  // hand would leave the tab telling you to go and find a link you have already
+  // found. Only the rows the edit touched are repainted — a fill-down over twenty
+  // rows is still one write.
+  if (range.getColumn() <= REFERRAL_LINK_COL && range.getLastColumn() >= REFERRAL_LINK_COL) {
+    var top = Math.max(range.getRow(), FIRST_ROW);
+    var bottom = Math.min(range.getLastRow(), LAST_ROW);
+    paintJobsReferralBlock_(jobs, top, bottom);
+    // The rows are NOT sorted here, and that is a decision rather than an
+    // oversight. This runs while you are typing. Paste a link into H40 and
+    // sorting on the spot would pull row 40 out from under the cursor between
+    // keystrokes, and the row that slid into its place is a different job from
+    // the one you were reading — so the next paste goes on the wrong row. A
+    // fill-down over twenty rows would rearrange the tab halfway through the
+    // drag. Reordering a sheet somebody is working in is hostile even when the
+    // new order is the better one. There is a budget argument too: onEdit is a
+    // simple trigger with thirty seconds, and sorting reads and rewrites all 499
+    // rows, which is not what a single keystroke should cost. So the colour
+    // updates instantly, which is the half that has to be immediate, and the
+    // position waits for paintJobsReferralRows — run when you are ready for the
+    // tab to move under you.
+  }
+
+  if (range.getColumn() > APPLIED_COL || range.getLastColumn() < APPLIED_COL) return;
 
   var firstRow = Math.max(range.getRow(), FIRST_ROW);
   var lastRow = range.getLastRow();
@@ -889,4 +1301,44 @@ function report(added, skipped, expired) {
   if (expired) tail += ' Skipped ' + rowCount(expired) + ' ticked Expired.';
   if (!added) return 'Added no rows to ' + APP_TAB + '.' + tail;
   return 'Added ' + rowCount(added) + ' to ' + APP_TAB + '.' + tail;
+}
+
+
+/**
+ * Put the repaint and the sort on the clock.
+ *
+ * They cannot be left to run by hand, and the reason is the other half of the
+ * system rather than forgetfulness. job_sync re-sorts the whole Jobs tab on every
+ * sync, by posting date, carrying each row's extra columns with it. That is the
+ * right behaviour for a crawler and it undoes this one: rows brought to the top
+ * because they need a link go back into date order the next time the sheet is
+ * written, and the person who was working down a short yellow block at the top
+ * finds it scattered through eight hundred rows again.
+ *
+ * Hourly, which is the same cadence the sync runs at, so the top of the tab is
+ * never wrong for longer than it takes the next firing to notice. This does not
+ * race the crawler: a sort that lands mid-sync is undone by that sync and put
+ * back by the firing after it, and neither writes anything the other would lose,
+ * because the only thing this changes is row order and the only thing it reads is
+ * what the crawler has already written.
+ *
+ * Safe to run again. The old trigger is removed before the new one is made, so
+ * running this three times leaves one trigger rather than three tabs' worth of
+ * repaints an hour.
+ */
+function installJobsReferralTrigger() {
+  removeJobsReferralTrigger();
+  ScriptApp.newTrigger('paintJobsReferralRows').timeBased().everyHours(1).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    'Jobs rows needing a referral link will be repainted and moved to the top every hour.',
+    'Installed', 5);
+}
+
+/** The kill switch for the above, and the only one. */
+function removeJobsReferralTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === 'paintJobsReferralRows') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
 }

@@ -1,7 +1,9 @@
-# Two tabs, and who writes where
+# Four tabs, and who writes where
 
 The spreadsheet is the interface to the whole system. Understanding who owns which column is
-most of understanding it.
+most of understanding it. `Jobs` and `App` are the tracker itself; `Email` and `Referral` are the
+two outreach queues, and a fifth tab of people lives in a different spreadsheet entirely, at the
+bottom of this page.
 
 ## Tab `Jobs` — still to be applied to
 
@@ -14,7 +16,8 @@ most of understanding it.
 | E | **Source** | tool |
 | F | **Applied** ☑ | you, and the tool ticks it ahead of you |
 | G | **Expired** ☑ | you only |
-| H onward | free-text notes | you only |
+| H | **Referral Link** | you, by hand — and the crawler owns `H1` |
+| I onward | free-text notes | you only |
 
 Every sync run **overwrites all of** A–E and sorts again. Column F onward is read back and
 written out untouched, so your tick always travels with its own row rather than staying
@@ -80,16 +83,51 @@ It only blocks the outbound direction. Once a row has reached `App`, ticking `Ex
 afterwards **does not** call it back — `App` is the source of truth. Clear the tick and the row
 travels normally again; there is no stuck state.
 
-### Column H onward — notes
+### Everything past `Expired` — notes
 
-Write anything here and the tool stops touching that row's checkboxes. It is the only way to
-say "the tool matched this wrong", because a bare untick is ticked again on the next run.
+Write anything in column H or beyond and the tool stops touching that row's checkboxes. It is the
+only way to say "the tool matched this wrong", because a bare untick is ticked again on the next
+run. Column H has since been given a specific job — the section below — but it is still one of
+these cells and still has this effect.
 
 > **Why notes have to start at H and not G.** A checkbox column reads back as `FALSE` on
 > *every* row it covers, not as an empty cell. If G counted as the place for notes, the tool
 > would see a note on the whole sheet and stop auto-ticking entirely. That is the bug that had
 > the first version ticking 0 rows while the workflow still reported green. A test pins it:
 > `test_the_expired_column_is_not_read_as_a_note`.
+
+### Column H — `Referral Link`
+
+The first of the note columns now has a job of its own: **the employer's own application link,
+pasted by hand**, for a posting whose crawled link in C goes to an aggregator instead. It is what
+makes a referral askable — see [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter),
+where the rule for which links count is set out. Nothing writes it for you; the whole column below
+row 1 is yours.
+
+Rows still waiting for one are **painted yellow across A to H**. Yellow means one thing: this is a
+summer posting worth asking somebody about and there is no way in yet. Paste a link and the colour
+goes on the same keystroke, because the `onEdit` trigger repaints the rows the edit touched rather
+than waiting for the next full sweep — a tab that tells you to go and find a link you have already
+found is a tab you stop believing. `paintJobsReferralRows` does the whole sheet in one read and one
+write when the rule itself changes.
+
+A row that needs no action is never painted, and clearing is done with `null` rather than white, so
+a row losing its yellow keeps whatever banding or highlight it already had.
+
+> **A pasted link stops that row being retired, and that is the trade.** Every cell past `Expired`
+> is a note as far as `_is_annotated` in `job_sync/sheet.py` is concerned, and an annotated row is
+> never dropped by the liveness check or merged away as a duplicate. A summer posting you are
+> hunting a way into is exactly the row that must not vanish underneath you, so this is accepted
+> rather than worked around.
+>
+> **`H1` is not one of those cells and belongs to the crawler.** The sync splits the header off the
+> data before `_is_annotated` sees anything, so the header row cannot annotate a job — which is why
+> `H1` is where the `Last updated: …` caption lives, on the one cell of the notes column no job will
+> ever want. `setupJobsReferralColumn` therefore writes **no header at all**: it sets the column
+> width and stops. An earlier version wrote `Referral Link` into that cell, which the crawler
+> overwrote within the hour and then refused to run against on the next setup, so the setup could
+> only ever be run once. Nothing in the referral path reads the header, so the column loses a word
+> at the top and gains a setup that does not fight the crawler.
 
 ### Do not delete rows from `Jobs`
 
@@ -263,6 +301,98 @@ the link agrees character for character. The last audit had 14 such rows out of 
 `Role` and the next sync run ticks a batch more.
 
 Run [`--audit-app`](operations.md#auditing-the-app-tab) to see exactly which rows.
+
+## Tab `Referral` — who has been asked
+
+Run `setupReferralQueue` in Apps Script to create this tab. Like `setupOutreachQueue` before it,
+this only builds the table: it does **not** read `Jobs`, choose who to ask, compose anything or
+touch Gmail. Rows arrive from `planReferralAsks` in the sender project, which is not part of the
+hourly cycle — until somebody runs it, or wires it to a trigger, this tab stays empty.
+
+The `Email` tab records one controlled email to a recruiter about an application you have already
+made. This one records one email to an engineer at a company, asking them to refer you, about a
+posting you may not have applied to yet. Two tabs and not more columns on one, because those are
+two questions a person asks separately — and mixed into one table neither could be scanned, since
+the recruiter rows outnumber the referral rows and both halves would carry the other's columns as
+blanks.
+
+| Column | Meaning |
+|---|---|
+| Company / Role / Job Link | the posting being asked about — one per company, chosen by the planner |
+| Person / Email / Title | which human this is; they lead because they are the row |
+| Tier | `peer` / `mid` / `senior` / `staff`, a dropdown, read off `Title` |
+| Template | which of that tier's ten messages this row uses |
+| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them |
+| Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
+| Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail is what calls the message off |
+| Sent At / Result / Last Error | when it went, the id of the message that went, and why it did not go |
+| Queue ID / Version | `R-` and the person's address, and the concurrency guard |
+
+Eighteen columns, and the order is the argument. `Person`, `Email` and `Title` come first because
+they are what the tab is opened to read. `Tier` sits beside `Template` because the tier is what
+decides which template is worth using. Everything from `Status` rightwards is the same machinery
+the `Email` tab carries, in the same order and wearing the same status colours, so the two tabs
+read alike exactly where they do the same job — a second colour language for one more tab would
+only have to be learned twice.
+
+`Tier` is a dropdown rather than free text because a tier typed by hand drifts — `Senior`, `sr`,
+`Sr.` — and then no filter finds the seniors.
+
+`Gmail Draft ID` sits between `Mode` and `Sent At` because that is where it happens in the row's
+life. An earlier layout had no column for it and let the draft's id ride in `Result` until the send
+replaced it with the sent message's id — two different kinds of Gmail id in one cell, tellable
+apart only by also reading `Status`, in the column whose whole job is to say how it went.
+
+Two of the eighteen behave differently from their namesakes on the `Email` tab, and each
+difference is deliberate:
+
+- **`Queue ID` is `R-` and the address.** This path asks one person once and never again, so the id
+  is the identity of the row spelled out rather than a number drawn for it; a second row for
+  somebody who already has one is visibly a duplicate. It is the same rule `P12-A2` follows on the
+  `Email` tab.
+- **`Mode` is left blank** when a row is written, so the cell carries the tab's own default. A value
+  written at planning time would overrule a person who set that cell to `Draft`, which is the one
+  direction the mode rules never allow.
+
+### It holds the name and the address, and the `Email` tab does not
+
+That is the plain opposite of the rule a few sections up, and it is a **deliberate decision by the
+sheet's owner** rather than an oversight.
+
+The `Email` tab sends in bulk and unattended, so keeping a recruiter's name and address out of the
+tracker costs nothing and removes a class of accident a screen-share can cause. The `Referral` tab
+is read by a person before anybody is asked, and the question it exists to answer is *who at this
+company have I already asked* — a tab that answers that with a non-reversible fingerprint is a tab
+you have to open the contacts spreadsheet to use, which means row 14 stays anonymous exactly when
+you need to know who row 14 is.
+
+The rules the rows will be created under — which posting, which three people, which day, and why a
+person is asked once and never again — are in
+[outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
+
+## The contacts spreadsheet — tab `Employees (seed)`
+
+Not this file. The contacts spreadsheet is a second, separate spreadsheet **owned by the sending
+account**, so that no recruiter's or engineer's address ever lands in the tracker as a side effect
+of an export. It has three tabs: `Contacts (seed)`, `Contacts (manual)` and, for the referral path,
+`Employees (seed)`.
+
+`Employees (seed)` is written wholesale by `src/export_referrals.py` in ColdEmail and imported over
+the tab, so **nothing typed by hand belongs on it** — there is no manual sibling, and a name added
+here is erased by the next export.
+
+| Column | Meaning |
+|---|---|
+| Company | matched to a `Jobs` row by the same company rule the recruiter path uses |
+| Person Name | the greeting |
+| Email | the address; also the key that says this person has been asked already |
+| Title | what decides the tier, ahead of `Seniority` |
+| Domain | what tells the employer's own careers site apart from an aggregator carrying the same posting |
+| Seniority | ColdEmail's own label, read **only** when the title settles nothing, and left empty rather than guessed |
+| LinkedIn | for a person checking a row by hand; nothing reads it |
+| Angle | one sentence about the company, shared by everyone there |
+| Bucket | the industry, which picks the two resume numbers |
+| Verify | where the address was confirmed |
 
 ## Why writing the sheet takes two calls
 

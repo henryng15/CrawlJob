@@ -527,7 +527,7 @@ function outreachPlanFollowUps_(queueRows, today) {
  * of downtime, or a day the cap could not absorb, catch up rather than silently
  * drop.
  */
-function outreachFollowUpsDueNow_(queueRows, now) {
+function outreachFollowUpsDueNow_(queueRows, now, referralRows) {
   var hour = now.getHours();
   if (hour < FOLLOWUP_HOUR_FIRST || hour > FOLLOWUP_HOUR_LAST) return [];
   if (!outreachFollowUpDayAllowed_(now)) return [];
@@ -538,6 +538,13 @@ function outreachFollowUpsDueNow_(queueRows, now) {
         && row.followUpAt && outreachDayKey_(row.followUpAt) === today;
   }).length;
   var remaining = FOLLOWUP_DAILY_CAP - gone;
+  if (remaining <= 0) return [];
+
+  // Last in EMAIL_PATH_ORDER, so on a day the budget binds this is the path that
+  // gives way, and it is the right one: the message this chases has already
+  // landed and its window is five to ten days wide. See outreach_budget.gs.
+  remaining = Math.min(remaining,
+    outreachBudgetRoom_(queueRows, referralRows, now, 'followup'));
   if (remaining <= 0) return [];
 
   // A brake on catch-up, not the spreader it used to be. The hours are booked now,

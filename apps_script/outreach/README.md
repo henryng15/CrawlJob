@@ -1,6 +1,6 @@
 # `outreach/` — the sender
 
-These seven files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
+These eleven files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
 standalone project in the Apps Script editor of `hoanng15.work@gmail.com`.
 
 That separation is the reason the project exists. A bound script runs as whoever owns the
@@ -16,6 +16,10 @@ which is a different address, and the one that must never appear as the sender.
 | `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
 | `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
 | `outreach_followup.gs` | the twenty short replies, which rows earn one, what day it lands on, and posting it onto the thread |
+| `outreach_referral.gs` | the forty referral messages in four seniority tiers, the tier resolver, and the composer |
+| `outreach_referral_queue.gs` | which link a referral may be submitted against, which posting per company, who is asked and on what day |
+| `outreach_referral_send.gs` | the three referral entry points: booking rows, drafting them an hour early, sending them |
+| `outreach_budget.gs` | one daily ceiling across all three paths, and who gives way when it binds |
 | `appsscript.json` | the manifest: timezone, the five scopes spelled out, and the one advanced service |
 | `.claspignore` / `.clasp.json.example` | so the project is deployed with `clasp push` rather than pasted |
 
@@ -45,8 +49,36 @@ Everything that *decides* is pure — it takes rows, a message and a date, and r
 Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
 
 ```
-node apps_script/outreach/harness.js     # 378 tests, sends nothing
+node apps_script/outreach/harness.js     # every rule, on a laptop, sending nothing
 ```
+
+## The three referral files
+
+They are the second path: asking an engineer at a company for a referral, rather than asking a
+recruiter to look at an application. The split between them is the one `outreach_queue.gs` and
+`outreach_send.gs` already make — every rule that chooses a person can be argued with on a laptop,
+and only `outreach_referral_send.gs` can put anything in a mailbox.
+
+**`runOutreachCycle` does not call them.** Its ten steps are unchanged, so pushing these files
+changes nothing that runs on the hourly trigger; the three entry points below are run by hand until
+that changes.
+
+| | |
+|---|---|
+| `checkReferralService` | says whether the path could work. Reads and sends nothing, and reports every missing piece at once |
+| `previewReferralTemplates` | logs all forty messages. Forty is past what anybody holds in their head, and what is worth checking is that the ask really does shrink down the tiers |
+| `planReferralAsks` | appends the booked rows to the `Referral` tab. Touches no mailbox |
+| `draftReferralAsks` | writes each message an hour before its slot, into Drafts |
+| `sendReferralAsks` | sends what is still there when the hour comes. **This one sends.** |
+
+Two things this path needs that the recruiter path does not: an `Employees (seed)` tab on the
+contacts spreadsheet, exported by `src/export_referrals.py` in ColdEmail; and the `Jobs` tab of the
+tracker, which this project reads here for the first time — the cold path starts from an
+application, and this one starts from a posting that may never have been applied to. Both are
+already covered by the `spreadsheets` scope, and no new scope or advanced service is needed.
+
+The rules behind every one of these are in
+[../../docs/outreach.md](../../docs/outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
 
 ## Deploying — do not paste by hand
 
