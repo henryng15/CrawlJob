@@ -1381,55 +1381,46 @@ of every single person being written to. A reason that is true of everybody is f
 reverse-engineered from the ask, and it reads as exactly that. The warmth lives in the sentences
 after the request instead, where it costs the reader nothing to believe.
 
-The admission goes first because it is the question the reader is already asking. What follows is
-one line of who is writing, one of what was applied to, the posting link, two resume bullets, the
-bolded ask with its way out, and the close. Around a hundred and ten words — longer than the
-recruiter email's, because the ask is bigger and earns a little more room to be honest in, and
-nowhere near double, because seven beats at two sentences each is a page and a page to a working
-engineer is an archive.
+The admission is made once, and either the opening or the ask may be where it happens — different
+templates do it differently, but doing both is what made the first draft read as awkward, and a test
+refuses any template that does. Inside the ask it earns its place twice over, because whether this
+is a lot to ask of somebody never met is the reason the request is tentative at all.
 
-### The email carries the posting link
+What follows is one paragraph of the admission and the company sentence together, one line of who is
+writing and what they are applying for, a clause introducing two resume bullets, the bolded ask with
+the easier favour beside it, the close, and the posting link on a line of its own at the foot.
+Around a hundred and thirty words — longer than the recruiter email's, because the ask is bigger and
+earns a little more room to be honest in, and nowhere near double, because seven beats at two
+sentences each is a page and a page to a working engineer is an archive.
 
-`outreachReferralApplied_` puts the link in the sentence, and the link is required: a row without
-one is never due, whatever hour it is booked for. Refusing to send is the right failure — a referral
-ask that cannot be acted on has spent the only message that person will ever get.
+### The posting link at the foot, and no date
 
-Naming the role and the date is enough for a recruiter, because the req is already theirs. It is not
-enough for an engineer, who has to find the posting before they can do anything at all — and that
-errand is where a willing reader quietly becomes a reader who meant to get to it. A referral is a
-form with a job id in it; the email hands over the id.
+The link is required: a row without one is never due, whatever hour it is booked for. Refusing to
+send is the right failure — a referral ask that cannot be acted on has spent the only message that
+person will ever get. Naming the role alone is enough for a recruiter, because the req is already
+theirs; it is not enough for an engineer, who has to find the posting before they can do anything,
+and that errand is where a willing reader quietly becomes a reader who meant to get to it. A
+referral is a form with a job id in it, and the email hands over the id.
 
-The sentence is `I applied for the {Role} role at {Company}: {link}`, with the date appended while
-the application is inside `STALE_APPLICATION_DAYS` and dropped past it, exactly as on the cold path.
+**At the foot, not in the sentence.** It used to sit inside the line naming the role, which put a
+Workday URL — two lines of query string — exactly where the reader was working out who was writing.
+Down at the bottom, labelled, it is out of the prose and easy to copy, which is the only thing
+anybody ever does with it.
 
-> **The date is never actually appended, and the sentence has a claim in it this path does not
-> check.** `draftReferralAsks` passes no `Date Applied` — there is no column on the `Referral` tab
-> to hold one, because [the path deliberately does not wait for an
-> application](#it-starts-from-a-posting-not-from-an-application) — so the dated variant is unreachable
-> from the sender and only the harness ever sees it. That much is harmless. What is not is the verb:
-> a posting queued before it was applied to still produces *I applied for the … role at …*, which is
-> a statement the queue never established. Either the planner has to require an application, which
-> gives up the ordering this path exists for, or the sentence has to stop asserting one. It has not
-> been resolved yet, and until it is, this is the line to check before a batch goes out. The subject lines are plain and deliberately **not** the recruiter email's trick: that
-subject is a bare number written so it is not yet explained, because a recruiter's inbox is a
-competition for the open. This one arrives at somebody not expecting mail about hiring at all, and a
-teaser subject on an unexpected favour reads as marketing. A test holds all ten under 66 characters
-against the longest company and the longest role in the dataset rather than the average ones,
-because a subject is read on a phone.
+**And no date.** The recruiter email names the day the application went because that is a fact a
+recruiter can look up. The person being asked for a favour will not check, does not care, and reads
+it as filler in a message that has already asked them for something.
 
-The two resume bullets are chosen by **what the company does**, not by who is reading: a Staff
-engineer at Stripe and a new grad at Stripe both care about the payments number, and the tier is
-already doing its own work on the wording. The bucket is ColdEmail's, so it is the same judgement
-that wrote the company angle. Twelve numbers per bucket read as six pairs, one pair per person, so
-six people at one employer do not receive one list. It was six numbers and three pairs while three
-people were the limit; raising the limit without widening this would have had the fourth, fifth and
-sixth person repeat the first three, which matters far more now that all six can arrive on one
-morning.
+### The bullets are introduced, and the easier favour is offered
 
-`previewReferralTemplates` logs one example of every tier and every template and sends nothing.
-Forty messages is past what anybody holds in their head, and the thing worth checking is not any
-single one: it is that the ask really does shrink down the tiers and that no two openings have
-drifted into each other.
+Two numbers arriving under a paragraph that never mentioned them read as a fragment of a CV somebody
+pasted in. Each of the forty templates carries its own clause pointing at them, so they arrive as
+the thing being offered rather than as an attachment that leaked into the body.
+
+Every message also offers to have the resume forwarded to whoever runs hiring. A referral spends the
+reader's own credibility; a forward spends nothing. A reader who will not do the first will often do
+the second, and a message that does not offer it never finds out — so the ask paragraph is the
+bolded request, then that second route, then where the resume is.
 
 ### The `Referral` tab holds the name and the address
 
