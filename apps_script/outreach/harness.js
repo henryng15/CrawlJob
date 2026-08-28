@@ -4704,6 +4704,43 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 }
 
 
+{
+  console.log('\nreferral: the hour a row says it will be written');
+
+  // Left empty until the writing happened, the column read as nothing being
+  // planned across a hundred and seventy waiting rows.
+  run('a booked row carries its draft hour, one lead ahead of sending', () => {
+    const scheduled = new Date(2026, 7, 31, 10, 0, 0);
+    const values = S.outreachReferralRowValues_({
+      company: 'Stripe', role: 'SWE Intern, Summer 2027',
+      jobLink: 'https://boards.greenhouse.io/stripe/jobs/1',
+      person: { name: 'Ana', email: 'a@stripe.com', title: 'Software Engineer' },
+      tier: 'mid', template: 3, attempt: 1, scheduled: scheduled
+    });
+    const drafted = values[S.R_DRAFTED_AT - 1];
+    assert.ok(drafted, 'Drafted At was left empty');
+    assert.strictEqual(scheduled.getTime() - drafted.getTime(),
+                       S.DRAFT_LEAD_HOURS * 3600 * 1000);
+    assert.strictEqual(values[S.R_STATUS - 1], S.STATUS_QUEUED);
+  });
+
+  // Status is what says whether the draft exists; this says when it is due. A row
+  // whose hour moves needs a new one, or the tab shows a draft due before a send
+  // that was pushed back a week.
+  run('and it moves with the hour rather than being left behind', () => {
+    const early = S.outreachReferralDraftHour_(new Date(2026, 7, 31, 10, 0, 0));
+    const late = S.outreachReferralDraftHour_(new Date(2026, 8, 7, 10, 0, 0));
+    assert.ok(late > early);
+    assert.strictEqual(early.getHours(), 10 - S.DRAFT_LEAD_HOURS);
+  });
+
+  run('a row with no hour has no draft hour to show', () => {
+    assert.strictEqual(S.outreachReferralDraftHour_(null), '');
+    assert.strictEqual(S.outreachReferralDraftHour_(''), '');
+  });
+}
+
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');

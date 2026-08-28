@@ -64,6 +64,13 @@ function outreachReferralRowValues_(item) {
   row[R_TIER - 1] = item.tier;
   row[R_TEMPLATE - 1] = item.template;
   row[R_SCHEDULED - 1] = item.scheduled;
+  // The hour the message will be written, filled in when the row is booked rather
+  // than when the writing happens. Left empty until then, the column read as
+  // nothing being planned across a hundred and seventy waiting rows, and the one
+  // question the tab is opened to answer — when does this go, and when can I still
+  // read it first — needed both hours to be visible at once. Status is what says
+  // whether the draft exists yet; this says when it is due.
+  row[R_DRAFTED_AT - 1] = outreachReferralDraftHour_(item.scheduled);
   row[R_STATUS - 1] = STATUS_QUEUED;
   row[R_ID - 1] = 'R-' + item.person.email;
   row[R_VERSION - 1] = 1;
@@ -750,6 +757,7 @@ function replanReferralAsks() {
   moved.forEach(function (change) {
     var updates = {};
     updates[R_SCHEDULED] = change.scheduled;
+    updates[R_DRAFTED_AT] = outreachReferralDraftHour_(change.scheduled);
     outreachWriteRow_(referral, change.index, updates);
   });
   tally.moved = moved.length;
@@ -759,4 +767,19 @@ function replanReferralAsks() {
            + ' row(s) moved to a newer application, ' + tally.retired
            + ' closed for want of a qualifying application, ' + tally.moved + ' re-timed.');
   return tally;
+}
+
+
+/**
+ * The hour a row's message is due to be written: one lead ahead of sending.
+ *
+ * The same arithmetic draftReferralAsks does when it picks up a row, so the time
+ * on the tab and the time the draft actually appears are the same number rather
+ * than two that happen to agree. A row whose hour moves gets a new one of these
+ * with it, or the tab would show a draft due before a send that has been pushed
+ * back a week.
+ */
+function outreachReferralDraftHour_(scheduled) {
+  if (!scheduled) return '';
+  return new Date(scheduled.getTime() - DRAFT_LEAD_HOURS * 3600 * 1000);
 }

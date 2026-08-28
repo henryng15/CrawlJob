@@ -1744,17 +1744,25 @@ function reflowReferralTimes_(rows) {
   var DRAFTED = REFERRAL_DRAFTED_AT - 1, SCHEDULED = REFERRAL_SCHEDULED_AT - 1;
   var STATUS = REFERRAL_STATUS - 1;
 
-  var hours = [];
+  // The two hours travel as a pair. A row's Drafted At is one lead ahead of its
+  // Scheduled At, and dealing the send times out while leaving the draft times
+  // where they were would put every row's draft against somebody else's send —
+  // a tab saying the message is written at nine and goes at two.
+  //
+  // Kept as a pair rather than recomputed by subtracting an hour, because the lead
+  // is the sender's constant and this file does not hold it. Moving what is there
+  // cannot disagree with it; arithmetic here could.
+  var slots = [];
   for (var i = 0; i < rows.length; i++) {
     if (referralCancelled_(rows[i][STATUS])) continue;
     if (String(rows[i][STATUS] || '').trim() !== REFERRAL_QUEUED) continue;
     if (rows[i][SCHEDULED] === '' || rows[i][SCHEDULED] == null) continue;
-    hours.push(rows[i][SCHEDULED]);
+    slots.push({ scheduled: rows[i][SCHEDULED], drafted: rows[i][DRAFTED] });
   }
   // Ascending, because the order rows sit in is the order they should go out in,
   // and the tab's own times are the only supply of hours this may draw on.
-  hours.sort(function (left, right) {
-    return new Date(left).getTime() - new Date(right).getTime();
+  slots.sort(function (left, right) {
+    return new Date(left.scheduled).getTime() - new Date(right.scheduled).getTime();
   });
 
   var next = 0;
@@ -1766,7 +1774,11 @@ function reflowReferralTimes_(rows) {
       continue;
     }
     if (state !== REFERRAL_QUEUED) continue;
-    if (next < hours.length) rows[j][SCHEDULED] = hours[next++];
+    if (next < slots.length) {
+      rows[j][SCHEDULED] = slots[next].scheduled;
+      rows[j][DRAFTED] = slots[next].drafted;
+      next++;
+    }
   }
   return rows;
 }

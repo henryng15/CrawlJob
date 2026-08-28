@@ -3779,3 +3779,54 @@ console.log('onEdit on the Referral Priority column');
     assert.strictEqual(first[s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
   });
 }
+
+
+console.log('reflowReferralTimes_ — the two hours travel as a pair');
+{
+  const s = load();
+  const row = (status, drafted, scheduled) => {
+    const r = new Array(20).fill('');
+    r[s.REFERRAL_COMPANY - 1] = 'Acme';
+    r[s.REFERRAL_ROLE - 1] = 'SWE Intern';
+    r[s.REFERRAL_DRAFTED_AT - 1] = drafted;
+    r[s.REFERRAL_SCHEDULED_AT - 1] = scheduled;
+    r[s.REFERRAL_STATUS - 1] = status;
+    return r;
+  };
+  // Two queued rows out of order, a drafted one and a cancelled one.
+  const rows = [
+    row('Queued', 'Aug 31, 2026 1:00 PM', 'Aug 31, 2026 2:00 PM'),
+    row('Queued', 'Aug 31, 2026 9:00 AM', 'Aug 31, 2026 10:00 AM'),
+    row('Drafted', 'Aug 31, 2026 5:00 AM', 'Aug 31, 2026 6:00 AM'),
+    row('Cancelled', 'Aug 31, 2026 7:00 AM', 'Aug 31, 2026 8:00 AM'),
+  ];
+  s.reflowReferralTimes_(rows);
+  const D = s.REFERRAL_DRAFTED_AT - 1, S_ = s.REFERRAL_SCHEDULED_AT - 1;
+
+  // Dealing the send times out while leaving the draft times where they were would
+  // put every row's draft against somebody else's send.
+  run('the first queued row takes the earliest pair, both halves of it', () => {
+    assert.strictEqual(rows[0][S_], 'Aug 31, 2026 10:00 AM');
+    assert.strictEqual(rows[0][D], 'Aug 31, 2026 9:00 AM');
+  });
+  run('and the second takes the later pair', () => {
+    assert.strictEqual(rows[1][S_], 'Aug 31, 2026 2:00 PM');
+    assert.strictEqual(rows[1][D], 'Aug 31, 2026 1:00 PM');
+  });
+
+  // A drafted row has a message in Gmail written against a particular hour.
+  run('a drafted row is not in the deal and keeps both its hours', () => {
+    assert.strictEqual(rows[2][S_], 'Aug 31, 2026 6:00 AM');
+    assert.strictEqual(rows[2][D], 'Aug 31, 2026 5:00 AM');
+  });
+
+  run('a cancelled row keeps neither, because it is not going', () => {
+    assert.strictEqual(rows[3][S_], '');
+    assert.strictEqual(rows[3][D], '');
+  });
+
+  run('and no hour is invented: the same times come back, redealt', () => {
+    const sent = [rows[0][S_], rows[1][S_]].sort();
+    assert.deepStrictEqual(sent, ['Aug 31, 2026 10:00 AM', 'Aug 31, 2026 2:00 PM'].sort());
+  });
+}

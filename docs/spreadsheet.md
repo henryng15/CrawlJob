@@ -297,7 +297,7 @@ blanks.
 | Person / Email / Title | which human this is; they lead because they are the row |
 | Tier | `peer` / `mid` / `senior` / `staff`, a dropdown, read off `Title` |
 | Template | which of that tier's ten messages this row uses |
-| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them |
+| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them. Both are filled when the row is booked, so a waiting row shows when it is due rather than nothing at all |
 | Priority | tick it and the whole ask jumps to the earliest free slots, ahead of everything queued |
 | Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
 | Cancel | tick it to call the **whole ask** off. Every row with the same Company and Role goes `Cancelled` too |
