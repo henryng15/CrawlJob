@@ -629,6 +629,7 @@ function migrateAppOfficialColumn() {
 
   var at9 = header(APP_OFFICIAL);
   var opened = false;
+  var healed = 0;
 
   if (at9 === 'Alumni') {
     // The layout Official is being inserted into. The two columns behind it are
@@ -668,6 +669,33 @@ function migrateAppOfficialColumn() {
       refuse(RECRUITER_COL, header(RECRUITER_COL), '"Recruiter"');
     }
     if (header(UPDATE_COL) !== 'Update') refuse(UPDATE_COL, header(UPDATE_COL), '"Update"');
+
+    // Repair, not tidying, and the reason it lives on the already-migrated branch
+    // is that the first version of this migration did not strip what the insert
+    // inherited. A tab it ran on carries a checkbox on every row of Official and
+    // cannot be fixed by running the migration again unless this branch does it:
+    // the insert has already happened, so the branch that strips is never reached.
+    //
+    // Only ever clears cells that hold a checkbox's FALSE. A pasted link is left
+    // exactly where it is, because the whole point of the column is that what a
+    // person typed there survives everything this file does.
+    var below = app.getMaxRows() - 1;
+    if (below > 0) {
+      var column = app.getRange(2, APP_OFFICIAL, below, 1);
+      var junk = column.getValues();
+      var repaired = 0;
+      for (var row = 0; row < junk.length; row++) {
+        if (junk[row][0] === false || junk[row][0] === true) {
+          junk[row][0] = '';
+          repaired++;
+        }
+      }
+      if (repaired) {
+        column.clearDataValidations();
+        column.setValues(junk);
+        healed = repaired;
+      }
+    }
   } else if (at9 !== '') {
     refuse(APP_OFFICIAL, at9, '"Alumni" or "Official"');
   }
@@ -686,7 +714,10 @@ function migrateAppOfficialColumn() {
     opened
       ? 'Opened Official at column I. Alumni, Recruiter and Update moved to J, K '
         + 'and L — deploy the Python half before the next sync.'
-      : 'The App tab is already on the current layout. Nothing moved.',
+      : (healed
+          ? 'The App tab was already on the current layout. Cleared ' + healed
+            + ' inherited checkbox cell(s) out of Official; pasted links were left alone.'
+          : 'The App tab is already on the current layout. Nothing moved.'),
     'App',
     opened ? 12 : 8
   );

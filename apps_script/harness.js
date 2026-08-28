@@ -1550,3 +1550,39 @@ console.log('migrateAppOfficialColumn — the checkbox the insert brings with it
     assert.strictEqual(app.grid[2][s.RECRUITER_COL - 1], false);
   });
 }
+
+console.log('migrateAppOfficialColumn — repairing a tab the first version left checkboxed');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    ['Property', 'Company', 'Application Link', 'Date Applied', 'Location (State)',
+     'Process', 'Role', 'Note', 'Official', 'Alumni', 'Recruiter', 'Update'],
+    ['1', 'Uber', 'https://x', 'July 21, 2026', 'CA', 'Rejected', 'SWE Intern', '',
+     false, false, true, 'Applied: Jul 21, 2026'],
+    ['2', 'Figma', 'https://y', 'Aug 10, 2026', 'CA', 'Applied', 'SWE Intern', '',
+     'https://boards.greenhouse.io/figma/jobs/1', true, false, 'Applied: Aug 10, 2026']
+  ]);
+  const s = load();
+  s.migrateAppOfficialColumn();
+
+  // The first version of this migration did not strip what the insert inherited,
+  // and the insert has already happened on the tab it ran on — so the branch that
+  // strips is never reached again. This branch is the only route back.
+  run('a FALSE left by the old insert is cleared', () => {
+    assert.strictEqual(app.grid[1][s.APP_OFFICIAL - 1], '');
+  });
+
+  // The whole point of the column is that what a person typed there survives
+  // everything this file does.
+  run('a link somebody pasted is not touched', () => {
+    assert.strictEqual(app.grid[2][s.APP_OFFICIAL - 1],
+                       'https://boards.greenhouse.io/figma/jobs/1');
+  });
+
+  run('and the columns behind it are still intact', () => {
+    assert.strictEqual(app.grid[1][s.ALUMNI_COL - 1], false);
+    assert.strictEqual(app.grid[1][s.RECRUITER_COL - 1], true);
+    assert.strictEqual(app.grid[2][s.ALUMNI_COL - 1], true);
+    assert.strictEqual(app.grid[2][s.UPDATE_COL - 1], 'Applied: Aug 10, 2026');
+  });
+}
