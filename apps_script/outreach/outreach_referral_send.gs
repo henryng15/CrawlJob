@@ -631,7 +631,7 @@ function replanReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
 
-  var tally = { discarded: 0, moved: 0, cancelled: 0, ready: true };
+  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, ready: true };
 
   // A tick that the bound script's onEdit never saw — the box was filled by a
   // paste, a fill-down, or an undo, none of which fire a simple trigger. The tab
@@ -689,6 +689,33 @@ function replanReferralAsks() {
     row.draftId = '';
   });
 
+  // A company that has gained a newer application. The ask that has not gone yet
+  // should be about the newer one: it is the application still moving, and its
+  // posting is the one most likely still open. A drafted row loses its draft with
+  // its link, because a draft naming the old posting is worse than no draft.
+  var apps = tracker.getSheetByName(TAB_APP);
+  if (apps && apps.getLastRow() > 1) {
+    var domainFor = outreachReferralDomainFor_(outreachReadEmployees_(
+      SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true))));
+    var applications = apps.getRange(2, 1, apps.getLastRow() - 1, APP_READ_WIDTH).getValues()
+      .map(function (row, index) {
+        return outreachParseApplication_(row, index + 2, domainFor);
+      });
+    outreachReferralRepoint_(rows, applications).forEach(function (change) {
+      var updates = {};
+      updates[R_ROLE] = change.role;
+      updates[R_JOB_LINK] = change.jobLink;
+      if (change.draftId) {
+        try { GmailApp.getDraft(change.draftId).deleteDraft(); } catch (error) { /* already gone */ }
+        updates[R_DRAFT_ID] = '';
+        updates[R_STATUS] = STATUS_QUEUED;
+        updates[R_DRAFTED_AT] = '';
+      }
+      outreachWriteRow_(referral, change.index, updates);
+      tally.repointed = (tally.repointed || 0) + 1;
+    });
+  }
+
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var queueRows = [];
   if (queue && queue.getLastRow() > 1) {
@@ -706,6 +733,7 @@ function replanReferralAsks() {
   tally.moved = moved.length;
 
   Logger.log('Referral replan: ' + tally.cancelled + ' newly cancelled, '
-           + tally.discarded + ' draft(s) discarded, ' + tally.moved + ' row(s) re-timed.');
+           + tally.discarded + ' draft(s) discarded, ' + tally.repointed
+           + ' row(s) moved to a newer application, ' + tally.moved + ' re-timed.');
   return tally;
 }

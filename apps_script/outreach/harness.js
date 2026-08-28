@@ -3143,32 +3143,35 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       S.outreachReferralLinkProblem_('https://example.com/jobs/1', 'stripe.com')));
   });
 
-  // Off, because the path reads applications now rather than a board of postings
-  // nobody chose. Of 327 rows on the live App tab only 81 say "summer", and having
-  // applied is a stronger statement about which intake matters than how a title
-  // was written.
-  run('the season rule is off while this path reads applications', () => {
-    assert.strictEqual(S.REFERRAL_REQUIRE_SEASON, false);
-    assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
-    assert.ok(S.outreachReferralSeason_(''));
+  // Back on, and stricter than it was. The word alone was never enough: a title
+  // can name two intakes, and the wrong one disqualifies it.
+  run('the intake has to be the one being asked about', () => {
+    assert.strictEqual(S.REFERRAL_REQUIRE_SEASON, true);
+    assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
+    assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
+    assert.ok(S.outreachReferralSeason_('2027 summer internship'));
+    // Not an intake at all.
+    assert.ok(!S.outreachReferralSeason_('Software Engineer Intern'));
+    assert.ok(!S.outreachReferralSeason_(''));
+    // A whole word, so a surname or a product name is not a season.
+    assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
   });
 
-  // Kept working rather than deleted, because turning it back on is one line and
-  // the reasoning above is about this tab, not about the rule.
-  run('and still matches a whole word in any case when it is switched on', () => {
-    const was = S.REFERRAL_REQUIRE_SEASON;
-    S.REFERRAL_REQUIRE_SEASON = true;
-    try {
-      assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
-      assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
-      assert.ok(S.outreachReferralSeason_('2027 summer internship'));
-      assert.ok(!S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
-      assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
-      assert.ok(!S.outreachReferralSeason_(''));
-    } finally {
-      S.REFERRAL_REQUIRE_SEASON = was;
-    }
+  // Summer 2026 has already happened; Summer/Winter is not only the intake being
+  // asked about. Either way the message is spent on something that cannot land.
+  run('a summer that is the wrong summer is refused', () => {
+    assert.ok(!S.outreachReferralSeason_('Software Engineering Intern - Summer 2026'));
+    assert.ok(!S.outreachReferralSeason_('Summer/Winter 2027 Software Intern'));
+    assert.ok(!S.outreachReferralSeason_('Summer or Spring 2027 Intern'));
+    assert.ok(!S.outreachReferralSeason_('Summer and Fall 2027 Co-op'));
   });
+
+  // Whole words throughout, or a company called Springer is a spring intake.
+  run('the excluded words are words, not fragments', () => {
+    assert.ok(S.outreachReferralSeason_('Summer 2027 Intern, Springer Nature'));
+    assert.ok(S.outreachReferralSeason_('Summer 2027 Intern, Winterthur Group'));
+  });
+
 }
 
 {
@@ -3213,23 +3216,23 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('one application is chosen per company, the software one first', () => {
     const rows = [
-      application('Stripe', 'Data Science Intern', GH + '1', new Date(2026, 7, 26)),
-      application('Stripe', 'Software Engineer Intern', GH + '2', new Date(2026, 7, 20)),
-      application('Stripe', 'Product Design Intern', GH + '3', new Date(2026, 7, 27))
+      application('Stripe', 'Data Science Intern, Summer 2027', GH + '1', new Date(2026, 7, 26)),
+      application('Stripe', 'Software Engineer Intern, Summer 2027', GH + '2', new Date(2026, 7, 20)),
+      application('Stripe', 'Product Design Intern, Summer 2027', GH + '3', new Date(2026, 7, 27))
     ];
     assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
   run('between two software applications the most recent wins', () => {
     const rows = [
-      application('Stripe', 'Software Engineer Intern', GH + '1', new Date(2026, 7, 20)),
-      application('Stripe', 'Software Engineering Intern', GH + '2', new Date(2026, 7, 26))
+      application('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1', new Date(2026, 7, 20)),
+      application('Stripe', 'Software Engineering Intern, Summer 2027', GH + '2', new Date(2026, 7, 26))
     ];
     assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
   run('an application with no usable link is never the one chosen', () => {
     const rows = [
-      application('Stripe', 'Software Engineer Intern', 'https://jobright.ai/jobs/info/9'),
-      application('Stripe', 'Data Intern', GH + '2')
+      application('Stripe', 'Software Engineer Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
+      application('Stripe', 'Data Intern, Summer 2027', GH + '2')
     ];
     assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
@@ -3244,10 +3247,10 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('yellow means a live application at a company we know, with no usable link', () => {
     const people = [{ company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe') }];
     const rows = [
-      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9'),
-      application('Stripe', 'SWE Intern', GH + '1'),
-      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9', '', '', 'Rejected'),
-      application('Nowhere Inc', 'SWE Intern', 'https://jobright.ai/jobs/info/9')
+      application('Stripe', 'SWE Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
+      application('Stripe', 'SWE Intern, Summer 2027', GH + '1'),
+      application('Stripe', 'SWE Intern, Summer 2027', 'https://jobright.ai/jobs/info/9', '', '', 'Rejected'),
+      application('Nowhere Inc', 'SWE Intern, Summer 2027', 'https://jobright.ai/jobs/info/9')
     ];
     const painted = S.outreachReferralNeedsLink_(rows, people);
     assert.strictEqual(painted.length, 1);
@@ -3351,13 +3354,13 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('no usable link, or no employees, means no rows', () => {
     const people = [person('A', 'a@stripe.com')];
-    const bad = [jobRow('Stripe', 'Summer 2027 Intern', 'https://jobright.ai/jobs/info/9')];
+    const bad = [jobRow('Stripe', 'SWE Intern, Summer 2027', 'https://jobright.ai/jobs/info/9')];
     assert.strictEqual(S.outreachReferralPlan_(bad, [], people, TODAY).booked.length, 0);
     assert.strictEqual(S.outreachReferralPlan_(summerJob, [], [], TODAY).booked.length, 0);
-    // And an intake the title does not name is no longer excluded, because every
-    // row here is an application somebody chose to make.
+    // An intake that is not the one being asked about is refused, whether it names
+    // the wrong season or a year that has already gone.
     const fall = [jobRow('Stripe', 'Fall 2026 Intern', GH + '1')];
-    assert.strictEqual(S.outreachReferralPlan_(fall, [], people, TODAY).booked.length, 1);
+    assert.strictEqual(S.outreachReferralPlan_(fall, [], people, TODAY).booked.length, 0);
   });
 
   // Nothing here waits for an application. A referral submitted before the
@@ -4413,6 +4416,152 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), 8);
+  });
+}
+
+
+{
+  console.log('\nreferral: priority, and following a newer application');
+
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  const NOW = new Date(2026, 7, 28, 21, 0, 0);
+  const ROW = (index, company, role, status, extra) => Object.assign({
+    index: index, company: company, role: role,
+    tokens: S.outreachCompanyTokens_(company), jobLink: 'https://x/1',
+    email: 'p' + index + '@x.com', status: status, cancel: false, priority: false,
+    scheduled: at(29, 8), draftId: ''
+  }, extra || {});
+
+  // A row marked urgent on Monday and booked for Friday is still going on Friday
+  // unless the tick moves it in the queue rather than only in the day's order.
+  run('a priority tick takes the earliest slot', () => {
+    const rows = [
+      ROW(2, 'A', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 8) }),
+      ROW(3, 'B', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 9) }),
+      ROW(4, 'C', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 10), priority: true })
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), 8);
+  });
+
+  // Six people at one company are one decision. Lifting one above the other five
+  // would send the ask twice over, days apart, to colleagues who see each other.
+  run('priority lifts the whole ask, not one row of it', () => {
+    const rows = [
+      ROW(2, 'Other', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 8) }),
+      ROW(3, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 9), priority: true }),
+      ROW(4, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 10) })
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const hours = {};
+    moved.forEach((m) => { hours[m.index] = m.scheduled.getHours(); });
+    assert.ok(hours[3] < hours[2] || hours[4] < hours[2],
+              'the Acme ask should be lifted above Other: ' + JSON.stringify(hours));
+    assert.ok(Math.abs(hours[3] - hours[4]) === 1, 'and stay together');
+  });
+
+  run('among rows already due, priority goes first', () => {
+    const due = (index, hour, priority) => ({
+      index: index, status: S.STATUS_DRAFTED, scheduled: at(28, hour),
+      email: 'p@x.com', jobLink: 'https://x/1', priority: !!priority, mode: ''
+    });
+    const now = at(28, 20);
+    const order = S.outreachReferralDueNow_([due(2, 8), due(3, 9, true)], now, [])
+      .map((r) => r.index);
+    assert.strictEqual(order.join(','), '3,2');
+  });
+
+  // Intuit had one software role and now has a newer one. The ask that has not
+  // gone should be about the application still moving.
+  run('an unsent row follows the company to its newest application', () => {
+    const appRow = (company, role, link, applied) => {
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = company;
+      row[S.APP_ROLE - 1] = role;
+      row[S.APP_LINK - 1] = link;
+      row[S.APP_DATE_APPLIED - 1] = applied;
+      row[S.APP_PROCESS - 1] = 'Applied';
+      return S.outreachParseApplication_(row, 2, () => '');
+    };
+    const GH = 'https://boards.greenhouse.io/intuit/jobs/';
+    const applications = [
+      appRow('Intuit', 'SWE Intern, Summer 2027', GH + '1', at(10, 9)),
+      appRow('Intuit', 'Software Engineer Intern, Summer 2027', GH + '2', at(20, 9))
+    ];
+    const rows = [ROW(2, 'Intuit', 'SWE Intern, Summer 2027', 'Queued',
+                      { jobLink: GH + '1' })];
+    const changes = S.outreachReferralRepoint_(rows, applications);
+    assert.strictEqual(changes.length, 1);
+    assert.strictEqual(changes[0].jobLink, GH + '2');
+    assert.ok(/Software Engineer Intern/.test(changes[0].role));
+  });
+
+  // A sent message named a role and a link. Rewriting the row afterwards would
+  // leave the tab describing a message that was never written.
+  run('a sent or cancelled row is never re-pointed', () => {
+    const appRow = (role, link, applied) => {
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = 'Intuit';
+      row[S.APP_ROLE - 1] = role;
+      row[S.APP_LINK - 1] = link;
+      row[S.APP_DATE_APPLIED - 1] = applied;
+      row[S.APP_PROCESS - 1] = 'Applied';
+      return S.outreachParseApplication_(row, 2, () => '');
+    };
+    const GH = 'https://boards.greenhouse.io/intuit/jobs/';
+    const applications = [appRow('New Role, Summer 2027', GH + '2', at(20, 9))];
+    ['Sent', 'Cancelled'].forEach((state) => {
+      const rows = [ROW(2, 'Intuit', 'Old Role, Summer 2027', state, { jobLink: GH + '1' })];
+      assert.strictEqual(S.outreachReferralRepoint_(rows, applications).length, 0, state);
+    });
+  });
+
+  run('a row already on the newest application is left alone', () => {
+    const appRow = (role, link) => {
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = 'Intuit';
+      row[S.APP_ROLE - 1] = role;
+      row[S.APP_LINK - 1] = link;
+      row[S.APP_DATE_APPLIED - 1] = at(20, 9);
+      row[S.APP_PROCESS - 1] = 'Applied';
+      return S.outreachParseApplication_(row, 2, () => '');
+    };
+    const GH = 'https://boards.greenhouse.io/intuit/jobs/';
+    const rows = [ROW(2, 'Intuit', 'SWE Intern, Summer 2027', 'Queued', { jobLink: GH + '2' })];
+    assert.strictEqual(
+      S.outreachReferralRepoint_(rows, [appRow('SWE Intern, Summer 2027', GH + '2')]).length, 0);
+  });
+
+  // A draft naming the old posting is worse than no draft: it would go out with a
+  // link the writer has already moved on from.
+  run('a drafted row carries its draft id out so the send path can bin it', () => {
+    const appRow = (role, link) => {
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = 'Intuit';
+      row[S.APP_ROLE - 1] = role;
+      row[S.APP_LINK - 1] = link;
+      row[S.APP_DATE_APPLIED - 1] = at(20, 9);
+      row[S.APP_PROCESS - 1] = 'Applied';
+      return S.outreachParseApplication_(row, 2, () => '');
+    };
+    const GH = 'https://boards.greenhouse.io/intuit/jobs/';
+    const rows = [ROW(2, 'Intuit', 'Old, Summer 2027', 'Drafted',
+                      { jobLink: GH + '1', draftId: 'draft-9' })];
+    const changes = S.outreachReferralRepoint_(rows, [appRow('New, Summer 2027', GH + '2')]);
+    assert.strictEqual(changes[0].draftId, 'draft-9');
+  });
+
+  // The recruiter email names it because a recruiter is checking eligibility. The
+  // engineer being asked a favour is not checking anything.
+  run('the graduation year is left out of the referral intro', () => {
+    const one = S.outreachReferralCompose_({
+      personName: 'Priya', personTitle: 'Software Engineer', company: 'Stripe',
+      bucket: 'fintech', angle: '', role: 'SWE Intern', today: at(28, 9),
+      attempt: 1, jobLink: 'https://boards.greenhouse.io/stripe/jobs/1'
+    });
+    assert.ok(one.plain.indexOf('class of') === -1, one.plain);
+    assert.ok(one.plain.indexOf('Kenyon College') !== -1);
+    assert.ok(one.plain.indexOf('4.0 GPA') !== -1);
   });
 }
 

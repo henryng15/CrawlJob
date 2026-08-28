@@ -293,18 +293,20 @@ blanks.
 
 | Column | Meaning |
 |---|---|
-| Company / Role / Job Link | the posting being asked about — one per company, chosen by the planner |
+| Company / Role | the application being asked about — one per company, chosen by the planner |
 | Person / Email / Title | which human this is; they lead because they are the row |
 | Tier | `peer` / `mid` / `senior` / `staff`, a dropdown, read off `Title` |
 | Template | which of that tier's ten messages this row uses |
 | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them |
+| Priority | tick it and the whole ask jumps to the earliest free slots, ahead of everything queued |
 | Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
 | Cancel | tick it to call the **whole ask** off. Every row with the same Company and Role goes `Cancelled` too |
+| Job Link | the posting, moved out of third place: it is the longest value on the row and the one nobody reads by eye |
 | Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail also calls the message off |
 | Sent At / Result / Last Error | when it went, the id of the message that went, and why it did not go |
 | Queue ID / Version | `R-` and the person's address, and the concurrency guard |
 
-Nineteen columns, and the order is the argument. `Person`, `Email` and `Title` come first because
+Twenty columns, and the order is the argument. `Person`, `Email` and `Title` come first because
 they are what the tab is opened to read. `Tier` sits beside `Template` because the tier is what
 decides which template is worth using. Everything from `Status` rightwards is the same machinery
 the `Email` tab carries, in the same order and wearing the same status colours, so the two tabs
@@ -313,6 +315,12 @@ only have to be learned twice.
 
 `Tier` is a dropdown rather than free text because a tier typed by hand drifts — `Senior`, `sr`,
 `Sr.` — and then no filter finds the seniors.
+
+`Priority` calls up an **ask**, not a row, for the same reason `Cancel` calls one off: lifting one
+of six people above the other five would send the same request twice over, days apart, to
+colleagues who can see each other's mail. Ticking it re-books the whole group into the earliest free
+slots — not merely first among whatever is already due at the same minute, or a row marked urgent on
+Monday and booked for Friday would still go on Friday.
 
 `Cancel` calls off an **ask**, not a row. The planner picks one representative application per
 employer and asks up to six people about it, so six rows routinely carry the identical Company and

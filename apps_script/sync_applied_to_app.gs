@@ -184,25 +184,39 @@ var OUTREACH_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 // the Email tab carries, in the same order, so the two tabs read alike where they
 // do the same job.
 var REFERRAL_QUEUE_TAB = 'Referral';
-// Nineteen, and two of them are worth explaining.
+// Twenty, and four of them are worth explaining.
 //
-// Gmail Draft ID sits between Cancel and Sent At because that is where it
+// Job Link is at 14 and not at 3, where it sat until the layout move. It is a
+// URL: the widest thing on the tab and the one nobody actually reads, because a
+// link is clicked rather than looked at. Parked third it pushed Person, Email and
+// Title — the three columns that say which human this row is about — most of the
+// way off the right-hand edge, so the tab could not be read without scrolling on
+// the one question it exists to answer. It lives with the machinery now, beside
+// the ids that are looked up rather than read.
+//
+// Priority leads Status for exactly the reason it does on the Email tab, and the
+// comment on OUTREACH_HEADERS above is the one this has to stay consistent with:
+// the two read as one answer — whether this row was asked for, and where it has
+// got to. Ticking one lifts every row for the same company and role, so it is
+// ticked once per ask rather than once per person.
+//
+// Gmail Draft ID sits between Job Link and Sent At because that is where it
 // happens: the row is written, the draft exists for an hour under this id, and
 // deleting that draft in Gmail is what calls the message off. An earlier layout
 // had no column for it and let the id ride in Result until the send replaced it
 // with the sent message's id, which meant Result held two different kinds of
 // Gmail id and you had to read Status to know which.
 //
-// Cancel is at 13 rather than out at the end with the machinery because the three
-// columns a person actually reaches for — Status, Mode, Cancel — have to be one
-// contiguous run. Put Cancel past Gmail Draft ID and calling a row off means
-// scrolling five columns of ids and error text you were not looking at, on a tab
-// wide enough that the person's name has already left the screen; half the point
-// of a tick box is that it is next to the thing it is about.
+// Cancel is at 13 rather than out at the end with the machinery because the four
+// columns a person actually reaches for — Priority, Status, Mode, Cancel — have
+// to be one contiguous run. Put Cancel past Gmail Draft ID and calling a row off
+// means scrolling five columns of ids and error text you were not looking at, on
+// a tab wide enough that the person's name has already left the screen; half the
+// point of a tick box is that it is next to the thing it is about.
 var REFERRAL_HEADERS = [
-  'Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
-  'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Cancel', 'Gmail Draft ID',
-  'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
+  'Company', 'Role', 'Person', 'Email', 'Title', 'Tier', 'Template', 'Drafted At',
+  'Scheduled At', 'Priority', 'Status', 'Mode', 'Cancel', 'Job Link',
+  'Gmail Draft ID', 'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
 ];
 // The Referral columns this file addresses by number. They are named rather than
 // written as digits because onEdit, the migration and the sort all reach for the
@@ -217,8 +231,21 @@ var REFERRAL_HEADERS = [
 // grouping on a column the sort does not, so a tick would cancel one set of rows
 // and the tab would then reorder a different set around them.
 var REFERRAL_COMPANY = 1, REFERRAL_ROLE = 2;
-var REFERRAL_DRAFTED_AT = 9, REFERRAL_SCHEDULED_AT = 10;
+var REFERRAL_DRAFTED_AT = 8, REFERRAL_SCHEDULED_AT = 9;
+// Priority is named for the same reason the four below are, and it earns the name
+// twice over: it is the only column on this tab that both a person and the sort
+// read, so a stale number here would have the box lifting one row while the tick
+// sat on another.
+var REFERRAL_PRIORITY = 10;
 var REFERRAL_STATUS = 11, REFERRAL_MODE = 12, REFERRAL_CANCEL = 13;
+// Three that used to be written as digits at their one call site in
+// setupReferralQueue, and the Job Link move is exactly what would have left them
+// behind: Tier's dropdown would have landed on Template, and the timestamp format
+// on Result instead of Sent At — a send time rendering as a bare serial number,
+// which reads as a corrupted cell rather than as a bug in this file.
+var REFERRAL_TIER_COL = 6;
+var REFERRAL_JOB_LINK = 14;
+var REFERRAL_SENT_AT = 16;
 // The one Status the Cancel box writes, and the one it refuses to write over.
 // Both are already in OUTREACH_STATUS; spelling them here is what keeps the two
 // rules from drifting apart from the list they have to match.
@@ -563,17 +590,34 @@ function setupReferralQueue() {
   // Drafted At, Scheduled At and Sent At, with the hour on them for the same
   // reason the Email tab keeps it: a column of bare days cannot tell you whether
   // four messages went out one at a time or all together at nine in the morning.
-  // Sent At is 15 rather than 14 because Cancel took a column ahead of it; a
-  // stale number here would put the timestamp format on Gmail Draft ID and leave
-  // the send time rendering as a bare serial number nobody can read as a date.
-  [REFERRAL_DRAFTED_AT, REFERRAL_SCHEDULED_AT, 15].forEach(function (column) {
+  // All three are named rather than counted, because all three moved when Job
+  // Link left column 3 and Priority opened at 10: the pair slid one to the left
+  // and Sent At one to the right. A digit left behind here would put the
+  // timestamp format on Template and on Result, and leave the send time
+  // rendering as a bare serial number nobody can read as a date.
+  [REFERRAL_DRAFTED_AT, REFERRAL_SCHEDULED_AT, REFERRAL_SENT_AT].forEach(function (column) {
     queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
          .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
   });
-  queue.getRange(FIRST_ROW, 7, LAST_ROW - FIRST_ROW + 1, 1)
+  queue.getRange(FIRST_ROW, REFERRAL_TIER_COL, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(REFERRAL_TIER, true)
          .setAllowInvalid(false)
+         .build());
+  // Priority, a real checkbox for the same reason Cancel is one below, and with
+  // the same deliberate omission of setAllowInvalid(false): a checkbox rule with
+  // allowInvalid off rejects everything that is not exactly TRUE or FALSE, so
+  // every row somebody filled in before this column existed would come up flagged
+  // for holding nothing at all.
+  //
+  // Landed here, unconditionally, on every run, because this column is the one
+  // most likely to be wearing something it inherited — it sits between Scheduled
+  // At's timestamp format and Status's seven-word dropdown, and an insert takes
+  // whichever of those is beside it. migrateReferralLayout strips that first;
+  // this is what puts the right rule back.
+  queue.getRange(FIRST_ROW, REFERRAL_PRIORITY, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireCheckbox()
          .build());
   queue.getRange(FIRST_ROW, REFERRAL_STATUS, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
@@ -601,14 +645,19 @@ function setupReferralQueue() {
          .requireCheckbox()
          .build());
 
-  // Person, Email, Title and Result are the four that get read rather than
-  // glanced at, so they get the room; Tier, Cancel and Version hold one short
-  // word or one box each and would only push the readable columns off the screen
-  // if they were wider. Gmail Draft ID is narrow on purpose: it is an audit
-  // reference nobody reads until something has gone wrong, and it earns its
-  // column by existing, not by being legible at a glance.
-  [170, 240, 230, 150, 220, 180, 70, 100, 145, 145, 105, 80, 70, 110, 145, 280,
-   200, 120, 70].forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
+  // Twenty widths, in the order the columns now stand. Person, Email, Title and
+  // Result are the four that get read rather than glanced at, so they get the
+  // room; Tier, Priority, Cancel and Version hold one short word or one box each
+  // and would only push the readable columns off the screen if they were wider.
+  // Gmail Draft ID is narrow on purpose: it is an audit reference nobody reads
+  // until something has gone wrong, and it earns its column by existing, not by
+  // being legible at a glance.
+  //
+  // Job Link keeps the 230 it had at column 3 — the move changed where the link
+  // sits, not how long a URL is, and a link squeezed into a Tier-sized column is
+  // one you cannot tell apart from the next job at the same employer.
+  [170, 240, 150, 220, 180, 70, 100, 145, 145, 70, 105, 80, 70, 230, 110, 145,
+   280, 200, 120, 70].forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
 
   // The same palette as the Email tab, because it is the same seven words meaning
   // the same seven things — a second colour language for one more tab would only
@@ -645,6 +694,14 @@ function setupReferralQueue() {
  * them one to the right. Until that deploy it writes a draft id into Cancel, which
  * a checkbox column reads as an invalid entry — so run this when you are ready to
  * push the other half, not the week before.
+ *
+ * This is the first of two layout steps now, and it hands over to the second
+ * rather than finishing at setupReferralQueue. A tab still on the eighteen-column
+ * layout has to cross both: Cancel opens here, then migrateReferralLayout takes
+ * Job Link out to 14 and opens Priority at 10. Calling setupReferralQueue straight
+ * from here would hand it a nineteen-column tab with "Job Link" sitting at 3 where
+ * the current layout wants "Person", and it would refuse — correctly, and with a
+ * message about column 3 that says nothing about the column this function opened.
  *
  * Safe to run twice: a tab already carrying Cancel at M is left alone.
  */
@@ -708,6 +765,14 @@ function migrateReferralCancelColumn() {
     inserted.clearDataValidations();
     inserted.clearContent();
     inserted.setBackground(null);
+    // The header cell, named here rather than left to setupReferralQueue as it
+    // used to be. The layout step this hands over to decides what it has been
+    // given by reading column names, and a blank at M reads to it as a tab that
+    // never had a Cancel column at all: it would refuse, and the migration would
+    // stop halfway with the gap open and nothing in it named. The other cells stay
+    // empty — only the header is written, because a value below it would be a
+    // decision nobody made.
+    queue.getRange(1, REFERRAL_CANCEL).setValue('Cancel');
     opened = true;
   } else if (at13 === 'Cancel') {
     // Already migrated, so nothing is inserted. The columns around it are still
@@ -715,12 +780,23 @@ function migrateReferralCancelColumn() {
     // run that died mid-insert would leave exactly that, and a second run that
     // trusted column M alone would call it finished.
     if (header(REFERRAL_MODE) !== 'Mode') refuse(REFERRAL_MODE, header(REFERRAL_MODE), '"Mode"');
-    if (header(REFERRAL_CANCEL + 1) !== 'Gmail Draft ID') {
-      refuse(REFERRAL_CANCEL + 1, header(REFERRAL_CANCEL + 1), '"Gmail Draft ID"');
+    // Two names are allowed behind Cancel, because this step now runs on tabs
+    // either side of the Job Link move: before it, column 14 is Gmail Draft ID;
+    // after it, Job Link took that place and pushed the id to 15. Demanding only
+    // the older of the two would refuse every tab already on the current layout —
+    // the failure this branch exists to avoid, since the whole point of it is that
+    // a second run is a no-op rather than a complaint.
+    var behind = header(REFERRAL_CANCEL + 1);
+    if (behind !== 'Gmail Draft ID' && behind !== 'Job Link') {
+      refuse(REFERRAL_CANCEL + 1, behind,
+             '"Gmail Draft ID" before the Job Link move, or "Job Link" after it');
     }
-    if (header(REFERRAL_HEADERS.length) !== 'Version') {
-      refuse(REFERRAL_HEADERS.length, header(REFERRAL_HEADERS.length), '"Version"');
-    }
+    // Version is the last column of whichever of those two layouts this is, and
+    // which one is settled by the name that was just read rather than by counting
+    // the tab: an operator's own column past Version would make getMaxColumns lie
+    // about where the layout ends.
+    var end = behind === 'Job Link' ? REFERRAL_HEADERS.length : REFERRAL_HEADERS.length - 1;
+    if (header(end) !== 'Version') refuse(end, header(end), '"Version"');
 
     // Repair, not tidying, and the reason it lives on the already-migrated branch
     // is the lesson migrateAppOfficialColumn had to be patched twice to learn: a
@@ -761,22 +837,286 @@ function migrateReferralCancelColumn() {
   // because there is nothing to the right, so falling through to
   // setupReferralQueue below is exactly the repair.
 
-  // The insert leaves its column blank, header included, so setupReferralQueue no
-  // longer has a conflicting name to refuse — it fills in the header and the width
-  // at the new position and lands the checkbox rule deliberately, which is the
-  // only validation column M is ever meant to carry.
+  // The insert leaves its column blank, header included, so nothing downstream has
+  // a conflicting name to refuse. The second step goes next and finishes at
+  // setupReferralQueue itself, which fills in the header and the width at the new
+  // position and lands the checkbox rule deliberately — the only validation column
+  // M is ever meant to carry. Its return value is the one thing this function
+  // cannot work out for itself: whether the tab it just handed over was also a
+  // layout behind, which decides whether "nothing moved" below is true.
+  var shifted = migrateReferralLayout();
+  var message;
+  if (opened) {
+    message = 'Opened Cancel at column M. Gmail Draft ID through Version moved one '
+            + 'to the right — deploy the sender project before the next run.';
+  } else if (healed) {
+    message = 'Cancel was already at column M. Cleared ' + healed
+            + ' inherited dropdown cell(s) out of Cancel; real ticks were left alone.';
+  } else if (shifted) {
+    // Said out loud rather than folded into "nothing moved", which is what this
+    // used to report and would now be a lie: Cancel did not move, and the two
+    // columns the second step moved did. A migration that says nothing happened
+    // while the sender's column numbers all changed underneath it is how the
+    // wrong half of the project gets deployed.
+    message = 'Cancel was already at column M, but the layout behind it was not '
+            + 'current — see the Referral toast above for what moved.';
+  } else {
+    message = 'The Referral tab is already on the current layout. Nothing moved.';
+  }
+  ss.toast(message, 'Referral', opened ? 12 : 8);
+}
+
+
+/**
+ * Walk the Referral tab forward to the current twenty-column layout: Job Link
+ * moves from column 3 out to 14, and Priority opens at 10.
+ *
+ * One migration and not two, because it is one layout change. Run separately they
+ * would have a window between them in which the tab is a shape no version of this
+ * file has ever described, and the sender — which addresses this tab by column
+ * number — would spend that window writing a draft id into Sent At. There is only
+ * one order that is safe to leave a tab in halfway, and this function is written
+ * so that order is the one it uses; see the two steps below.
+ *
+ * setupReferralQueue cannot do this itself. Its whole safety property is that it
+ * refuses to write a header over a different one, and on a tab a migration behind
+ * there is a real name sitting where the new layout wants a different one — 3
+ * reads "Job Link" where "Person" belongs, and 10 reads "Scheduled At" where
+ * "Priority" does. It refuses, correctly, and the columns have to be moved first.
+ *
+ * **moveColumns is the primitive for the first step, not insert-copy-delete.**
+ * A column is not a block of values: it carries its number format, its data
+ * validation and its share of the conditional-format rules, and those four have to
+ * arrive together or the tab lies about itself. copyTo moves values and cell
+ * formatting but leaves a conditional-format rule attached to the range it was
+ * built on — the old column — so the rule would be deleted along with the source
+ * and the pasted copy would come up plain. moveColumns is the one call that
+ * relocates all four and renumbers every rule that pointed past the gap, which is
+ * what the columns between 3 and 14 need: every one of them shifts one to the
+ * left, and Status has six colour rules riding on it.
+ *
+ * **The sender project has to be redeployed after this.** It addresses the
+ * Referral tab by column number, and this moves every column from 3 rightwards —
+ * Status, Mode and Cancel end up back where they started only by coincidence.
+ * Until that deploy the sender reads Person as the job link and writes the draft
+ * id one column left of where it belongs. Stop it, run this, deploy, start it.
+ *
+ * Safe to run twice: a tab already on the twenty-column layout is left alone
+ * structurally, and safe to resume — a run that died between the two steps leaves
+ * the tab in the shape step two is written against, so running it again finishes
+ * the job rather than moving Job Link a second time.
+ *
+ * Returns whether anything structural moved, which is what
+ * migrateReferralCancelColumn needs to know before it claims nothing did.
+ */
+function migrateReferralLayout() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(REFERRAL_QUEUE_TAB);
+  if (!queue) throw new Error('No tab named "' + REFERRAL_QUEUE_TAB + '".');
+
+  // Never wider than the sheet is. getRange past the last column throws, and the
+  // whole point of this function is to be pointed at a tab narrower than the
+  // layout it is migrating towards — the pre-move Referral tab is nineteen
+  // columns and the layout it is moving to is twenty.
+  var header = function (column) {
+    var width = Math.min(REFERRAL_HEADERS.length, queue.getMaxColumns());
+    if (width < column) return '';
+    var value = queue.getRange(1, 1, 1, width).getValues()[0][column - 1];
+    return String(value == null ? '' : value).trim();
+  };
+  var refuse = function (column, found, expected) {
+    throw new Error(
+      'Referral column ' + column + ' is ' + JSON.stringify(found) + ', expected '
+      + expected + '. This tab is not the layout this migration moves; fix it by '
+      + 'hand or say what it should be.'
+    );
+  };
+  // Any conditional-format rule that starts on this column, dropped. The same
+  // filter colourQueueColumn_ uses, for the same reason it uses it: a rule is kept
+  // or replaced by the column it belongs to, never by its position in the list.
+  // Priority is what needs it — an insert beside Status can leave the seven-word
+  // colour set painting a checkbox column, so a ticked box would come up wearing
+  // whatever colour "Sent" wears and read as a row that had already gone.
+  var dropRulesOn = function (column) {
+    queue.setConditionalFormatRules(
+      queue.getConditionalFormatRules().filter(function (rule) {
+        return rule.getRanges().every(function (r) { return r.getColumn() !== column; });
+      })
+    );
+  };
+
+  var moved = [];
+  var healed = 0;
+
+  // Step one: Job Link, out of 3 and in behind Cancel.
+  //
+  // It goes first because the shape it leaves behind is the shape step two is
+  // written against — nineteen columns with Status at 10 — and that is a shape
+  // step two can recognise on its own. The other order leaves a twenty-column tab
+  // with Job Link still at 3, which is nothing, and a resumed run would have to
+  // tell it apart from a tab somebody had half-edited by hand.
+  var at3 = header(3);
+  if (at3 === 'Job Link') {
+    // The layout Job Link is being lifted out of, read before anything is moved.
+    // moveColumns is happy to shift whatever is there, so the only thing standing
+    // between a half-built tab and a blind move is reading the names first.
+    //
+    // Written as digits and NOT as the REFERRAL_* constants, deliberately: those
+    // name the layout this migration produces, and the tab being read here is the
+    // one before it. Status at 11 and Cancel at 13 agree with the constants only
+    // by coincidence — the move takes them to 10 and 12 and the Priority insert
+    // puts them back — and a guard written on that coincidence would start
+    // checking the wrong columns the next time the layout moves.
+    if (header(4) !== 'Person') refuse(4, header(4), '"Person"');
+    if (header(11) !== 'Status') refuse(11, header(11), '"Status"');
+    if (header(13) !== 'Cancel') {
+      refuse(13, header(13), '"Cancel" — run migrateReferralCancelColumn first');
+    }
+    if (header(14) !== 'Gmail Draft ID') refuse(14, header(14), '"Gmail Draft ID"');
+    if (header(19) !== 'Version') refuse(19, header(19), '"Version"');
+
+    // The whole column, to the sheet's full height rather than to the last data
+    // row: a move that took only the rows holding something today would leave the
+    // number format and the validation of the rows below it sitting on Person.
+    //
+    // Destination 14 is in pre-move coordinates, which is what moveColumns
+    // documents — the block lands in front of whatever holds that number now,
+    // Gmail Draft ID, and the columns behind the gap close up. Job Link therefore
+    // arrives at 13 on this nineteen-column tab, and the Priority insert below is
+    // what pushes it to the 14 the layout calls for. Reading that 14 as the
+    // destination on the finished tab would put Job Link one column too far right,
+    // behind Gmail Draft ID, which is a layout nothing in this file describes.
+    queue.moveColumns(queue.getRange(1, 3, queue.getMaxRows(), 1), 14);
+    moved.push('Job Link out of column C to sit behind Cancel');
+  } else if (at3 !== 'Person' && at3 !== '') {
+    refuse(3, at3, '"Job Link" before the move, or "Person" after it');
+  }
+
+  // Step two: Priority, and only reachable once step one has run, because it is
+  // written against the layout step one produces — Status at 10 on a tab whose
+  // Job Link is already behind Cancel.
+  var at10 = header(REFERRAL_PRIORITY);
+  if (at10 === 'Status') {
+    // Same rule as step one: read the neighbours before shifting anything. Job
+    // Link at 13 is the one that matters, because it is the proof step one really
+    // ran — a tab that reads Status at 10 without it is a shape this file has
+    // never produced, and inserting into it would build a twentieth column on top
+    // of a layout nobody can name.
+    if (header(9) !== 'Scheduled At') refuse(9, header(9), '"Scheduled At"');
+    if (header(13) !== 'Job Link') refuse(13, header(13), '"Job Link"');
+    queue.insertColumnBefore(REFERRAL_PRIORITY);
+
+    // And then strip what the insert brought with it, which is the whole reason
+    // this branch does not end at the line above. An inserted column inherits the
+    // data validation and the formatting of the column beside it, and Priority
+    // lands between Scheduled At and Status — the two worst neighbours on the tab.
+    //
+    // From Status it inherits a seven-word list with allowInvalid off: tick the
+    // box and the cell holds TRUE, which is not in the list, so the entire column
+    // flags red on a tab where nothing is wrong — and a person picking from the
+    // dropdown it offers puts the word "Cancelled" in Priority, which reads as a
+    // called-off row to a human and as a live one to everything in this file.
+    // From Scheduled At it inherits the timestamp number format, and then the
+    // checkbox lands on a column that renders every value as a date, so a ticked
+    // box comes up reading "Dec 30, 1899" — the exact cell somebody then deletes,
+    // taking the tick with it. clearFormat is no use for that half: it is
+    // documented not to touch number formatting rules, so the format has to be set
+    // back to General by hand.
+    //
+    // Cleared to the sheet's full height rather than to the last data row: the
+    // validation and the format cover the whole column, and rows added later would
+    // otherwise arrive already wearing them. clearContent goes with it because an
+    // inherited checkbox rule renders every empty cell as FALSE, and FALSE is a
+    // value — it would make the column look like a tab of asks somebody had
+    // already declined to prioritise.
+    var inserted = queue.getRange(1, REFERRAL_PRIORITY, queue.getMaxRows(), 1);
+    inserted.clearDataValidations();
+    inserted.clearContent();
+    inserted.setNumberFormat('General');
+    inserted.setBackground(null);
+    dropRulesOn(REFERRAL_PRIORITY);
+    moved.push('Priority at column J');
+  } else if (at10 === 'Priority') {
+    // Already migrated, so nothing is inserted. The columns around it are still
+    // read, because "Priority is at J" is not on its own proof the rest landed: a
+    // run that died mid-insert would leave exactly that, and a second run that
+    // trusted column J alone would call it finished.
+    if (header(REFERRAL_SCHEDULED_AT) !== 'Scheduled At') {
+      refuse(REFERRAL_SCHEDULED_AT, header(REFERRAL_SCHEDULED_AT), '"Scheduled At"');
+    }
+    if (header(REFERRAL_STATUS) !== 'Status') {
+      refuse(REFERRAL_STATUS, header(REFERRAL_STATUS), '"Status"');
+    }
+    if (header(REFERRAL_CANCEL) !== 'Cancel') {
+      refuse(REFERRAL_CANCEL, header(REFERRAL_CANCEL), '"Cancel"');
+    }
+    if (header(REFERRAL_JOB_LINK) !== 'Job Link') {
+      refuse(REFERRAL_JOB_LINK, header(REFERRAL_JOB_LINK), '"Job Link"');
+    }
+    if (header(REFERRAL_HEADERS.length) !== 'Version') {
+      refuse(REFERRAL_HEADERS.length, header(REFERRAL_HEADERS.length), '"Version"');
+    }
+
+    // Repair, not tidying, and the reason it lives on the already-migrated branch
+    // is the lesson migrateAppOfficialColumn and migrateReferralCancelColumn each
+    // had to be patched twice to learn: a tab whose column was opened by hand, or
+    // by a version of this that did not strip, carries Status's dropdown and
+    // Scheduled At's date format on every row of Priority and cannot be fixed by
+    // running the migration again unless this branch does it — the insert has
+    // already happened, so the branch that strips is never reached.
+    //
+    // The validation and the format are cleared over the whole column and the
+    // checkbox is rebuilt by setupReferralQueue below, which is safe on a tab that
+    // never needed it: the rule it lands is the rule that should be there either
+    // way.
+    //
+    // Only ever clears cells holding a Status word, which is the only junk the
+    // inherited dropdown can produce. A true or false is a real decision somebody
+    // made about a real ask and survives everything this file does.
+    var below = queue.getMaxRows() - 1;
+    if (below > 0) {
+      var column = queue.getRange(2, REFERRAL_PRIORITY, below, 1);
+      var junk = column.getValues();
+      var repaired = 0;
+      for (var row = 0; row < junk.length; row++) {
+        if (OUTREACH_STATUS.indexOf(junk[row][0]) !== -1) {
+          junk[row][0] = '';
+          repaired++;
+        }
+      }
+      column.clearDataValidations();
+      column.setNumberFormat('General');
+      if (repaired) {
+        column.setValues(junk);
+        healed = repaired;
+      }
+    }
+    dropRulesOn(REFERRAL_PRIORITY);
+  } else if (at10 !== '') {
+    refuse(REFERRAL_PRIORITY, at10, '"Status" before the move, or "Priority" after it');
+  }
+  // A blank at J is the third recognised shape and it is not an error: it is a tab
+  // setupReferralQueue has never run on. There is nothing to move and nothing to
+  // shift, because there is nothing there, so falling through to
+  // setupReferralQueue below is exactly the repair.
+
+  // The move and the insert both leave headers that match the new layout or leave
+  // the column blank, so setupReferralQueue no longer has a conflicting name to
+  // refuse — it writes the twenty headers, the widths at their new positions, the
+  // timestamp formats at 8, 9 and 16, and the two checkbox rules at 10 and 13.
   setupReferralQueue();
   ss.toast(
-    opened
-      ? 'Opened Cancel at column M. Gmail Draft ID through Version moved one to '
-        + 'the right — deploy the sender project before the next run.'
+    moved.length
+      ? 'Moved ' + moved.join(' and ') + '. Every column from C rightwards has a '
+        + 'new number — deploy the sender project before the next run.'
       : (healed
           ? 'The Referral tab was already on the current layout. Cleared ' + healed
-            + ' inherited dropdown cell(s) out of Cancel; real ticks were left alone.'
+            + ' inherited dropdown cell(s) out of Priority; real ticks were left alone.'
           : 'The Referral tab is already on the current layout. Nothing moved.'),
     'Referral',
-    opened ? 12 : 8
+    moved.length ? 12 : 8
   );
+  return moved.length > 0;
 }
 
 
@@ -1203,15 +1543,48 @@ function referralCancelled_(status) {
 
 
 /**
+ * Whether this row has been marked as the one to get to first.
+ *
+ * A ticked checkbox reads back as the boolean true, and that is the case this is
+ * really for. The string is taken as well, for the same reason referralCancelled_
+ * takes a lower-case "cancelled": a row somebody filled in before the column was a
+ * checkbox holds the text TRUE, which renders on the tab exactly like a ticked
+ * box. A sort that recognised only the boolean would leave that row sitting in the
+ * middle of the queue looking, to the person who typed it, as though the tick had
+ * been ignored — and the fix they would reach for is typing it again.
+ *
+ * Nothing else counts. A number, a date, a leftover Status word from an unstripped
+ * insert: none of those is somebody saying "this one first", and treating any of
+ * them as a tick would lift a whole ask to the top of the tab for no reason
+ * anybody could see.
+ */
+function referralPrioritised_(value) {
+  if (value === true) return true;
+  return String(value == null ? '' : value).trim().toLowerCase() === 'true';
+}
+
+
+/**
  * The ordering decision on its own — rows in, reordered rows out, no sheet — so
  * that what the sort does can be checked without a spreadsheet to check it on.
  * The same split appOfficialNeedsLink_ gets, for the same reason: the interesting
  * half of a sort is which row goes where, and that half should be testable.
  *
- * Three groups, in this order: live rows, cancelled rows, then the empty tail.
- * Each group keeps the order it arrived in.
+ * Four groups, in this order: the live asks somebody ticked Priority on, the rest
+ * of the live asks, the cancelled rows, then the empty tail. Each group keeps the
+ * order it arrived in.
  *
- * Inside the live group the rows of one ask are held together, each ask sitting
+ * Priority leads for the reason the column sits where it does: it is the answer to
+ * "which of these am I doing next", and an answer you have to scroll to find is one
+ * you stop trusting. It lifts the whole ask and not the ticked row — every row
+ * sharing that Company and Role travels with it — because one tick means one job
+ * is urgent, not one colleague; splitting the ask would leave one member at the
+ * top of the tab and five in the middle, which is exactly the mess the grouping
+ * rule exists to prevent. A cancelled row is never lifted, whatever its box says:
+ * it is finished work, and finished work at the top of a queue is what makes
+ * people stop reading the queue.
+ *
+ * Inside both live groups the rows of one ask are held together, each ask sitting
  * where its own first row already sat. Six people at one company about one job are
  * one decision, and a tab that scatters them across forty rows is a tab where you
  * act on four of the six and never see the other two — the same failure the Cancel
@@ -1268,27 +1641,56 @@ function orderReferralCancelledRows_(rows) {
   // is decided by its first row and by nothing else. Object.create(null) rather
   // than {}: a bare object carries inherited names, and a lookup that found one
   // would pour an unrelated set of rows into a bucket that was never an ask.
+  //
+  // The bucket carries a flag as well as its rows, because Priority is a property
+  // of the ask and not of the row that happens to hold the tick — see the loop
+  // below for why.
   var asks = [];
   var byKey = Object.create(null);
   var cancelled = [];
   for (var i = 0; i < end; i++) {
     if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) {
       cancelled.push(rows[i]);
+      // Deliberately checked before Priority and not after it: a cancelled row
+      // sinks whatever its box says. The tick is a note about work still to do,
+      // and a called-off row is not work — lifting it would put finished rows back
+      // at the top of the queue, which is the whole thing the sink exists to stop.
       continue;
     }
     var key = referralGroupKey_(rows[i][REFERRAL_COMPANY - 1], rows[i][REFERRAL_ROLE - 1]);
+    var ask;
     // No key means no group, so this row gets a bucket of its own at the position
     // it already had. Sharing one bucket between every keyless row would herd the
     // half-typed rows together, which is a reshuffle nobody asked for on rows
     // somebody is in the middle of typing.
-    if (!key) asks.push([rows[i]]);
-    else if (byKey[key]) byKey[key].push(rows[i]);
-    else asks.push(byKey[key] = [rows[i]]);
+    if (!key) asks.push(ask = { rows: [], priority: false });
+    else if (byKey[key]) ask = byKey[key];
+    else asks.push(byKey[key] = ask = { rows: [], priority: false });
+    ask.rows.push(rows[i]);
+    // One tick anywhere in the ask lifts the whole ask, for the same reason one
+    // tick in Cancel calls the whole ask off: six people at one company about one
+    // job are one decision. Lifting only the ticked row would put one member at
+    // the top of the tab and leave five in the middle, which is the split ask the
+    // grouping rule exists to prevent — you act on the one you can see and never
+    // learn the other five were the same favour. It is ticked once per job rather
+    // than once per attempt, so which row carries the tick is an accident of which
+    // row the cursor was on.
+    if (referralPrioritised_(rows[i][REFERRAL_PRIORITY - 1])) ask.priority = true;
   }
 
+  // Two passes over the same list rather than a sort, which is what keeps this
+  // stable: the asks come out in the order they were met, first the prioritised
+  // ones and then the rest, and no ask ever crosses another inside its own group.
+  // A comparator would have been shorter and would have reordered equal rows on a
+  // whim, so the queue you were working down would not be the queue you came back
+  // to. A second run finds the same two groups in the same order and writes
+  // nothing, which is what makes the hourly sweep a no-op on a tab nobody touched.
   var live = [];
-  for (var a = 0; a < asks.length; a++) {
-    for (var m = 0; m < asks[a].length; m++) live.push(asks[a][m]);
+  for (var pass = 0; pass < 2; pass++) {
+    for (var a = 0; a < asks.length; a++) {
+      if (asks[a].priority !== (pass === 0)) continue;
+      for (var m = 0; m < asks[a].rows.length; m++) live.push(asks[a].rows[m]);
+    }
   }
   return live.concat(cancelled, rows.slice(end));
 }
@@ -1326,9 +1728,11 @@ function sortReferralCancelledBlock_(queue) {
   if (bottom < FIRST_ROW) return false;
   var count = bottom - FIRST_ROW + 1;
 
-  // The width is the real extent of the data, floored at the nineteen columns
-  // this layout owns. Not REFERRAL_HEADERS.length alone: a row moved with only
-  // A..S in hand would leave a column somebody added past Version sitting on
+  // The width is the real extent of the data, floored at the twenty columns this
+  // layout owns — the constant follows REFERRAL_HEADERS rather than a digit, so
+  // the Job Link move and the Priority insert widened it without a second edit.
+  // Not REFERRAL_HEADERS.length alone: a row moved with only
+  // A..T in hand would leave a column somebody added past Version sitting on
   // whatever row slid into its place, quietly reattaching one person's note to a
   // different person — and on this tab the note is about a human being asked for
   // a favour, so getting it wrong is worse than a wrong cell. Not getLastColumn
@@ -1358,6 +1762,10 @@ function sortReferralCancelledBlock_(queue) {
  * Reorder the Referral data rows so the asks still to do sit at the top and the
  * ones called off sink to the bottom.
  *
+ * It is also what acts on Priority. Ticking that box does nothing where it stands
+ * — see onReferralEdit for why a trigger must not reorder the tab under the hand
+ * that is clicking — so the lift happens here, on the hour, along with the sink.
+ *
  * Ticking Cancel turns a row grey where it stands, and on a short tab that is
  * enough. It stops being enough as the tab grows: the tab only ever gets longer,
  * so a row cancelled in July is still sitting between two live asks in September,
@@ -1375,7 +1783,8 @@ function sortReferralCancelledToBottom() {
   var moved = sortReferralCancelledBlock_(queue);
   ss.toast(
     moved
-      ? 'Cancelled rows moved to the bottom of the Referral tab.'
+      ? 'Referral rows reordered: the asks you starred are at the top and the '
+        + 'cancelled ones are at the bottom.'
       : 'The Referral rows are already in order. Nothing moved.',
     'Referral',
     5
@@ -1663,6 +2072,21 @@ function onReferralEdit(e) {
   var range = e.range;
   var queue = range.getSheet();
 
+  // Cancel is the only column that does anything here, and after the layout move
+  // it is still 13 — the Job Link move took it to 12 and the Priority insert put
+  // it back, which is a coincidence and not a plan, so this reads the constant
+  // rather than the number.
+  //
+  // A Priority tick at column 10 falls out on this line, and that is the whole of
+  // the intended behaviour: the box is allowed to be ticked and nothing else
+  // happens. Lifting the row here would drag it out from under the hand that just
+  // ticked it — and it lifts a whole ask, so five more rows would move with it and
+  // the next box clicked would belong to a stranger. That is why the ordering
+  // waits for the hourly runHourlyHousekeeping sweep. What the tick means for
+  // which message goes out first is the sender project's decision, not this
+  // file's; nothing here reschedules, restatuses or redrafts a prioritised row,
+  // because two things picking sending slots with no idea the other exists is the
+  // one failure the scheduling was built to avoid.
   if (range.getColumn() > REFERRAL_CANCEL || range.getLastColumn() < REFERRAL_CANCEL) return;
 
   var bottom = queue.getLastRow();
@@ -1792,9 +2216,18 @@ function onReferralEdit(e) {
   // the ask called off and half of it still sending, with a tab that looks tidy.
   //
   // Only Drafted At..Cancel goes back, though A..Cancel was read. Company, Role and
-  // the seven columns between them are somebody's typing and the sender's
+  // the five columns between them are somebody's typing and the sender's
   // bookkeeping; writing them back over themselves would clobber anything the
   // sender wrote in the second between this read and this write.
+  //
+  // That span is six columns now rather than five, because Priority sits inside it
+  // at 10 and rides back out holding exactly what was read a moment ago. Nothing
+  // in this function touches it, and nothing else writes it — it is a box a person
+  // clicks, and a person cannot be clicking Priority and Cancel in the same
+  // keystroke — so writing it back is a no-op. Splitting this into two writes to
+  // step over one untouched column would cost a second round trip on a simple
+  // trigger that has thirty seconds for the whole ask, which is the trade that
+  // made this one write in the first place.
   var span = REFERRAL_CANCEL - REFERRAL_DRAFTED_AT + 1;
   var out = [];
   for (var w = low; w <= high; w++) out.push(block[w].slice(DRAFTED, CANCEL + 1));
@@ -1809,7 +2242,9 @@ function onReferralEdit(e) {
   // lines. A fill-down over twenty rows would rearrange the tab halfway through the
   // drag. There is a budget argument too: onEdit is a simple trigger with thirty
   // seconds, and the sort reads and rewrites every row on the tab, which is not what
-  // one click should cost. Nor is anything re-scheduled here for the same reason
+  // one click should cost. Priority is the same decision made once more: it changes
+  // which rows lead the queue, so acting on it here would reorder the tab mid-drag
+  // for the same non-reason. Nor is anything re-scheduled here for the same reason
   // plus a better one — picking a new hour for the rows behind this one is the
   // sender's job, and doing it from a keystroke would mean two things booking slots
   // with no idea the other exists. So the rows go grey instantly, which is the half

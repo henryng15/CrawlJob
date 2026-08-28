@@ -154,8 +154,13 @@ function outreachReferralLinkProblem_(url, companyDomain) {
  */
 function outreachReferralSeason_(role) {
   if (!REFERRAL_REQUIRE_SEASON) return true;
-  return new RegExp('\\b' + REFERRAL_SEASON_WORD + '\\b', 'i')
-    .test(String(role == null ? '' : role));
+  var text = String(role == null ? '' : role);
+  if (!new RegExp('\\b' + REFERRAL_SEASON_WORD + '\\b', 'i').test(text)) return false;
+  // A title can name two intakes, and the wrong one disqualifies it. "Summer 2026"
+  // has already happened; "Summer/Winter" is not only the intake being asked about.
+  return !REFERRAL_SEASON_EXCLUDES.some(function (word) {
+    return new RegExp('\\b' + word + '\\b', 'i').test(text);
+  });
 }
 
 
@@ -336,6 +341,7 @@ function outreachParseReferral_(row, index) {
     // reads as the empty string rather than as false — so the test is for truth,
     // not for "not false".
     cancel: row[R_CANCEL - 1] === true,
+    priority: row[R_PRIORITY - 1] === true,
     sentAt: outreachDate_(row[R_SENT_AT - 1]),
     id: outreachCell_(row, R_ID)
   };
@@ -575,6 +581,10 @@ function outreachReferralDueNow_(referralRows, now, queueRows) {
     return row.status === STATUS_DRAFTED && row.scheduled && row.scheduled <= now
         && row.email && row.jobLink;
   }).sort(function (left, right) {
+    // Priority ahead of the clock. Two rows both overdue after a quiet weekend go
+    // in the order somebody asked for, not the order they happened to be booked.
+    var lifted = (right.priority ? 1 : 0) - (left.priority ? 1 : 0);
+    if (lifted) return lifted;
     return left.scheduled - right.scheduled;
   }).slice(0, room);
 }
@@ -635,7 +645,24 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
     add(row.scheduled, row.company);
   });
 
+  // Priority first, then the order they were already going out in. Ticking the box
+  // has to move the row to the front of the queue rather than merely to the front
+  // of whatever happens to be due at the same minute, or a row marked urgent on
+  // Monday and booked for Friday is still going on Friday.
+  //
+  // It moves the whole ask with it. Six people at one company are one decision,
+  // and lifting one of them above the other five would send the ask twice over,
+  // days apart, to colleagues who can see each other's mail.
+  var urgent = {};
+  referralRows.forEach(function (row) {
+    if (!row.priority) return;
+    outreachReferralGroupOf_(referralRows, row).forEach(function (member) {
+      urgent[member.index] = true;
+    });
+  });
   movable.sort(function (left, right) {
+    var lifted = (urgent[right.index] ? 1 : 0) - (urgent[left.index] ? 1 : 0);
+    if (lifted) return lifted;
     var a = left.scheduled ? left.scheduled.getTime() : Infinity;
     var b = right.scheduled ? right.scheduled.getTime() : Infinity;
     return a === b ? left.index - right.index : a - b;
@@ -733,4 +760,46 @@ function outreachReferralToCancel_(referralRows) {
   return Object.keys(wanted).map(function (index) { return wanted[index]; })
     .filter(function (row) { return row.status !== STATUS_CANCELLED; })
     .sort(function (left, right) { return left.index - right.index; });
+}
+
+
+/**
+ * Rows still pointing at an older application than the one now worth asking about.
+ *
+ * A company can gain a second application. Intuit had one software role and now
+ * has another, newer one, and the ask that has not gone yet should be about the
+ * newer: it is the application still moving, the one the writer can speak to, and
+ * the one whose posting is most likely still open.
+ *
+ * Only rows that have not been sent are re-pointed. A sent message named a role
+ * and a link, and rewriting the row afterwards would leave the tab describing a
+ * message that was never written. Drafted rows are re-pointed and their draft is
+ * discarded with them, because a draft naming the old posting is worse than no
+ * draft: it would go out with a link the writer has already moved on from.
+ */
+function outreachReferralRepoint_(referralRows, applications) {
+  var best = {};
+  var byCompany = {};
+  applications.forEach(function (one) {
+    if (!one.company) return;
+    var key = outreachNameKey_(one.company);
+    if (!byCompany[key]) byCompany[key] = [];
+    byCompany[key].push(one);
+  });
+  Object.keys(byCompany).forEach(function (key) {
+    var pick = outreachPickReferralRole_(byCompany[key]);
+    if (pick) best[key] = pick;
+  });
+
+  return referralRows.filter(function (row) {
+    if (row.status === STATUS_SENT || row.status === STATUS_CANCELLED) return false;
+    if (row.cancel) return false;
+    var pick = best[outreachNameKey_(row.company)];
+    if (!pick) return false;
+    return outreachNameKey_(pick.role) !== outreachNameKey_(row.role)
+        || pick.link !== row.jobLink;
+  }).map(function (row) {
+    var pick = best[outreachNameKey_(row.company)];
+    return { index: row.index, role: pick.role, jobLink: pick.link, draftId: row.draftId };
+  });
 }

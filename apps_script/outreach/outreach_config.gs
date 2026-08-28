@@ -141,22 +141,25 @@ var E_WIDTH = 10;
 // name and address: the Email tab's rule exists because nobody needs to read a
 // recruiter's address off the tracker, and here the whole purpose of the tab is
 // to be able to see who has already been asked at a company before asking again.
-var R_COMPANY = 1, R_ROLE = 2, R_JOB_LINK = 3, R_PERSON = 4, R_EMAIL = 5;
-var R_TITLE = 6, R_TIER = 7, R_TEMPLATE = 8, R_DRAFTED_AT = 9, R_SCHEDULED = 10;
+var R_COMPANY = 1, R_ROLE = 2, R_PERSON = 3, R_EMAIL = 4, R_TITLE = 5;
+var R_TIER = 6, R_TEMPLATE = 7, R_DRAFTED_AT = 8, R_SCHEDULED = 9;
+// Priority leads Status because the two read as one answer: whether this row was
+// asked for by hand, and where it has got to. The Email tab orders them the same
+// way for the same reason.
+var R_PRIORITY = 10;
 var R_STATUS = 11, R_MODE = 12;
 // Cancel sits beside Status and Mode because those three are the only columns on
 // this tab a person touches. An audit reference further right would be read past;
 // a switch that calls off a message has to be next to the state it changes.
 var R_CANCEL = 13;
-// A column of its own, exactly as the Email tab gives one. An earlier layout had
-// no room for it and let the draft's id ride in Result until the message went,
-// after which Result held the sent id instead. Both are Gmail ids and neither
-// says which it is, so reading Result meant also reading Status to know what you
-// were looking at, and Result stopped being the column that says how it went.
-var R_DRAFT_ID = 14;
-var R_SENT_AT = 15, R_RESULT = 16, R_ERROR = 17;
-var R_ID = 18, R_VERSION = 19;
-var R_WIDTH = 19;
+// The link moved out of third place. A posting URL is the longest value on the
+// row and the one nobody reads by eye, and sitting third it crushed Person, Email
+// and Title, which are what the tab is opened to look at.
+var R_JOB_LINK = 14;
+var R_DRAFT_ID = 15;
+var R_SENT_AT = 16, R_RESULT = 17, R_ERROR = 18;
+var R_ID = 19, R_VERSION = 20;
+var R_WIDTH = 20;
 
 // How Drafted At, Scheduled At and Sent At are written. The same string as
 // OUTREACH_TIMESTAMP_FORMAT in the bound script, and it has to stay the same: a
@@ -266,7 +269,18 @@ var REFERRAL_COMPANY_DAILY_CAP = 6;
 // is a one line change, and because the reasoning above is about this tab and
 // would not survive the path being pointed at a different one.
 var REFERRAL_SEASON_WORD = 'summer';
-var REFERRAL_REQUIRE_SEASON = false;
+var REFERRAL_REQUIRE_SEASON = true;
+
+// And the words that disqualify a role even when it does say summer.
+//
+// The season word alone is not enough, because a title can name two things:
+// "Summer 2026" is an intake that has already happened, and "Software Engineering
+// Internship - Summer/Winter" is a posting that is not only the one being asked
+// about. Asking somebody to spend their credibility on an intake that has closed
+// is the same wasted message as asking about a req that rejected you.
+//
+// Matched as whole words, so a company called Springer is not a spring intake.
+var REFERRAL_SEASON_EXCLUDES = ['2026', 'winter', 'spring', 'fall', 'autumn'];
 
 // Weekends are allowed, and the hours are the follow-up's rather than the cold
 // path's. A referral note is not a recruiting email arriving during a recruiter's

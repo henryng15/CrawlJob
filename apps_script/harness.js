@@ -31,6 +31,48 @@ function makeSheet(name, data) {
       });
       return sheet;
     },
+    // Models what the real moveColumns does that these tests turn on: the column
+    // leaves where it was, arrives where it was sent, everything it passed over
+    // closes up behind it, and the conditional-format rules follow the columns
+    // they belong to rather than staying on a number. That last half is the
+    // difference between a Status column that keeps its six colours and one that
+    // comes up plain with six rules painting Mode.
+    //
+    // destinationIndex is in pre-move coordinates, which is what the real API
+    // documents: the block lands in front of whatever column holds that number
+    // now. Modelled by building the finished order as a list of old column
+    // numbers, so the same permutation moves the values and renumbers the rules
+    // and the two cannot disagree.
+    //
+    // Data validation and number formats are recorded rather than held by this
+    // fake, so there is nothing here for them to travel in. What a test can ask is
+    // that the values and the rules arrived at the right columns, and that setup
+    // then lays the formats at the new numbers.
+    moveColumns(spec, destinationIndex) {
+      const from = spec.getColumn();
+      const count = spec.getLastColumn() - from + 1;
+      const width = Math.max(sheet.getMaxColumns(), destinationIndex);
+      const order = [];
+      for (let c = 1; c <= width; c++) if (c < from || c >= from + count) order.push(c);
+      const cut = [];
+      for (let c = from; c < from + count; c++) cut.push(c);
+      let at = order.findIndex((c) => c >= destinationIndex);
+      if (at === -1) at = order.length;
+      order.splice(at, 0, ...cut);
+      const landed = {};
+      order.forEach((old, i) => { landed[old] = i + 1; });
+      grid.forEach((row, r) => {
+        grid[r] = order.map((old) => (row[old - 1] === undefined ? '' : row[old - 1]));
+      });
+      formatRules[name] = (formatRules[name] || []).map((rule) => {
+        const shifted = rule.getRanges().map((r) => {
+          const column = landed[r.getColumn()] || r.getColumn();
+          return Object.assign({}, r, { getColumn: () => column });
+        });
+        return Object.assign({}, rule, { getRanges: () => shifted });
+      });
+      return sheet;
+    },
     // The real sheet throws on a getRange past its last column, and the migration
     // reads the header of a tab narrower than the layout it is moving towards.
     // Modelled as the widest row, which is what an inserted column grows.
@@ -945,27 +987,49 @@ console.log('setupReferralQueue');
     assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
     assert.strictEqual(referral.getLastRow(), 1);
   });
-  run('nineteen columns, with Status at 11, Mode at 12 and Cancel at 13', () => {
+  run('twenty columns, with Priority at 10, Status at 11, Mode at 12, Cancel at 13', () => {
     const header = Array.from(s.REFERRAL_HEADERS);
-    assert.strictEqual(header.length, 19);
+    assert.strictEqual(header.length, 20);
+    assert.strictEqual(header[9], 'Priority');
     assert.strictEqual(header[10], 'Status');
     assert.strictEqual(header[11], 'Mode');
     assert.strictEqual(header[12], 'Cancel');
     assert.strictEqual(header[header.length - 1], 'Version');
   });
-  run('the whole nineteen, in order, so a silent reshuffle cannot pass', () => {
+  run('the whole twenty, in order, so a silent reshuffle cannot pass', () => {
     assert.deepStrictEqual(Array.from(s.REFERRAL_HEADERS), [
-      'Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
-      'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Cancel', 'Gmail Draft ID',
-      'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
+      'Company', 'Role', 'Person', 'Email', 'Title', 'Tier', 'Template', 'Drafted At',
+      'Scheduled At', 'Priority', 'Status', 'Mode', 'Cancel', 'Job Link',
+      'Gmail Draft ID', 'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
     ]);
   });
-  run('the three columns a person touches are one contiguous run', () => {
+  run('Job Link is out at 14, not third where it crushed the readable columns', () => {
+    // A URL is the widest thing on the tab and the one nobody reads. Parked third
+    // it pushed Person, Email and Title off the right-hand edge, so the tab could
+    // not answer the one question it exists to answer without scrolling.
+    const header = Array.from(s.REFERRAL_HEADERS);
+    assert.strictEqual(header[13], 'Job Link');
+    assert.strictEqual(s.REFERRAL_JOB_LINK, 14);
+    assert.strictEqual(header.indexOf('Job Link'), 13);   // and nowhere else
+  });
+  run('Priority leads Status, the way it does on the Email tab', () => {
+    // The two read as one answer: whether this row was asked for, and where it has
+    // got to. Read apart they are two scrolls; read together they are one line.
+    const header = Array.from(s.REFERRAL_HEADERS);
+    const email = Array.from(s.OUTREACH_HEADERS);
+    assert.deepStrictEqual(header.slice(9, 11), ['Priority', 'Status']);
+    assert.deepStrictEqual(email.slice(9, 11), ['Priority', 'Status']);
+    assert.strictEqual(s.REFERRAL_PRIORITY, 10);
+  });
+  run('the four columns a person touches are one contiguous run', () => {
     // The reason Cancel is at 13 and not out past the machinery: calling a row
     // off should not mean scrolling five columns of ids and error text on a tab
-    // wide enough that the person's name has already left the screen.
+    // wide enough that the person's name has already left the screen. Priority
+    // joins that run at its head rather than sitting out beyond Job Link.
     const header = Array.from(s.REFERRAL_HEADERS);
-    assert.deepStrictEqual(header.slice(10, 13), ['Status', 'Mode', 'Cancel']);
+    assert.deepStrictEqual(header.slice(9, 13),
+                           ['Priority', 'Status', 'Mode', 'Cancel']);
+    assert.strictEqual(s.REFERRAL_PRIORITY, 10);
     assert.strictEqual(s.REFERRAL_STATUS, 11);
     assert.strictEqual(s.REFERRAL_MODE, 12);
     assert.strictEqual(s.REFERRAL_CANCEL, 13);
@@ -978,9 +1042,17 @@ console.log('setupReferralQueue');
     const header = Array.from(s.REFERRAL_HEADERS);
     assert.strictEqual(header[s.REFERRAL_DRAFTED_AT - 1], 'Drafted At');
     assert.strictEqual(header[s.REFERRAL_SCHEDULED_AT - 1], 'Scheduled At');
+    assert.strictEqual(header[s.REFERRAL_PRIORITY - 1], 'Priority');
     assert.strictEqual(header[s.REFERRAL_STATUS - 1], 'Status');
     assert.strictEqual(header[s.REFERRAL_MODE - 1], 'Mode');
     assert.strictEqual(header[s.REFERRAL_CANCEL - 1], 'Cancel');
+    // The three that were digits at their one call site until the move. A stale
+    // 7 would have put the Tier dropdown on Template and a stale 15 the timestamp
+    // format on Result — neither of which any assertion about the header list
+    // would have caught.
+    assert.strictEqual(header[s.REFERRAL_TIER_COL - 1], 'Tier');
+    assert.strictEqual(header[s.REFERRAL_JOB_LINK - 1], 'Job Link');
+    assert.strictEqual(header[s.REFERRAL_SENT_AT - 1], 'Sent At');
   });
   run('the two Statuses the Cancel box turns on are both in the shared list', () => {
     assert.strictEqual(s.REFERRAL_CANCELLED, 'Cancelled');
@@ -989,70 +1061,88 @@ console.log('setupReferralQueue');
     assert.ok(Array.from(s.OUTREACH_STATUS).indexOf(s.REFERRAL_SENT) !== -1);
   });
   run('the tab keeps the person, which the Email tab deliberately does not', () => {
+    // And it now leads with them: Person, Email and Title are the first three
+    // columns after the job, which is what the Job Link move was for.
     const header = Array.from(s.REFERRAL_HEADERS);
-    assert.strictEqual(header[3], 'Person');
-    assert.strictEqual(header[4], 'Email');
-    assert.strictEqual(header[5], 'Title');
+    assert.strictEqual(header[2], 'Person');
+    assert.strictEqual(header[3], 'Email');
+    assert.strictEqual(header[4], 'Title');
     assert.strictEqual(Array.from(s.OUTREACH_HEADERS).indexOf('Person'), -1);
   });
   run('the three timestamps are the pair plus the one that says it went', () => {
     const header = Array.from(s.REFERRAL_HEADERS);
-    assert.strictEqual(header[8], 'Drafted At');
-    assert.strictEqual(header[9], 'Scheduled At');
-    assert.strictEqual(header[14], 'Sent At');   // 15 now: Cancel took a column ahead of it
+    assert.strictEqual(header[7], 'Drafted At');
+    assert.strictEqual(header[8], 'Scheduled At');
+    assert.strictEqual(header[15], 'Sent At');   // 16 now: Job Link came in ahead of it
   });
-  run('and the timestamp format lands on 9, 10 and 15 — not on the old 14', () => {
-    // A stale 14 here would format Gmail Draft ID as a date and leave Sent At
-    // rendering as a bare serial number, which reads as a corrupted cell rather
-    // than as a bug in this file.
+  run('and the timestamp format lands on 8, 9 and 16 — not on the old 9, 10 and 15', () => {
+    // A stale set of numbers here would format Template and Result as dates and
+    // leave the send time rendering as a bare serial number, which reads as a
+    // corrupted cell rather than as a bug in this file.
     const stamped = formats.filter((f) => f[2] === s.OUTREACH_TIMESTAMP_FORMAT);
-    assert.deepStrictEqual(stamped.map((f) => f[0]).sort((a, b) => a - b), [9, 10, 15]);
+    assert.deepStrictEqual(stamped.map((f) => f[0]).sort((a, b) => a - b), [8, 9, 16]);
     stamped.forEach((f) => assert.strictEqual(f[1], 1));
   });
-  // Between Mode and Sent At, because that is where it happens: the draft exists
-  // under this id for an hour, and deleting it in Gmail is what calls the message
-  // off. Result is left to hold one kind of thing.
+  // Between Job Link and Sent At, because that is where it happens: the draft
+  // exists under this id for an hour, and deleting it in Gmail is what calls the
+  // message off. Result is left to hold one kind of thing.
   run('the draft has a column of its own rather than borrowing Result', () => {
     const header = Array.from(s.REFERRAL_HEADERS);
-    assert.strictEqual(header[13], 'Gmail Draft ID');
-    assert.strictEqual(header[15], 'Result');
+    assert.strictEqual(header[14], 'Gmail Draft ID');
+    assert.strictEqual(header[16], 'Result');
   });
-  run('it freezes the header and validates Tier, Status, Mode and Cancel without adding rows', () => {
+  run('it freezes the header and validates Tier, Priority, Status, Mode and Cancel '
+      + 'without adding rows', () => {
     assert.deepStrictEqual(frozen, [['Referral', 1]]);
     assert.deepStrictEqual(validated,
-      [[2, 7, 499, 1], [2, 11, 499, 1], [2, 12, 499, 1], [2, 13, 499, 1]]);
+      [[2, 6, 499, 1], [2, 10, 499, 1], [2, 11, 499, 1], [2, 12, 499, 1], [2, 13, 499, 1]]);
     assert.strictEqual(referral.getLastRow(), 1);
   });
-  run('Cancel gets a checkbox rule, not another dropdown', () => {
-    // The one thing a column beside Mode is most likely to end up with. A list
-    // rule here would flag every ticked box as an invalid entry, because TRUE is
-    // not one of Mode's two words.
-    const onCancel = validatedRules.filter((v) => v[1] === s.REFERRAL_CANCEL);
-    assert.strictEqual(onCancel.length, 1);
-    assert.strictEqual(onCancel[0][4].kind, 'checkbox');
-    assert.strictEqual(onCancel[0][4].list, null);
+  run('Priority and Cancel both get checkbox rules, not another dropdown', () => {
+    // Priority is the one at risk: it sits between Scheduled At and Status, so an
+    // insert can hand it either a date format or a seven-word list. A list rule
+    // here would flag every ticked box as an invalid entry, because TRUE is not
+    // one of Status's seven words.
+    [s.REFERRAL_PRIORITY, s.REFERRAL_CANCEL].forEach((column) => {
+      const on = validatedRules.filter((v) => v[1] === column);
+      assert.strictEqual(on.length, 1, 'column ' + column);
+      assert.strictEqual(on[0][4].kind, 'checkbox', 'column ' + column);
+      assert.strictEqual(on[0][4].list, null, 'column ' + column);
+    });
   });
-  run('and it deliberately does not pass setAllowInvalid(false)', () => {
+  run('and neither of them passes setAllowInvalid(false)', () => {
     // With allowInvalid off a checkbox rule rejects everything that is not
     // exactly TRUE or FALSE, so every row somebody filled in by hand before the
     // column existed comes up flagged for holding nothing at all.
-    const onCancel = validatedRules.filter((v) => v[1] === s.REFERRAL_CANCEL)[0];
-    assert.strictEqual(onCancel[4].allowInvalid, null);
+    [s.REFERRAL_PRIORITY, s.REFERRAL_CANCEL].forEach((column) => {
+      const rule = validatedRules.filter((v) => v[1] === column)[0][4];
+      assert.strictEqual(rule.allowInvalid, null, 'column ' + column);
+    });
     // The contrast is the point: the three dropdowns do set it, and to false.
-    [7, 11, 12].forEach((column) => {
+    [s.REFERRAL_TIER_COL, s.REFERRAL_STATUS, s.REFERRAL_MODE].forEach((column) => {
       const rule = validatedRules.filter((v) => v[1] === column)[0][4];
       assert.strictEqual(rule.kind, 'list');
       assert.strictEqual(rule.allowInvalid, false);
     });
   });
-  run('every column gets a width', () => {
-    assert.strictEqual(widths.length, 19);
+  run('every column gets a width, all twenty of them', () => {
+    assert.strictEqual(widths.length, 20);
     assert.deepStrictEqual(widths.map((w) => w[0]),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+  });
+  run('Job Link keeps the wide setting it had at column 3, now at 14', () => {
+    // The move changed where the link sits, not how long a URL is. Squeezed into
+    // the width of the column it displaced, two jobs at one employer would be
+    // indistinguishable.
+    const byColumn = (column) => widths.filter((w) => w[0] === column)[0][1];
+    assert.strictEqual(byColumn(s.REFERRAL_JOB_LINK), 230);
+    // And Priority takes a box's width, like Cancel, rather than a reader's.
+    assert.strictEqual(byColumn(s.REFERRAL_PRIORITY), byColumn(s.REFERRAL_CANCEL));
+    assert.ok(byColumn(s.REFERRAL_PRIORITY) < byColumn(3), 'Person must stay readable');
   });
   run('Status wears the Email tab colours, and Queued is left plain there too', () => {
     const rules = (formatRules['Referral'] || [])
-      .filter((r) => r.getRanges()[0].getColumn() === 11);
+      .filter((r) => r.getRanges()[0].getColumn() === s.REFERRAL_STATUS);
     assert.strictEqual(rules.length, 6);
     assert.ok(!rules.some((r) => r.text === 'Queued'));
     rules.forEach((r) => assert.ok(Array.from(s.OUTREACH_STATUS).indexOf(r.text) !== -1, r.text));
@@ -1075,7 +1165,7 @@ console.log('setupReferralQueue — a header that means a different table');
   jobs = freshJobs();
   app = freshApp();
   referral = makeSheet('Referral', [
-    ['Company', 'Role', 'Referrer Notes', 'Person', 'Email', 'Title', 'Tier']
+    ['Company', 'Role', 'Referrer Notes', 'Email', 'Title', 'Tier', 'Template']
   ]);
   const s = load();
   run('it refuses rather than writing its own header over somebody else\'s', () => {
@@ -1730,19 +1820,77 @@ const preCancelRow = (company, person, status) => [
   'senior', 'warm-intro', 'Aug 20, 2026 9:00 AM', 'Aug 20, 2026 10:00 AM',
   status, 'Draft', 'draft-' + company, '', '', '', 'q-' + company, 'v1'
 ];
-// A Referral row on the current nineteen-column layout, named by what the test
-// cares about — the company, and whether it has been called off.
-const referralRow = (company, status, cancel) => [
+// A Referral row on the current twenty-column layout, named by what the test
+// cares about — the company, whether it has been called off, and whether somebody
+// starred it. Job Link is out at 14 now and Priority is in at 10, so a row built
+// by hand against the old order would put a URL where the person's name belongs.
+const referralRow = (company, status, cancel, priority) => [
+  company, 'SWE Intern', company + ' Person', 'p@' + company.toLowerCase() + '.example',
+  'Engineer', 'senior', 'warm-intro', 'Aug 20, 2026 9:00 AM', 'Aug 20, 2026 10:00 AM',
+  priority === undefined ? false : priority,
+  status, 'Draft', cancel === undefined ? false : cancel,
+  'https://boards.example/' + company, 'draft-' + company, '', '', '',
+  'q-' + company, 'v1'
+];
+// The same row on the nineteen-column layout that came between Cancel and the
+// Job Link move: Job Link still third, no Priority. The migration fixtures need it
+// because a row built by referralRow is twenty wide and would sit a column past a
+// header row that is nineteen — the tab would be a shape neither layout describes
+// and the migration would be being tested against nothing real.
+// A Referral tab on the current layout, with the header, ready for onEdit. The
+// rows are built by referralRow so each one reads as "this company, this Status,
+// this box" and the other sixteen cells stay out of the way.
+const freshReferral = (rows) =>
+  makeSheet('Referral', [
+    ['Company', 'Role', 'Person', 'Email', 'Title', 'Tier', 'Template', 'Drafted At',
+     'Scheduled At', 'Priority', 'Status', 'Mode', 'Cancel', 'Job Link',
+     'Gmail Draft ID', 'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version']
+  ].concat(rows));
+// The three cells the tick is about, read straight out of the grid: what a person
+// would see on the row after clicking.
+const cancelState = (row) => ({
+  drafted: referral.grid[row][7],
+  scheduled: referral.grid[row][8],
+  status: referral.grid[row][10],
+  cancel: referral.grid[row][12],
+});
+
+const preLayoutRow = (company, status, cancel) => [
   company, 'SWE Intern', 'https://boards.example/' + company, company + ' Person',
   'p@' + company.toLowerCase() + '.example', 'Engineer', 'senior', 'warm-intro',
   'Aug 20, 2026 9:00 AM', 'Aug 20, 2026 10:00 AM', status, 'Draft',
   cancel === undefined ? false : cancel, 'draft-' + company, '', '', '',
   'q-' + company, 'v1'
 ];
+// The nineteen-column header preLayoutRow belongs to: Job Link still third, no
+// Priority, everything else where the Cancel migration left it.
+const PRE_MOVE_HEADER = [
+  'Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
+  'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Cancel', 'Gmail Draft ID',
+  'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
+];
+// The shape a run that died between the two steps leaves: Job Link already moved
+// in behind Cancel, Priority not yet opened. It is a real state — the migration
+// makes it itself, for as long as it takes to run the second step — so resuming
+// from it has to work, or a script timeout between the two would leave a tab
+// nothing can repair.
+const MID_MOVE_HEADER = [
+  'Company', 'Role', 'Person', 'Email', 'Title', 'Tier', 'Template', 'Drafted At',
+  'Scheduled At', 'Status', 'Mode', 'Cancel', 'Job Link', 'Gmail Draft ID',
+  'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
+];
+const midMoveRow = (company, status, cancel) => {
+  const row = preLayoutRow(company, status, cancel);
+  row.splice(12, 0, row.splice(2, 1)[0]);
+  return row;
+};
 // What an untouched row on a set-up Referral tab reads back as: no text anywhere,
-// and a Cancel checkbox that comes back false rather than blank.
+// and two checkboxes — Priority and Cancel — that come back false rather than
+// blank. Both have to be false rather than '' or the tail test stops testing
+// anything: a blank row is only interesting here because it holds values that are
+// not content.
 const blankReferralRow = () =>
-  ['', '', '', '', '', '', '', '', '', '', '', '', false, '', '', '', '', '', ''];
+  ['', '', '', '', '', '', '', '', '', false, '', '', false, '', '', '', '', '', '', ''];
 // Company is column A on Referral, so index 0 — unlike App, where it is B.
 const companies = (rows) => Array.from(rows, (r) => r[0]);
 
@@ -1758,29 +1906,42 @@ console.log('migrateReferralCancelColumn — opening a gap on a tab that is alre
   const s = load();
   // A rule each side of the gap, on columns setupReferralQueue does not recolour
   // itself — Tier at 7 ahead of it, Queue ID at 17 behind it. Status would be the
-  // obvious choice and is the wrong one: colourQueueColumn_ rebuilds column 11's
-  // rules from scratch, so a rule there proves nothing about the insert.
+  // obvious choice and is the wrong one: colourQueueColumn_ rebuilds the Status
+  // column's rules from scratch, so a rule there proves nothing about the insert.
   formatRules['Referral'] = [ruleAt(7, 'Tier'), ruleAt(17, 'Queue ID')];
   s.migrateReferralCancelColumn();
 
-  run('the header ends up as the new layout, Cancel between Mode and Gmail Draft ID', () => {
-    assert.deepStrictEqual(referral.grid[0].slice(10, 15),
-      ['Status', 'Mode', 'Cancel', 'Gmail Draft ID', 'Sent At']);
+  // This tab is two layouts behind, so the run crosses both: Cancel opens at M,
+  // and then migrateReferralLayout takes Job Link out to 14 and Priority in at 10.
+  // A tab from before Cancel existed is exactly the one that must come out the far
+  // end whole, because it is the one carrying a year of real rows.
+  run('the header ends up as the new layout, Cancel between Mode and Job Link', () => {
+    assert.deepStrictEqual(referral.grid[0].slice(9, 15),
+      ['Priority', 'Status', 'Mode', 'Cancel', 'Job Link', 'Gmail Draft ID']);
     assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
   });
   run('every value from Gmail Draft ID rightwards moved with the gap', () => {
     // This is the half a header rewrite over live data would have got wrong: the
     // draft id would stay at M under the name Cancel, and every row would read as
     // a message sent at the moment its draft was made and then failed.
-    assert.strictEqual(referral.grid[1][12], '');            // Cancel, opened empty
-    assert.strictEqual(referral.grid[1][13], 'draft-Stripe'); // the id that was at M
-    assert.strictEqual(referral.grid[1][17], 'q-Stripe');     // Queue ID
-    assert.strictEqual(referral.grid[1][18], 'v1');           // Version
-    assert.strictEqual(referral.grid[2][13], 'draft-Notion');
+    assert.strictEqual(referral.grid[1][12], '');             // Cancel, opened empty
+    assert.strictEqual(referral.grid[1][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[1][14], 'draft-Stripe'); // the id that was at M
+    assert.strictEqual(referral.grid[1][18], 'q-Stripe');     // Queue ID
+    assert.strictEqual(referral.grid[1][19], 'v1');           // Version
+    assert.strictEqual(referral.grid[2][14], 'draft-Notion');
+  });
+  run('the link travelled out of column C with its own row, not a neighbour\'s', () => {
+    // The move is the step that could reattach one person's job to another's name
+    // — six referrals at one employer differ only by which posting they are about.
+    assert.strictEqual(referral.grid[1][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[2][13], 'https://boards.example/Notion');
+    assert.strictEqual(referral.grid[1][2], 'Dana');
+    assert.strictEqual(referral.grid[2][2], 'Sam');
   });
   run('the columns ahead of the gap are untouched, person included', () => {
-    assert.strictEqual(referral.grid[1][3], 'Dana');
-    assert.strictEqual(referral.grid[1][9], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[1][2], 'Dana');
+    assert.strictEqual(referral.grid[1][8], 'Aug 20, 2026 10:00 AM');
     assert.strictEqual(referral.grid[1][10], 'Queued');
     assert.strictEqual(referral.grid[1][11], 'Draft');
   });
@@ -1794,8 +1955,16 @@ console.log('migrateReferralCancelColumn — opening a gap on a tab that is alre
     const rules = formatRules['Referral'] || [];
     const columnOf = (name) =>
       rules.filter((r) => r.name === name)[0].getRanges()[0].getColumn();
-    assert.strictEqual(columnOf('Tier'), 7);        // ahead of the gap, unmoved
-    assert.strictEqual(columnOf('Queue ID'), 18);   // behind it, moved one right
+    // Tier was at 7 and is at 6: the Cancel insert left it alone, the Job Link
+    // move pulled it one to the left, and the Priority insert is behind it. Queue
+    // ID was at 17 and is at 19, one from each insert with the move cancelling
+    // out. Both are where their own column ended up, which is the only thing a
+    // rule is allowed to follow.
+    assert.strictEqual(columnOf('Tier'), s.REFERRAL_TIER_COL);
+    assert.strictEqual(columnOf('Tier'), 6);
+    assert.strictEqual(columnOf('Queue ID'), 19);
+    assert.strictEqual(referral.grid[0][columnOf('Tier') - 1], 'Tier');
+    assert.strictEqual(referral.grid[0][columnOf('Queue ID') - 1], 'Queue ID');
   });
   run('the toast says to deploy the sender project before the next run', () => {
     assert.match(toasts[toasts.length - 1], /deploy the sender project/);
@@ -1805,7 +1974,8 @@ console.log('migrateReferralCancelColumn — opening a gap on a tab that is alre
     s.migrateReferralCancelColumn();
     assert.strictEqual(referral.grid[0].length, width);
     assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
-    assert.strictEqual(referral.grid[1][13], 'draft-Stripe');
+    assert.strictEqual(referral.grid[1][14], 'draft-Stripe');
+    assert.strictEqual(referral.grid[1][13], 'https://boards.example/Stripe');
     assert.strictEqual(referral.grid[1][10], 'Queued');
     assert.match(toasts[toasts.length - 1], /already on the current layout/);
   });
@@ -1870,10 +2040,13 @@ console.log('migrateReferralCancelColumn — the validation the insert brings wi
     }
   });
   run('the columns either side of it keep their own values', () => {
+    // Behind Cancel is Job Link now and the draft id one further on, because this
+    // run crossed the layout move as well.
     assert.strictEqual(referral.grid[1][s.REFERRAL_MODE - 1], 'Draft');
-    assert.strictEqual(referral.grid[1][s.REFERRAL_CANCEL], 'draft-Stripe');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK - 1], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK], 'draft-Stripe');
     assert.strictEqual(referral.grid[2][s.REFERRAL_MODE - 1], 'Draft');
-    assert.strictEqual(referral.grid[2][s.REFERRAL_CANCEL], 'draft-Notion');
+    assert.strictEqual(referral.grid[2][s.REFERRAL_JOB_LINK], 'draft-Notion');
   });
 }
 
@@ -1887,17 +2060,21 @@ console.log('migrateReferralCancelColumn — repairing a tab whose Cancel kept M
   referral = makeSheet('Referral', [
     Array.from(PRE_CANCEL_HEADER).slice(0, 12).concat(
       ['Cancel', 'Gmail Draft ID', 'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version']),
-    referralRow('Stripe', 'Queued', 'Draft'),
-    referralRow('Notion', 'Queued', true),
-    referralRow('Ramp', 'Queued', false),
+    preLayoutRow('Stripe', 'Queued', 'Draft'),
+    preLayoutRow('Notion', 'Queued', true),
+    preLayoutRow('Ramp', 'Queued', false),
   ]);
   const s = load();
   s.migrateReferralCancelColumn();
 
-  run('nothing structural happens — no second gap is opened', () => {
-    assert.strictEqual(referral.grid[0].length, 19);
+  run('no second Cancel gap is opened — the column stays at 13', () => {
+    // The tab handed in is a layout behind, so the run does move Job Link and open
+    // Priority; what it must not do is insert a second Cancel, which is what a
+    // migration that trusted the width instead of the name would do.
+    assert.strictEqual(referral.grid[0].length, 20);
     assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
-    assert.strictEqual(referral.grid[1][13], 'draft-Stripe');
+    assert.strictEqual(referral.grid[0][s.REFERRAL_CANCEL - 1], 'Cancel');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK], 'draft-Stripe');
   });
   run('the Mode word the unstripped insert left behind is cleared', () => {
     // The lesson migrateAppOfficialColumn had to be patched twice to learn: the
@@ -2007,23 +2184,356 @@ console.log('migrateReferralCancelColumn — a tab that has never been set up');
 }
 
 
-// A Referral tab on the current layout, with the header, ready for onEdit. The
-// rows are built by referralRow so each one reads as "this company, this Status,
-// this box" and the other sixteen cells stay out of the way.
-const freshReferral = (rows) =>
-  makeSheet('Referral', [
-    ['Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
-     'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Cancel', 'Gmail Draft ID',
-     'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version']
-  ].concat(rows));
-// The three cells the tick is about, read straight out of the grid: what a person
-// would see on the row after clicking.
-const cancelState = (row) => ({
-  drafted: referral.grid[row][8],
-  scheduled: referral.grid[row][9],
-  status: referral.grid[row][10],
-  cancel: referral.grid[row][12],
-});
+console.log('migrateReferralLayout — both moves on a tab that is already live');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  referral = makeSheet('Referral', [
+    PRE_MOVE_HEADER,
+    preLayoutRow('Stripe', 'Queued'),
+    preLayoutRow('Notion', 'Drafted'),
+  ]);
+  const s = load();
+  // A rule each side of the ground the move covers, on columns setupReferralQueue
+  // does not recolour itself — Tier at 7 ahead of the destination, Queue ID at 18
+  // behind it. Status is the wrong choice for this: colourQueueColumn_ rebuilds
+  // its rules from scratch, so a rule there proves nothing about the move.
+  formatRules['Referral'] = [ruleAt(7, 'Tier'), ruleAt(18, 'Queue ID')];
+  const moved = s.migrateReferralLayout();
+
+  run('the header comes out as the twenty-column layout', () => {
+    assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
+    assert.strictEqual(referral.grid[0].length, 20);
+  });
+  run('Job Link is at 14 and Priority at 10, which is the whole point', () => {
+    assert.strictEqual(referral.grid[0][s.REFERRAL_JOB_LINK - 1], 'Job Link');
+    assert.strictEqual(referral.grid[0][s.REFERRAL_PRIORITY - 1], 'Priority');
+    assert.deepStrictEqual(referral.grid[0].slice(0, 3), ['Company', 'Role', 'Person']);
+  });
+  run('every link travelled with its own row rather than with a row number', () => {
+    // The failure a move gets wrong quietly: six referrals at one employer differ
+    // only by which posting they are about, so a link that lands one row out is a
+    // person being asked for the wrong favour and nothing on the tab looks odd.
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[2][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Notion');
+    assert.strictEqual(referral.grid[1][2], 'Stripe Person');
+    assert.strictEqual(referral.grid[2][2], 'Notion Person');
+  });
+  run('the columns the move passed over closed up behind it, values and all', () => {
+    // Person through Cancel each shift one to the left as Job Link leaves, and
+    // Priority pushes only Status, Mode and Cancel back. A value that stayed on
+    // its old number would put a draft timestamp under Template.
+    assert.strictEqual(referral.grid[1][s.REFERRAL_DRAFTED_AT - 1], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_MODE - 1], 'Draft');
+    assert.strictEqual(referral.grid[2][s.REFERRAL_STATUS - 1], 'Drafted');
+  });
+  run('and the machinery behind Job Link is intact', () => {
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK], 'draft-Stripe');
+    assert.strictEqual(referral.grid[1][18], 'q-Stripe');
+    assert.strictEqual(referral.grid[1][19], 'v1');
+  });
+  run('Priority arrives empty — not FALSE on every row of the tab', () => {
+    // An inherited checkbox renders every empty cell as FALSE, and FALSE is a
+    // value: it would read as a tab of asks somebody had already declined to star.
+    for (let r = 1; r < referral.grid.length; r++) {
+      const cell = referral.grid[r][s.REFERRAL_PRIORITY - 1];
+      assert.ok(cell === '' || cell === undefined || cell === null,
+                'row ' + (r + 1) + ' holds ' + JSON.stringify(cell));
+    }
+  });
+  run('the rows themselves are left alone — a migration moves columns, not data', () => {
+    assert.strictEqual(referral.getLastRow(), 3);
+    assert.deepStrictEqual(companies(referral.grid.slice(1)), ['Stripe', 'Notion']);
+  });
+  run('the colour rules follow the columns they colour rather than staying put', () => {
+    // A rule left on its old number would colour whichever column slid into that
+    // place — Tier\'s rule painting Template, Queue ID\'s painting Last Error.
+    const rules = formatRules['Referral'] || [];
+    const columnOf = (name) =>
+      rules.filter((r) => r.name === name)[0].getRanges()[0].getColumn();
+    assert.strictEqual(columnOf('Tier'), s.REFERRAL_TIER_COL);
+    assert.strictEqual(referral.grid[0][columnOf('Tier') - 1], 'Tier');
+    assert.strictEqual(columnOf('Queue ID'), 19);
+    assert.strictEqual(referral.grid[0][columnOf('Queue ID') - 1], 'Queue ID');
+  });
+  run('it says what moved and that the sender has to be redeployed', () => {
+    assert.match(toasts[toasts.length - 1], /Job Link/);
+    assert.match(toasts[toasts.length - 1], /Priority/);
+    assert.match(toasts[toasts.length - 1], /deploy the sender project/);
+  });
+  run('and it reports back that it moved something', () => {
+    // migrateReferralCancelColumn asks, because it cannot see this for itself and
+    // must not toast "nothing moved" over a run that renumbered ten columns.
+    assert.strictEqual(moved, true);
+  });
+  run('running it again moves nothing and says so', () => {
+    const width = referral.grid[0].length;
+    const again = s.migrateReferralLayout();
+    assert.strictEqual(again, false);
+    assert.strictEqual(referral.grid[0].length, width);
+    assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+    assert.match(toasts[toasts.length - 1], /already on the current layout/);
+  });
+}
+
+console.log('migrateReferralLayout — the validation and format the insert brings in');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  referral = makeSheet('Referral', [
+    PRE_MOVE_HEADER,
+    preLayoutRow('Stripe', 'Queued'),
+    preLayoutRow('Notion', 'Drafted'),
+  ]);
+  const s = load();
+  // Status\'s colours, sitting where they sit on a real tab: on the column
+  // Priority is about to be inserted in front of.
+  formatRules['Referral'] = [ruleAt(11, 'Sent')];
+  s.migrateReferralLayout();
+
+  // An inserted column inherits the data validation and the formatting of the
+  // column beside it, and Priority lands between Scheduled At and Status — the two
+  // worst neighbours on the tab. From Status it would take a seven-word list with
+  // allowInvalid off, so a ticked box holds TRUE, which is not in the list, and the
+  // whole column flags red; worse, the dropdown it offers puts "Cancelled" in
+  // Priority, which reads as a called-off row to a person and a live one to the
+  // script. From Scheduled At it would take the timestamp format, and the checkbox
+  // then lands on a column that renders every value as a date.
+  run('whatever the insert brought in is stripped from the new column', () => {
+    const onPriority = cleared.filter((c) => c[1] === s.REFERRAL_PRIORITY);
+    assert.ok(onPriority.length >= 1,
+              'nothing was cleared on column ' + s.REFERRAL_PRIORITY);
+    // The whole column, header row included, and not only the rows holding data
+    // today: the rule covers the column, so a row added tomorrow would otherwise
+    // arrive already wearing it.
+    assert.strictEqual(onPriority[0][0], 1);
+    assert.ok(onPriority[0][2] >= referral.grid.length);
+  });
+  run('the inherited number format is taken off too, not only the validation', () => {
+    // clearFormat is documented not to touch number formatting rules, so a strip
+    // that stopped at validation would leave Priority wearing Scheduled At\'s
+    // timestamp pattern: a ticked box rendering as "Dec 30, 1899", which is the
+    // exact cell somebody deletes, taking the tick with it.
+    const general = formats.filter((f) => f[0] === s.REFERRAL_PRIORITY && f[2] === 'General');
+    assert.ok(general.length >= 1, 'the number format was never reset');
+    const stamped = formats.filter((f) => f[2] === s.OUTREACH_TIMESTAMP_FORMAT);
+    assert.ok(!stamped.some((f) => f[0] === s.REFERRAL_PRIORITY),
+              'a timestamp format was laid on the checkbox column');
+  });
+  run('and the colour rules the insert could have widened onto it are dropped', () => {
+    // Status\'s six rules must not paint a checkbox column: a ticked box wearing
+    // the colour "Sent" wears reads as a row that has already gone.
+    const rules = formatRules['Referral'] || [];
+    assert.ok(!rules.some((r) => r.getRanges()[0].getColumn() === s.REFERRAL_PRIORITY),
+              'a colour rule was left painting Priority');
+    // The rule itself is not lost — it followed Status to its new column.
+    const sent = rules.filter((r) => r.name === 'Sent');
+    if (sent.length) assert.strictEqual(sent[0].getRanges()[0].getColumn(), s.REFERRAL_STATUS);
+  });
+  run('and the checkbox rule is then applied deliberately, at column 10', () => {
+    // Stripping alone would leave Priority as free text, where "x" and "yes" and a
+    // stray space all look like a star to a person and none of them lift the ask.
+    const onPriority = validatedRules.filter((v) => v[1] === s.REFERRAL_PRIORITY);
+    assert.strictEqual(onPriority.length, 1);
+    assert.strictEqual(onPriority[0][4].kind, 'checkbox');
+    assert.strictEqual(onPriority[0][4].list, null);
+    assert.strictEqual(onPriority[0][4].allowInvalid, null);
+  });
+  run('the strip happens before the rule, not after it', () => {
+    // Order matters and is invisible in the end state: a clear that ran after the
+    // rule was applied would take the checkbox straight back off again, leaving the
+    // column exactly as free text as doing nothing.
+    const stripped = cleared.filter((c) => c[1] === s.REFERRAL_PRIORITY).length;
+    const rule = validatedRules.filter((v) => v[1] === s.REFERRAL_PRIORITY)[0];
+    assert.ok(stripped >= 1);
+    assert.strictEqual(rule[0], 2);      // the rule covers rows 2..500
+    assert.strictEqual(rule[2], 499);
+  });
+  run('the columns either side of Priority keep their own values', () => {
+    assert.strictEqual(referral.grid[1][s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+  });
+}
+
+console.log('migrateReferralLayout — repairing a tab whose Priority kept Status\'s dropdown');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  // Already migrated in shape, but column J carries what an unstripped insert
+  // leaves: a word somebody picked out of the inherited Status dropdown, sitting
+  // beside a real star and a real blank.
+  const starred = (company, priority) => referralRow(company, 'Queued', false, priority);
+  referral = freshReferral([
+    starred('Stripe', 'Cancelled'),
+    starred('Notion', true),
+    starred('Ramp', false),
+  ]);
+  const s = load();
+  const moved = s.migrateReferralLayout();
+
+  run('nothing structural happens — no second Priority is opened', () => {
+    assert.strictEqual(moved, false);
+    assert.strictEqual(referral.grid[0].length, 20);
+    assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
+  });
+  run('the Status word the unstripped insert left behind is cleared', () => {
+    // The lesson the two migrations before this one each had to be patched twice
+    // to learn: the insert has already happened on this tab, so the branch that
+    // strips is never reached again, and this branch is the only route back.
+    assert.strictEqual(referral.grid[1][s.REFERRAL_PRIORITY - 1], '');
+  });
+  run('a real star somebody made is not touched', () => {
+    assert.strictEqual(referral.grid[2][s.REFERRAL_PRIORITY - 1], true);
+    assert.strictEqual(referral.grid[3][s.REFERRAL_PRIORITY - 1], false);
+  });
+  run('the stale validation and the stale format are stripped on this branch too', () => {
+    const onPriority = cleared.filter((c) => c[1] === s.REFERRAL_PRIORITY);
+    assert.ok(onPriority.length >= 1);
+    assert.strictEqual(onPriority[0][0], 2);   // below the header, where the stars are
+    assert.ok(formats.some((f) => f[0] === s.REFERRAL_PRIORITY && f[2] === 'General'));
+  });
+  run('and the checkbox rule is put back', () => {
+    const onPriority = validatedRules.filter((v) => v[1] === s.REFERRAL_PRIORITY);
+    assert.strictEqual(onPriority[onPriority.length - 1][4].kind, 'checkbox');
+  });
+  run('the toast counts what it healed rather than claiming nothing happened', () => {
+    assert.match(toasts[toasts.length - 1], /Cleared 1 inherited dropdown cell/);
+  });
+  run('nothing else on the row was disturbed by the repair', () => {
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Stripe');
+  });
+  run('running it a third time is a clean no-op', () => {
+    s.migrateReferralLayout();
+    assert.strictEqual(referral.grid[1][s.REFERRAL_PRIORITY - 1], '');
+    assert.strictEqual(referral.grid[2][s.REFERRAL_PRIORITY - 1], true);
+    assert.match(toasts[toasts.length - 1], /Nothing moved/);
+  });
+}
+
+console.log('migrateReferralLayout — resuming a run that died between the two steps');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  // Job Link is already behind Cancel and Priority was never opened: the state the
+  // migration itself passes through. A version that recognised only the two ends
+  // would refuse here, and the tab it refused on would be one no other function in
+  // this file can read either.
+  referral = makeSheet('Referral', [
+    MID_MOVE_HEADER,
+    midMoveRow('Stripe', 'Queued'),
+    midMoveRow('Notion', 'Drafted'),
+  ]);
+  const s = load();
+  const moved = s.migrateReferralLayout();
+
+  run('it finishes the job rather than moving Job Link a second time', () => {
+    assert.strictEqual(moved, true);
+    assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[2][s.REFERRAL_JOB_LINK - 1],
+                       'https://boards.example/Notion');
+  });
+  run('Priority is the only thing that opened', () => {
+    assert.strictEqual(referral.grid[0].length, 20);
+    assert.strictEqual(referral.grid[1][s.REFERRAL_PRIORITY - 1], '');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_JOB_LINK], 'draft-Stripe');
+  });
+  run('and the toast names only the half that was left to do', () => {
+    assert.match(toasts[toasts.length - 1], /Priority/);
+    assert.ok(!/Job Link/.test(toasts[toasts.length - 1]));
+  });
+}
+
+console.log('migrateReferralLayout — layouts it does not recognise');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  referral = makeSheet('Referral', [Array.from(PRE_MOVE_HEADER)]);
+  referral.grid[0][2] = 'Referrer Notes';
+  const s = load();
+  run('a column of somebody else\'s at 3 is refused, and named', () => {
+    assert.throws(() => s.migrateReferralLayout(), /Referral column 3 is "Referrer Notes"/);
+  });
+  run('the error says what it expected there, so the fix does not need the source', () => {
+    assert.throws(() => s.migrateReferralLayout(),
+                  /"Job Link" before the move, or "Person" after it/);
+  });
+  run('the refusal moves nothing at all', () => {
+    assert.strictEqual(referral.grid[0].length, PRE_MOVE_HEADER.length);
+    assert.strictEqual(referral.grid[0][2], 'Referrer Notes');
+    assert.deepStrictEqual(widths, []);
+  });
+  run('a half-built tab behind the gap is refused before anything shifts', () => {
+    // Job Link at 3 is not on its own proof this is the layout: a tab whose tail
+    // has been edited by hand would be shifted into something no version of this
+    // file has ever described.
+    referral = makeSheet('Referral', [Array.from(PRE_MOVE_HEADER)]);
+    referral.grid[0][13] = 'Sent At';
+    const s2 = load();
+    assert.throws(() => s2.migrateReferralLayout(), /Referral column 14 is "Sent At"/);
+    assert.throws(() => s2.migrateReferralLayout(), /"Gmail Draft ID"/);
+    assert.strictEqual(referral.grid[0].length, PRE_MOVE_HEADER.length);
+  });
+  run('a tab from before Cancel existed is sent to the other migration by name', () => {
+    // This one cannot do that move, and saying so is more use than shifting a
+    // tab that is two layouts behind into a shape neither migration knows.
+    referral = makeSheet('Referral', [Array.from(PRE_CANCEL_HEADER)]);
+    const s3 = load();
+    assert.throws(() => s3.migrateReferralLayout(), /run migrateReferralCancelColumn first/);
+  });
+  run('a column of somebody else\'s at 10 is refused once step one has passed', () => {
+    referral = makeSheet('Referral', [Array.from(MID_MOVE_HEADER)]);
+    referral.grid[0][9] = 'Urgency';
+    const s4 = load();
+    assert.throws(() => s4.migrateReferralLayout(), /Referral column 10 is "Urgency"/);
+    assert.throws(() => s4.migrateReferralLayout(),
+                  /"Status" before the move, or "Priority" after it/);
+  });
+  run('and a migrated tab that lost a column behind Priority is refused too', () => {
+    // "Priority is at J" is not proof the rest landed: a run that died mid-insert
+    // leaves exactly that, and a second run trusting column J alone would call it
+    // finished and hand a half-built tab back to the sender.
+    referral = freshReferral([]);
+    referral.grid[0][13] = 'Gmail Draft ID';   // Job Link gone from 14
+    const s5 = load();
+    assert.throws(() => s5.migrateReferralLayout(), /Referral column 14 is "Gmail Draft ID"/);
+    assert.throws(() => s5.migrateReferralLayout(), /"Job Link"/);
+  });
+}
+
+console.log('migrateReferralLayout — a tab that has never been set up');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  referral = makeSheet('Referral', [[]]);
+  const s = load();
+  run('a blank tab is not an error: there is nothing to move', () => {
+    assert.doesNotThrow(() => s.migrateReferralLayout());
+    assert.deepStrictEqual(referral.grid[0], Array.from(s.REFERRAL_HEADERS));
+  });
+  run('and nothing was moved, so the tab is simply the current layout', () => {
+    assert.strictEqual(referral.getLastRow(), 1);
+    assert.match(toasts[toasts.length - 1], /already on the current layout/);
+  });
+  run('a tab with no Referral sheet at all says which tab it wanted', () => {
+    referral = null;
+    const s2 = load();
+    assert.throws(() => s2.migrateReferralLayout(), /No tab named "Referral"/);
+  });
+}
+
+
 
 console.log('onEdit on the Referral Cancel column');
 {
@@ -2045,8 +2555,10 @@ console.log('onEdit on the Referral Cancel column');
     // Drafted At is the hour the message appears in Gmail Drafts, an hour ahead of
     // sending. A row left holding one still puts a draft in front of you tomorrow
     // morning for somebody you decided last week not to write to.
+    // 7 and 8, not 8 and 9: the pair slid one to the left when Job Link left
+    // column C, and Priority opened behind them rather than in front.
+    assert.strictEqual(referral.grid[1][7], '');
     assert.strictEqual(referral.grid[1][8], '');
-    assert.strictEqual(referral.grid[1][9], '');
   });
   run('the tick itself stays, because it is the record of who called it off', () => {
     assert.strictEqual(referral.grid[1][12], true);
@@ -2058,13 +2570,15 @@ console.log('onEdit on the Referral Cancel column');
     });
   });
   run('everything outside Drafted At..Cancel is left exactly as it was', () => {
-    // The write is one block, columns 9 to 13. A block written wider than that
-    // would carry stale values over the draft id and the queue id beside it.
+    // The write is one block, columns 8 to 13 — six wide now that Priority sits
+    // inside it. A block written wider than that would carry stale values over the
+    // job link, the draft id and the queue id beside it.
     assert.strictEqual(referral.grid[1][0], 'Stripe');
-    assert.strictEqual(referral.grid[1][3], 'Stripe Person');
+    assert.strictEqual(referral.grid[1][2], 'Stripe Person');
     assert.strictEqual(referral.grid[1][11], 'Draft');
-    assert.strictEqual(referral.grid[1][13], 'draft-Stripe');
-    assert.strictEqual(referral.grid[1][17], 'q-Stripe');
+    assert.strictEqual(referral.grid[1][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[1][14], 'draft-Stripe');
+    assert.strictEqual(referral.grid[1][18], 'q-Stripe');
   });
   run('it says what it did rather than going silent', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 1 row/);
@@ -2087,8 +2601,8 @@ console.log('onEdit on Referral — the row that has already gone');
     assert.strictEqual(referral.grid[1][10], 'Sent');
   });
   run('and it keeps both timestamps, which are the record of when it went', () => {
-    assert.strictEqual(referral.grid[1][8], 'Aug 20, 2026 9:00 AM');
-    assert.strictEqual(referral.grid[1][9], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[1][7], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(referral.grid[1][8], 'Aug 20, 2026 10:00 AM');
   });
   run('the box is put back rather than left as a grey claim it was called off', () => {
     assert.strictEqual(referral.grid[1][12], false);
@@ -2117,8 +2631,8 @@ console.log('onEdit on Referral — the edits that must do nothing');
     // in the queue is a Scheduled At, and the sender is the only thing that picks
     // one — restoring an hour here would either invent one the sender never agreed
     // to or take back an hour since given to somebody else.
+    referral.grid[1][7] = '';
     referral.grid[1][8] = '';
-    referral.grid[1][9] = '';
     referral.grid[1][12] = false;
     const wroteBefore = wrote.length;
     s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
@@ -2312,23 +2826,27 @@ console.log('sortReferralCancelledToBottom');
   run('the whole block moves in one write, not one call per row', () => {
     assert.strictEqual(wrote.length, wroteBefore + 1);
   });
-  run('the block is nineteen wide and starts at row 2', () => {
-    // Nineteen because a row moved with fewer columns in hand is a row torn apart:
+  run('the block is twenty wide and starts at row 2', () => {
+    // Twenty because a row moved with fewer columns in hand is a row torn apart:
     // the right-hand end of the queue would stay behind and reattach itself to
-    // whichever ask slid into that line.
+    // whichever ask slid into that line. The number follows REFERRAL_HEADERS
+    // rather than a digit in the sort, which is why the layout move widened it
+    // without a second edit.
     const last = wrote[wrote.length - 1];
     assert.strictEqual(last[0], 2);           // below the header
     assert.strictEqual(last[1], 1);           // from column A
     assert.strictEqual(last[2], 4);           // the four data rows, not out to 500
-    assert.strictEqual(last[3], 19);
+    assert.strictEqual(last[3], 20);
+    assert.strictEqual(last[3], Array.from(s.REFERRAL_HEADERS).length);
   });
   run('the rows arrive whole — every cell travelled with its own row', () => {
     assert.strictEqual(referral.grid[3][0], 'Stripe');
-    assert.strictEqual(referral.grid[3][13], 'draft-Stripe');
-    assert.strictEqual(referral.grid[3][17], 'q-Stripe');
+    assert.strictEqual(referral.grid[3][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[3][14], 'draft-Stripe');
+    assert.strictEqual(referral.grid[3][18], 'q-Stripe');
     assert.strictEqual(referral.grid[3][12], true);
     assert.strictEqual(referral.grid[1][0], 'Notion');
-    assert.strictEqual(referral.grid[1][17], 'q-Notion');
+    assert.strictEqual(referral.grid[1][18], 'q-Notion');
   });
   run('running it again writes nothing at all', () => {
     const before = wrote.length;
@@ -2350,7 +2868,7 @@ console.log('sortReferralCancelledToBottom — a column past Version');
 {
   jobs = freshJobs();
   app = freshApp();
-  // A note of the operator's own at column 20. A sort that moved only the nineteen
+  // A note of the operator's own at column 21. A sort that moved only the twenty
   // columns this tool owns would leave that cell sitting on whatever row landed in
   // its place — and on this tab the note is about a human being asked for a
   // favour, so reattaching it to a different person is worse than a wrong cell.
@@ -2364,12 +2882,12 @@ console.log('sortReferralCancelledToBottom — a column past Version');
 
   run('the block widens to the real extent of the data', () => {
     const last = wrote[wrote.length - 1];
-    assert.strictEqual(last[3], 20);
+    assert.strictEqual(last[3], 21);
   });
   run("the operator's own column travelled with its row", () => {
     assert.deepStrictEqual(companies(referral.grid.slice(1, 3)), ['Notion', 'Stripe']);
-    assert.strictEqual(referral.grid[1][19], 'met at the career fair');
-    assert.strictEqual(referral.grid[2][19], 'owes me nothing');
+    assert.strictEqual(referral.grid[1][20], 'met at the career fair');
+    assert.strictEqual(referral.grid[2][20], 'owes me nothing');
   });
 }
 
@@ -2377,28 +2895,29 @@ console.log('sortReferralCancelledToBottom — a tab narrower than the layout');
 {
   jobs = freshJobs();
   app = freshApp();
-  // Version and Queue ID are empty on every row, so getLastColumn comes back at 13
-  // rather than 19. Trusting it alone would tear the right-hand end off every row
+  // Version and Queue ID are empty on every row, so getLastColumn comes back at 15
+  // rather than 20. Trusting it alone would tear the right-hand end off every row
   // the sort moved.
   const short = (company, status) => {
     const row = referralRow(company, status);
-    row[17] = '';
     row[18] = '';
+    row[19] = '';
     return row;
   };
   referral = freshReferral([short('Stripe', 'Cancelled'), short('Notion', 'Queued')]);
-  referral.grid[0][17] = '';
   referral.grid[0][18] = '';
+  referral.grid[0][19] = '';
   const s = load();
   s.sortReferralCancelledToBottom();
 
-  run('the width is floored at the nineteen columns the layout owns', () => {
+  run('the width is floored at the twenty columns the layout owns', () => {
     const last = wrote[wrote.length - 1];
-    assert.strictEqual(last[3], 19);
+    assert.strictEqual(last[3], 20);
   });
   run('and the rows still swap, whole', () => {
     assert.deepStrictEqual(companies(referral.grid.slice(1, 3)), ['Notion', 'Stripe']);
-    assert.strictEqual(referral.grid[2][13], 'draft-Stripe');
+    assert.strictEqual(referral.grid[2][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[2][14], 'draft-Stripe');
   });
 }
 
@@ -2432,11 +2951,11 @@ console.log('the Cancel box end to end: tick, then sort');
 // referralRow fixes the role at 'SWE Intern', which cannot express two different
 // asks at one employer — the case the whole grouping rests on. This spells the ask
 // out and names the person, so an assertion can read as a list of who went.
-const askRow = (company, role, person, status, cancel) => {
-  const row = referralRow(company, status, cancel);
+const askRow = (company, role, person, status, cancel, priority) => {
+  const row = referralRow(company, status, cancel, priority);
   row[1] = role;
-  row[3] = person;
-  row[4] = person.toLowerCase() + '@'
+  row[2] = person;
+  row[3] = person.toLowerCase() + '@'
            + company.toLowerCase().replace(/\W/g, '') + '.example';
   return row;
 };
@@ -2449,9 +2968,14 @@ const halfTypedRow = (company, role) => {
   row[1] = role;
   return row;
 };
-const people = (rows) => Array.from(rows, (r) => r[3]);
+// Person is index 2 now, not 3: the Job Link move pulled every column between
+// Role and Cancel one to the left, and Priority put only Status, Mode and Cancel
+// back. An accessor left on the old index would read the email address as the
+// person's name and every assertion below would still pass on the wrong column.
+const people = (rows) => Array.from(rows, (r) => r[2]);
 const statuses = (rows) => Array.from(rows, (r) => r[10]);
 const ticks = (rows) => Array.from(rows, (r) => r[12]);
+const stars = (rows) => Array.from(rows, (r) => r[9]);
 
 console.log('referralGroupKey_ — which rows are one ask');
 {
@@ -2538,8 +3062,8 @@ console.log('onEdit on Referral — one tick cancels the whole ask');
   });
   run('and every one of them loses both booked hours', () => {
     for (let r = 1; r <= 6; r++) {
-      assert.strictEqual(referral.grid[r][8], '', 'row ' + r + ' kept a Drafted At');
-      assert.strictEqual(referral.grid[r][9], '', 'row ' + r + ' kept a Scheduled At');
+      assert.strictEqual(referral.grid[r][7], '', 'row ' + r + ' kept a Drafted At');
+      assert.strictEqual(referral.grid[r][8], '', 'row ' + r + ' kept a Scheduled At');
     }
   });
   run('the same employer on a different job is a different ask and is untouched', () => {
@@ -2562,15 +3086,16 @@ console.log('onEdit on Referral — one tick cancels the whole ask');
   run('the write covers the ask and stops there', () => {
     const last = wrote[wrote.length - 1];
     assert.strictEqual(last[0], 2);   // the first row of the ask
-    assert.strictEqual(last[1], 9);   // Drafted At
+    assert.strictEqual(last[1], 8);   // Drafted At
     assert.strictEqual(last[2], 6);   // the six, not the eight rows on the tab
-    assert.strictEqual(last[3], 5);   // Drafted At..Cancel
+    assert.strictEqual(last[3], 6);   // Drafted At..Cancel, Priority riding inside it
   });
   run('nothing outside Drafted At..Cancel moved on any of the six', () => {
     assert.deepStrictEqual(people(referral.grid.slice(1, 7)),
       ['Ana', 'Bo', 'Cy', 'Di', 'Ed', 'Fi']);
-    assert.strictEqual(referral.grid[3][13], 'draft-Stripe');
-    assert.strictEqual(referral.grid[3][17], 'q-Stripe');
+    assert.strictEqual(referral.grid[3][13], 'https://boards.example/Stripe');
+    assert.strictEqual(referral.grid[3][14], 'draft-Stripe');
+    assert.strictEqual(referral.grid[3][18], 'q-Stripe');
   });
   run('the toast counts the ask rather than the click', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 6 rows/);
@@ -2624,8 +3149,8 @@ console.log('onEdit on Referral — a Sent row inside the ask');
     assert.strictEqual(referral.grid[2][10], 'Sent');
   });
   run('she keeps both timestamps, which are the record of when it went', () => {
-    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 9:00 AM');
-    assert.strictEqual(referral.grid[2][9], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[2][7], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 10:00 AM');
   });
   run('and her box is left unticked rather than claiming she was called off', () => {
     assert.strictEqual(referral.grid[2][12], false);
@@ -2640,7 +3165,7 @@ console.log('onEdit on Referral — a Sent row inside the ask');
   });
   run('still one write, spanning the ask', () => {
     assert.strictEqual(wrote.length, wroteBefore + 1);
-    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 9, 3, 5]);
+    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 8, 3, 6]);
   });
   run('the toast reports both halves rather than only the rows it changed', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 2 rows/);
@@ -2707,9 +3232,9 @@ console.log('onEdit on Referral — an ask scattered down the tab');
     // The write covers row 2 to row 6 in one block, so the untouched rows inside it
     // are written back over themselves. Anything less than identical here would be
     // this trigger quietly rescheduling somebody it was never asked about.
-    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 9:00 AM');
-    assert.strictEqual(referral.grid[2][9], 'Aug 20, 2026 10:00 AM');
-    assert.strictEqual(referral.grid[4][9], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[2][7], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[4][8], 'Aug 20, 2026 10:00 AM');
   });
   run('the half-typed row is skipped: no Status means it is not a queue row', () => {
     // Writing Cancelled there would conjure an ask that never existed, and the tick
@@ -2722,7 +3247,7 @@ console.log('onEdit on Referral — an ask scattered down the tab');
   });
   run('the scattered ask is still one write, from its first row to its last', () => {
     assert.strictEqual(wrote.length, wroteBefore + 1);
-    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 9, 5, 5]);
+    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 8, 5, 6]);
   });
 }
 
@@ -2739,8 +3264,8 @@ console.log('onEdit on Referral — an untick still does nothing to the ask');
   run('unticking one row does not resurrect the ask', () => {
     // The box has no off position. What would put these rows back in the queue is a
     // Scheduled At, and the sender is the only thing that picks one.
+    referral.grid[1][7] = '';
     referral.grid[1][8] = '';
-    referral.grid[1][9] = '';
     referral.grid[1][12] = false;
     const wroteBefore = wrote.length;
     s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
@@ -2899,16 +3424,16 @@ console.log('sortReferralCancelledToBottom — the rows of one ask stay together
       ['Ana', 'Cy', 'Fi', 'Bo', 'Ed', 'Di']);
   });
   run('the rows arrive whole — every cell travelled with its own person', () => {
-    assert.strictEqual(referral.grid[2][3], 'Cy');
-    assert.strictEqual(referral.grid[2][4], 'cy@stripe.example');
-    assert.strictEqual(referral.grid[6][3], 'Di');
+    assert.strictEqual(referral.grid[2][2], 'Cy');
+    assert.strictEqual(referral.grid[2][3], 'cy@stripe.example');
+    assert.strictEqual(referral.grid[6][2], 'Di');
     assert.strictEqual(referral.grid[6][12], true);
   });
   run('the whole block moves in one write, not one call per row', () => {
     assert.strictEqual(wrote.length, wroteBefore + 1);
   });
-  run('and it is still nineteen wide from row 2', () => {
-    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 1, 6, 19]);
+  run('and it is still twenty wide from row 2', () => {
+    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 1, 6, 20]);
   });
   run('running it again writes nothing at all', () => {
     const before = wrote.length;

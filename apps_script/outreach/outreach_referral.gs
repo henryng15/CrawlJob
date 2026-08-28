@@ -522,8 +522,19 @@ function outreachReferralIndex_(company, attempt) {
 }
 
 
+/**
+ * Who is writing, in one line, with the graduation year left out.
+ *
+ * SENDER_STUDY carries "class of 2028" because the recruiter email wants it: a
+ * recruiter is checking eligibility for an intake and the year is the fact that
+ * decides it. The engineer being asked for a referral is not checking anything.
+ * To them it is one more number in a sentence they are reading to find out who
+ * this is, and the room is better spent on the school and the subject.
+ */
 function outreachReferralIntro_(company, role) {
-  return 'I am ' + SENDER_NAME + ', ' + SENDER_STUDY + ', applying for the '
+  var study = SENDER_STUDY.replace(/\s*\(class of \d{4},\s*/i, ' (')
+                          .replace(/\s*\(class of \d{4}\)/i, '');
+  return 'I am ' + SENDER_NAME + ', ' + study + ', applying for the '
        + role + ' role at ' + company + '.';
 }
 
