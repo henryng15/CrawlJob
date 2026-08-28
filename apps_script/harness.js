@@ -3627,3 +3627,73 @@ console.log('installAppOfficialTrigger / removeAppOfficialTrigger');
     assert.strictEqual(triggers[0].getHandlerFunction(), 'onOpen');
   });
 }
+
+console.log('onEdit on the Referral Priority column');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  referral = freshReferral([
+    referralRow('Acme', 'Queued'),
+    referralRow('Acme', 'Queued'),
+    referralRow('Beta', 'Queued'),
+    referralRow('Acme', 'Sent'),
+    ['', '', '', '', '', '', '', '', '', false, '', '', false, '', '', '', '', '', '', '']
+  ]);
+  const s = load();
+  const tick = (row, value) => {
+    referral.grid[row - 1][s.REFERRAL_PRIORITY - 1] = value;
+    s.onEdit({
+      source: { toast() {} },
+      range: {
+        getSheet: () => referral, getRow: () => row, getLastRow: () => row,
+        getColumn: () => s.REFERRAL_PRIORITY, getLastColumn: () => s.REFERRAL_PRIORITY
+      }
+    });
+  };
+  const priorityOf = (row) => referral.grid[row - 1][s.REFERRAL_PRIORITY - 1];
+
+  // Ticking one box and seeing nothing happen is what made the column look broken:
+  // the ordering it causes waits an hour, and an hour with no feedback is
+  // indistinguishable from a dead control.
+  run('a tick spreads across the ask straight away', () => {
+    tick(2, true);
+    assert.strictEqual(priorityOf(2), true);
+    assert.strictEqual(priorityOf(3), true, 'the sibling should follow');
+  });
+
+  run('and a different ask is untouched', () => {
+    assert.strictEqual(priorityOf(4), false);
+  });
+
+  // A sent message has gone; prioritising it means nothing and claiming otherwise
+  // on the tab is worse than leaving it alone.
+  run('a sent row in the ask is left alone', () => {
+    assert.strictEqual(priorityOf(5), false);
+  });
+
+  // Column-wide validation gives every empty line a checkbox; ticking one would
+  // invent a row and push getLastRow past the real bottom of the queue.
+  run('a blank row below the data is never ticked', () => {
+    assert.strictEqual(priorityOf(6), false);
+  });
+
+  // Somebody who changes their mind about one row means the ask, exactly as they
+  // meant the tick.
+  run('an untick clears the ask the same way', () => {
+    tick(3, false);
+    assert.strictEqual(priorityOf(2), false);
+    assert.strictEqual(priorityOf(3), false);
+  });
+
+  // Nothing else moves: picking hours here would be a second thing choosing
+  // sending slots with no idea the first exists.
+  run('no status, no hour and no row order is changed', () => {
+    tick(2, true);
+    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(referral.grid[1][s.REFERRAL_DRAFTED_AT - 1], 'Aug 20, 2026 9:00 AM');
+    // names() reads the App tab's company column; on this tab company is the first.
+    const order = referral.grid.slice(1, 5).map((r) => String(r[s.REFERRAL_COMPANY - 1]));
+    assert.strictEqual(order.join(','), 'Acme,Acme,Beta,Acme');
+  });
+}

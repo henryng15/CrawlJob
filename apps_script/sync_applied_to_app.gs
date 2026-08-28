@@ -2087,6 +2087,16 @@ function onReferralEdit(e) {
   // file's; nothing here reschedules, restatuses or redrafts a prioritised row,
   // because two things picking sending slots with no idea the other exists is the
   // one failure the scheduling was built to avoid.
+  // Priority first, and it is a different job from Cancel: it ticks the rest of the
+  // ask and stops there. Ticking one box and seeing nothing happen is what made the
+  // column look broken — the ordering it causes waits an hour for the housekeeping
+  // sweep, and an hour with no feedback is indistinguishable from a dead control.
+  // Ticking the siblings is feedback the person asked for and costs nothing: it
+  // moves no rows, so nothing slides out from under the hand that just clicked,
+  // and it changes no schedule, which stays the sender project's decision.
+  if (range.getColumn() <= REFERRAL_PRIORITY && range.getLastColumn() >= REFERRAL_PRIORITY) {
+    return onReferralPriorityEdit(e, queue);
+  }
   if (range.getColumn() > REFERRAL_CANCEL || range.getLastColumn() < REFERRAL_CANCEL) return;
 
   var bottom = queue.getLastRow();
@@ -2678,4 +2688,81 @@ function runHourlyHousekeeping() {
         ? 'Neither tab was tidied.'
         : 'The other tab was tidied normally.')
   );
+}
+
+
+/**
+ * A Priority tick spread across the ask it belongs to.
+ *
+ * The same grouping Cancel uses, and for the same reason: six people at one
+ * company about one posting are one decision, and prioritising one of them would
+ * send the ask twice over, days apart, to colleagues who see each other's mail.
+ *
+ * It writes nothing but the boxes. No status, no hours, no reordering — the row
+ * keeps its place until runHourlyHousekeeping sorts, and keeps its hour until the
+ * sender re-plans. That restraint is the point: moving rows from a keystroke pulls
+ * the row out from under the hand that just clicked, and picking hours here would
+ * be a second thing choosing sending slots with no idea the first exists.
+ *
+ * An untick clears the ask the same way, because a person who changes their mind
+ * about one row means the ask, exactly as they meant the tick.
+ */
+function onReferralPriorityEdit(e, queue) {
+  var range = e.range;
+  var bottom = queue.getLastRow();
+  var firstRow = Math.max(range.getRow(), FIRST_ROW);
+  var lastRow = Math.min(range.getLastRow(), bottom);
+  if (lastRow < firstRow) return;
+
+  // Out to Status, not to Priority. Status sits one past the column being written
+  // and is what tells a real row from a blank line wearing the checkbox its
+  // column-wide validation gave it; reading only as far as Priority put that test
+  // outside the block, every row read as blank, and the tick spread to nothing.
+  var count = bottom - FIRST_ROW + 1;
+  var block = queue.getRange(FIRST_ROW, 1, count, REFERRAL_STATUS).getValues();
+  var PRIORITY = REFERRAL_PRIORITY - 1, STATUS_AT = REFERRAL_STATUS - 1;
+
+  var members = Object.create(null);
+  for (var i = 0; i < count; i++) {
+    var key = referralGroupKey_(block[i][REFERRAL_COMPANY - 1], block[i][REFERRAL_ROLE - 1]);
+    if (!key) continue;
+    if (members[key]) members[key].push(i);
+    else members[key] = [i];
+  }
+
+  var done = Object.create(null);
+  var touched = 0;
+  for (var row = firstRow; row <= lastRow; row++) {
+    var at = row - FIRST_ROW;
+    var wanted = block[at][PRIORITY] === true;
+    var key = referralGroupKey_(block[at][REFERRAL_COMPANY - 1], block[at][REFERRAL_ROLE - 1]);
+    var group = key ? members[key] : [at];
+    if (key && done[key]) continue;
+    if (key) done[key] = true;
+    for (var j = 0; j < group.length; j++) {
+      var member = group[j];
+      // A row with no Status at all is a blank line below the data wearing the
+      // checkbox its column-wide validation gave it. Ticking one would invent a
+      // row and push getLastRow past the real bottom of the queue.
+      var state = String(block[member][STATUS_AT] || '').trim();
+      if (!state) continue;
+      // A sent message has gone. Prioritising it means nothing, and a ticked box
+      // beside a Sent row is the tab claiming a decision it cannot act on.
+      if (state === REFERRAL_SENT) continue;
+      if (block[member][PRIORITY] === wanted) continue;
+      block[member][PRIORITY] = wanted;
+      touched++;
+    }
+  }
+  if (!touched) return;
+
+  // One write of the column, not one per row: an ask scattered down the tab would
+  // otherwise be six round trips against a simple trigger's thirty seconds.
+  var column = [];
+  for (var k = 0; k < count; k++) column.push([block[k][PRIORITY]]);
+  queue.getRange(FIRST_ROW, REFERRAL_PRIORITY, count, 1).setValues(column);
+
+  e.source.toast(
+    'Priority set across the ask: ' + (touched + 1) + ' row(s). They move to the top '
+    + 'and take the earliest free hours on the next hourly run.', 'Referral', 6);
 }
