@@ -33,6 +33,14 @@ var TAB_APP            = 'App';
 var TAB_QUEUE          = 'Email';
 var TAB_CONTACTS_SEED  = 'Contacts (seed)';
 var TAB_CONTACTS_MANUAL= 'Contacts (manual)';
+// Written, never read back. The Season tab is a report: which employers look like
+// they run two intakes, so a contact list can be spent knowing a second wave is
+// coming rather than finding out afterwards.
+var TAB_SEASON         = 'Season';
+// The App tab again, sorted by company. A view, kept by hand, that nothing used to
+// write to — which is why a Role fixed in App used to sit wrong here until the next
+// time it was rebuilt.
+var TAB_ALPHABET       = 'Alphabet_Order';
 
 // App tab, 1-based. Read only with one exception: a rejection found in the
 // mailbox writes Process and appends a line to Update, because an application
@@ -142,6 +150,59 @@ var WAVE_GAP_DAYS  = 14;
 // apart from its general posting. 0.5 also folded "Software Engineer Intern" into
 // "AI Software Engineering - Edge" at Microsoft, which are not the same job.
 var ROLE_MATCH = 0.6;
+
+// ------------------------------------------------------------------- seasons
+
+// The seasons a posting bothers to write down. Everything else is Summer.
+//
+// Two buckets, not four. Every named season is one off-cycle intake, because an
+// employer running more than one of them is running one programme more than once,
+// and a recruiter reading about each separately reads near-identical emails a
+// month apart. The ceiling this sets is the point of it: **one person hears from
+// us at most twice, ever** — once about Summer, once about everything else.
+//
+// Splitting these into their own buckets is a one-line change and should not be
+// made lightly. Four buckets means four cold emails to one recruiter, and at
+// SEASON_RECONTACT_DAYS apart that is all four inside a single hiring year.
+var OFFCYCLE_SEASONS = ['winter', 'spring', 'fall', 'autumn'];
+var SEASON_OFFCYCLE  = 'offcycle';
+var SEASON_SUMMER    = 'summer';
+
+// The smallest gap between two emails to one person about two different intakes.
+//
+// The fingerprint stops the same person being written to twice about one intake,
+// and that is permanent. This is the other half: two intakes are two occasions,
+// but only if enough time has passed that the second reads as a new one rather
+// than as a follow-up to a mail already ignored. 25 days is under the four-week
+// mark where an unanswered email stops being recent and over the fortnight a wave
+// itself takes, so the two can never overlap.
+var SEASON_RECONTACT_DAYS = 25;
+
+/**
+ * Which intake a role belongs to.
+ *
+ * An unlabelled role is Summer, and that default is the whole rule rather than a
+ * fallback. It is what lets an employer that has so far posted only a Winter
+ * opening be recognised as a two-intake employer: the Summer row does not have to
+ * say "Summer", it only has to not say "Winter".
+ *
+ * The price of defaulting rather than refusing is that a role name which lost its
+ * season — truncated, or never filled in — reads as Summer and can hand back a
+ * contact already written to. SEASON_RECONTACT_DAYS is what makes that survivable:
+ * the worst case becomes one extra email 25 days later, not one the same week.
+ */
+function outreachSeason_(role) {
+  var text = String(role == null ? '' : role).toLowerCase();
+  for (var i = 0; i < OFFCYCLE_SEASONS.length; i++) {
+    if (new RegExp('\\b' + OFFCYCLE_SEASONS[i] + '\\b').test(text)) return SEASON_OFFCYCLE;
+  }
+  return SEASON_SUMMER;
+}
+
+/** The bucket a person could still be written to about, given this one. */
+function outreachOtherSeason_(season) {
+  return season === SEASON_OFFCYCLE ? SEASON_SUMMER : SEASON_OFFCYCLE;
+}
 
 // A Date Applied in the future is a typing slip, not a plan. One row read
 // "August 14, 2029" and the projection walked a year of weekday caps without
@@ -361,10 +422,21 @@ function outreachAddDays_(date, days) {
 /**
  * A non-reversible name for an address, so the tracker can say "this person has
  * been written to" without the tracker ever holding who they are.
+ *
+ * Scoped by intake, so one person can be written to once about each. Summer keeps
+ * the bare address and hashes to exactly what it always did — every fingerprint
+ * already sitting in the Email tab still matches the one computed for that person
+ * today, so no backfill is needed for the rows this system has already sent. Only
+ * the off-cycle bucket is new, and it is new for everybody at once.
+ *
+ * Omitting the season is the same as Summer on purpose: a caller that has not been
+ * taught about intakes yet gets the old behaviour rather than a third bucket.
  */
-function outreachFingerprint_(email, salt) {
+function outreachFingerprint_(email, salt, season) {
+  var identity = String(email || '').trim().toLowerCase();
+  if (season === SEASON_OFFCYCLE) identity += '|' + SEASON_OFFCYCLE;
   var raw = Utilities.computeHmacSha256Signature(
-    String(email || '').trim().toLowerCase(), salt || outreachProperty_(PROP_SALT, true)
+    identity, salt || outreachProperty_(PROP_SALT, true)
   );
   return raw.map(function (b) {
     return ('0' + (b & 0xff).toString(16)).slice(-2);

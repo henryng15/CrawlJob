@@ -1,6 +1,6 @@
 # `outreach/` — the sender
 
-These six files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
+These seven files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
 standalone project in the Apps Script editor of `hoanng15.work@gmail.com`.
 
 That separation is the reason the project exists. A bound script runs as whoever owns the
@@ -12,7 +12,7 @@ which is a different address, and the one that must never appear as the sender.
 | `outreach_config.gs` | IDs, column numbers, caps, and the two date helpers everything else counts with |
 | `outreach_contacts.gs` | reads both contact tabs, decides what one employer is, and counts per company |
 | `outreach_compose.gs` | the ten message variations and the HTML builder |
-| `outreach_queue.gs` | what earns a queue row, in what order, and how many go out this hour |
+| `outreach_queue.gs` | what earns a queue row, in what order, how many go out this hour, and the `Season` report |
 | `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
 | `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
 | `appsscript.json` | the manifest: timezone, and the five scopes spelled out |
@@ -36,7 +36,7 @@ Everything that *decides* is pure — it takes rows, a message and a date, and r
 Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
 
 ```
-node apps_script/outreach/harness.js     # 164 tests, sends nothing
+node apps_script/outreach/harness.js     # 378 tests, sends nothing
 ```
 
 ## Deploying — do not paste by hand

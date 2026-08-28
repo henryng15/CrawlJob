@@ -4,7 +4,7 @@ Once an application is in `App` and the tool has ticked `Recruiter`, there is a 
 company worth writing to. This is the design for doing that on a schedule, from an account that
 is **not** the one that owns the spreadsheet, and entirely inside free quotas.
 
-The decision logic is built and tested: `apps_script/outreach/`, with 222 tests in its own
+The decision logic is built and tested: `apps_script/outreach/`, with 378 tests in its own
 harness that run on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
@@ -192,7 +192,9 @@ address is spent for good.
 ### Two caps, one of which is not obvious
 
 `Contact Fingerprint` — a non-reversible HMAC of the address — stops the same person being
-written to twice across different applications.
+written to twice about the same intake, across every application. It is scoped by intake rather
+than by address alone, so one recruiter can hear about Winter once and Summer once; see
+[Two intakes, two waves](#two-intakes-two-waves).
 
 That is not enough on its own. Apply to the same company three times and the queue treats those
 as three unrelated applications, working through its contacts three attempts at a time. So a
@@ -232,15 +234,141 @@ programmes separate and NVIDIA's Dynamo team apart from its general posting. 0.5
 `Software Engineer Intern` into `AI Software Engineering - Edge` at Microsoft, which are not the
 same job.
 
-The intake and the year are deliberately kept in the comparison — Notion's Summer 2027 and Winter
-2027 postings share every other word, and folding them would spend one wave on two openings. This
-mirrors `role_key` in `job_sync/sources.py`, which refuses the same merge for the same pair.
+The word test alone cannot separate two intakes, and for a long time this document claimed it
+could. `Software Engineer Intern - Winter 2027` against the same title ending in `Summer 2027`
+differs by one word in six: 0.67 overlap, comfortably past 0.6, and the second application was
+skipped as a duplicate of the first. Longer titles fold harder, not softer, because every word
+they share pushes the ratio up. The intake is now tested separately and first — see below.
 
 > **Skipped, not merged.** The queue row still belongs to the one application that owns it. A
 > rejection arriving for that application cancels exactly its own rows, and the sibling becomes
 > eligible on the next firing — a refusal from the Charlotte posting must not silence New York.
 > A blank role never matches anything, including another blank, because otherwise every
 > unfilled cell at one employer would read as one job and silence the lot.
+
+### Two intakes, two waves
+
+An employer that runs both a summer programme and an off-cycle one is running two openings, and
+they deserve two waves — to the same recruiters, if that is who is there. The `ROLE_MATCH` test
+cannot see the difference, so the intake is a separate test applied before it: **two applications
+with different intakes are never the same posting, however alike their titles read.**
+
+Two buckets, not four. A role naming **Winter**, **Spring** or **Fall** is off-cycle; **everything
+else is Summer**. Every named off-season shares one bucket because an employer running more than
+one of them is running one programme more than once, and a recruiter reading about each separately
+reads near-identical emails a month apart. The ceiling this sets is the point of it: **one person
+hears from us at most twice, ever** — once about Summer, once about everything else. Splitting
+`OFFCYCLE_SEASONS` into separate buckets is a one-line change and should not be made lightly: four
+buckets means four cold emails to one recruiter, and at 25 days apart that is all four inside a
+single hiring year.
+
+The default is the whole rule, not a fallback. An unlabelled role reads as Summer rather than as
+*unknown*, and that is what lets an employer who has so far posted only a Winter opening be
+recognised as a two-intake employer: the Summer row does not have to say "Summer", it only has to
+not say "Winter".
+
+The price of defaulting rather than refusing is that a role name which lost its season — truncated
+in a paste, or never filled in — reads as Summer and hands back a contact already written to. So
+the second half of the rule is a clock:
+
+> **`SEASON_RECONTACT_DAYS` — 25 days.** Within one intake the fingerprint is final: written to is
+> written to, forever. *Across* intakes the block is a gap. Two intakes are two occasions, but only
+> if enough has happened in between that the second reads as a new one rather than as a follow-up
+> to a mail already ignored. 25 days sits under the four-week mark where an unanswered email stops
+> being recent, and over the fortnight a wave itself takes, so the two can never overlap.
+
+Two endings are not unlocked by any amount of time. A `Bounced` row means the address is dead, and
+it is just as dead for the other intake; a `Replied` row means the person has been reached, and a
+cold email about the next opening talks past a conversation that already exists. Both close that
+person in **every** bucket — which is what "spent for good" has always meant. Only a plain `Sent`
+that nobody answered is what the 25-day clock applies to.
+
+A row in the other bucket that has **not gone out yet** blocks outright rather than being measured.
+There is no date to measure from: a row still `Queued` has a send date that moves every time the
+queue does, and reading "not yet sent" as "sent long ago" would schedule both intakes into one
+week. The practical effect is that one recruiter never picks up both intakes inside a single
+enqueue run — the second waits until the first has actually landed, and then 25 days more.
+
+The company cap is untouched by any of this. Five emails per employer per rolling seven days still
+holds across both intakes, so a second wave queues behind the first rather than doubling the week.
+
+### A Role corrected by hand
+
+The crawlers drop the intake. A posting titled `Software Engineer Intern, Winter 2027` reaches the
+sheet as `Software Engineer Intern` often enough that fixing one by hand is routine — and under the
+rule above that correction is not cosmetic. It moves the application out of the Summer bucket,
+which is what decides whether its recruiters may be written to again.
+
+So the `Role` column in `App` is watched. Type the missing season, press Enter, and three tabs
+catch up in the same second:
+
+| | |
+|---|---|
+| `Alphabet_Order` | the same row, matched by `Property`, gets the corrected title |
+| `Email` | every queue row of that application gets the corrected title, and a row **not yet sent** also moves bucket |
+| `Season` | rebuilt, so the employer appears — or stops appearing — as two-intake straight away |
+
+The bucket move is the half that matters, and it is deliberately limited to rows that have not gone
+out. A `Sent` row records who was written to and which intake it was spent on; that is history, and
+rewriting it would hand back a person who has already had their email. A `Queued` row has spent
+nothing yet, so leaving it in the wrong bucket is the actively dangerous case: it would go out about
+Winter while still holding Summer's hash, the off-cycle bucket would read as free, and the next
+enqueue would write to that same person about Winter a second time.
+
+> **It does not enqueue.** Everything on that list rearranges what is already written. Opening a
+> wave stays the hourly cycle's job, because an edit trigger that could start one would make a
+> keystroke in a cell the thing that decides an email goes out. The recruiter unlocked by the
+> correction is picked up at the next firing, within the hour.
+
+It rides on the installed `onEdit` trigger that already answers a `Priority` tick — one trigger,
+two filters, both of which run before anything is opened or read. A paste down the column is handled
+row by row, because each row is a different application.
+
+> **Why the contact lookup stopped reading `Role`.** `outreachContactByFingerprint_` used to derive
+> the intake from the row's own `Role` cell to know which hash to match. That was correct right up
+> until somebody fixed a `Role` — the row would stop resolving to any contact, and `sendPreparedDrafts`
+> cancels a row it cannot resolve. A correction to the sheet would have silently called off the email
+> it was meant to improve. It now tries both buckets, which costs one extra hash and makes the lookup
+> independent of a cell anybody can edit.
+
+### The `Season` tab
+
+A report, written every firing and read by nobody but a person. One line per employer with at
+least one off-cycle application:
+
+| Column | |
+|---|---|
+| `Company` | the longest spelling seen, because `Amex` is the one that needs looking up |
+| `Off-cycle` / `Summer` | how many applications fall in each bucket |
+| `Reading` | whether both intakes are applied to, or a Summer row is still to come |
+| `Off-cycle rows` / `Summer rows` | the `P` numbers, to click back to `App` |
+| `Recruiters` | how many contacts exist there — the budget the second wave will need |
+| `Roles as written` | the titles untouched, because this is the column where the rule is caught misreading one |
+
+Two kinds of employer are left out. Those with nothing off-cycle, because under this rule they are
+the whole rest of the sheet and a report listing everything reports nothing. And those with **no
+contacts at all** — the tab exists to say where a second wave is coming *before* the contact budget
+is spent on the first, and an employer with no contacts has no budget to spend and no wave to
+expect. It would be a row that can only ever be read and then skipped over.
+
+The point is the ordering of two facts. The contact list is the scarce thing, and it is worth
+knowing that an employer will want a second wave *before* their five weekly emails have been spent
+on the first. An employer showing `Off-cycle only — a Summer row is still to come` is one whose
+Summer posting has not opened yet, and whose recruiters should not all be spent on Winter.
+
+> **One migration, run once.** Summer hashes to exactly what it always did, so every row this
+> system has already sent still matches — no backfill for those. Off-cycle rows written *before*
+> this change are the exception: they carry the unscoped hash, which is now the Summer bucket's
+> hash, so a Winter row already sent reads as "this person has heard about Summer" and the same
+> recruiter would be written to about Winter again 25 days later. `backfillSeasonFingerprints`
+> fixes exactly those rows — run it by hand after pushing and before the next cycle. It is
+> idempotent, and it never puts an address in the sheet: the old hash is matched back to a contact
+> in the contacts book, the new hash is computed from that address, and only the hash is written.
+
+The tab holds no state anything else reads — no fingerprint, no status, nothing the sender
+consults — so it is cleared and rewritten whole rather than reconciled. `refreshSeasonTab` can be
+run on its own from the editor's Run menu; the hourly cycle calls it last, after everything that
+could change what it reports on.
 
 It is a loose cap on purpose, because the contact list is the tighter one almost everywhere:
 
@@ -282,7 +410,7 @@ The `Email` tab is ordered so the three columns copied straight from `App` lead 
 `Company`, `Role`, `Date Applied` — because those are the only ones a human reads to know which
 application a row is about. `Property`, `Recruiters` and `Attempt` follow; everything after
 them is the sending machinery, and everything after `Sent At` is an audit reference nobody looks
-at until something has gone wrong. `Status` is column J and `Sent At` is column O.
+at until something has gone wrong. `Status` is column K and `Sent At` is column S.
 
 `Drafted At` and `Scheduled At` sit next to each other, in that order, because they are one fact
 read left to right: **written at 09:07, goes at 10:00.** While a row is `Queued` both are the
@@ -328,7 +456,10 @@ steps depend on each other:
 4. **what is new** — applications ticked `Applied` since the last firing
 5. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
 6. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
-7. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
+7. **what is chased** — follow-ups booked onto a day, and bookings taken back off
+8. **what is chased now** — the follow-ups whose day has come, replied onto their own threads
+9. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
+10. **what to expect** — the `Season` tab, rebuilt from `App` after everything that could change it
 
 Reversing any pair leaves the table a firing out of date: projecting before sending would put a
 date on rows that are about to leave, and enqueueing before scanning would create an attempt 2
@@ -336,6 +467,12 @@ for someone who has already replied. **Step 5 before step 6** is the load-bearin
 first would let a message be written and sent inside a single firing, and the hour in which it
 could have been read would never have existed. **Step 2 before step 4** is the other: a rejection
 read now has to close the application before anything opens a fresh attempt underneath it.
+**Steps 7 and 8 after 5 and 6** is the third: a follow-up is the cheaper of the two messages and
+the cold email is the one with a deadline attached — an application ages while it waits and a
+nudge does not — so on the firing where something has to give, the nudge is what gives. It also
+means a row sent minutes ago is on the tab as `Sent` before the planner reads it, and gets its day
+in the same round. Planning before sending, so a row booked for today can leave on this very
+firing rather than waiting an hour for the next one to notice it.
 
 Step 1 only asks Gmail about rows sent in the last 30 days. Every sent row would mean one API
 call per row on every firing, growing with the queue forever — and a reply to a two-month-old
@@ -850,8 +987,9 @@ tracker.
 3. In ColdEmail, `uv run python src/export_contacts.py`, then import `finals/contacts_seed.csv`
    over the seed tab.
 4. Upload the resume to that account's Drive as `Henry_Nguyen_Resume.pdf`.
-5. script.google.com → **New project**, signed in as the sending account. Paste in the five
-   `apps_script/outreach/*.gs` files.
+5. script.google.com → **New project**, signed in as the sending account. Push the
+   `apps_script/outreach/` project with `clasp push` — see that folder's README; pasting is how a
+   stale version reached production once already.
 6. Run `setupOutreachProperties`; it logs the four properties it needs. Fill them in under
    Project Settings → Script Properties, and add a fifth, `OUTREACH_MODE = Draft`.
 7. Run `runOutreachCycle` **once by hand** and read the `Email` tab before installing anything.

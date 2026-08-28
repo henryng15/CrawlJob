@@ -25,7 +25,10 @@ function load() {
   const context = {
     Logger: { log() {} },
     Session: { getScriptTimeZone: () => 'America/New_York' },
-    GmailApp: {}, DriveApp: {}, ScriptApp: {}, SpreadsheetApp: {}, LockService: {},
+    // Gmail is the advanced service, and it is stubbed rather than implemented for
+    // the same reason GmailApp is: nothing in this file may be able to send.
+    GmailApp: {}, Gmail: {}, DriveApp: {}, ScriptApp: {}, SpreadsheetApp: {},
+    LockService: {},
     PropertiesService: {
       getScriptProperties: () => ({ getProperty: () => 'test-salt', setProperty() {} })
     },
@@ -115,6 +118,7 @@ console.log('eligibility — how many people this application earns');
   const none = [];
   const want = (a, existing, available, headroom, when) =>
     S.outreachAttemptsWanted_(a, existing || none, available === undefined ? 3 : available,
+                              available === undefined ? 3 : available,
                               headroom === undefined ? 5 : headroom, when || today);
 
   run('only Applied qualifies; Rejected is over', () => {
@@ -296,18 +300,24 @@ console.log('the company cap holds on a first run, when nothing has been sent ye
 console.log('contact choice — nobody hears from us twice');
 {
   const people = [contact('Acme', 'A One', 'a@acme.com'), contact('Acme', 'B Two', 'b@acme.com')];
-  const first = S.outreachPickContact_(people, {}, SALT);
+  const SUMMER = S.SEASON_SUMMER;
+  const OFFCYCLE = S.SEASON_OFFCYCLE;
+  const sent = (d) => ({ sentAt: d || null });
+  const first = S.outreachPickContact_(people, {}, SALT, SUMMER, day(2026, 8, 27));
   run('the first unused contact is chosen', () => {
     assert.strictEqual(first.contact.email, 'a@acme.com');
   });
   run('a fingerprint already in the queue is skipped, even from another application', () => {
-    const used = {}; used[first.fingerprint] = true;
-    assert.strictEqual(S.outreachPickContact_(people, used, SALT).contact.email, 'b@acme.com');
+    const used = {}; used[first.fingerprint] = sent(day(2026, 8, 1));
+    assert.strictEqual(
+      S.outreachPickContact_(people, used, SALT, SUMMER, day(2026, 8, 27)).contact.email,
+      'b@acme.com');
   });
   run('when everyone has been written to, there is no pick', () => {
     const used = {};
-    people.forEach((p) => { used[S.outreachFingerprint_(p.email, SALT)] = true; });
-    assert.strictEqual(S.outreachPickContact_(people, used, SALT), null);
+    people.forEach((p) => { used[S.outreachFingerprint_(p.email, SALT, SUMMER)] = sent(); });
+    assert.strictEqual(
+      S.outreachPickContact_(people, used, SALT, SUMMER, day(2026, 8, 27)), null);
   });
   run('the fingerprint does not contain the address', () => {
     assert.ok(first.fingerprint.indexOf('acme') === -1);
@@ -1979,7 +1989,7 @@ console.log('a reply does not call off the rest');
   const today = day(2026, 8, 21);
   run('the other people at that company are still written to', () => {
     const out = S.outreachAttemptsWanted_(app('1', 'A', 'r', day(2026, 8, 1)),
-      [qrow({ attempt: 1, status: 'Replied', sentAt: day(2026, 8, 5) })], 3, 5, today);
+      [qrow({ attempt: 1, status: 'Replied', sentAt: day(2026, 8, 5) })], 3, 3, 5, today);
     assert.strictEqual(out.count, 2);
     assert.strictEqual(out.from, 2);
   });
@@ -2123,6 +2133,277 @@ console.log('the two tabs are reconciled, not just the ones a rejection email cl
     const stale = S.outreachStaleQueueRows_(apps, rows);
     assert.strictEqual(stale.length, 1);
     assert.strictEqual(stale[0].property, '84');
+  });
+}
+
+console.log('intakes — one recruiter, one email per season, and not in the same month');
+{
+  const SUMMER = S.SEASON_SUMMER, OFFCYCLE = S.SEASON_OFFCYCLE;
+
+  run('a role naming any season but Summer is off-cycle', () => {
+    ['Software Engineer Intern - Winter 2027', 'SWE Intern (Spring 2027)',
+     '2027 Winter Technology Internship', 'SWE Intern - Fall 2027',
+     'Autumn 2027 Engineering Intern'].forEach((role) => {
+      assert.strictEqual(S.outreachSeason_(role), OFFCYCLE, role);
+    });
+  });
+  run('every named off-season shares one bucket, so nobody hears from us three times', () => {
+    const fall = S.outreachFingerprint_('a@acme.com', SALT, S.outreachSeason_('Fall 2027 Intern'));
+    const winter = S.outreachFingerprint_('a@acme.com', SALT, S.outreachSeason_('Winter 2027 Intern'));
+    assert.strictEqual(fall, winter);
+  });
+  run('every other role is Summer, including one that never names a season', () => {
+    ['Software Engineer Intern', 'Software Engineer Intern - Summer 2027', '', null]
+      .forEach((role) => assert.strictEqual(S.outreachSeason_(role), SUMMER, String(role)));
+  });
+  run('the season is matched as a whole word, so Wintergreen is not an intake', () => {
+    assert.strictEqual(S.outreachSeason_('Wintergreen Labs Engineering Intern'), SUMMER);
+  });
+
+  run('Summer hashes to exactly what it did before intakes existed', () => {
+    assert.strictEqual(
+      S.outreachFingerprint_('a@acme.com', SALT, SUMMER),
+      S.outreachFingerprint_('a@acme.com', SALT));
+  });
+  run('off-cycle is a different bucket for the same person', () => {
+    assert.notStrictEqual(
+      S.outreachFingerprint_('a@acme.com', SALT, OFFCYCLE),
+      S.outreachFingerprint_('a@acme.com', SALT, SUMMER));
+  });
+
+  // The pair that used to be folded into one wave. 0.67 overlap, well past
+  // ROLE_MATCH, and only the intake tells them apart.
+  const winter = app('1', 'Acme', 'Software Engineer Intern - Winter 2027', day(2026, 8, 1));
+  const summer = app('2', 'Acme', 'Software Engineer Intern - Summer 2027', day(2026, 8, 2));
+  const people = [contact('Acme', 'A One', 'a@acme.com', { angle: 'x' })];
+
+  run('the two intakes read as one posting by words alone', () => {
+    assert.ok(S.outreachSameRole_(
+      S.outreachRoleTokens_(winter.role), S.outreachRoleTokens_(summer.role)));
+  });
+  run('but they are planned as two waves, not one', () => {
+    const four = ['a', 'b', 'c', 'd'].map(
+      (n) => contact('Acme', n, n + '@acme.com', { angle: 'x' }));
+    const plan = S.outreachPlanEnqueue_([winter, summer], [], four, day(2026, 8, 27), SALT);
+    assert.ok(!plan.skipped.some((r) => /already being written about/.test(r.why)),
+      JSON.stringify(Array.from(plan.skipped).map((r) => r.why)));
+    // Winter is older, so it takes the full wave of three; Summer opens with the
+    // one contact left under the weekly cap of five.
+    const byProperty = Array.from(plan.planned).map((r) => r.property);
+    assert.deepStrictEqual(Array.from(byProperty).sort().join(''), '1112');
+  });
+  run('two Summer applications to one employer are still one wave', () => {
+    const other = app('3', 'Acme', 'Software Engineering Internship 2027', day(2026, 8, 3));
+    const plan = S.outreachPlanEnqueue_([summer, other], [], people, day(2026, 8, 27), SALT);
+    assert.strictEqual(plan.planned.length, 1);
+    assert.ok(/already being written about/.test(plan.skipped[0].why), plan.skipped[0].why);
+  });
+
+  const written = (sentAt, role) => qrow({
+    property: '9', role: role, status: 'Sent', sentAt: sentAt,
+    fingerprint: S.outreachFingerprint_('a@acme.com', SALT, S.outreachSeason_(role))
+  });
+
+  run('the same recruiter is written to a second time for the other intake', () => {
+    const plan = S.outreachPlanEnqueue_(
+      [winter], [written(day(2026, 7, 1), 'SWE Intern - Summer 2027')],
+      people, day(2026, 8, 27), SALT);
+    assert.strictEqual(plan.planned.length, 1);
+    assert.strictEqual(plan.planned[0].fingerprint,
+      S.outreachFingerprint_('a@acme.com', SALT, OFFCYCLE));
+  });
+  run('but not inside the 25-day gap since the first one landed', () => {
+    const plan = S.outreachPlanEnqueue_(
+      [winter], [written(day(2026, 8, 10), 'SWE Intern - Summer 2027')],
+      people, day(2026, 8, 27), SALT);
+    assert.strictEqual(plan.planned.length, 0);
+    assert.ok(/25-day gap/.test(plan.skipped[0].why), plan.skipped[0].why);
+  });
+  run('the gap is measured from the send, and 25 days exactly is enough', () => {
+    const on = (d) => S.outreachPlanEnqueue_(
+      [winter], [written(day(2026, 8, 2), 'SWE Intern - Summer 2027')], people, d, SALT
+    ).planned.length;
+    assert.strictEqual(on(day(2026, 8, 26)), 0);
+    assert.strictEqual(on(day(2026, 8, 27)), 1);
+  });
+  run('a row that has not gone out yet blocks outright — there is no date to count from', () => {
+    const queued = qrow({
+      property: '9', role: 'SWE Intern - Summer 2027', status: 'Queued', sentAt: null,
+      fingerprint: S.outreachFingerprint_('a@acme.com', SALT, SUMMER)
+    });
+    assert.strictEqual(
+      S.outreachPlanEnqueue_([winter], [queued], people, day(2026, 8, 27), SALT).planned.length, 0);
+  });
+  run('and the same intake is still permanent, however long ago it was', () => {
+    assert.strictEqual(S.outreachPlanEnqueue_(
+      [summer], [written(day(2020, 1, 1), 'SWE Intern - Summer 2027')],
+      people, day(2026, 8, 27), SALT).planned.length, 0);
+  });
+
+  run('a bounce in one intake closes that person in the other too', () => {
+    const dead = qrow({
+      property: '9', role: 'SWE Intern - Summer 2027', status: 'Bounced',
+      sentAt: day(2026, 1, 1),
+      fingerprint: S.outreachFingerprint_('a@acme.com', SALT, SUMMER)
+    });
+    const plan = S.outreachPlanEnqueue_([winter], [dead], people, day(2026, 8, 27), SALT);
+    assert.strictEqual(plan.planned.length, 0);
+  });
+  run('and so does a reply — there is a conversation to have instead', () => {
+    const answered = qrow({
+      property: '9', role: 'SWE Intern - Summer 2027', status: 'Replied',
+      sentAt: day(2026, 1, 1),
+      fingerprint: S.outreachFingerprint_('a@acme.com', SALT, SUMMER)
+    });
+    assert.strictEqual(S.outreachPlanEnqueue_(
+      [winter], [answered], people, day(2026, 8, 27), SALT).planned.length, 0);
+  });
+  run('a cancelled row hands the person back to both intakes', () => {
+    const called = qrow({
+      property: '9', role: 'SWE Intern - Summer 2027', status: 'Cancelled',
+      sentAt: null, fingerprint: S.outreachFingerprint_('a@acme.com', SALT, SUMMER)
+    });
+    assert.strictEqual(S.outreachPlanEnqueue_(
+      [winter], [called], people, day(2026, 8, 27), SALT).planned.length, 1);
+  });
+
+  run('a tick on Winter does not lift the employer\'s Summer rows', () => {
+    const rows = [
+      qrow({ rowNumber: 2, property: '1', role: 'SWE Intern - Winter 2027',
+             priority: true, dateApplied: day(2026, 8, 20) }),
+      qrow({ rowNumber: 3, property: '2', role: 'SWE Intern - Summer 2027',
+             priority: false, dateApplied: day(2026, 8, 1) })
+    ];
+    assert.strictEqual(S.outreachOrderForSending_(rows, rows)[0].property, '1');
+    assert.ok(!S.outreachPrioritised_(rows[1], S.outreachPriorityGroups_(rows)));
+  });
+}
+
+console.log('a Role corrected by hand reaches the tabs that repeat it');
+{
+  const SUMMER = S.SEASON_SUMMER, OFFCYCLE = S.SEASON_OFFCYCLE;
+  const range = (col, lastCol, row) => ({
+    getColumn: () => col, getLastColumn: () => lastCol, getLastRow: () => row
+  });
+
+  run('an edit on the Role column of App is answered', () => {
+    assert.ok(S.outreachEditTouchesRole_('App', range(7, 7, 5)));
+  });
+  run('a paste across the row still counts, as long as it covers Role', () => {
+    assert.ok(S.outreachEditTouchesRole_('App', range(1, 11, 5)));
+  });
+  run('another column, another tab, or the header row is not', () => {
+    assert.ok(!S.outreachEditTouchesRole_('App', range(6, 6, 5)));
+    assert.ok(!S.outreachEditTouchesRole_('Email', range(7, 7, 5)));
+    assert.ok(!S.outreachEditTouchesRole_('App', range(7, 7, 1)));
+  });
+
+  run('the matching Property is found in Alphabet_Order, wherever it sits', () => {
+    const values = [['Property', 'Company'], ['205', 'AbbVie'], ['9', 'Akuna']];
+    assert.strictEqual(S.outreachRowForProperty_(values, '9', 1), 3);
+    assert.strictEqual(S.outreachRowForProperty_(values, '404', 1), 0);
+    assert.strictEqual(S.outreachRowForProperty_(values, '', 1), 0);
+  });
+
+  const people = [contact('Acme', 'A One', 'a@acme.com')];
+  const summerPrint = S.outreachFingerprint_('a@acme.com', SALT, SUMMER);
+  const offcyclePrint = S.outreachFingerprint_('a@acme.com', SALT, OFFCYCLE);
+  const plan = (rows, role) => S.outreachRolePlan_(rows, '1', role, people, SALT);
+
+  run('the Role text is copied onto the queue row', () => {
+    const out = plan([qrow({ property: '1', role: 'SWE Intern', status: 'Sent',
+                            fingerprint: summerPrint })], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].updates[S.Q_ROLE], 'SWE Intern - Winter 2027');
+  });
+  run('a row that has not gone out moves bucket with it', () => {
+    const out = plan([qrow({ property: '1', role: 'SWE Intern', status: 'Queued',
+                            fingerprint: summerPrint })], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out[0].updates[S.Q_FINGERPRINT], offcyclePrint);
+  });
+  run('a row already sent keeps its fingerprint — that is history', () => {
+    const out = plan([qrow({ property: '1', role: 'SWE Intern', status: 'Sent',
+                            fingerprint: summerPrint })], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out[0].updates[S.Q_FINGERPRINT], undefined);
+  });
+  run('rows of other applications are not touched', () => {
+    const out = plan([qrow({ property: '2', role: 'SWE Intern', status: 'Queued',
+                            fingerprint: summerPrint })], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out.length, 0);
+  });
+  run('an edit that changes nothing writes nothing', () => {
+    const out = plan([qrow({ property: '1', role: 'SWE Intern - Winter 2027',
+                            status: 'Queued', fingerprint: offcyclePrint })],
+                     'SWE Intern - Winter 2027');
+    assert.strictEqual(out.length, 0);
+  });
+  run('a fingerprint whose contact has gone keeps the Role change and nothing else', () => {
+    const out = plan([qrow({ property: '1', role: 'SWE Intern', status: 'Queued',
+                            fingerprint: 'deadbeef' })], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out[0].updates[S.Q_ROLE], 'SWE Intern - Winter 2027');
+    assert.strictEqual(out[0].updates[S.Q_FINGERPRINT], undefined);
+  });
+  run('the contact lookup survives a Role edit, whichever bucket the row holds', () => {
+    assert.strictEqual(
+      S.outreachContactByFingerprint_(people, offcyclePrint, SALT).email, 'a@acme.com');
+    assert.strictEqual(
+      S.outreachContactByFingerprint_(people, summerPrint, SALT).email, 'a@acme.com');
+  });
+}
+
+console.log('the Season tab — which employers are going to want a second wave');
+{
+  const contacts = [contact('Acme', 'A One', 'a@acme.com'), contact('Acme', 'B Two', 'b@acme.com')];
+  const rows = (apps) => S.outreachSeasonReport_(apps, contacts);
+
+  run('an employer nobody can be written to is left out — the tab is for planning waves', () => {
+    const out = S.outreachSeasonReport_(
+      [app('1', 'Nowhere', 'SWE Intern - Winter 2027', day(2026, 8, 1))], contacts);
+    assert.strictEqual(out.length, 0);
+  });
+  run('an employer with no off-cycle row is not in the report at all', () => {
+    assert.strictEqual(rows([app('1', 'Acme', 'SWE Intern - Summer 2027', day(2026, 8, 1))]).length, 0);
+  });
+  run('one Winter row is enough, with no Summer row yet', () => {
+    const out = rows([app('1', 'Acme', 'SWE Intern - Winter 2027', day(2026, 8, 1))]);
+    assert.strictEqual(out.length, 1);
+    assert.deepStrictEqual(Array.from(out[0]).slice(0, 3), ['Acme', 1, 0]);
+    assert.ok(/still to come/.test(out[0][3]), out[0][3]);
+  });
+  run('both intakes present are reported as both', () => {
+    const out = rows([
+      app('1', 'Acme', 'SWE Intern - Winter 2027', day(2026, 8, 1)),
+      app('2', 'Acme', 'SWE Intern', day(2026, 8, 2))
+    ]);
+    assert.deepStrictEqual(Array.from(out[0]).slice(0, 4),
+      ['Acme', 1, 1, 'Both intakes applied to']);
+    assert.strictEqual(out[0][4], 'P1');
+    assert.strictEqual(out[0][5], 'P2');
+    assert.strictEqual(out[0][6], 2);
+  });
+  run('two spellings of one employer are one line, under the longer name', () => {
+    const out = rows([
+      app('1', 'Acme', 'SWE Intern - Winter 2027', day(2026, 8, 1)),
+      app('2', 'Acme Technologies, Inc.', 'SWE Intern', day(2026, 8, 2))
+    ]);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0][0], 'Acme Technologies, Inc.');
+  });
+  run('the roles are printed as written, so a lost season is visible', () => {
+    const out = rows([
+      app('1', 'Acme', 'SWE Intern - Winter 2027', day(2026, 8, 1)),
+      app('2', 'Acme', '', day(2026, 8, 2))
+    ]);
+    assert.ok(/\(blank\)/.test(out[0][7]), out[0][7]);
+  });
+  run('the busiest employer is first', () => {
+    const out = S.outreachSeasonReport_([
+      app('1', 'Acme', 'SWE Intern - Winter 2027', day(2026, 8, 1)),
+      app('2', 'Globex', 'SWE Intern - Winter 2027', day(2026, 8, 1)),
+      app('3', 'Globex', 'SWE Intern', day(2026, 8, 2)),
+      app('4', 'Globex', 'Data Intern', day(2026, 8, 3))
+    ], contacts.concat([contact('Globex', 'G One', 'g@globex.com')]));
+    assert.deepStrictEqual(Array.from(out).map((r) => r[0]), ['Globex', 'Acme']);
   });
 }
 

@@ -26,10 +26,26 @@ function outreachStillQualifies_(appRow) {
   return { ok: true };
 }
 
-/** Find the contact behind a fingerprint without the queue ever holding one. */
+/**
+ * Find the contact behind a fingerprint without the queue ever holding one.
+ *
+ * Both buckets are tried rather than the row's own Role deciding which to check.
+ * Deriving the season from the Role read correctly right up until somebody fixed a
+ * Role — which is a thing this tracker actively invites, because the crawlers miss
+ * the season often enough that correcting one by hand is routine. A row whose Role
+ * gained the word "Winter" after it was queued would stop resolving to any contact,
+ * and sendPreparedDrafts cancels a row it cannot resolve: a correction to the sheet
+ * would silently call off the email it was meant to improve.
+ *
+ * Trying both costs one extra hash and makes the lookup independent of a cell
+ * anybody can edit. The fingerprint on the row stays the authority on which bucket
+ * was actually spent.
+ */
 function outreachContactByFingerprint_(companyContacts, fingerprint, salt) {
   for (var i = 0; i < companyContacts.length; i++) {
-    if (outreachFingerprint_(companyContacts[i].email, salt) === fingerprint) {
+    var email = companyContacts[i].email;
+    if (outreachFingerprint_(email, salt, SEASON_SUMMER) === fingerprint
+        || outreachFingerprint_(email, salt, SEASON_OFFCYCLE) === fingerprint) {
       return companyContacts[i];
     }
   }
@@ -385,12 +401,20 @@ function scanOutreachReplies() {
 
   // Bounces name the address in the body. Fingerprinting what we find keeps the
   // matching one-way: the queue is never told who bounced, only that this row did.
+  //
+  // Both buckets per address, because the row that bounced could be from either
+  // intake and the body says only who it went to. Fingerprinting the address once
+  // was correct while there was one fingerprint per person; against a scoped one
+  // it silently stopped matching every off-cycle row, and a bounce that matches
+  // nothing is a dead address left in the queue looking delivered.
   var bounced = {};
   GmailApp.search('from:mailer-daemon newer_than:14d', 0, 50).forEach(function (thread) {
     thread.getMessages().forEach(function (message) {
       var body = message.getPlainBody() || '';
       (body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).forEach(function (address) {
-        bounced[outreachFingerprint_(address, salt)] = true;
+        [SEASON_SUMMER, SEASON_OFFCYCLE].forEach(function (season) {
+          bounced[outreachFingerprint_(address, salt, season)] = true;
+        });
       });
     });
   });
@@ -556,6 +580,11 @@ function runOutreachCycle() {
   step('sent', sendPreparedDrafts);
   step('written', prepareOutreachDrafts);
   step('projected', refreshOutreachSchedule);
+  // A report, so it goes after everything that could change what it reports on.
+  // Rebuilt every firing rather than stamped once, for the reason the Recruiters
+  // column is: a list of two-intake employers from three weeks ago is worse than
+  // none, because it looks current.
+  step('season', refreshSeasonTab);
   // Last, because it sorts on the times the step above has just written. Sorting
   // first would file the table by the previous hour's answer.
   step('sorted', function () {
@@ -603,16 +632,45 @@ function runOutreachCycle() {
 function onOutreachQueueEdit(e) {
   if (!e || !e.range) return;
   var sheet = e.range.getSheet();
-  if (!outreachEditTouchesPriority_(sheet.getName(), e.range)) return;
+  var name = sheet.getName();
+
+  // One installed trigger, two edits worth answering. Both filters run before
+  // anything is opened or read, and between them they throw out every other edit
+  // in the spreadsheet, which is nearly all of them.
+  var priority = outreachEditTouchesPriority_(name, e.range);
+  var role = outreachEditTouchesRole_(name, e.range);
+  if (!priority && !role) return;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return;
   try {
-    outreachWriteProjection_(sheet);
-    // The tick changed the order, the projection changed the times, and the table
-    // is filed by those times — so it has to be refiled in the same breath or it
-    // is left describing an order that no longer exists.
-    outreachSortQueueByTime_(sheet);
+    if (priority) {
+      outreachWriteProjection_(sheet);
+      // The tick changed the order, the projection changed the times, and the
+      // table is filed by those times — so it has to be refiled in the same breath
+      // or it is left describing an order that no longer exists.
+      outreachSortQueueByTime_(sheet);
+      return;
+    }
+
+    // A Role edit can cover several rows at once — a paste down the column, or an
+    // undo. Each is a different application, so each is carried out separately.
+    var tracker = sheet.getParent();
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var salt = outreachProperty_(PROP_SALT, true);
+    var first = Math.max(e.range.getRow(), 2);
+    var rows = sheet.getRange(first, 1, e.range.getLastRow() - first + 1, APP_ROLE).getValues();
+    rows.forEach(function (row) {
+      var property = String(row[APP_PROPERTY - 1] == null ? '' : row[APP_PROPERTY - 1]).trim();
+      if (!property) return;
+      syncRoleEdit_(tracker, contactsBook, property, String(row[APP_ROLE - 1] || ''), salt);
+    });
+
+    // The report reads Role straight out of App, so it has to be said again for
+    // the corrected word to reach it; the projection because a queue row whose
+    // Role moved may now be ordered against different company.
+    refreshSeasonTab();
+    refreshOutreachSchedule();
   } finally {
     lock.releaseLock();
   }
