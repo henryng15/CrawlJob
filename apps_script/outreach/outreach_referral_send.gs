@@ -139,7 +139,20 @@ function planReferralAsks() {
     var jobs = tracker.getSheetByName(TAB_JOBS);
     var referral = tracker.getSheetByName(TAB_REFERRAL);
     if (!jobs) throw new Error('No ' + TAB_JOBS + ' tab.');
-    if (!referral) throw new Error('No ' + TAB_REFERRAL + ' tab.');
+    // A missing Referral tab is not a fault, it is a path nobody has switched on
+    // yet, and the difference matters because runOutreachCycle calls this every
+    // hour. Throwing would end every run red for as long as the tab is absent,
+    // and a cycle that is always red is a cycle nobody reads: the day something
+    // genuinely breaks, the log already says failed and has done for weeks.
+    //
+    // The Jobs tab above still throws. That one is not optional and not ours: if
+    // it has gone, the crawler is writing somewhere else and the whole tracker is
+    // wrong, which is worth stopping for.
+    if (!referral) {
+      Logger.log('No ' + TAB_REFERRAL + ' tab, so the referral path is not set up '
+               + 'yet. Run setupReferralQueue once and this starts working.');
+      return { booked: 0, skipped: 0, ready: false };
+    }
 
     // Read before the postings, because an empty export is not a quiet day, it
     // is a broken one: every posting would be judged to have nobody at it and
@@ -284,7 +297,7 @@ function draftReferralAsks() {
     var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
     var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
     var referral = tracker.getSheetByName(TAB_REFERRAL);
-    if (!referral) throw new Error('No ' + TAB_REFERRAL + ' tab.');
+    if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
 
     var now = new Date();
     var rows = outreachReadReferralRows_(referral);
@@ -400,7 +413,7 @@ function sendReferralAsks() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var globalMode = outreachProperty_(PROP_MODE, false);
   var referral = tracker.getSheetByName(TAB_REFERRAL);
-  if (!referral) throw new Error('No ' + TAB_REFERRAL + ' tab.');
+  if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
 
   var last = referral.getLastRow();
   if (last < 2) return { sent: 0, cancelled: 0, failed: 0 };
@@ -514,4 +527,19 @@ function checkReferralService() {
   Logger.log('Ready. ' + employees.length + ' people in the export, ' + waiting
            + ' ask(s) booked and ' + written + ' waiting in Drafts. Nothing was sent.');
   return true;
+}
+
+
+/**
+ * What the log says when the tab is not there, in one place so the three entry
+ * points cannot drift into saying it three ways.
+ */
+function outreachReferralNotSetUp_() {
+  return 'No ' + TAB_REFERRAL + ' tab, so the referral path is not set up yet. '
+       + 'Run setupReferralQueue once and this starts working.';
+}
+
+/** A run that did nothing because there was nothing set up to do it with. */
+function outreachReferralIdle_() {
+  return { sent: 0, drafted: 0, cancelled: 0, failed: 0, ready: false };
 }

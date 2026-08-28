@@ -3969,6 +3969,52 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 }
 
 
+{
+  console.log('\nreferral: the path before anybody has switched it on');
+
+  // runOutreachCycle calls all three of these every hour. Before setupReferralQueue
+  // has been run the tab is not there, and a throw would end every cycle red for as
+  // long as that lasted. A cycle that is always red is a cycle nobody reads.
+  const noTab = () => ({
+    getSheetByName(name) { return name === S.TAB_REFERRAL ? null : fakeSheet([]); }
+  });
+  const fakeSheet = (grid) => ({
+    getLastRow: () => grid.length + 1,
+    getLastColumn: () => 20,
+    getRange: () => ({ getValues: () => grid, setValues() { return this; } }),
+    appendRow() {}
+  });
+
+  run('a missing Referral tab is a quiet skip, not a failure', () => {
+    const said = [];
+    const logger = S.Logger.log;
+    S.Logger.log = (line) => said.push(String(line));
+    const opener = S.SpreadsheetApp.openById;
+    S.SpreadsheetApp.openById = noTab;
+    try {
+      [S.draftReferralAsks, S.sendReferralAsks].forEach((entry) => {
+        const out = entry();
+        assert.strictEqual(out.ready, false);
+        assert.strictEqual(out.sent || 0, 0);
+      });
+    } finally {
+      S.Logger.log = logger;
+      S.SpreadsheetApp.openById = opener;
+    }
+    assert.ok(said.length >= 2, said.join(' | '));
+    said.forEach((line) => assert.ok(/setupReferralQueue/.test(line), line));
+  });
+
+  // Said in one place, so three entry points cannot drift into three wordings.
+  run('and it says the one thing that fixes it', () => {
+    const line = S.outreachReferralNotSetUp_();
+    assert.ok(line.indexOf(S.TAB_REFERRAL) !== -1);
+    assert.ok(line.indexOf('setupReferralQueue') !== -1);
+    assert.strictEqual(S.outreachReferralIdle_().ready, false);
+  });
+}
+
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');
