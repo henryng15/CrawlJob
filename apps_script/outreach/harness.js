@@ -4290,6 +4290,99 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 }
 
 
+{
+  console.log('\nreferral: one tick calls off the whole ask');
+
+  const ROW = (index, company, role, status, cancel) => ({
+    index: index, company: company, role: role,
+    tokens: S.outreachCompanyTokens_(company),
+    email: 'p' + index + '@x.com', status: status, cancel: !!cancel,
+    scheduled: new Date(2026, 7, 29, 8, 0, 0), draftId: ''
+  });
+
+  // Six rows sharing a company and a posting are one decision, not six.
+  run('a tick on one row takes its whole ask with it', () => {
+    const rows = [
+      ROW(2, 'Stripe', 'SWE Intern', 'Queued', true),
+      ROW(3, 'Stripe', 'SWE Intern', 'Queued'),
+      ROW(4, 'Stripe', 'SWE Intern', 'Drafted'),
+      ROW(5, 'Figma', 'SWE Intern', 'Queued')
+    ];
+    const going = S.outreachReferralToCancel_(rows).map((r) => r.index);
+    assert.deepStrictEqual(going.join(','), '2,3,4');
+  });
+
+  // The rows of a group are usually adjacent because they were written together,
+  // but "usually" is not a rule, and a half-cancelled ask is worse than neither.
+  run('members are found wherever they sit, not only next door', () => {
+    const rows = [
+      ROW(2, 'Stripe', 'SWE Intern', 'Queued', true),
+      ROW(3, 'Figma', 'SWE Intern', 'Queued'),
+      ROW(4, 'Stripe', 'SWE Intern', 'Queued')
+    ];
+    assert.deepStrictEqual(
+      S.outreachReferralToCancel_(rows).map((r) => r.index).join(','), '2,4');
+  });
+
+  // That message has gone. Marking it Cancelled would be the tab claiming
+  // something untrue about a mailbox it no longer controls.
+  run('a sent row inside the ask is never called off with it', () => {
+    const rows = [
+      ROW(2, 'Stripe', 'SWE Intern', 'Sent', true),
+      ROW(3, 'Stripe', 'SWE Intern', 'Queued')
+    ];
+    assert.deepStrictEqual(
+      S.outreachReferralToCancel_(rows).map((r) => r.index).join(','), '3');
+  });
+
+  // The checkbox is the group switch; the Status dropdown is the single-row one.
+  run('a hand-set Cancelled status does not drag the siblings down', () => {
+    const rows = [
+      ROW(2, 'Stripe', 'SWE Intern', 'Cancelled'),
+      ROW(3, 'Stripe', 'SWE Intern', 'Queued')
+    ];
+    assert.strictEqual(S.outreachReferralToCancel_(rows).length, 0);
+  });
+
+  run('nothing ticked is nothing to do, and a row already cancelled is left alone', () => {
+    const rows = [ROW(2, 'Stripe', 'SWE Intern', 'Queued')];
+    assert.strictEqual(S.outreachReferralToCancel_(rows).length, 0);
+    const done = [ROW(3, 'Stripe', 'SWE Intern', 'Cancelled', true)];
+    assert.strictEqual(S.outreachReferralToCancel_(done).length, 0);
+  });
+
+  run('the key ignores case, punctuation and repeated whitespace', () => {
+    assert.strictEqual(S.outreachReferralGroupKey_('Stripe ', 'SWE Intern', 2),
+                       S.outreachReferralGroupKey_('stripe', 'swe  intern', 9));
+    assert.notStrictEqual(S.outreachReferralGroupKey_('Stripe', 'SWE Intern', 2),
+                          S.outreachReferralGroupKey_('Stripe', 'Data Intern', 3));
+  });
+
+  // An empty company would otherwise collide with every other empty company, and
+  // one tick on a half-written row would cancel every other half-written row.
+  run('a row missing a company or a role is a group of one', () => {
+    assert.notStrictEqual(S.outreachReferralGroupKey_('', '', 2),
+                          S.outreachReferralGroupKey_('', '', 3));
+    const rows = [ROW(2, '', '', 'Queued', true), ROW(3, '', '', 'Queued')];
+    assert.deepStrictEqual(
+      S.outreachReferralToCancel_(rows).map((r) => r.index).join(','), '2');
+  });
+
+  // A cancelled row holds no hour, so the ask's whole day comes back at once.
+  run('cancelling an ask hands all of its hours back together', () => {
+    const NOW = new Date(2026, 7, 28, 21, 0, 0);
+    const at = (h) => new Date(2026, 7, 29, h, 0, 0);
+    const rows = [
+      Object.assign(ROW(2, 'Stripe', 'SWE Intern', 'Cancelled', true), { scheduled: at(8) }),
+      Object.assign(ROW(3, 'Stripe', 'SWE Intern', 'Cancelled', true), { scheduled: at(9) }),
+      Object.assign(ROW(4, 'Figma', 'SWE Intern', 'Queued'), { scheduled: at(10) })
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), 8);
+  });
+}
+
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');

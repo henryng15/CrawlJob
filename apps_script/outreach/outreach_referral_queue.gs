@@ -669,3 +669,68 @@ function outreachReferralAbandoned_(referralRows) {
     return (row.status === STATUS_CANCELLED || row.cancel) && row.draftId;
   });
 }
+
+
+/**
+ * The ask a row belongs to: one employer, one posting.
+ *
+ * The planner picks a single representative application per employer and asks up
+ * to six people about it, so six rows routinely carry the same company and role.
+ * They are not six decisions. Calling the ask off should be one action, and the
+ * group is what "the ask" means.
+ *
+ * A row missing either field belongs to no group and is returned as itself. That
+ * is deliberate rather than defensive: an empty company would otherwise collide
+ * with every other empty company on the tab, and one tick on a half-written row
+ * would cancel every other half-written row with it.
+ */
+function outreachReferralGroupKey_(company, role, index) {
+  var left = outreachNameKey_(company);
+  var right = outreachNameKey_(role);
+  if (!left || !right) return 'row:' + index;
+  return left + '\u0000' + right;
+}
+
+/**
+ * Every row the tick on one row should take with it.
+ *
+ * Read off the tab rather than trusted to be adjacent. The rows of a group
+ * usually are, because they were written together and the sort keeps them so,
+ * but "usually" is not a rule and a group split by a hand-moved row would
+ * otherwise be half cancelled and half live.
+ *
+ * A Sent row inside the group is never included. That message has gone, and
+ * marking it Cancelled would be the tab claiming something untrue about a mailbox
+ * it no longer controls.
+ */
+function outreachReferralGroupOf_(referralRows, row) {
+  var key = outreachReferralGroupKey_(row.company, row.role, row.index);
+  return referralRows.filter(function (other) {
+    if (other.status === STATUS_SENT) return false;
+    return outreachReferralGroupKey_(other.company, other.role, other.index) === key;
+  });
+}
+
+/**
+ * The rows a run has to write Cancelled onto, ticks expanded to whole asks.
+ *
+ * The tick is the record, not whether onEdit saw it: a box filled by a paste, a
+ * fill-down or an undo never fires a simple trigger at all, and the sheet is
+ * still what the next run reads.
+ */
+function outreachReferralToCancel_(referralRows) {
+  var wanted = {};
+  referralRows.forEach(function (row) {
+    if (!row.cancel) return;
+    outreachReferralGroupOf_(referralRows, row).forEach(function (member) {
+      wanted[member.index] = member;
+    });
+  });
+  // A row whose Status was set to Cancelled by hand is already where it should be
+  // and is left alone. That is the escape hatch for dropping one person out of an
+  // ask without dropping the ask: the checkbox is the group switch, the Status
+  // dropdown is the single-row one.
+  return Object.keys(wanted).map(function (index) { return wanted[index]; })
+    .filter(function (row) { return row.status !== STATUS_CANCELLED; })
+    .sort(function (left, right) { return left.index - right.index; });
+}

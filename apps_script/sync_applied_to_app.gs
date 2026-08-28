@@ -210,6 +210,13 @@ var REFERRAL_HEADERS = [
 // would clear the wrong pair of timestamps on a row it had just cancelled — a
 // silent corruption, because every column involved holds a plausible value for
 // its neighbour.
+// Company and Role are 1 and 2, and they are named here rather than written as
+// digits for a sharper reason than the four below: onReferralEdit and the sort
+// both read this pair to decide which rows are the same ask. A layout change that
+// moved Role and updated only one of the two call sites would have the trigger
+// grouping on a column the sort does not, so a tick would cancel one set of rows
+// and the tab would then reorder a different set around them.
+var REFERRAL_COMPANY = 1, REFERRAL_ROLE = 2;
 var REFERRAL_DRAFTED_AT = 9, REFERRAL_SCHEDULED_AT = 10;
 var REFERRAL_STATUS = 11, REFERRAL_MODE = 12, REFERRAL_CANCEL = 13;
 // The one Status the Cancel box writes, and the one it refuses to write over.
@@ -1155,6 +1162,35 @@ function appRowIsEmpty_(row) {
 
 
 /**
+ * Which ask a Referral row belongs to: one employer, one job.
+ *
+ * The planner picks one representative application per employer and asks up to six
+ * people there about it, so six rows routinely carry the identical Company and
+ * Role. This function is what makes those six one thing — one tick calls all of
+ * them off, and the sort keeps them next to each other on the tab.
+ *
+ * identity() is reused rather than a second comparison being written here, and
+ * that is the point rather than a shortcut. The Jobs → App sync already decides
+ * whether two rows are the same employer and job with it, and a Referral tab that
+ * held "Meta, Inc." and "Meta" apart while App counted them as one would be two
+ * spellings of one rule drifting with nothing to catch the drift. Case folds,
+ * punctuation and repeated whitespace collapse, so "Stripe " + "SWE Intern" and
+ * "stripe" + "swe  intern" are one ask.
+ *
+ * A row missing either field comes back with an empty key, and every caller has to
+ * read that as "this row is in no group and may only ever act on itself". The
+ * alternative — letting the blanks match each other — makes one key covering every
+ * half-typed row on the tab, so a tick on the row somebody is in the middle of
+ * filling in would cancel strangers at companies that have nothing to do with each
+ * other. An empty Role is not evidence that this row belongs with anything; it is
+ * evidence that nobody has said yet what it belongs with.
+ */
+function referralGroupKey_(company, role) {
+  return identity(company, role);
+}
+
+
+/**
  * Whether this row has been called off. Compared case-insensitively on purpose:
  * the Status dropdown allows a value typed by hand, so a row reading "cancelled"
  * is a row somebody cancelled, and a sort that only recognised the capital C
@@ -1174,6 +1210,29 @@ function referralCancelled_(status) {
  *
  * Three groups, in this order: live rows, cancelled rows, then the empty tail.
  * Each group keeps the order it arrived in.
+ *
+ * Inside the live group the rows of one ask are held together, each ask sitting
+ * where its own first row already sat. Six people at one company about one job are
+ * one decision, and a tab that scatters them across forty rows is a tab where you
+ * act on four of the six and never see the other two — the same failure the Cancel
+ * box now avoids by cancelling the whole ask from one tick. It is also what makes
+ * merging those six Cancel cells into one impossible: a merge does not travel with
+ * the rows setValues moves, so on a scattered tab it would end up spanning six rows
+ * that are not the ask at all.
+ *
+ * Anchoring each ask at its first row is what keeps this stable. No ask ever moves
+ * above an ask that was already above it, so the queue you were working down is the
+ * queue you come back to, and a second run finds nothing left to do — the rows are
+ * already contiguous and already in that order.
+ *
+ * A row missing Company or Role is an ask of one and stays exactly where it is;
+ * see referralGroupKey_ for why the blanks must not be allowed to match each other.
+ *
+ * The cancelled group is deliberately NOT regrouped. It is a history, read as "what
+ * did I stop doing last week", and that question is answered in the order things
+ * were stopped. Pulling an ask called off in July up beside one called off in
+ * September because they share a company would spend the only ordering that block
+ * of rows has.
  *
  * Sinking rather than deleting, and that is the whole design. A cancelled ask is
  * the record that you decided not to write to this person, which is exactly what
@@ -1205,11 +1264,31 @@ function orderReferralCancelledRows_(rows) {
   var end = rows.length;
   while (end > 0 && appRowIsEmpty_(rows[end - 1])) end--;
 
-  var live = [];
+  // One bucket per ask, in the order the asks were first met, so an ask's position
+  // is decided by its first row and by nothing else. Object.create(null) rather
+  // than {}: a bare object carries inherited names, and a lookup that found one
+  // would pour an unrelated set of rows into a bucket that was never an ask.
+  var asks = [];
+  var byKey = Object.create(null);
   var cancelled = [];
   for (var i = 0; i < end; i++) {
-    if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) cancelled.push(rows[i]);
-    else live.push(rows[i]);
+    if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) {
+      cancelled.push(rows[i]);
+      continue;
+    }
+    var key = referralGroupKey_(rows[i][REFERRAL_COMPANY - 1], rows[i][REFERRAL_ROLE - 1]);
+    // No key means no group, so this row gets a bucket of its own at the position
+    // it already had. Sharing one bucket between every keyless row would herd the
+    // half-typed rows together, which is a reshuffle nobody asked for on rows
+    // somebody is in the middle of typing.
+    if (!key) asks.push([rows[i]]);
+    else if (byKey[key]) byKey[key].push(rows[i]);
+    else asks.push(byKey[key] = [rows[i]]);
+  }
+
+  var live = [];
+  for (var a = 0; a < asks.length; a++) {
+    for (var m = 0; m < asks[a].length; m++) live.push(asks[a][m]);
   }
   return live.concat(cancelled, rows.slice(end));
 }
@@ -1285,8 +1364,9 @@ function sortReferralCancelledBlock_(queue) {
  * and a queue you have to read past to find the work is a queue that stops getting
  * read. The colour says which rows are dead; this is what gets them out of the way.
  *
- * Run by hand, or from a clock trigger. Deliberately NOT run from onReferralEdit —
- * see the comment there for why.
+ * Run hourly by runHourlyHousekeeping, which is what installAppOfficialTrigger puts
+ * on the clock, and runnable by hand from the toolbar when you want it now.
+ * Deliberately NOT run from onReferralEdit — see the comment there for why.
  */
 function sortReferralCancelledToBottom() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1542,7 +1622,31 @@ function onEdit(e) {
 
 /**
  * Referral: ticking Cancel in column M calls that ask off where you are standing —
- * Status goes to Cancelled and both booked hours are wiped.
+ * every row of it. Status goes to Cancelled, both booked hours are wiped, and the
+ * box is ticked on each row that went.
+ *
+ * The whole ask rather than the one row, because an ask is not one row. The planner
+ * picks one representative application per employer and asks up to six people there
+ * about it, so six consecutive rows carry the identical Company and Role and
+ * calling the ask off used to mean ticking six boxes. Missing one of the six is the
+ * failure that matters: it leaves a message going out tomorrow morning asking a
+ * stranger for a referral to a job you decided last week not to chase, and nothing
+ * on the tab looks wrong until the reply arrives.
+ *
+ * Merging those six Cancel cells into one — the first thing anybody suggests — does
+ * not work here. sortReferralCancelledToBottom rewrites the whole block with
+ * setValues, a merge does not travel with the values it spans, so after one sort
+ * the merged cell covers whichever six rows now sit on those lines and a tick
+ * cancels people nobody meant to cancel. Grouping on Company and Role cannot come
+ * unstuck that way: the key is read off the rows themselves, wherever they are.
+ *
+ * **To drop exactly one person, set that row's Status to Cancelled by hand.** The
+ * dropdown already offers the word, nothing here listens to a Status edit — the
+ * column guard on the first line returns on every column that is not Cancel — and
+ * sortReferralCancelledToBottom keys off Status alone, so that row goes grey and
+ * sinks with the rest while its five colleagues stay in the queue. That is the
+ * answer to "what if I only want to drop one of the six", and it is what lets the
+ * Cancel box be the blunt instrument.
  *
  * Both timestamps, not just Scheduled At. Drafted At is the hour the message
  * appears in Gmail Drafts, an hour ahead of sending, so a row left holding a
@@ -1560,24 +1664,54 @@ function onReferralEdit(e) {
   var queue = range.getSheet();
 
   if (range.getColumn() > REFERRAL_CANCEL || range.getLastColumn() < REFERRAL_CANCEL) return;
-  var firstRow = Math.max(range.getRow(), FIRST_ROW);
-  var lastRow = range.getLastRow();
-  if (lastRow < firstRow) return;  // only the header was edited
 
-  // Fill-down and paste edit many rows at once, so read the whole block rather than
-  // just the first cell. Drafted At through Cancel in one read and one write:
-  // every cell this function looks at or changes is inside that span, so the
-  // contiguous block costs one round trip where four column reads would cost four,
-  // and a person ticking a box should not be paying for a trigger's round trips.
-  var count = lastRow - firstRow + 1;
-  var span = REFERRAL_CANCEL - REFERRAL_DRAFTED_AT + 1;
-  var block = queue.getRange(firstRow, REFERRAL_DRAFTED_AT, count, span).getValues();
-  var DRAFTED = 0, SCHEDULED = 1, STATUS = 2, CANCEL = span - 1;
+  var bottom = queue.getLastRow();
+  var firstRow = Math.max(range.getRow(), FIRST_ROW);
+  // Clamped to the last row holding anything. A tick dragged on down past the data
+  // would otherwise make the loop below walk rows the read never covered.
+  var lastRow = Math.min(range.getLastRow(), bottom);
+  if (lastRow < firstRow) return;  // only the header was edited, or only empty rows
+
+  // One read, and it covers the whole tab rather than the rows that were edited.
+  // The rows of an ask are usually consecutive and must not be assumed to be: a
+  // sort, a row inserted by hand, or the sixth name being added a fortnight late
+  // all leave a group with somebody else's row in the middle of it. Reading only
+  // the edited rows would cancel the members on this side of the gap and leave the
+  // rest live, which is precisely the half-cancelled ask — a message still going
+  // out — that grouping is here to prevent.
+  //
+  // A..Cancel, one contiguous block: Company and Role are what say which rows are
+  // one ask, and Drafted At through Cancel is everything this function reads or
+  // writes, so the two ends cost one round trip where two reads would cost two.
+  var count = bottom - FIRST_ROW + 1;
+  var block = queue.getRange(FIRST_ROW, 1, count, REFERRAL_CANCEL).getValues();
+  var DRAFTED = REFERRAL_DRAFTED_AT - 1, SCHEDULED = REFERRAL_SCHEDULED_AT - 1;
+  var STATUS = REFERRAL_STATUS - 1, CANCEL = REFERRAL_CANCEL - 1;
+
+  // The whole tab indexed by ask, built once before the loop. Rescanning per ticked
+  // row would make a fill-down over twenty rows twenty passes over the tab, and
+  // onEdit is a simple trigger with thirty seconds to finish in. Object.create(null)
+  // rather than {}: a bare object carries inherited names, and a lookup that found
+  // one would treat an unrelated set of rows as this row's ask.
+  var members = Object.create(null);
+  for (var i = 0; i < count; i++) {
+    var indexed = referralGroupKey_(block[i][REFERRAL_COMPANY - 1], block[i][REFERRAL_ROLE - 1]);
+    if (!indexed) continue;
+    if (members[indexed]) members[indexed].push(i);
+    else members[indexed] = [i];
+  }
+
   var cancelled = 0;
   var refused = 0;
-  var changed = false;
+  // Rows already dealt with. Two rows of one ask inside a fill-down would otherwise
+  // walk the same group twice and report six rows cancelled as twelve.
+  var decided = [];
+  // The span that actually changed, which is what gets written back. Tracked as the
+  // first and last changed row rather than the whole tab so a group at the top does
+  // not rewrite three hundred rows underneath it.
+  var low = -1, high = -1;
 
-  for (var i = 0; i < count; i++) {
+  for (var edited = firstRow - FIRST_ROW; edited <= lastRow - FIRST_ROW; edited++) {
     // Unticking is ignored, deliberately. The box is not a switch with an off
     // position: what would put this row back in the queue is a Scheduled At, and
     // the sender is the only thing that picks one — it reads the tab, decides which
@@ -1586,59 +1720,103 @@ function onReferralEdit(e) {
     // somebody else, and two messages in the same slot is exactly what the
     // scheduling exists to avoid. Untick it if the tick was a mistake, then let the
     // sender re-plan the row.
-    if (block[i][CANCEL] !== true) continue;
+    if (block[edited][CANCEL] !== true) continue;
 
-    var status = String(block[i][STATUS] == null ? '' : block[i][STATUS]).trim();
+    // A row missing Company or Role has no ask and so acts on itself alone. Letting
+    // it match the other blanks would cancel half-typed rows at unrelated companies
+    // — see referralGroupKey_.
+    var key = referralGroupKey_(
+      block[edited][REFERRAL_COMPANY - 1], block[edited][REFERRAL_ROLE - 1]);
+    var ask = key ? members[key] : [edited];
 
-    // A row with no Status at all is not a queue row — it is one of the blank
-    // lines below the data, which carry a checkbox because the validation covers
-    // the whole column. Writing Cancelled there would conjure an ask that never
-    // existed, and it would extend getLastRow so every sweep after it read a
-    // phantom row as the bottom of the queue.
-    if (!status) continue;
+    for (var m = 0; m < ask.length; m++) {
+      var row = ask[m];
+      if (decided[row]) continue;
+      decided[row] = true;
 
-    // Sent is the one Status this refuses to touch. The message has gone; there is
-    // no draft left to delete and no hour left to give back, so "cancelled" would
-    // be the tab telling you a thing that is not true — and the reply, when it
-    // comes, would land on a row claiming you never wrote. The row is left exactly
-    // as it stands, and the box is put back to unticked rather than left sitting
-    // there as a grey claim that this one was called off.
-    if (status.toLowerCase() === REFERRAL_SENT.toLowerCase()) {
-      block[i][CANCEL] = false;
-      refused++;
-      changed = true;
-      continue;
+      var status = String(block[row][STATUS] == null ? '' : block[row][STATUS]).trim();
+
+      // A row with no Status at all is not a queue row — it is one of the blank
+      // lines below the data, which carry a checkbox because the validation covers
+      // the whole column, or a row somebody has started typing and not finished.
+      // Writing Cancelled there would conjure an ask that never existed, and on a
+      // blank line it would extend getLastRow so every sweep after it read a
+      // phantom row as the bottom of the queue. Checked per row and not for the
+      // group, so one unfinished row does not stop the five real ones going.
+      if (!status) continue;
+
+      var wasDrafted = block[row][DRAFTED], wasScheduled = block[row][SCHEDULED];
+      var wasStatus = block[row][STATUS], wasCancel = block[row][CANCEL];
+
+      // Sent is the one Status this refuses to touch, and it is refused per row
+      // rather than for the ask. The message has gone; there is no draft left to
+      // delete and no hour left to give back, so "cancelled" would be the tab
+      // telling you a thing that is not true — and the reply, when it comes, would
+      // land on a row claiming you never wrote. That one colleague has already been
+      // written to is no reason to leave the other five queued, so the row is left
+      // exactly as it stands and the rest of the ask still goes. The box is put back
+      // to unticked rather than left sitting there as a grey claim that this one was
+      // called off.
+      if (status.toLowerCase() === REFERRAL_SENT.toLowerCase()) {
+        block[row][CANCEL] = false;
+        refused++;
+      } else {
+        block[row][STATUS] = REFERRAL_CANCELLED;
+        block[row][SCHEDULED] = '';
+        block[row][DRAFTED] = '';
+        // Ticked on every row of the ask, not only the one clicked. The box is the
+        // one thing on the tab that says a person called this off rather than the
+        // sender giving up on it, and an ask showing one tick and five bare
+        // Cancelled cells reads as five rows that lost their draft for five
+        // separate reasons nobody recorded.
+        block[row][CANCEL] = true;
+        cancelled++;
+      }
+
+      // Only a row whose cells really moved widens the write. A Sent colleague whose
+      // box was already unticked is reported, because you want to know it was left
+      // alone, but it is not a reason to rewrite the rows between here and there.
+      if (block[row][DRAFTED] === wasDrafted && block[row][SCHEDULED] === wasScheduled
+          && block[row][STATUS] === wasStatus && block[row][CANCEL] === wasCancel) continue;
+      if (low === -1 || row < low) low = row;
+      if (row > high) high = row;
     }
-
-    block[i][STATUS] = REFERRAL_CANCELLED;
-    block[i][SCHEDULED] = '';
-    block[i][DRAFTED] = '';
-    // The tick itself stays. It is the difference between a row the sender gave up
-    // on and a row a person called off, which is the only record of that decision
-    // the tab keeps.
-    cancelled++;
-    changed = true;
   }
 
-  if (!changed) return;
-  queue.getRange(firstRow, REFERRAL_DRAFTED_AT, count, span).setValues(block);
+  if (low === -1) return;
+
+  // One write for the whole ask, however many rows it turned out to be and however
+  // far apart they sit. Six rows written one at a time is six round trips to the
+  // spreadsheet service, and a simple trigger has thirty seconds — a group cancel
+  // that dies partway is the worst outcome available here, because it leaves half
+  // the ask called off and half of it still sending, with a tab that looks tidy.
+  //
+  // Only Drafted At..Cancel goes back, though A..Cancel was read. Company, Role and
+  // the seven columns between them are somebody's typing and the sender's
+  // bookkeeping; writing them back over themselves would clobber anything the
+  // sender wrote in the second between this read and this write.
+  var span = REFERRAL_CANCEL - REFERRAL_DRAFTED_AT + 1;
+  var out = [];
+  for (var w = low; w <= high; w++) out.push(block[w].slice(DRAFTED, CANCEL + 1));
+  queue.getRange(FIRST_ROW + low, REFERRAL_DRAFTED_AT, out.length, span).setValues(out);
 
   // The rows are NOT sorted here, and that is a decision rather than an oversight —
   // the same one onAppEdit already makes. This runs while you are clicking. Sinking
   // the row on the spot would pull it out from under the cursor, and the row that
   // slid up into its place is a different person, so the next box you tick cancels
-  // an ask you meant to keep. A fill-down over twenty rows would rearrange the tab
-  // halfway through the drag. There is a budget argument too: onEdit is a simple
-  // trigger with thirty seconds, and the sort reads and rewrites every row on the
-  // tab, which is not what one click should cost. Nor is anything re-scheduled here
-  // for the same reason plus a better one — picking a new hour for the rows behind
-  // this one is the sender's job, and doing it from a keystroke would mean two
-  // things booking slots with no idea the other exists. So the row goes grey
-  // instantly, which is the half that has to be immediate, and its position waits
-  // for sortReferralCancelledToBottom.
+  // an ask you meant to keep. Cancelling a group makes that worse rather than
+  // better: six rows would leave at once and everything below them would jump six
+  // lines. A fill-down over twenty rows would rearrange the tab halfway through the
+  // drag. There is a budget argument too: onEdit is a simple trigger with thirty
+  // seconds, and the sort reads and rewrites every row on the tab, which is not what
+  // one click should cost. Nor is anything re-scheduled here for the same reason
+  // plus a better one — picking a new hour for the rows behind this one is the
+  // sender's job, and doing it from a keystroke would mean two things booking slots
+  // with no idea the other exists. So the rows go grey instantly, which is the half
+  // that has to be immediate, and their position waits for the hourly
+  // runHourlyHousekeeping.
   e.source.toast(referralCancelReport(cancelled, refused), 'Referral', 6);
 }
-
 
 function referralCancelReport(cancelled, refused) {
   if (!cancelled) return 'Nothing cancelled: ' + rowCount(refused) + ' already sent.';
@@ -1939,8 +2117,18 @@ function report(added, skipped, expired) {
 }
 
 
+// Current first, and every handler name this pair has ever installed after it. The
+// list is the remover's whole reason for working on a spreadsheet set up before the
+// two sweeps were joined; see removeAppOfficialTrigger.
+var HOUSEKEEPING_HANDLERS = ['runHourlyHousekeeping', 'paintAppOfficialRows'];
+
 /**
- * Put the repaint and the sort on the clock.
+ * Put the hourly housekeeping on the clock: the App repaint and the Referral sort.
+ *
+ * The name is unchanged, and so is the remover's, because docs/spreadsheet.md and a
+ * year of notes point at this pair by name. What it installs is now
+ * runHourlyHousekeeping rather than paintAppOfficialRows alone — see there for why
+ * both sweeps ride one trigger.
  *
  * They cannot be left to run by hand, and the reason is that App only ever grows.
  * Every ticked box on Jobs appends a row to the bottom of this tab, and onEdit
@@ -1948,6 +2136,13 @@ function report(added, skipped, expired) {
  * until the next application goes out, and by the end of a week the rows with no
  * employer link on them are scattered down the tab again. A worklist that is only
  * right just after you remember to rebuild it is one nobody reads.
+ *
+ * The Referral half has the same shape of problem and it is worse, because the row
+ * it is about is one somebody has already decided against: ticking Cancel greys the
+ * ask out where it stands and deliberately does not move it, so without this the
+ * called-off rows stay wedged between the live ones until somebody remembers to run
+ * the sort by hand. A queue you have to read past to find the work is a queue that
+ * stops being read.
  *
  * Hourly, which is the same cadence the outreach machinery runs at, so the top of
  * the tab is never wrong for longer than it takes the next firing to notice.
@@ -1967,17 +2162,85 @@ function report(added, skipped, expired) {
  */
 function installAppOfficialTrigger() {
   removeAppOfficialTrigger();
-  ScriptApp.newTrigger('paintAppOfficialRows').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger(HOUSEKEEPING_HANDLERS[0]).timeBased().everyHours(1).create();
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    'App rows needing an official link will be repainted and moved to the top every hour.',
+    'Every hour: App rows needing an official link move to the top, and cancelled '
+    + 'Referral rows sink to the bottom.',
     'Installed', 5);
 }
 
-/** The kill switch for the above, and the only one. */
+/**
+ * The kill switch for the above, and still the only one.
+ *
+ * It deletes every handler name this pair has ever installed, not just the one it
+ * installs today. A spreadsheet set up before the two sweeps were joined carries a
+ * trigger pointing at paintAppOfficialRows, and a remover that only knew the
+ * current name would leave that one firing every hour with nothing on the sheet to
+ * say where it came from — you would remove the trigger, watch the tab reorder
+ * itself anyway, and have no way from here to stop it. A kill switch that cannot
+ * kill what earlier versions installed is not one.
+ */
 function removeAppOfficialTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === 'paintAppOfficialRows') {
+    if (HOUSEKEEPING_HANDLERS.indexOf(trigger.getHandlerFunction()) !== -1) {
       ScriptApp.deleteTrigger(trigger);
     }
   });
+}
+
+
+/**
+ * The hourly sweep: bring the App worklist back to the top, then sink the Referral
+ * rows that have been called off.
+ *
+ * One trigger for both, and not because the two jobs are related — they touch
+ * different tabs and neither reads the other. It is because a second hourly trigger
+ * doing adjacent work on the same spreadsheet is one more thing to forget: the pair
+ * above is documented as the kill switch, people reach for it when the Python half
+ * or the sender is being worked on, and a separate Referral trigger left running
+ * behind it would go on rewriting a queue somebody had deliberately frozen. Two
+ * names to remember is how one of them gets left on for months.
+ *
+ * Named for the sweep rather than for either half so that neither half reads as the
+ * real job and the other as an afterthought bolted onto its trigger.
+ *
+ * Repaint first, sort second. paintAppOfficialRows settles which App rows are
+ * yellow and then orders them itself, so running the Referral sort first would only
+ * make the App half wait; more to the point, the App half is the one whose output a
+ * person acts on next, and if the thirty-minute execution budget is ever hit it
+ * should be the second job that is cut short, not the first.
+ *
+ * The two are isolated from each other on purpose. A missing App tab, a renamed
+ * Referral tab, a row somebody has locked — any of those throws out of one half,
+ * and without the try/catch it would take the other half's housekeeping down with
+ * it silently, once an hour, on a tab where nothing looked wrong. Both always run;
+ * what failed is reported afterwards.
+ *
+ * Reported by throwing rather than by a toast, because nobody has the spreadsheet
+ * open when a clock trigger fires and a toast is only seen by someone watching. A
+ * throw is what makes Apps Script send its failure notification, so the error names
+ * both halves — which one failed and whether the other still got its work done.
+ *
+ * Both halves stay runnable on their own from the Apps Script toolbar. Somebody
+ * debugging the Referral sort should not have to repaint App to do it.
+ */
+function runHourlyHousekeeping() {
+  var problems = [];
+  try {
+    paintAppOfficialRows();
+  } catch (appError) {
+    problems.push('the App repaint failed (' + appError.message + ')');
+  }
+  try {
+    sortReferralCancelledToBottom();
+  } catch (referralError) {
+    problems.push('the Referral sort failed (' + referralError.message + ')');
+  }
+  if (!problems.length) return;
+  throw new Error(
+    'Hourly housekeeping: ' + problems.join(', and ') + '. '
+    + (problems.length === 2
+        ? 'Neither tab was tidied.'
+        : 'The other tab was tidied normally.')
+  );
 }

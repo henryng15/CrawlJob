@@ -299,7 +299,7 @@ blanks.
 | Template | which of that tier's ten messages this row uses |
 | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them |
 | Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
-| Cancel | tick it to call a row off. `Status` goes to `Cancelled` and both timestamps clear on the keystroke |
+| Cancel | tick it to call the **whole ask** off. Every row with the same Company and Role goes `Cancelled` too |
 | Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail also calls the message off |
 | Sent At / Result / Last Error | when it went, the id of the message that went, and why it did not go |
 | Queue ID / Version | `R-` and the person's address, and the concurrency guard |
@@ -313,6 +313,22 @@ only have to be learned twice.
 
 `Tier` is a dropdown rather than free text because a tier typed by hand drifts — `Senior`, `sr`,
 `Sr.` — and then no filter finds the seniors.
+
+`Cancel` calls off an **ask**, not a row. The planner picks one representative application per
+employer and asks up to six people about it, so six rows routinely carry the identical Company and
+Role — they are one decision, not six, and ticking any one of them cancels all of them and ticks
+their boxes so the tab shows plainly which rows went together. Rows already `Sent` are left out:
+that message has gone, and marking it cancelled would be the tab claiming something untrue about a
+mailbox it no longer controls.
+
+**To drop one person without dropping the ask**, set that row's `Status` to `Cancelled` by hand
+using the dropdown. The checkbox is the group switch; the dropdown is the single-row one.
+
+The cells are not merged, and that was a deliberate refusal. A merged Cancel cell is the obvious
+way to say "one ask, one checkbox", but merges do not survive the block read-and-write that
+`sortReferralCancelledToBottom` performs, so after a sort the merge would span the wrong rows and a
+tick would cancel people nobody meant to cancel. Group semantics give the same outcome with none of
+that.
 
 `Cancel` sits beside `Status` and `Mode` because those three are the only columns on this tab a
 person touches — a switch that calls off a message has to be next to the state it changes, and an

@@ -637,18 +637,37 @@ function replanReferralAsks() {
   // paste, a fill-down, or an undo, none of which fire a simple trigger. The tab
   // is the record either way, so the state is settled here rather than trusted to
   // have been settled there.
-  rows.forEach(function (row) {
-    if (!row.cancel || row.status === STATUS_CANCELLED || row.status === STATUS_SENT) return;
-    outreachWriteRow_(referral, row.index, (function () {
-      var updates = {};
-      updates[R_STATUS] = STATUS_CANCELLED;
-      updates[R_SCHEDULED] = '';
-      updates[R_DRAFTED_AT] = '';
-      return updates;
-    })());
+  //
+  // Expanded to the whole ask, because six rows sharing a company and a posting
+  // are one decision rather than six. onEdit does the same expansion for the
+  // instant feedback; this is the half that is authoritative.
+  outreachReferralToCancel_(rows).forEach(function (row) {
+    var updates = {};
+    updates[R_STATUS] = STATUS_CANCELLED;
+    updates[R_CANCEL] = true;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    outreachWriteRow_(referral, row.index, updates);
     row.status = STATUS_CANCELLED;
+    row.cancel = true;
     row.scheduled = null;
     tally.cancelled++;
+  });
+
+  // A row somebody dropped by hand, using the Status dropdown rather than the
+  // checkbox. Nothing ran when they did it, so the row still shows the hour it was
+  // going to leave at: a tab saying Cancelled in one column and 09:00 in the next.
+  // The hour is already free as far as the planner is concerned — this is the cell
+  // catching up with the decision.
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_CANCELLED) return;
+    if (!row.scheduled && !row.draftedAt) return;
+    var updates = {};
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    row.scheduled = null;
+    row.draftedAt = null;
   });
 
   outreachReferralAbandoned_(rows).forEach(function (row) {
