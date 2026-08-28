@@ -3815,30 +3815,64 @@ console.log('the Email tab layout — where the three new columns sit, and how a
                           S.outreachReferralSubjectIndex_('Stripe', 1));
   });
 
-  // The one sentence in the message a reader can check. This path queues from a
-  // posting and deliberately does not wait for an application, so claiming one
-  // would be a falsehood in an email whose whole argument is that it is honest.
-  run('an email sent before applying says so, in the present tense', () => {
+  // No date, and the link at the foot rather than inside the sentence naming the
+  // role. A referral is a form: the person filling it in does not care what day
+  // the application went, and a Workday URL dropped mid-paragraph is two lines of
+  // query string exactly where the reader is working out who is writing.
+  run('the role is named in prose and the posting sits at the foot', () => {
     const base = {
       personName: 'Priya Raman', personTitle: 'Software Engineer', company: 'Stripe',
       bucket: 'fintech', angle: '', role: 'Software Engineering Intern, Summer 2027',
-      today: day(2026, 8, 28), attempt: 1,
+      today: day(2026, 8, 28), attempt: 1, dateApplied: day(2026, 8, 21),
       jobLink: 'https://boards.greenhouse.io/stripe/jobs/1'
     };
-    const unapplied = S.outreachReferralCompose_(base);
-    assert.ok(unapplied.plain.indexOf('I am applying for the Software Engineer Intern role at Stripe') !== -1,
-              unapplied.plain);
-    assert.ok(unapplied.plain.indexOf('I applied') === -1);
+    const one = S.outreachReferralCompose_(base);
+    assert.ok(one.plain.indexOf('applying for the Software Engineer Intern role at Stripe') !== -1,
+              one.plain);
+    // No date anywhere, whether or not one was passed.
+    assert.ok(one.plain.indexOf('Aug 21') === -1);
+    assert.ok(one.plain.indexOf('I applied') === -1);
+    // The link is the last line, and labelled.
+    const lines = one.plain.trim().split('\n');
+    assert.strictEqual(lines[lines.length - 1], 'The posting: ' + base.jobLink);
+    assert.ok(one.html.indexOf(base.jobLink) !== -1);
+  });
 
-    const applied = {};
-    Object.keys(base).forEach((k) => { applied[k] = base[k]; });
-    applied.dateApplied = day(2026, 8, 21);
-    const withDate = S.outreachReferralCompose_(applied);
-    assert.ok(withDate.plain.indexOf('I applied for the Software Engineer Intern role at Stripe on Aug 21') !== -1,
-              withDate.plain);
-    // Either way the link is there, because that is what a referral form wants.
-    assert.ok(unapplied.plain.indexOf(base.jobLink) !== -1);
-    assert.ok(withDate.plain.indexOf(base.jobLink) !== -1);
+  // Two numbers arriving under a paragraph that did not mention them read as a
+  // fragment of a CV somebody pasted in.
+  run('the bullets are introduced rather than dropped', () => {
+    const one = S.outreachReferralCompose_({
+      personName: 'Priya', personTitle: 'Software Engineer', company: 'Stripe',
+      bucket: 'fintech', angle: '', role: 'SWE Intern', today: day(2026, 8, 28),
+      attempt: 1, jobLink: 'https://boards.greenhouse.io/stripe/jobs/1'
+    });
+    const lines = one.plain.split('\n');
+    const firstBullet = lines.findIndex((l) => l.indexOf('  - ') === 0);
+    assert.ok(firstBullet > 0);
+    // The line above the bullets is the lead-in, and it ends by pointing at them.
+    assert.strictEqual(lines[firstBullet - 1], '');
+    assert.ok(/:$/.test(lines[firstBullet - 2]), lines[firstBullet - 2]);
+  });
+
+  // A referral is the big ask; forwarding a resume is the one a stranger can say
+  // yes to without spending anything of their own.
+  run('every message offers the easier favour as well', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      assert.ok(/forward|pass|point|send|hand/i.test(entry.offer),
+                tier + ' #' + (i + 1) + ' offers no second route: ' + entry.offer);
+      assert.ok(/resume|it is attached|attached/i.test(entry.offer),
+                tier + ' #' + (i + 1) + ' never mentions the resume');
+    }));
+  });
+
+  // Saying it in the opening and again in the ask is what made the first draft
+  // read as awkward, so each message says it once.
+  run('never having met is said once, not twice', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      const met = /never (met|spoken)|not met|not spoken|stranger/i;
+      const both = met.test(entry.open) && met.test(entry.ask);
+      assert.ok(!both, tier + ' #' + (i + 1) + ' says it in both the open and the ask');
+    }));
   });
 
   // Two of three spent and the third never sent is the worst arrangement there is.

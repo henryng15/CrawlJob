@@ -145,187 +145,221 @@ function outreachReferralTier_(title, seniority) {
  */
 var REFERRAL_TEMPLATES = {
 
-  // Peer. Junior engineers, new grads and interns. They were at this stage
-  // recently enough to recognise the ask, so the note is warm and the request is
-  // direct: softening it here would only sound evasive.
+  // Peer. Junior engineers, new grads and interns, close enough to this stage to
+  // recognise the ask, so the note is warm and the request is direct.
   peer: [
-    { open: 'We have not spoken before, so I will keep this short.',
-      ask: 'Would you be willing to **put a referral in for me**?',
-      offer: 'Resume is attached, and I am happy to answer anything by email.',
+    { open: 'We have never met, and I will keep this to a few lines.',
+      lead: 'Two things I have built that are closest to the work:',
+      ask: 'Would you be willing to **refer me**?',
+      offer: 'If it is easier to pass my resume to whoever runs hiring there, that helps just as much. It is attached.',
       close: 'Thanks for reading this far,' },
-    { open: 'This is a cold note, and we have never met.',
-      ask: 'Would you be open to **referring me for it**? A no is completely fine.',
-      offer: 'Everything you would need is attached.',
+    { open: 'A short note from a stranger, and the only one I will send.',
+      lead: 'The two pieces of my own work I would point at:',
+      ask: 'May I ask you for **a referral**, even though this is the first you are hearing from me?',
+      offer: 'And if forwarding the attached resume to someone in recruiting is the easier favour, I would be just as grateful.',
       close: 'Have a good week,' },
-    { open: 'We have not talked before, and I know an unexpected email is a small imposition.',
-      ask: 'Could I ask you to **refer me**? It would genuinely help.',
-      offer: 'Resume attached, and I will reply the same day to anything you ask.',
+    { open: 'This will take you under a minute.',
+      lead: 'Two things I have shipped that are nearest to it:',
+      ask: 'Would it be too forward to ask you for **a referral**, given that we have never spoken?',
+      offer: 'If pointing it at whoever handles intern hiring is simpler, that helps too. Resume attached.',
       close: 'Wishing you a good one,' },
-    { open: 'Writing cold, and I will not take much of your time.',
-      ask: 'Would you consider **submitting a referral for me**?',
-      offer: 'The resume is attached if you want to look first.',
+    { open: 'We have not met, so I will be brief.',
+      lead: 'Two of my own projects that speak to the same problems:',
+      ask: 'Would you **refer me**? Please treat it as easy to refuse.',
+      offer: 'Or forward the attached resume to whoever owns this req, if that is the easier thing to do.',
       close: 'Thanks a lot,' },
-    { open: 'We have never spoken, so I will get straight to it.',
-      ask: 'Would you be willing to **refer me for the role**? No pressure at all.',
-      offer: 'Happy to send anything else you need, or nothing at all.',
+    { open: 'A few lines and I will leave you to your day.',
+      lead: 'Two results from my own work that seem closest:',
+      ask: 'Might I ask you for **a referral**, even though we are strangers?',
+      offer: 'If passing the attached resume to someone in recruiting is easier, I would be grateful for that instead.',
       close: 'Have a great week,' },
-    { open: 'A cold email, and I am sorry to arrive uninvited.',
-      ask: 'Would you be open to **putting my name in as a referral**?',
-      offer: 'Resume attached, and I can answer anything by email.',
+    { open: 'We have never spoken, so I will say this quickly.',
+      lead: 'Two things I have built that are closest to what the team does:',
+      ask: 'Would you be open to **referring me**?',
+      offer: 'And if the simpler favour is forwarding my resume to hiring, please do that instead. It is attached.',
       close: 'Thank you for your time,' },
-    { open: 'We have not met, so I will be quick.',
-      ask: 'Could you **refer me for this one**? Only if it feels reasonable to you.',
-      offer: 'Everything is in the attachment.',
+    { open: 'Short, and only this once.',
+      lead: 'The two results of mine I would put forward:',
+      ask: 'Would you **refer me**, knowing that I am a stranger asking?',
+      offer: 'If handing the attached resume to whoever runs this hire is easier, that would help just as much.',
       close: 'Hope your week goes well,' },
-    { open: 'This arrives with no introduction, which I know is a lot to ask of an inbox.',
-      ask: 'Would you be willing to **send in a referral**?',
-      offer: 'Resume attached, and questions by email are welcome.',
+    { open: 'A few sentences from somebody you have not met, and no more.',
+      lead: 'Two things I have made that are near this work:',
+      ask: 'May I ask you for **a referral**?',
+      offer: 'Or send the attached resume on to someone in recruiting, if that costs you less.',
       close: 'All the best,' },
-    { open: 'We have never spoken and this is a cold note.',
-      ask: 'Would you consider **referring me**? A short no is a perfectly good answer.',
-      offer: 'The attachment has everything.',
+    { open: 'I will keep it short.',
+      lead: 'Two pieces of my own work that fit closest:',
+      ask: 'We have not spoken before, so a no is easy: would you consider **referring me**?',
+      offer: 'If forwarding it to whoever handles intern hiring is the easier route, I would be grateful. Resume attached.',
       close: 'Thanks for your time,' },
-    { open: 'Writing to you out of the blue, and only for a few lines.',
-      ask: 'Would you be open to **referring me for the internship**?',
-      offer: 'Resume attached, and I am glad to answer anything by email.',
+    { open: 'Only a few lines, I promise.',
+      lead: 'Two things I have built that come nearest to it:',
+      ask: 'Would you be willing to **refer me**, even though we have never met?',
+      offer: 'And passing the attached resume to someone in recruiting would help just as much, if that is simpler.',
       close: 'Have a lovely day,' }
   ],
 
-  // Mid. The largest group by far, and the one where the reason for writing to an
-  // engineer instead of a recruiter has to carry the note: they are neither a peer
-  // nor an authority, so the only honest hook is that they do the actual work.
+  // Mid. The largest group by far.
   mid: [
-    { open: 'We have not spoken before, so I will be brief.',
-      ask: 'Would you be open to **referring me for it**?',
-      offer: 'Resume is attached, and I can answer anything by email.',
+    { open: 'We have never met, and I will be brief.',
+      lead: 'Two things I have built that are closest to the work:',
+      ask: 'Would you be open to **referring me**?',
+      offer: 'If it is easier to pass my resume to whoever runs hiring there, that helps just as much. It is attached.',
       close: 'Thanks for reading,' },
-    { open: 'This is a cold email and we have never met, which I know is a small imposition on a working day.',
-      ask: 'Would you consider **putting a referral in**? Completely understand if not.',
-      offer: 'Everything you would need is attached.',
+    { open: 'A short note on a working day, and I will keep it that way.',
+      lead: 'The two pieces of my own work I would point at:',
+      ask: 'Would it be presumptuous to ask you for **a referral**, given that we have never spoken?',
+      offer: 'And if forwarding the attached resume to someone in recruiting is the easier favour, I would be just as grateful.',
       close: 'Have a good week,' },
-    { open: 'We have not talked before, and I will keep this to a few lines.',
-      ask: 'Would you be willing to **refer me**?',
-      offer: 'Resume attached, and I will answer anything the same day.',
+    { open: 'This will take a minute at most.',
+      lead: 'Two results from my own projects that seem nearest:',
+      ask: 'May I ask you for **a referral**, even though this is the first you are hearing from me?',
+      offer: 'If pointing it at whoever handles intern hiring is simpler, that helps too. Resume attached.',
       close: 'Wishing you a good week,' },
-    { open: 'Writing cold, and I will not take more than a minute of your day.',
-      ask: 'Could I ask you to **submit a referral for me**?',
-      offer: 'The resume is attached if you would rather look before deciding.',
+    { open: 'We have not met, and I will not take much of your day.',
+      lead: 'Two things I have shipped that are closest to it:',
+      ask: 'Would you **refer me**? Please say no freely.',
+      offer: 'Or forward the attached resume to whoever owns this req, if that is the easier thing to do.',
       close: 'Thank you for your time,' },
-    { open: 'We have never spoken, so an unexpected message from me is a fair thing to ignore.',
-      ask: 'Would you be open to **referring me for the role**? A no costs me nothing.',
-      offer: 'Happy to send anything else, or nothing at all.',
+    { open: 'A few lines, and an easy one to ignore.',
+      lead: 'Two of my own results that speak to the same problems:',
+      ask: 'Might I ask a stranger for **a referral**? That is what this is, and I would be grateful.',
+      offer: 'If passing the attached resume to someone in recruiting is easier, I would be grateful for that instead.',
       close: 'Have a great week,' },
-    { open: 'A cold note, with no introduction behind it.',
+    { open: 'We have never spoken. Short and to the point, then.',
+      lead: 'Two things I have built that are nearest to the work of your team:',
       ask: 'Would you consider **referring me**?',
-      offer: 'Resume attached, and I am happy to answer anything by email.',
+      offer: 'And if the simpler favour is forwarding my resume to hiring, please do that instead. It is attached.',
       close: 'Thanks either way,' },
-    { open: 'We have not met, and I will keep this short out of respect for your day.',
-      ask: 'Would you be willing to **put my name forward as a referral**?',
-      offer: 'Everything is in the attachment.',
+    { open: 'I will keep this out of your way.',
+      lead: 'The two pieces of work of mine I would put forward:',
+      ask: 'Would you be willing to **refer me**, knowing that we have never met?',
+      offer: 'If handing the attached resume to whoever runs this hire is easier, that would help just as much.',
       close: 'Hope the week treats you well,' },
-    { open: 'This arrives unannounced, which I know is not ideal.',
-      ask: 'Would you be open to **sending in a referral**? Only if it seems reasonable.',
-      offer: 'Resume attached, and questions by email are welcome.',
+    { open: 'A short one from a stranger, and the only one.',
+      lead: 'Two things I have made that fit closest:',
+      ask: 'May I ask you for **a referral**?',
+      offer: 'Or send the attached resume on to someone in recruiting, if that costs you less.',
       close: 'All the best,' },
-    { open: 'We have never spoken and this is entirely cold.',
-      ask: 'Could you **refer me for this one**?',
-      offer: 'The attachment covers everything.',
+    { open: 'This is short.',
+      lead: 'Two results of my own that come nearest to it:',
+      ask: 'We have not met, so a no costs me nothing: would you consider **referring me**?',
+      offer: 'If forwarding it to whoever handles intern hiring is the easier route, I would be grateful. Resume attached.',
       close: 'Thanks for your time,' },
-    { open: 'Writing out of the blue, and I will be quick about it.',
-      ask: 'Would you consider **referring me for the internship**? Fine either way.',
-      offer: 'Resume attached, and I can answer anything by email.',
+    { open: 'We have never met, and I will be quick.',
+      lead: 'Two things I have built that are closest to what you work on:',
+      ask: 'Would it be too much to ask you for **a referral**?',
+      offer: 'And passing the attached resume to someone in recruiting would help just as much, if that is simpler.',
       close: 'Have a good one,' }
   ],
 
-  // Senior. The ask starts carrying a condition rather than just a softener: "if
-  // it is something you do" gives an out that costs the reader nothing to take,
-  // which is what makes the direct question askable at all.
+  // Senior. The ask carries a condition rather than only a softener.
   senior: [
-    { open: 'We have not spoken before, and I know a cold email is a claim on a busy day.',
-      ask: 'If it is something you do, would you consider **referring me**? A no is a completely fine answer.',
-      offer: 'Resume attached, and I am happy to answer anything by email.',
+    { open: 'I know an unexpected email is a claim on a busy day, so I will be brief.',
+      lead: 'Two things I have built that are closest to the work:',
+      ask: 'We have never met, so please refuse freely: would you consider **referring me**?',
+      offer: 'If it is easier to pass my resume to whoever runs hiring there, that helps just as much. It is attached.',
       close: 'Thank you for your time,' },
-    { open: 'This arrives with no introduction, from someone you have never met.',
-      ask: 'Would you be open to **putting a referral in**? Only if it is easy for you.',
-      offer: 'Everything you would need is in the attachment.',
+    { open: 'A few lines from somebody you have not heard of.',
+      lead: 'The two pieces of my own work I would point at:',
+      ask: 'Might I ask you for **a referral**?',
+      offer: 'And if forwarding the attached resume to someone in recruiting is the easier favour, I would be just as grateful.',
       close: 'Have a good week,' },
-    { open: 'We have never spoken, and I appreciate that your inbox does not need one more stranger in it.',
-      ask: 'If you ever refer interns, would you consider **doing it for me**?',
-      offer: 'Resume attached, and no reply is needed if the answer is no.',
+    { open: 'I appreciate that your inbox does not need one more stranger in it.',
+      lead: 'Two results of mine that seem nearest to it:',
+      ask: 'If it is something you ever do, may I ask you for **a referral**?',
+      offer: 'If pointing it at whoever handles intern hiring is simpler, that helps too. Resume attached.',
       close: 'Wishing you a good week,' },
-    { open: 'Writing cold, and I know your time is the scarce thing here.',
-      ask: 'Would you be willing to **refer me**? I would be grateful, and completely fine if not.',
-      offer: 'The attachment has everything, and I can answer anything by email.',
+    { open: 'Your time is the scarce thing here, so this is short.',
+      lead: 'Two things I have shipped that are closest to the same problems:',
+      ask: 'We have not met, which makes this presumptuous, but would you be willing to **refer me**?',
+      offer: 'Or forward the attached resume to whoever owns this req, if that is the easier thing to do.',
       close: 'Thank you sincerely,' },
-    { open: 'We have not met, and I will say this plainly rather than dress it up.',
-      ask: 'Would you consider **referring me for it**? A short no is a perfectly good reply.',
-      offer: 'Resume attached if you would rather look before deciding.',
+    { open: 'A short note from a stranger, and I will not send a second.',
+      lead: 'Two pieces of my own work that fit closest:',
+      ask: 'May I ask you for **a referral**?',
+      offer: 'If passing the attached resume to someone in recruiting is easier, I would be grateful for that instead.',
       close: 'Thanks for reading this far,' },
-    { open: 'A cold note, which I know is the least welcome kind.',
-      ask: 'If it is not too much, would you **refer me**?',
-      offer: 'Everything is attached, and questions by email are welcome.',
+    { open: 'I know this is the least welcome kind of email.',
+      lead: 'Two things I have built that come nearest to the work:',
+      ask: 'Would it be too much to ask you for **a referral**, given that we are strangers?',
+      offer: 'And if the simpler favour is forwarding my resume to hiring, please do that instead. It is attached.',
       close: 'Have a great week,' },
-    { open: 'We have never spoken, and I will not pretend otherwise.',
-      ask: 'Would you be open to **submitting a referral**? Please ignore this if the timing is wrong.',
-      offer: 'Resume attached, and I can send anything else you need.',
+    { open: 'We have never spoken, so I will keep the ask small and the note shorter.',
+      lead: 'The two results of mine I would put forward:',
+      ask: 'Would you **refer me**? Please ignore this freely if not.',
+      offer: 'If handing the attached resume to whoever runs this hire is easier, that would help just as much.',
       close: 'Thank you for reading,' },
-    { open: 'Writing unannounced, which costs you a moment you did not plan to spend.',
-      ask: 'Would you consider **putting my name in**? I would be genuinely grateful.',
-      offer: 'The attachment covers it, and I am happy to answer anything.',
+    { open: 'This costs you a moment you did not plan to spend, and I am sorry for it.',
+      lead: 'Two things I have made that speak to the same work:',
+      ask: 'Might I ask a stranger\'s favour and put my name to you for **a referral**?',
+      offer: 'Or send the attached resume on to someone in recruiting, if that costs you less.',
       close: 'All the best,' },
-    { open: 'We have not met, and this is a cold ask from a student.',
-      ask: 'If you refer people, would you be willing to **refer me**? No is an easy answer here.',
-      offer: 'Resume attached, and nothing else is needed from you.',
+    { open: 'A cold note from a student, made plainly rather than dressed up.',
+      lead: 'Two pieces of my own work that seem closest:',
+      ask: 'We have never met, so a no is an easy answer: would you consider **referring me**?',
+      offer: 'If forwarding it to whoever handles intern hiring is the easier route, I would be grateful. Resume attached.',
       close: 'Thanks very much,' },
-    { open: 'This is out of the blue, and I know a senior inbox gets a lot of these.',
-      ask: 'Would you be open to **referring me for the internship**? Completely fine either way.',
-      offer: 'The attachment has what you would need, and nothing more.',
+    { open: 'I know a senior inbox gets a lot of these, so here is mine in three lines.',
+      lead: 'Two things I have built that are nearest to it:',
+      ask: 'May I ask you for **a referral**, even though this is the first you are hearing from me?',
+      offer: 'And passing the attached resume to someone in recruiting would help just as much, if that is simpler.',
       close: 'Thank you for the time,' }
   ],
 
-  // Staff and above, plus managers and directors. Each opening names the reach in
-  // half a sentence, once, and then stops: a full sentence of apology asks the
-  // reader to agree the email was a mistake, and some of them will.
+  // Staff and above, plus managers and directors. Each opening names the reach
+  // in half a sentence, once, and then stops.
   staff: [
-    { open: 'We have never spoken, and writing to someone at your level is a reach on my part. I decided to try anyway.',
-      ask: 'If you ever refer interns, would you consider **doing it for me**? A no costs me nothing.',
-      offer: 'Resume attached, and no reply is needed if the answer is no.',
+    { open: 'We have never met, and writing to somebody at your level is a reach on my part.',
+      lead: 'Two things I have built that are closest to the work:',
+      ask: 'I ask this knowing it is a lot: would you consider **referring me**?',
+      offer: 'If it is easier to pass my resume to whoever runs hiring there, that helps just as much. It is attached.',
       close: 'Thank you for the time either way,' },
-    { open: 'This is a cold email, and aimed well above the level I am applying at, which I know is presumptuous.',
-      ask: 'Would you be open to **putting a referral in**? Only if it takes you nothing.',
-      offer: 'Everything is in the attachment.',
+    { open: 'This is aimed well above the level I am applying at, which I know is presumptuous.',
+      lead: 'The two pieces of my own work I would point at:',
+      ask: 'May I presume on somebody I have never met and ask for **a referral**?',
+      offer: 'And if forwarding the attached resume to someone in recruiting is the easier favour, I would be just as grateful.',
       close: 'Thank you sincerely,' },
-    { open: 'We have not met, and I am aware that reaching this far up for an internship is a long shot.',
-      ask: 'If it is something you do, would you consider **referring me**?',
-      offer: 'Resume attached, and no answer is needed if this is not for you.',
+    { open: 'Reaching this far up for an internship is a long shot and I am aware of it.',
+      lead: 'Two results of mine that seem nearest to it:',
+      ask: 'If it is something you ever do, and knowing we have never spoken, may I ask for **a referral**?',
+      offer: 'If pointing it at whoever handles intern hiring is simpler, that helps too. Resume attached.',
       close: 'Thanks very much for reading,' },
-    { open: 'Writing cold, and honestly a little out of my depth in doing so.',
-      ask: 'Would you be willing to **refer me**? I would be grateful, and I understand if not.',
-      offer: 'The attachment has everything, and I can answer anything by email.',
+    { open: 'I am a little out of my depth writing this, and would rather say so.',
+      lead: 'Two things I have shipped that are closest to the same problems:',
+      ask: 'We have never met, so please refuse without a thought: would you be willing to **refer me**?',
+      offer: 'Or forward the attached resume to whoever owns this req, if that is the easier thing to do.',
       close: 'Thank you for your time,' },
-    { open: 'We have never spoken, and you are several levels past where I am starting, so I know this is a bold note to send.',
-      ask: 'Would you consider **putting my name forward**? A short no is a perfectly good reply.',
-      offer: 'Resume attached, and nothing else is needed from you.',
+    { open: 'You are several levels past where I am starting, so this is a bold note to send.',
+      lead: 'Two pieces of my own work that fit closest:',
+      ask: 'Might I ask you for **a referral**, knowing that we are strangers and that I am asking a lot?',
+      offer: 'If passing the attached resume to someone in recruiting is easier, I would be grateful for that instead.',
       close: 'All the best, and thank you,' },
-    { open: 'A cold email, and a slightly nervy one given the distance between your role and the one I am applying for.',
-      ask: 'If you refer people, would you be open to **referring me**?',
-      offer: 'Everything you would need is attached.',
+    { open: 'A slightly nervy note, given the distance between your role and the one I want.',
+      lead: 'Two things I have built that come nearest to the work:',
+      ask: 'We have never spoken, which makes this presumptuous, but would you consider **referring me**?',
+      offer: 'And if the simpler favour is forwarding my resume to hiring, please do that instead. It is attached.',
       close: 'Thank you for the moment this took,' },
-    { open: 'We have not met, and writing to someone this senior about an internship feels like a stretch.',
-      ask: 'Would you consider **submitting a referral for me**? Genuinely fine if not.',
-      offer: 'Resume attached, and I am happy to answer anything by email.',
+    { open: 'Writing to somebody this senior about an internship feels like a stretch.',
+      lead: 'The two results of mine I would put forward:',
+      ask: 'May I ask a stranger\'s favour of you and request **a referral**?',
+      offer: 'If handing the attached resume to whoever runs this hire is easier, that would help just as much.',
       close: 'Thanks very much,' },
-    { open: 'This arrives unannounced and aimed higher than it probably should be.',
-      ask: 'Would you be open to **referring me**? Please ignore this if it is not something you do.',
-      offer: 'The attachment covers everything.',
+    { open: 'This is aimed higher than it probably should be, and I sent it anyway.',
+      lead: 'Two things I have made that speak to the same work:',
+      ask: 'We have never met, so ignore this freely: would you be open to **referring me**?',
+      offer: 'Or send the attached resume on to someone in recruiting, if that costs you less.',
       close: 'With thanks for the read,' },
-    { open: 'We have never spoken, and I know an intern application is well below what usually reaches you.',
-      ask: 'If you ever put names in, would you consider **putting mine in**?',
-      offer: 'Resume attached, and no reply is needed either way.',
+    { open: 'I know an intern application is well below what usually reaches you.',
+      lead: 'Two pieces of my own work that seem closest:',
+      ask: 'Knowing that we have never spoken, may I still ask you for **a referral**?',
+      offer: 'If forwarding it to whoever handles intern hiring is the easier route, I would be grateful. Resume attached.',
       close: 'Thank you sincerely for reading,' },
-    { open: 'Writing out of the blue to someone a long way ahead of me, which I recognise is a liberty.',
-      ask: 'Would you be willing to **refer me for the internship**? A no is completely fine.',
-      offer: 'The resume is attached, and I need nothing else from you.',
+    { open: 'Writing to somebody a long way ahead of me, which I recognise is a liberty.',
+      lead: 'Two things I have built that are nearest to it:',
+      ask: 'We have never met and I am asking a great deal, but would you be willing to **refer me**?',
+      offer: 'And passing the attached resume to someone in recruiting would help just as much, if that is simpler.',
       close: 'Thanks for the time,' }
   ]
 };
@@ -488,35 +522,28 @@ function outreachReferralIndex_(company, attempt) {
 }
 
 
-/**
- * The line that makes the referral submittable.
- *
- * A referral is a form with a job id in it. Naming the role and the date is what
- * the recruiter email does, and it is enough for a recruiter because the req is
- * already theirs. It is not enough for an engineer, who has to find the posting
- * before they can do anything at all, and that errand is where a willing reader
- * quietly becomes a reader who meant to get to it.
- *
- * The link is therefore required, and the sender refuses the row without one
- * rather than sending a referral ask that cannot be acted on.
- */
-function outreachReferralApplied_(company, role, dateApplied, today, formatDate, link) {
-  // Present tense when there is no application. That was the ordinary case while
-  // this path read the crawler's postings and the uncommon one now that it reads
-  // applications, but the rule is the same either way and is the point: this is
-  // the one sentence in the message the reader can check, in an email whose whole
-  // argument is that it is honest, so it says whichever of the two is true rather
-  // than whichever is more flattering.
-  if (!dateApplied) {
-    return 'I am applying for the ' + role + ' role at ' + company + ': ' + link;
-  }
-  var line = 'I applied for the ' + role + ' role at ' + company;
-  if (!today || (today - dateApplied) / 86400000 <= STALE_APPLICATION_DAYS) {
-    line += ' on ' + formatDate(dateApplied);
-  }
-  return line + ': ' + link;
+function outreachReferralIntro_(company, role) {
+  return 'I am ' + SENDER_NAME + ', ' + SENDER_STUDY + ', applying for the '
+       + role + ' role at ' + company + '.';
 }
 
+/**
+ * The posting, on a line of its own at the foot of the message.
+ *
+ * It used to sit inside the sentence naming the role, and a Workday URL dropped
+ * into the middle of a paragraph is two lines of unreadable query string exactly
+ * where the reader is trying to find out who is writing. Down here it is out of
+ * the prose and easy to copy, which is the only thing anybody does with it: a
+ * referral is a form, and this is the value that goes in it.
+ *
+ * No date. The recruiter email names the day it was applied because that is the
+ * fact a recruiter can look up; the person being asked for a referral is not
+ * going to check, does not care, and reads it as filler in an email that has
+ * already asked them for something.
+ */
+function outreachReferralPosting_(link) {
+  return 'The posting: ' + link;
+}
 
 /**
  * One referral email, in both halves.
@@ -531,18 +558,16 @@ function outreachReferralCompose_(options) {
   var index = outreachReferralIndex_(options.company, options.attempt);
   var template = REFERRAL_TEMPLATES[tier][index];
   var role = outreachShortRole_(options.role);
-  var formatDate = options.formatDate || function (d) {
-    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'MMM d');
-  };
-
   var greeting = 'Hi ' + outreachFirstName_(options.personName) + ',';
+  // One paragraph, not two. The opening and the company sentence are both a line
+  // long, and stacked as separate paragraphs above a third short one the message
+  // opens as three fragments rather than as somebody talking.
   var opening = [template.open]
-    .concat(options.angle ? [outreachNoDashes_(options.angle)] : []);
-  var applied = 'I am ' + SENDER_NAME + ', ' + SENDER_STUDY + '. '
-              + outreachReferralApplied_(options.company, role, options.dateApplied,
-                                         options.today, formatDate, options.jobLink);
+    .concat(options.angle ? [outreachNoDashes_(options.angle)] : []).join(' ');
+  var intro = outreachReferralIntro_(options.company, role);
   var bullets = outreachReferralBullets_(options.bucket, options.attempt);
   var ask = template.ask + ' ' + template.offer;
+  var posting = outreachReferralPosting_(options.jobLink);
 
   var list = function (lines) {
     return '<ul>' + lines.map(function (line) {
@@ -552,22 +577,24 @@ function outreachReferralCompose_(options) {
 
   var html = [
     '<p>' + outreachEscape_(greeting) + '</p>',
-    opening.map(function (line) {
-      return '<p>' + outreachBoldHtml_(line) + '</p>';
-    }).join(''),
-    '<p>' + outreachBoldHtml_(applied) + '</p>',
+    '<p>' + outreachBoldHtml_(opening) + '</p>',
+    '<p>' + outreachBoldHtml_(intro) + '</p>',
+    // The bullets are introduced rather than dropped. Two numbers arriving under
+    // a paragraph that did not mention them read as a fragment of a CV somebody
+    // pasted in; one clause turns them into the thing being offered.
+    '<p>' + outreachBoldHtml_(template.lead) + '</p>',
     list(bullets),
     '<p>' + outreachBoldHtml_(ask) + '</p>',
     '<p>' + outreachEscape_(template.close) + '<br>' + outreachEscape_(SENDER_NAME) + '<br>'
-      + '<span style="color:#666">' + outreachEscape_(SENDER_LINKS) + '</span></p>'
+      + '<span style="color:#666">' + outreachEscape_(SENDER_LINKS) + '</span></p>',
+    '<p style="color:#666">' + outreachEscape_(posting) + '</p>'
   ].join('');
 
-  var plain = [greeting, '']
-    .concat([opening.map(outreachBoldPlain_).join('\n\n')])
-    .concat(['', outreachBoldPlain_(applied), ''])
+  var plain = [greeting, '', outreachBoldPlain_(opening), '',
+               outreachBoldPlain_(intro), '', outreachBoldPlain_(template.lead), '']
     .concat(bullets.map(function (line) { return '  - ' + outreachBoldPlain_(line); }))
     .concat(['', outreachBoldPlain_(ask), '',
-             template.close, SENDER_NAME, SENDER_LINKS])
+             template.close, SENDER_NAME, SENDER_LINKS, '', posting])
     .join('\n');
 
   return {
