@@ -764,22 +764,34 @@ function outreachReferralToCancel_(referralRows) {
 
 
 /**
- * Rows still pointing at an older application than the one now worth asking about.
+ * The Referral tab reconciled against the App tab, which is the only place the
+ * truth about an application lives.
  *
- * A company can gain a second application. Intuit had one software role and now
- * has another, newer one, and the ask that has not gone yet should be about the
- * newer: it is the application still moving, the one the writer can speak to, and
- * the one whose posting is most likely still open.
+ * Two answers, because a row can be wrong in two directions and only one of them
+ * used to be handled.
  *
- * Only rows that have not been sent are re-pointed. A sent message named a role
- * and a link, and rewriting the row afterwards would leave the tab describing a
- * message that was never written. Drafted rows are re-pointed and their draft is
- * discarded with them, because a draft naming the old posting is worse than no
- * draft: it would go out with a link the writer has already moved on from.
+ * `repoint` is a row pointing at an older application than the one now worth
+ * asking about. Intuit had one software role and gained a newer one; the ask that
+ * has not gone should be about the application still moving, whose posting is
+ * likeliest still open.
+ *
+ * `retire` is a row whose reason for existing has gone: the company has no
+ * qualifying application any more. That happens when the last one is rejected,
+ * when it is edited into a role this path does not send about, and it happened to
+ * every row on the tab the day the intake rule was turned back on. The old version
+ * of this function returned nothing in that case and the row simply stayed, still
+ * booked, still due, still about to go out asking a stranger for a favour over an
+ * application that no longer qualifies. Silence was the wrong answer: a row this
+ * cannot justify is a row it should close.
+ *
+ * Only rows that have not been sent are touched either way. A sent message named a
+ * role and a link, and rewriting or closing the row afterwards would leave the tab
+ * describing a message that was never written. Drafted rows are handled and their
+ * draft goes with them, because a draft naming a posting the writer has moved on
+ * from is worse than no draft at all.
  */
-function outreachReferralRepoint_(referralRows, applications) {
-  var best = {};
-  var byCompany = {};
+function outreachReferralReconcile_(referralRows, applications) {
+  var best = {}, byCompany = {};
   applications.forEach(function (one) {
     if (!one.company) return;
     var key = outreachNameKey_(one.company);
@@ -791,15 +803,29 @@ function outreachReferralRepoint_(referralRows, applications) {
     if (pick) best[key] = pick;
   });
 
-  return referralRows.filter(function (row) {
+  var open = referralRows.filter(function (row) {
     if (row.status === STATUS_SENT || row.status === STATUS_CANCELLED) return false;
-    if (row.cancel) return false;
-    var pick = best[outreachNameKey_(row.company)];
-    if (!pick) return false;
-    return outreachNameKey_(pick.role) !== outreachNameKey_(row.role)
-        || pick.link !== row.jobLink;
-  }).map(function (row) {
-    var pick = best[outreachNameKey_(row.company)];
-    return { index: row.index, role: pick.role, jobLink: pick.link, draftId: row.draftId };
+    return !row.cancel;
   });
+
+  var repoint = [], retire = [];
+  open.forEach(function (row) {
+    var pick = best[outreachNameKey_(row.company)];
+    if (!pick) {
+      retire.push({
+        index: row.index, draftId: row.draftId,
+        // Written into Last Error rather than left blank, because a row that went
+        // Cancelled on its own is the first thing somebody will ask about.
+        reason: 'No application at ' + row.company + ' qualifies any more, so this '
+              + 'ask was closed rather than sent.'
+      });
+      return;
+    }
+    if (outreachNameKey_(pick.role) !== outreachNameKey_(row.role)
+        || pick.link !== row.jobLink) {
+      repoint.push({ index: row.index, role: pick.role, jobLink: pick.link,
+                     draftId: row.draftId });
+    }
+  });
+  return { repoint: repoint, retire: retire };
 }

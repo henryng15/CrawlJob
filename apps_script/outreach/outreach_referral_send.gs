@@ -631,7 +631,7 @@ function replanReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
 
-  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, ready: true };
+  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, retired: 0, ready: true };
 
   // A tick that the bound script's onEdit never saw — the box was filled by a
   // paste, a fill-down, or an undo, none of which fire a simple trigger. The tab
@@ -701,7 +701,9 @@ function replanReferralAsks() {
       .map(function (row, index) {
         return outreachParseApplication_(row, index + 2, domainFor);
       });
-    outreachReferralRepoint_(rows, applications).forEach(function (change) {
+    var seen = outreachReferralReconcile_(rows, applications);
+
+    seen.repoint.forEach(function (change) {
       var updates = {};
       updates[R_ROLE] = change.role;
       updates[R_JOB_LINK] = change.jobLink;
@@ -712,7 +714,27 @@ function replanReferralAsks() {
         updates[R_DRAFTED_AT] = '';
       }
       outreachWriteRow_(referral, change.index, updates);
-      tally.repointed = (tally.repointed || 0) + 1;
+      tally.repointed++;
+    });
+
+    // A row whose company has no qualifying application left. Closing it is the
+    // point: left open it stays booked, stays due, and goes out asking a stranger
+    // for a favour about an application this path would refuse to create a row for
+    // today.
+    seen.retire.forEach(function (change) {
+      var updates = {};
+      updates[R_STATUS] = STATUS_CANCELLED;
+      updates[R_SCHEDULED] = '';
+      updates[R_DRAFTED_AT] = '';
+      updates[R_ERROR] = change.reason;
+      if (change.draftId) {
+        try { GmailApp.getDraft(change.draftId).deleteDraft(); } catch (error) { /* already gone */ }
+        updates[R_DRAFT_ID] = '';
+      }
+      outreachWriteRow_(referral, change.index, updates);
+      var stale = rows.filter(function (one) { return one.index === change.index; })[0];
+      if (stale) { stale.status = STATUS_CANCELLED; stale.scheduled = null; }
+      tally.retired++;
     });
   }
 
@@ -734,6 +756,7 @@ function replanReferralAsks() {
 
   Logger.log('Referral replan: ' + tally.cancelled + ' newly cancelled, '
            + tally.discarded + ' draft(s) discarded, ' + tally.repointed
-           + ' row(s) moved to a newer application, ' + tally.moved + ' re-timed.');
+           + ' row(s) moved to a newer application, ' + tally.retired
+           + ' closed for want of a qualifying application, ' + tally.moved + ' re-timed.');
   return tally;
 }

@@ -4490,7 +4490,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     ];
     const rows = [ROW(2, 'Intuit', 'SWE Intern, Summer 2027', 'Queued',
                       { jobLink: GH + '1' })];
-    const changes = S.outreachReferralRepoint_(rows, applications);
+    const changes = S.outreachReferralReconcile_(rows, applications).repoint;
     assert.strictEqual(changes.length, 1);
     assert.strictEqual(changes[0].jobLink, GH + '2');
     assert.ok(/Software Engineer Intern/.test(changes[0].role));
@@ -4512,7 +4512,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const applications = [appRow('New Role, Summer 2027', GH + '2', at(20, 9))];
     ['Sent', 'Cancelled'].forEach((state) => {
       const rows = [ROW(2, 'Intuit', 'Old Role, Summer 2027', state, { jobLink: GH + '1' })];
-      assert.strictEqual(S.outreachReferralRepoint_(rows, applications).length, 0, state);
+      assert.strictEqual(S.outreachReferralReconcile_(rows, applications).repoint.length, 0, state);
     });
   });
 
@@ -4529,7 +4529,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const GH = 'https://boards.greenhouse.io/intuit/jobs/';
     const rows = [ROW(2, 'Intuit', 'SWE Intern, Summer 2027', 'Queued', { jobLink: GH + '2' })];
     assert.strictEqual(
-      S.outreachReferralRepoint_(rows, [appRow('SWE Intern, Summer 2027', GH + '2')]).length, 0);
+      S.outreachReferralReconcile_(rows, [appRow('SWE Intern, Summer 2027', GH + '2')]).repoint.length, 0);
   });
 
   // A draft naming the old posting is worse than no draft: it would go out with a
@@ -4547,7 +4547,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const GH = 'https://boards.greenhouse.io/intuit/jobs/';
     const rows = [ROW(2, 'Intuit', 'Old, Summer 2027', 'Drafted',
                       { jobLink: GH + '1', draftId: 'draft-9' })];
-    const changes = S.outreachReferralRepoint_(rows, [appRow('New, Summer 2027', GH + '2')]);
+    const changes = S.outreachReferralReconcile_(rows, [appRow('New, Summer 2027', GH + '2')]).repoint;
     assert.strictEqual(changes[0].draftId, 'draft-9');
   });
 
@@ -4562,6 +4562,93 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(one.plain.indexOf('class of') === -1, one.plain);
     assert.ok(one.plain.indexOf('Kenyon College') !== -1);
     assert.ok(one.plain.indexOf('4.0 GPA') !== -1);
+  });
+}
+
+
+{
+  console.log('\nreferral: a row whose application no longer qualifies');
+
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  const appRow = (company, role, link, applied, process) => {
+    const row = new Array(S.APP_READ_WIDTH).fill('');
+    row[S.APP_COMPANY - 1] = company;
+    row[S.APP_ROLE - 1] = role;
+    row[S.APP_LINK - 1] = link;
+    row[S.APP_DATE_APPLIED - 1] = applied;
+    row[S.APP_PROCESS - 1] = process || 'Applied';
+    return S.outreachParseApplication_(row, 2, () => '');
+  };
+  const REF = (index, company, role, status, extra) => Object.assign({
+    index: index, company: company, role: role,
+    tokens: S.outreachCompanyTokens_(company), jobLink: 'https://boards.greenhouse.io/x/jobs/1',
+    email: 'p@x.com', status: status, cancel: false, priority: false,
+    scheduled: at(29, 8), draftId: ''
+  }, extra || {});
+  const GH = 'https://boards.greenhouse.io/intuit/jobs/';
+
+  // This is what was actually on the tab: the Intuit application reads "Intern,
+  // Software Engineering" and names no intake, so once the season rule came back
+  // on nothing at that company qualified — and the row just sat there, booked and
+  // due, about to ask a stranger for a favour over it.
+  run('a company with nothing qualifying has its open rows closed', () => {
+    const applications = [appRow('Intuit', 'Intern, Software Engineering', GH + '1', at(18, 9))];
+    const rows = [REF(2, 'Intuit', 'Intern, Software Engineering', 'Queued',
+                      { jobLink: GH + '1' })];
+    const seen = S.outreachReferralReconcile_(rows, applications);
+    assert.strictEqual(seen.repoint.length, 0);
+    assert.strictEqual(seen.retire.length, 1);
+    assert.strictEqual(seen.retire[0].index, 2);
+    assert.ok(/Intuit/.test(seen.retire[0].reason));
+  });
+
+  run('and the same row is left alone once a qualifying application exists', () => {
+    const applications = [
+      appRow('Intuit', 'Intern, Software Engineering', GH + '1', at(18, 9)),
+      appRow('Intuit', 'Software Engineer Intern, Summer 2027', GH + '2', at(28, 9))
+    ];
+    const rows = [REF(2, 'Intuit', 'Intern, Software Engineering', 'Queued',
+                      { jobLink: GH + '1' })];
+    const seen = S.outreachReferralReconcile_(rows, applications);
+    assert.strictEqual(seen.retire.length, 0);
+    assert.strictEqual(seen.repoint.length, 1);
+    assert.strictEqual(seen.repoint[0].jobLink, GH + '2');
+  });
+
+  // The last application at a company being rejected is the other way this
+  // happens, and it must not be different.
+  run('a company whose only application was rejected is closed too', () => {
+    const applications = [appRow('Intuit', 'SWE Intern, Summer 2027', GH + '1',
+                                 at(18, 9), 'Rejected')];
+    const rows = [REF(2, 'Intuit', 'SWE Intern, Summer 2027', 'Queued', { jobLink: GH + '1' })];
+    assert.strictEqual(S.outreachReferralReconcile_(rows, applications).retire.length, 1);
+  });
+
+  // A sent message named a role and a link. Closing the row afterwards would leave
+  // the tab describing something that was never written.
+  run('a sent row is never retired, whatever happened to the application', () => {
+    const rows = [REF(2, 'Intuit', 'SWE Intern, Summer 2027', 'Sent', { jobLink: GH + '1' })];
+    assert.strictEqual(S.outreachReferralReconcile_(rows, []).retire.length, 0);
+  });
+
+  // A draft naming a posting the writer has moved on from is worse than none.
+  run('a retired row carries its draft out to be binned', () => {
+    const rows = [REF(2, 'Intuit', 'Old, Summer 2027', 'Drafted', { draftId: 'draft-7' })];
+    const seen = S.outreachReferralReconcile_(rows, []);
+    assert.strictEqual(seen.retire[0].draftId, 'draft-7');
+  });
+
+  // The example that started this: two software applications at one company, and
+  // the newer one wins on recency once both clear the intake rule.
+  run('between two qualifying applications the newest is the one asked about', () => {
+    const applications = [
+      appRow('Intuit', 'Software Engineering Intern, Summer 2027', GH + '1', at(18, 9)),
+      appRow('Intuit', 'Software Engineer Intern, Summer 2027', GH + '2', at(28, 9))
+    ];
+    const rows = [REF(2, 'Intuit', 'Software Engineering Intern, Summer 2027', 'Queued',
+                      { jobLink: GH + '1' })];
+    assert.strictEqual(
+      S.outreachReferralReconcile_(rows, applications).repoint[0].jobLink, GH + '2');
   });
 }
 
