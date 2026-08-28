@@ -4281,9 +4281,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     const byRow = {};
     moved.forEach((m) => { byRow[m.index] = m.scheduled.getHours(); });
-    assert.strictEqual(byRow[2], FIRST);
-    assert.strictEqual(byRow[3], FIRST + 1);
-    assert.strictEqual(byRow[4], FIRST + 2);
+    // The day's first three slots, in the order the rows were already going out.
+    // Read off the spread rather than assumed consecutive: the hours are spaced
+    // across the window, so the third is not the first plus two.
+    const hours = S.outreachSpaceHours_(S.REFERRAL_DAILY_CAP,
+                                        S.REFERRAL_HOUR_FIRST, S.REFERRAL_HOUR_LAST);
+    assert.strictEqual(byRow[2], hours[0]);
+    assert.strictEqual(byRow[3], hours[1]);
+    assert.strictEqual(byRow[4], hours[2]);
   });
 
   // A tick can arrive by paste, fill-down or undo, none of which fire a simple

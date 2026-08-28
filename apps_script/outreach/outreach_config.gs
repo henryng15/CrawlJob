@@ -300,13 +300,14 @@ var REFERRAL_SEASON_EXCLUDES = ['2026', 'winter', 'spring', 'fall', 'autumn'];
 // notice or did not mind. It is the same message on Monday and it reads better.
 var REFERRAL_WEEKENDS = false;
 
-// Six in the morning to seven at night. Wider than the cold path's nine to five,
+// Six in the morning to nine at night. Wider than the cold path's nine to five,
 // because that window is shaped around when a recruiter is at their desk reading
 // applications, and this one is not: it lands in a working engineer's mailbox and
 // is read whenever they next look. Six is the top of the inbox for somebody who
-// opens their mail at eight.
+// opens their mail at eight, and nine at night still catches the read somebody
+// does before bed.
 var REFERRAL_HOUR_FIRST = 6;
-var REFERRAL_HOUR_LAST  = 19;
+var REFERRAL_HOUR_LAST  = 21;
 // Twelve, so a day is two companies finished rather than one. With six allowed at
 // one employer, a cap of six would mean one company a day and nothing else, and
 // the queue would move at the speed of its slowest possible arrangement.
