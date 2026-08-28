@@ -4266,9 +4266,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // whole tab every hour and the version history would stop being a record.
   run('a queue that is already tight reports no movement', () => {
     const rows = [
-      REF(2, 'A', 'a@x.com', at(31, FIRST), 'Queued'),
-      REF(3, 'B', 'b@x.com', at(31, FIRST + 1), 'Queued')
+      REF(2, 'A', 'a@x.com', at(31, FIRST), 'Queued', { draftedAt: at(31, FIRST - 1) }),
+      REF(3, 'B', 'b@x.com', at(31, FIRST + 1), 'Queued', { draftedAt: at(31, FIRST) })
     ];
+    // Both hours already right, so there is nothing to say. A row missing its
+    // draft hour is a change even when the send hour has not moved — see the
+    // backfill test further down.
     assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
   });
 
@@ -4737,6 +4740,40 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('a row with no hour has no draft hour to show', () => {
     assert.strictEqual(S.outreachReferralDraftHour_(null), '');
     assert.strictEqual(S.outreachReferralDraftHour_(''), '');
+  });
+}
+
+
+{
+  console.log('\nreferral: backfilling a draft hour that was never written');
+
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  const NOW = new Date(2026, 7, 28, 21, 0, 0);
+  const ROW = (index, company, scheduled, draftedAt) => ({
+    index: index, company: company, role: 'SWE Intern, Summer 2027',
+    tokens: S.outreachCompanyTokens_(company), jobLink: 'https://x/1',
+    email: 'p' + index + '@x.com', status: S.STATUS_QUEUED, cancel: false,
+    priority: false, scheduled: scheduled, draftedAt: draftedAt || null, draftId: ''
+  });
+
+  // A row sitting at exactly the hour the planner would give it passes the "did
+  // anything change" test every hour for ever, so a column added later never
+  // reaches it.
+  run('a row already at the right hour is still rewritten if it has no draft hour', () => {
+    const hours = S.outreachSpaceHours_(S.REFERRAL_DAILY_CAP,
+                                        S.REFERRAL_HOUR_FIRST, S.REFERRAL_HOUR_LAST);
+    const settled = at(31, hours[0]);
+    const moved = S.outreachReferralReplan_([ROW(2, 'A', settled, null)], NOW, null);
+    assert.strictEqual(moved.length, 1);
+    assert.strictEqual(moved[0].scheduled.getTime(), settled.getTime());
+  });
+
+  run('and one that already has both is left alone', () => {
+    const hours = S.outreachSpaceHours_(S.REFERRAL_DAILY_CAP,
+                                        S.REFERRAL_HOUR_FIRST, S.REFERRAL_HOUR_LAST);
+    const settled = at(31, hours[0]);
+    const rows = [ROW(2, 'A', settled, at(31, hours[0] - 1))];
+    assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
   });
 }
 

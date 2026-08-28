@@ -693,7 +693,14 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
     // Only a real change is reported. A re-plan that rewrites every row to the
     // value it already held would touch the whole tab every hour, and the version
     // history would stop being a record of anything.
-    if (!row.scheduled || row.scheduled.getTime() !== slot.getTime()) {
+    //
+    // A missing draft hour counts as a change even when the send hour has not
+    // moved. Rows booked before that column was filled in would otherwise never
+    // get one: they sit at exactly the hour the planner would give them, so the
+    // comparison above passes them over every hour for ever, and the column stays
+    // half empty with no way to tell which half is waiting for what.
+    var stale = !row.scheduled || row.scheduled.getTime() !== slot.getTime();
+    if (stale || !row.draftedAt) {
       moved.push({ index: row.index, scheduled: slot });
     }
   });
