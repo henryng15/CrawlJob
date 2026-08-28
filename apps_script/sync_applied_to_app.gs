@@ -642,6 +642,21 @@ function migrateAppOfficialColumn() {
       refuse(APP_OFFICIAL + 2, header(APP_OFFICIAL + 2), '"Update"');
     }
     app.insertColumnBefore(APP_OFFICIAL);
+    // And then strip what the insert brought with it. A column inserted next to a
+    // checkbox column inherits that column's data validation, so every row of the
+    // new Official column comes up holding an unticked checkbox: three hundred
+    // cells reading FALSE in the column whose entire purpose is to hold a URL a
+    // person pastes. It looks like data, it is not, and the sender reads it as a
+    // link that fails every rule — a whole tab of rows that can never go yellow
+    // and never qualify, for a reason nothing on the sheet explains.
+    //
+    // Cleared to the sheet's full height rather than to the last data row: the
+    // validation is applied to the whole column, and rows added later would
+    // otherwise arrive with the checkbox already on them.
+    var inserted = app.getRange(1, APP_OFFICIAL, app.getMaxRows(), 1);
+    inserted.clearDataValidations();
+    inserted.clearContent();
+    inserted.setBackground(null);
     opened = true;
   } else if (at9 === 'Official') {
     // Already migrated, so nothing is inserted. The three behind it are still

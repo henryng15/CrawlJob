@@ -39,6 +39,10 @@ function makeSheet(name, data) {
       grid.forEach((row) => { if (row.length > widest) widest = row.length; });
       return widest;
     },
+    // The allocated height, which is what a whole-column clear covers. Modelled as
+    // the grid's own length: the migration strips the checkbox the insert brought
+    // with it over the full column, so rows added later do not arrive wearing one.
+    getMaxRows() { return grid.length; },
     getConditionalFormatRules() { return formatRules[name] || []; },
     setConditionalFormatRules(rules) { formatRules[name] = rules; return this; },
     getLastRow() {
@@ -111,6 +115,10 @@ function makeSheet(name, data) {
           }
           return this;
         },
+        // Recorded rather than simulated: what the tests need to know is that the
+        // migration cleared the column the insert had just given a checkbox to.
+        clearDataValidations() { cleared.push([row, col, numRows, numCols]); return this; },
+        setBackground() { return this; },
         setNumberFormat() { return this; },
         setBackgrounds(values) {
           for (let r = 0; r < numRows; r++) {
@@ -138,6 +146,7 @@ let wrote = [];
 let toasts = [];
 let wrapped = [];
 let validated = [];
+let cleared = [];
 let copiedWidth = 0;
 let widths = [];
 let frozen = [];
@@ -154,6 +163,7 @@ function load() {
   toasts = [];
   wrapped = [];
   validated = [];
+  cleared = [];
   copiedWidth = 0;
   widths = [];
   frozen = [];
@@ -1493,5 +1503,50 @@ console.log('paintAppOfficialRows sorts, onEdit does not');
     assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
     assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
     assert.deepStrictEqual(app.colours[3], new Array(12).fill(null));
+  });
+}
+
+console.log('migrateAppOfficialColumn — the checkbox the insert brings with it');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    ['Property', 'Company', 'Application Link', 'Date Applied', 'Location (State)',
+     'Process', 'Role', 'Note', 'Alumni', 'Recruiter', 'Update'],
+    ['1', 'Uber', 'https://x', 'July 21, 2026', 'CA', 'Rejected', 'SWE Intern', '',
+     false, true, 'Applied: Jul 21, 2026'],
+    ['2', 'Figma', 'https://y', 'Aug 10, 2026', 'CA', 'Applied', 'SWE Intern', '',
+     true, false, 'Applied: Aug 10, 2026']
+  ]);
+  const s = load();
+  s.migrateAppOfficialColumn();
+
+  // A column inserted beside a checkbox column inherits that column's data
+  // validation, so every row of Official comes up holding an unticked box: three
+  // hundred cells reading FALSE in the column whose whole purpose is to hold a
+  // pasted URL. It looks like data, it is not, and the sender reads it as a link
+  // that fails every rule, for a reason nothing on the sheet explains.
+  run('the inherited checkbox is stripped from the new column', () => {
+    const onOfficial = cleared.filter((c) => c[1] === s.APP_OFFICIAL);
+    assert.ok(onOfficial.length >= 1, 'nothing was cleared on column ' + s.APP_OFFICIAL);
+    // The whole column, not only the rows holding data today: the validation
+    // covers the column, so a row added tomorrow would arrive wearing the box.
+    assert.strictEqual(onOfficial[0][0], 1);
+    assert.ok(onOfficial[0][2] >= app.grid.length);
+  });
+
+  run('and Official is left genuinely empty below its header', () => {
+    for (let r = 1; r < app.grid.length; r++) {
+      const cell = app.grid[r][s.APP_OFFICIAL - 1];
+      assert.ok(cell === '' || cell === undefined || cell === null,
+                'row ' + (r + 1) + ' holds ' + JSON.stringify(cell));
+    }
+  });
+
+  run('the three columns behind it keep their own values', () => {
+    assert.strictEqual(app.grid[1][s.ALUMNI_COL - 1], false);
+    assert.strictEqual(app.grid[1][s.RECRUITER_COL - 1], true);
+    assert.strictEqual(app.grid[1][s.UPDATE_COL - 1], 'Applied: Jul 21, 2026');
+    assert.strictEqual(app.grid[2][s.ALUMNI_COL - 1], true);
+    assert.strictEqual(app.grid[2][s.RECRUITER_COL - 1], false);
   });
 }
