@@ -8,7 +8,7 @@ function makeSheet(name, data) {
   const grid = data.map((r) => r.slice());
   // A second grid holding only what setBackgrounds wrote, so a test can ask what
   // colour a row ended up rather than only that some call was made. null is a
-  // cleared cell, which is what paintJobsReferralBlock_ writes to take yellow off.
+  // cleared cell, which is what paintAppOfficialBlock_ writes to take yellow off.
   const colours = [];
   const sheet = {
     grid,
@@ -49,11 +49,11 @@ function makeSheet(name, data) {
       return last;
     },
     // The real sheet's last column holding anything, which is what
-    // sortJobsReferralBlock_ asks for so that an operator column past H travels
-    // with its row. getMaxColumns above is the allocated width and is a different
-    // question; answering this one with that would have the sort move columns
-    // that hold nothing, which is harmless on a real sheet but would hide a test
-    // that meant to check the block stops at the data.
+    // sortAppOfficialBlock_ asks for so that an operator column past Update
+    // travels with its row. getMaxColumns above is the allocated width and is a
+    // different question; answering this one with that would have the sort move
+    // columns that hold nothing, which is harmless on a real sheet but would hide
+    // a test that meant to check the block stops at the data.
     getLastColumn() {
       let last = 0;
       grid.forEach((row) => {
@@ -671,10 +671,10 @@ console.log('Jobs → App: seeding the first Update line');
   jobs.grid[3][APPLIED] = true;   // Neuralink: Applied
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
   run('a row that has just reached App already carries the Applied stage', () => {
-    assert.strictEqual(app.grid[4][10], 'Applied: ' + today());
+    assert.strictEqual(app.grid[4][11], 'Applied: ' + today());
   });
-  run('column K is set to WRAP, or the cell would show only its first line', () => {
-    assert.ok(wrapped.some((call) => call[0] === 11 && call[1] === 'WRAP'));
+  run('the Update column is set to WRAP, or the cell would show only its first line', () => {
+    assert.ok(wrapped.some((call) => call[0] === 12 && call[1] === 'WRAP'));
   });
 }
 
@@ -686,7 +686,7 @@ console.log('onAppEdit');
 
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });   // Notion is at OA
   run('changing Process writes one "<Stage>: <date>" line', () => {
-    assert.strictEqual(app.grid[2][10], 'OA: ' + today());
+    assert.strictEqual(app.grid[2][11], 'OA: ' + today());
   });
   run('the toast names the date it just wrote', () => {
     assert.match(toasts[toasts.length - 1], /Wrote .+ to the Update column of 1 row/);
@@ -694,41 +694,41 @@ console.log('onAppEdit');
 
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('firing again on the stage already set writes no further line', () => {
-    assert.strictEqual(app.grid[2][10], 'OA: ' + today());
+    assert.strictEqual(app.grid[2][11], 'OA: ' + today());
   });
 
   app.grid[2][5] = 'Completed OA';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('finishing the assessment appends its own line under OA', () => {
-    assert.strictEqual(app.grid[2][10], 'OA: ' + today() + '\nCompleted OA: ' + today());
+    assert.strictEqual(app.grid[2][11], 'OA: ' + today() + '\nCompleted OA: ' + today());
   });
 
   app.grid[2][5] = 'Interview';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('a new stage is appended below and the old ones are left as they were', () => {
     assert.strictEqual(
-      app.grid[2][10],
+      app.grid[2][11],
       'OA: ' + today() + '\nCompleted OA: ' + today() + '\nInterview: ' + today());
   });
 
   app.grid[2][5] = 'OA';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
   run('going back to a stage already passed does not write it twice', () => {
-    assert.strictEqual(app.grid[2][10].split('\n').length, 3);
+    assert.strictEqual(app.grid[2][11].split('\n').length, 3);
   });
 
-  const kept = app.grid[2][10];
+  const kept = app.grid[2][11];
   s.onEdit({ source: ss, range: app.getRange(3, 8, 1, 1) });   // the Note column
   run('an edit to another column leaves the Update column alone', () => {
-    assert.strictEqual(app.grid[2][10], kept);
+    assert.strictEqual(app.grid[2][11], kept);
   });
 
   app.grid[2][5] = 'Offer';
   app.grid[3][5] = 'Phone screen';
   s.onEdit({ source: ss, range: app.getRange(3, 6, 2, 1) });
   run('inside one block a valid stage is written and an unrecognised value is not', () => {
-    assert.match(app.grid[2][10], /Offer: /);
-    assert.ok(!app.grid[3][10]);
+    assert.match(app.grid[2][11], /Offer: /);
+    assert.ok(!app.grid[3][11]);
   });
 }
 
@@ -738,49 +738,78 @@ console.log('setupAppColumns');
   app = freshApp();
   const s = load();
   s.setupAppColumns();
-  run('it builds the header in column K', () => {
-    assert.strictEqual(app.grid[0][10], 'Update');
+  run('it builds the header in column L', () => {
+    assert.strictEqual(app.grid[0][11], 'Update');
   });
   run('a row sitting at Applied takes its date from Date Applied', () => {
-    assert.strictEqual(app.grid[1][10], 'Applied: July 21, 2026');
+    assert.strictEqual(app.grid[1][11], 'Applied: July 21, 2026');
   });
   run('a row that has gone further marks the later stage ? rather than inventing a date', () => {
-    assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: ?');
+    assert.strictEqual(app.grid[2][11], 'Applied: July 26, 2026\nOA: ?');
   });
   run('a row with only a link and no Process is not an entry', () => {
-    assert.ok(!app.grid[3][10]);
+    assert.ok(!app.grid[3][11]);
   });
   run('the toast counts the rows still needing to be filled in by hand separately', () => {
     assert.match(toasts[toasts.length - 1], /Filled in 2 rows.*1 at a stage past Applied/s);
   });
-  run('it builds the header for the two checkbox columns', () => {
-    assert.strictEqual(app.grid[0][8], 'Alumni');
-    assert.strictEqual(app.grid[0][9], 'Recruiter');
+  run('it builds the header for Official and for the two checkbox columns', () => {
+    assert.strictEqual(app.grid[0][8], 'Official');
+    assert.strictEqual(app.grid[0][9], 'Alumni');
+    assert.strictEqual(app.grid[0][10], 'Recruiter');
   });
-  run('the checkbox columns are narrow and Update is wide', () => {
-    assert.deepStrictEqual(widths, [[9, 70], [10, 90], [11, 300]]);
+  run('Official is wide enough to read, the checkboxes are narrow, Update is wide', () => {
+    assert.deepStrictEqual(widths, [[9, 230], [10, 70], [11, 90], [12, 300]]);
   });
   run('the checkboxes cover only as far as the real last row, not to LAST_ROW', () => {
     // Covering to 500 would make the validation physically write FALSE all the way
     // down, getLastRow() would return 500, and onEdit would append new rows at 501.
-    const boxes = validated.filter((call) => call[1] === 9);
+    const boxes = validated.filter((call) => call[1] === 10);
     assert.strictEqual(boxes.length, 1);
-    assert.deepStrictEqual(boxes[0], [2, 9, 3, 2]);   // I2:J4, exactly the 3 rows there are
+    assert.deepStrictEqual(boxes[0], [2, 10, 3, 2]);  // J2:K4, exactly the 3 rows there are
+  });
+  run('the checkbox validation does not spill onto Official, which is free text', () => {
+    // The trap: leave the range starting at column 9 and every pasted link comes
+    // back as an invalid entry against a checkbox rule.
+    assert.strictEqual(validated.filter((call) => call[1] === 9).length, 0);
   });
 
-  const kept = app.grid[1][10];
-  app.grid[2][10] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
+  const kept = app.grid[1][11];
+  app.grid[2][11] = 'Applied: July 26, 2026\nOA: Aug 1, 2026';
   s.setupAppColumns();
   run('running again does not overwrite a cell that already has text', () => {
-    assert.strictEqual(app.grid[1][10], kept);
-    assert.strictEqual(app.grid[2][10], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
+    assert.strictEqual(app.grid[1][11], kept);
+    assert.strictEqual(app.grid[2][11], 'Applied: July 26, 2026\nOA: Aug 1, 2026');
   });
   run('the second run has nothing left to fill in', () => {
-    assert.match(toasts[toasts.length - 1], /All three columns are already right/);
+    assert.match(toasts[toasts.length - 1], /All four columns are already right/);
   });
 }
 
-console.log('setupAppColumns — moving the Update column from J to K');
+console.log('setupAppColumns — a tab still on the layout before Official');
+{
+  jobs = freshJobs();
+  app = freshApp();
+  app.grid[0][8] = 'Alumni';
+  app.grid[0][9] = 'Recruiter';
+  app.grid[0][10] = 'Update';
+  const s = load();
+  run('it refuses rather than writing Official over the Alumni header', () => {
+    // Writing the four headers blind here would leave every row's ticks and
+    // history one column left of the name describing them — an alumnus recorded
+    // at every company that merely has a recruiter.
+    assert.throws(() => s.setupAppColumns(), /App column 9 is "Alumni"/);
+  });
+  run('and it says which function opens the gap', () => {
+    assert.throws(() => s.setupAppColumns(), /migrateAppOfficialColumn/);
+  });
+  run('the refusal writes nothing', () => {
+    assert.strictEqual(app.grid[0][8], 'Alumni');
+    assert.deepStrictEqual(widths, []);
+  });
+}
+
+console.log('setupAppColumns — moving the Update column from J to Update');
 {
   jobs = freshJobs();
   app = freshApp();
@@ -791,24 +820,30 @@ console.log('setupAppColumns — moving the Update column from J to K');
   app.grid[2][9] = 'Applied: Jul 26, 2026\nOA: Aug 1, 2026';
   s.setupAppColumns();
 
-  run('the history reaches column K intact', () => {
-    assert.strictEqual(app.grid[1][10], 'Applied: Jul 21, 2026');
-    assert.strictEqual(app.grid[2][10], 'Applied: Jul 26, 2026\nOA: Aug 1, 2026');
+  run('the history lands under the Update header rather than one column short', () => {
+    // The destination follows UPDATE_COL, which Official pushed from K to L.
+    // Pinned to K, as it was written, this would drop a year of history into
+    // Recruiter's column and leave Update empty beside it.
+    assert.strictEqual(app.grid[0][11], 'Update');
+    assert.strictEqual(app.grid[1][11], 'Applied: Jul 21, 2026');
+    assert.strictEqual(app.grid[2][11], 'Applied: Jul 26, 2026\nOA: Aug 1, 2026');
   });
-  run('column J is handed over to Recruiter', () => {
-    assert.strictEqual(app.grid[0][9], 'Recruiter');
+  run('the source stays column J, which is where these old sheets really keep it', () => {
+    // Read through the constants the source would now be K, and every one of
+    // these sheets would be told it had nothing to move.
+    assert.strictEqual(app.grid[0][9], 'Alumni');
     assert.strictEqual(app.grid[1][9], '');
     assert.strictEqual(app.grid[2][9], '');
   });
   run('the toast says how many rows it moved', () => {
-    assert.match(toasts[toasts.length - 1], /Moved 2 rows of history from column J to K/);
+    assert.match(toasts[toasts.length - 1], /Moved 2 rows of history from column J to L/);
   });
 
-  const kept = app.grid[2][10];
+  const kept = app.grid[2][11];
   s.setupAppColumns();
-  run('running again does not move a second time — text in K means stand still', () => {
-    assert.strictEqual(app.grid[2][10], kept);
-    assert.strictEqual(app.grid[0][9], 'Recruiter');
+  run('running again does not move a second time — text in Update means stand still', () => {
+    assert.strictEqual(app.grid[2][11], kept);
+    assert.strictEqual(app.grid[0][9], 'Alumni');
   });
 }
 
@@ -819,48 +854,13 @@ console.log('onEdit — a new row picks up the validation of both checkboxes');
   const s = load();
   jobs.grid[3][APPLIED] = true;
   s.onEdit({ source: ss, range: jobs.getRange(4, APPLIED + 1, 1, 1) });
-  run('validation is copied out to the end of column J, not stopping at APP_WIDTH', () => {
+  run('validation is copied out to the end of Recruiter, not stopping at APP_WIDTH', () => {
+    // APP_WIDTH is the eight columns the sync writes; the two checkboxes are
+    // validation too, and Official pushed them a column right. Copying to 10
+    // would now stop on Alumni and leave Recruiter printing a bare FALSE.
     assert.strictEqual(copied.length, 1);
     assert.strictEqual(copied[0][1], 'PASTE_DATA_VALIDATION');
-    assert.strictEqual(copiedWidth, 10);
-  });
-}
-
-console.log('jobsReferralNeedsLink_');
-{
-  jobs = freshJobs();
-  app = freshApp();
-  const s = load();
-  const needs = s.jobsReferralNeedsLink_;
-  run('a summer role with neither link is the whole point of the colour', () => {
-    assert.strictEqual(needs('Summer 2027 SWE Intern', '', ''), true);
-  });
-  run('a link in Link Apply is already a way in, so the row stays plain', () => {
-    assert.strictEqual(needs('Summer 2027 SWE Intern', 'https://boards.example/j', ''), false);
-  });
-  run('a link in Referral Link answers it just as well', () => {
-    assert.strictEqual(needs('Summer 2027 SWE Intern', '', 'https://linkedin.example/in/x'), false);
-  });
-  run('a role that is not a summer one is never painted, links or no links', () => {
-    assert.strictEqual(needs('Fall Co-op Engineer', '', ''), false);
-    assert.strictEqual(needs('New Grad Software Engineer', 'https://boards.example/j', ''), false);
-  });
-  run('the sources write it in every case, and all of them count', () => {
-    assert.strictEqual(needs('Summer Analyst', '', ''), true);
-    assert.strictEqual(needs('SUMMER INTERN 2027', '', ''), true);
-    assert.strictEqual(needs('summer intern', '', ''), true);
-  });
-  run('whole word only — summertime is not a summer internship', () => {
-    assert.strictEqual(needs('Summertime Programme Associate', '', ''), false);
-    assert.strictEqual(needs('Presummer Fellow', '', ''), false);
-  });
-  run('a cell holding something that is not a link does not count as one', () => {
-    assert.strictEqual(needs('Summer Intern', 'ask Dan', ''), true);
-    assert.strictEqual(needs('Summer Intern', '   ', '  '), true);
-  });
-  run('an empty or missing role cannot match', () => {
-    assert.strictEqual(needs('', '', ''), false);
-    assert.strictEqual(needs(null, '', ''), false);
+    assert.strictEqual(copiedWidth, 11);
   });
 }
 
@@ -950,141 +950,268 @@ console.log('setupReferralQueue — a header that means a different table');
   });
 }
 
-console.log('setupJobsReferralColumn');
+
+// The App tab exactly as it stood before Official existed: Alumni at I, and a
+// column of the operator's own past Update, because a migration that only ever
+// meets the columns this tool knows about has not met the real tab.
+const PRE_OFFICIAL_HEADER = [
+  'Property', 'Company', 'Application Link', 'Date Applied', 'Location (State)',
+  'Process', 'Role', 'Note', 'Alumni', 'Recruiter', 'Update', 'Follow up'
+];
+const preOfficialRow = (property, company, link) => [
+  property, company, link, 'July 21, 2026', 'NY', 'Applied', 'SWE Intern',
+  'via the careers page', true, false, 'Applied: July 21, 2026', 'ping Dana'
+];
+// App column F, ahead of the gap, so a rule there is the control: it proves the
+// insert moved what sits behind it and left what sits in front alone.
+const PROCESS_COLUMN = 6;
+// A conditional-format rule shaped the way the sheet hands them back, so that the
+// insert can be asked whether the rules travelled with the columns they colour.
+const ruleAt = (column, name) => ({ name, getRanges: () => [{ getColumn: () => column }] });
+
+console.log('migrateAppOfficialColumn — opening a gap on a tab that is already live');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    PRE_OFFICIAL_HEADER,
+    preOfficialRow(1, 'IBM', 'https://job-boards.greenhouse.io/ibm/jobs/9'),
+    preOfficialRow(2, 'Notion', 'https://jobs.ashbyhq.com/notion/1/'),
+  ]);
+  const s = load();
+  formatRules['App'] = [ruleAt(PROCESS_COLUMN, 'Process'), ruleAt(11, 'Update')];
+  s.migrateAppOfficialColumn();
+
+  run('the header ends up as the new layout, Official between Note and Alumni', () => {
+    assert.deepStrictEqual(app.grid[0].slice(7, 12),
+      ['Note', 'Official', 'Alumni', 'Recruiter', 'Update']);
+  });
+  run('every value to the right of the gap moved with it', () => {
+    // This is the half a header rewrite over live data would have got wrong: the
+    // tick would stay at I under the name Official, and the row would read as an
+    // application with a pasted link and no alumnus.
+    assert.strictEqual(app.grid[1][8], '');          // Official, opened empty
+    assert.strictEqual(app.grid[1][9], true);        // Alumni, the tick that was at I
+    assert.strictEqual(app.grid[1][10], false);      // Recruiter
+    assert.strictEqual(app.grid[1][11], 'Applied: July 21, 2026');
+    assert.strictEqual(app.grid[2][9], true);
+  });
+  run("a column of the operator's own past Update moved too", () => {
+    assert.strictEqual(app.grid[0][12], 'Follow up');
+    assert.strictEqual(app.grid[1][12], 'ping Dana');
+  });
+  run('the rows themselves are left alone — a migration adds a column, not data', () => {
+    assert.strictEqual(app.getLastRow(), 3);
+    assert.strictEqual(app.grid[1][1], 'IBM');
+    assert.strictEqual(app.grid[2][1], 'Notion');
+    assert.strictEqual(app.grid[1][7], 'via the careers page');
+  });
+  run('the colour rules follow the columns they colour rather than staying put', () => {
+    const rules = formatRules['App'] || [];
+    const columnOf = (name) =>
+      rules.filter((r) => r.name === name)[0].getRanges()[0].getColumn();
+    assert.strictEqual(columnOf('Process'), PROCESS_COLUMN);  // ahead of the gap
+    assert.strictEqual(columnOf('Update'), 12);               // behind it, moved one right
+  });
+  run('the checkbox validation is rebuilt where the ticks now are, not where they were', () => {
+    // Left at I it would put a checkbox rule under every pasted link, and every
+    // link would read back as an invalid entry.
+    const boxes = validated.filter((call) => call[1] === 10);
+    assert.strictEqual(boxes.length, 1);
+    assert.deepStrictEqual(boxes[0], [2, 10, 2, 2]);
+    assert.strictEqual(validated.filter((call) => call[1] === 9).length, 0);
+  });
+  run('Official gets its width at the column it was opened at', () => {
+    assert.deepStrictEqual(widths, [[9, 230], [10, 70], [11, 90], [12, 300]]);
+  });
+  run('the toast says to deploy the Python half before the next sync', () => {
+    assert.match(toasts[toasts.length - 1], /deploy the Python half/);
+  });
+  run('running it again does not open a second gap', () => {
+    const width = app.grid[0].length;
+    s.migrateAppOfficialColumn();
+    assert.strictEqual(app.grid[0].length, width);
+    assert.deepStrictEqual(app.grid[0].slice(7, 13),
+      ['Note', 'Official', 'Alumni', 'Recruiter', 'Update', 'Follow up']);
+    assert.strictEqual(app.grid[1][9], true);
+    assert.strictEqual(app.grid[1][11], 'Applied: July 21, 2026');
+    assert.match(toasts[toasts.length - 1], /already on the current layout/);
+  });
+}
+
+console.log('migrateAppOfficialColumn — a layout it does not recognise');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [PRE_OFFICIAL_HEADER.slice()]);
+  app.grid[0][8] = 'Referral Link';
+  const s = load();
+  run('a tab somebody has already put a column of their own at I is refused', () => {
+    assert.throws(() => s.migrateAppOfficialColumn(), /App column 9 is "Referral Link"/);
+  });
+  run('the error says what it expected there, so the fix does not need the source', () => {
+    assert.throws(() => s.migrateAppOfficialColumn(), /"Alumni" or "Official"/);
+  });
+  run('the refusal moves nothing', () => {
+    assert.strictEqual(app.grid[0].length, PRE_OFFICIAL_HEADER.length);
+    assert.strictEqual(app.grid[0][8], 'Referral Link');
+    assert.deepStrictEqual(widths, []);
+  });
+}
+
+console.log('migrateAppOfficialColumn — a half-built layout is not the layout either');
+{
+  jobs = freshJobs();
+  // Alumni is where it should be, but the two behind it are not: the shape a run
+  // that died partway leaves. Inserting on the strength of column I alone would
+  // shift this into something no version of the tab has ever been.
+  app = makeSheet('App', [PRE_OFFICIAL_HEADER.slice()]);
+  app.grid[0][9] = 'Update';
+  app.grid[0][10] = '';
+  const s = load();
+  run('it reads the columns behind the gap before it opens one', () => {
+    assert.throws(() => s.migrateAppOfficialColumn(), /App column 10 is "Update"/);
+  });
+  run('and nothing is inserted', () => {
+    assert.strictEqual(app.grid[0].length, PRE_OFFICIAL_HEADER.length);
+  });
+}
+
+console.log('migrateAppOfficialColumn — a tab that has never been set up');
+{
+  jobs = freshJobs();
+  app = freshApp();     // A..H and nothing else
+  const s = load();
+  run('a blank column I is not an error: there is nothing to shift', () => {
+    assert.doesNotThrow(() => s.migrateAppOfficialColumn());
+    assert.deepStrictEqual(app.grid[0].slice(8, 12),
+      ['Official', 'Alumni', 'Recruiter', 'Update']);
+  });
+  run('and no gap was opened, so column H still holds Note', () => {
+    assert.strictEqual(app.grid[0][7], 'Note');
+    assert.match(toasts[toasts.length - 1], /already on the current layout/);
+  });
+}
+
+console.log('appOfficialNeedsLink_');
 {
   jobs = freshJobs();
   app = freshApp();
   const s = load();
-  s.setupJobsReferralColumn();
-  run('it gives the column room and writes nothing into it', () => {
-    assert.deepStrictEqual(widths, [[8, 230]]);
-    assert.strictEqual(jobs.grid[0][7], undefined);
+  const needs = s.appOfficialNeedsLink_;
+  run('an application with neither link is the whole point of the colour', () => {
+    assert.strictEqual(needs('Stripe', '', ''), true);
   });
-  run('running it again is a no-op rather than a throw', () => {
-    s.setupJobsReferralColumn();
-    assert.deepStrictEqual(widths, [[8, 230], [8, 230]]);
+  run('a link in Application Link is already something to send, so the row stays plain', () => {
+    assert.strictEqual(needs('Stripe', 'https://boards.example/j', ''), false);
   });
-}
-
-// H1 belongs to job_sync/sheet.py, which writes its "Last updated" caption there
-// on every run — including runs where nothing else changed. An earlier version of
-// this function wrote a header into that cell, which the crawler overwrote within
-// the hour, and then threw against the caption on the next setup, so the setup
-// could only ever be run once. Leaving H1 alone is the whole fix.
-console.log('setupJobsReferralColumn — H1 is the crawler\'s caption');
-{
-  jobs = freshJobs();
-  jobs.grid[0][7] = 'Last updated: Aug 28, 2026 06:00';
-  app = freshApp();
-  const s = load();
-  run('it runs against the caption instead of refusing', () => {
-    assert.doesNotThrow(() => s.setupJobsReferralColumn());
+  run('a link in Official answers it just as well', () => {
+    assert.strictEqual(needs('Stripe', '', 'https://stripe.example/careers/1'), false);
   });
-  run('and the caption is left exactly as the crawler wrote it', () => {
-    assert.strictEqual(jobs.grid[0][7], 'Last updated: Aug 28, 2026 06:00');
+  run('a row with no company is not an application, so it is never painted', () => {
+    // App really does carry rows holding nothing but a link. There is nobody to
+    // ask about one, so putting it at the top of the tab is work that cannot be done.
+    assert.strictEqual(needs('', 'https://bambusdev.example/job/1', ''), false);
+    assert.strictEqual(needs('', '', ''), false);
+    assert.strictEqual(needs(null, '', ''), false);
+    assert.strictEqual(needs('   ', '', ''), false);
   });
-}
-
-console.log('paintJobsReferralRows');
-{
-  jobs = makeSheet('Jobs', [
-    JOBS_HEADER.concat(['Referral Link']),
-    // Summer, no link either side: this is the row the colour exists for.
-    ['Stripe', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''],
-    // Summer, but Link Apply already goes somewhere.
-    ['IBM', 'Summer Analyst', 'https://boards.example/ibm/1', '2026-08-14', 'Jobright', false, false, ''],
-    // Summer, and a referral link has been found by hand.
-    ['Notion', 'Summer Intern', '', '2026-08-15', 'Simplify', false, false,
-     'https://linkedin.example/in/someone'],
-    // Not a summer posting at all.
-    ['Neuralink', 'Firmware Engineer Intern', '', '2026-08-16', 'Ashby', false, false, ''],
-  ]);
-  app = freshApp();
-  const s = load();
-  s.paintJobsReferralRows();
-  run('the whole tab is painted in one write, not one call per row', () => {
-    assert.strictEqual(painted.length, 1);
-    assert.deepStrictEqual(painted[0], [2, 1, 499, 8]);
+  run('a cell holding something that is not a link does not count as one', () => {
+    assert.strictEqual(needs('Stripe', 'ask Dan', ''), true);
+    assert.strictEqual(needs('Stripe', '   ', '  '), true);
+    assert.strictEqual(needs('Stripe', 'greenhouse.io/stripe', ''), true);
   });
-  run('the summer row with no way in goes yellow across A..H', () => {
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill('#FFF2CC'));
+  run('https counts, and so does a link with the case written oddly', () => {
+    assert.strictEqual(needs('Stripe', 'https://boards.example/j', ''), false);
+    assert.strictEqual(needs('Stripe', '  HTTP://boards.example/j ', ''), false);
   });
-  run('the three rows that do not need one are cleared, not painted white', () => {
-    [2, 3, 4].forEach((i) => assert.deepStrictEqual(jobs.colours[i], new Array(8).fill(null)));
-  });
-  run('the header row is never touched', () => {
-    assert.deepStrictEqual(jobs.colours[0], []);
+  run('the rule stops at "starts with http" — the ATS judgement is not made here', () => {
+    // An aggregator link is a link as far as this file is concerned. Telling one
+    // from an employer's own board is the sender project's judgement, and a second
+    // copy of it here is two copies that drift with nothing to catch it.
+    assert.strictEqual(needs('Stripe', 'https://jobright.ai/jobs/info/abc', ''), false);
   });
 }
 
-console.log('onEdit — pasting a referral link into column H clears the colour');
-{
-  jobs = makeSheet('Jobs', [
-    JOBS_HEADER.concat(['Referral Link']),
-    ['Stripe', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''],
-    ['Ramp', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''],
-  ]);
-  app = freshApp();
-  const s = load();
-  s.paintJobsReferralRows();
-  jobs.grid[1][7] = 'https://linkedin.example/in/someone';
-  s.onEdit({ source: ss, range: jobs.getRange(2, 8, 1, 1) });
-  run('only the edited row is repainted, and it loses its yellow', () => {
-    assert.strictEqual(painted.length, 2);
-    assert.deepStrictEqual(painted[1], [2, 1, 1, 8]);
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill(null));
-  });
-  run('the row nobody touched keeps its colour', () => {
-    assert.deepStrictEqual(jobs.colours[2], new Array(8).fill('#FFF2CC'));
-  });
-  run('clearing the cell again brings the colour back', () => {
-    jobs.grid[1][7] = '';
-    s.onEdit({ source: ss, range: jobs.getRange(2, 8, 1, 1) });
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill('#FFF2CC'));
-  });
-  run('an edit landing in the checkbox columns repaints nothing', () => {
-    const before = painted.length;
-    jobs.grid[2][APPLIED] = false;
-    s.onEdit({ source: ss, range: jobs.getRange(3, APPLIED + 1, 1, 1) });
-    assert.strictEqual(painted.length, before);
-  });
-  run('a fill-down across H repaints those rows in one write', () => {
-    const before = painted.length;
-    s.onEdit({ source: ss, range: jobs.getRange(2, 8, 2, 1) });
-    assert.strictEqual(painted.length, before + 1);
-    assert.deepStrictEqual(painted[painted.length - 1], [2, 1, 2, 8]);
-  });
-  run('an edit on the header row alone never paints row 1', () => {
-    const before = painted.length;
-    s.onEdit({ source: ss, range: jobs.getRange(1, 8, 1, 1) });
-    assert.strictEqual(painted.length, before);
-  });
-}
-
-// The row shapes the ordering tests are built from. Named rather than written out
-// each time because what matters about each row is only whether it needs a link,
-// and spelling that out in full eight times buries the case being tested.
-const needsLink = (company) =>
-  [company, 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''];
-const hasLink = (company) =>
-  [company, 'Summer 2027 SWE Intern', 'https://boards.example/' + company,
-   '2026-08-14', 'Simplify', false, false, ''];
-// What an untouched row on a set-up Jobs tab actually reads back as: no text
+// The App tab on the current layout. Named row shapes rather than twelve cells
+// written out each time, because what matters about each row is only whether it
+// needs an official link, and spelling that out in full buries the case tested.
+const APP_FULL_HEADER = [
+  'Property', 'Company', 'Application Link', 'Date Applied', 'Location (State)',
+  'Process', 'Role', 'Note', 'Official', 'Alumni', 'Recruiter', 'Update'
+];
+const appNeedsLink = (company) =>
+  [1, company, '', 'July 21, 2026', 'NY', 'Applied', 'SWE Intern', '', '',
+   false, false, 'Applied: July 21, 2026'];
+const appHasLink = (company) =>
+  [1, company, 'https://boards.example/' + company, 'July 21, 2026', 'NY', 'Applied',
+   'SWE Intern', '', '', false, false, 'Applied: July 21, 2026'];
+const appHasOfficial = (company) =>
+  [1, company, 'https://jobright.ai/jobs/info/' + company, 'July 21, 2026', 'NY',
+   'Applied', 'SWE Intern', '', 'https://' + company + '.example/careers/1',
+   false, false, 'Applied: July 21, 2026'];
+// What an untouched row on a set-up App tab actually reads back as: no text
 // anywhere, and two unticked checkboxes that come back false rather than blank.
-const blankRow = () => ['', '', '', '', '', false, false, ''];
+const blankAppRow = () => ['', '', '', '', '', '', '', '', '', false, false, ''];
+const YELLOW = '#FFF2CC';
 // vm.runInContext gives the .gs file a realm of its own, so an array it built
 // carries that realm's Array prototype, and deepStrictEqual compares prototypes
 // before it compares contents — an answer that is exactly right still fails
 // against a literal written out here. These copy the answer back into this realm
-// so the assertion is about the order and nothing else.
-const names = (rows) => Array.from(rows, (r) => r[0]);
+// so the assertion is about the order and nothing else. Company is column B on
+// App, so it is index 1 rather than the 0 the Jobs tab had.
+const names = (rows) => Array.from(rows, (r) => r[1]);
 const rowsOf = (rows) => Array.from(rows);
 
-console.log('orderJobsReferralRows_ — the ordering on its own, no sheet');
+console.log('paintAppOfficialRows');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    APP_FULL_HEADER,
+    // No link either side: this is the row the colour exists for. Already at the
+    // top, so the sort that follows the paint has nothing to do and the write
+    // count is the paint's alone.
+    appNeedsLink('Stripe'),
+    // Application Link already goes somewhere.
+    appHasLink('IBM'),
+    // An aggregator link, but the employer's own has been found by hand.
+    appHasOfficial('Notion'),
+    // The stray row App really carries: a link and no company.
+    ['', '', 'https://bambusdev.example/job/1', '', '', '', '', '', '', false, false, ''],
+  ]);
+  const s = load();
+  s.paintAppOfficialRows();
+
+  run('the whole block is painted in one write, not one call per row', () => {
+    assert.strictEqual(painted.length, 1);
+    assert.deepStrictEqual(painted[0], [2, 1, 4, 12]);
+  });
+  run('the application with no employer link goes yellow across A..L', () => {
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
+  });
+  run('the three rows that do not need one are cleared, not painted white', () => {
+    // White is a colour, and it would paint over whatever banding or manual
+    // highlight the row already had.
+    [2, 3, 4].forEach((i) => assert.deepStrictEqual(app.colours[i], new Array(12).fill(null)));
+  });
+  run('the header row is never touched', () => {
+    assert.deepStrictEqual(app.colours[0], []);
+  });
+  run('the paint stops at Update, where the tool stops owning the row', () => {
+    assert.strictEqual(app.colours[1].length, 12);
+  });
+  run('a tab with no rows yet says so instead of throwing', () => {
+    app = makeSheet('App', [APP_FULL_HEADER]);
+    const s2 = load();
+    assert.doesNotThrow(() => s2.paintAppOfficialRows());
+    assert.match(toasts[toasts.length - 1], /has no rows yet/);
+  });
+}
+
+console.log('orderAppOfficialRows_ — the ordering on its own, no sheet');
 {
   const s = load();
-  const rows = [needsLink('A'), hasLink('X'), needsLink('B'), hasLink('Y'), needsLink('C')];
-  const out = s.orderJobsReferralRows_(rows);
+  const rows = [appNeedsLink('A'), appHasLink('X'), appNeedsLink('B'),
+                appHasOfficial('Y'), appNeedsLink('C')];
+  const out = s.orderAppOfficialRows_(rows);
 
   run('the rows needing a link come first and the rest follow', () => {
     assert.deepStrictEqual(names(out), ['A', 'B', 'C', 'X', 'Y']);
@@ -1107,14 +1234,14 @@ console.log('orderJobsReferralRows_ — the ordering on its own, no sheet');
   });
 }
 
-console.log('orderJobsReferralRows_ — yellow rows scattered through the middle');
+console.log('orderAppOfficialRows_ — yellow rows scattered through the middle');
 {
   const s = load();
   const rows = [
-    hasLink('P'), hasLink('Q'), needsLink('A'), hasLink('R'),
-    needsLink('B'), hasLink('S'), hasLink('T'), needsLink('C'), hasLink('U'),
+    appHasLink('P'), appHasLink('Q'), appNeedsLink('A'), appHasLink('R'),
+    appNeedsLink('B'), appHasLink('S'), appHasLink('T'), appNeedsLink('C'), appHasLink('U'),
   ];
-  const out = s.orderJobsReferralRows_(rows);
+  const out = s.orderAppOfficialRows_(rows);
   run('three rows pulled out of the middle arrive at the top in their old order', () => {
     assert.deepStrictEqual(names(out), ['A', 'B', 'C', 'P', 'Q', 'R', 'S', 'T', 'U']);
   });
@@ -1123,155 +1250,248 @@ console.log('orderJobsReferralRows_ — yellow rows scattered through the middle
   });
 }
 
-console.log('orderJobsReferralRows_ — the empty tail');
+console.log('orderAppOfficialRows_ — the empty tail');
 {
   const s = load();
   const rows = [
-    hasLink('P'), needsLink('A'), hasLink('Q'), needsLink('B'),
-    blankRow(), blankRow(), blankRow(),
+    appHasLink('P'), appNeedsLink('A'), appHasLink('Q'), appNeedsLink('B'),
+    blankAppRow(), blankAppRow(), blankAppRow(),
   ];
-  const out = s.orderJobsReferralRows_(rows);
+  const out = s.orderAppOfficialRows_(rows);
 
   run('the blank rows stay at the bottom instead of sorting in with the rest', () => {
     assert.deepStrictEqual(names(out), ['A', 'B', 'P', 'Q', '', '', '']);
   });
   run('a row that is only two unticked checkboxes still counts as blank', () => {
-    // The trap this guards: false is a value, and reading it as content would make
-    // every one of the 499 rows on a set-up tab look occupied. Nothing would ever
-    // be pinned to the bottom and the blank middle of the tab would sort as data.
-    assert.strictEqual(s.jobsRowIsEmpty_(blankRow()), true);
-    assert.strictEqual(s.jobsRowIsEmpty_(hasLink('P')), false);
+    // The trap this guards: false is a value, and the Python half writes FALSE
+    // down both columns across every row it covers. Reading that as content would
+    // make an empty row look occupied, so it would never be pinned to the bottom
+    // and would sort in among the applications as though it were one.
+    assert.strictEqual(s.appRowIsEmpty_(blankAppRow()), true);
+    assert.strictEqual(s.appRowIsEmpty_(appHasLink('P')), false);
   });
   run('a blank row with real rows still under it keeps its place', () => {
     // Only the trailing blanks are pinned. A gap in the middle is something
     // somebody left there, and sinking it would be exactly the reshuffle the
     // stability rule exists to prevent.
-    const gapped = [hasLink('P'), blankRow(), hasLink('Q'), needsLink('A')];
-    assert.deepStrictEqual(names(s.orderJobsReferralRows_(gapped)), ['A', 'P', '', 'Q']);
+    const gapped = [appHasLink('P'), blankAppRow(), appHasLink('Q'), appNeedsLink('A')];
+    assert.deepStrictEqual(names(s.orderAppOfficialRows_(gapped)), ['A', 'P', '', 'Q']);
   });
   run('a tab that is nothing but blank rows is left completely alone', () => {
-    const empty = [blankRow(), blankRow(), blankRow()];
-    assert.deepStrictEqual(rowsOf(s.orderJobsReferralRows_(empty)), empty);
+    const empty = [blankAppRow(), blankAppRow(), blankAppRow()];
+    assert.deepStrictEqual(rowsOf(s.orderAppOfficialRows_(empty)), empty);
   });
   run('running the ordering on its own output changes nothing', () => {
-    assert.deepStrictEqual(rowsOf(s.orderJobsReferralRows_(out)), rowsOf(out));
+    assert.deepStrictEqual(rowsOf(s.orderAppOfficialRows_(out)), rowsOf(out));
   });
 }
 
-console.log('sortJobsReferralRowsToTop');
+console.log('sortAppOfficialRowsToTop');
 {
-  jobs = makeSheet('Jobs', [
-    JOBS_HEADER.concat(['Referral Link']),
-    ['IBM', 'Summer Analyst', 'https://boards.example/ibm', '2026-08-14', 'Jobright', false, false, ''],
-    // Two rows needing a link, sitting where they are easiest to miss: buried in
-    // the middle of the tab with ordinary rows above and below them.
-    ['Stripe', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''],
-    ['Neuralink', 'Firmware Engineer Intern', '', '2026-08-16', 'Ashby', false, false, ''],
-    ['Ramp', 'Summer 2027 SWE Intern', '', '2026-08-15', 'Simplify', false, false, ''],
-    ['Notion', 'Summer Intern', '', '2026-08-15', 'Simplify', false, false,
-     'https://linkedin.example/in/someone'],
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    APP_FULL_HEADER,
+    appHasLink('IBM'),
+    // Two applications needing a link, sitting where they are easiest to miss:
+    // buried in the middle with ordinary rows above and below them.
+    appNeedsLink('Stripe'),
+    appHasOfficial('Neuralink'),
+    appNeedsLink('Ramp'),
+    appHasLink('Notion'),
+    blankAppRow(),
+    blankAppRow(),
   ]);
-  app = freshApp();
   const s = load();
-  s.sortJobsReferralRowsToTop();
+  s.sortAppOfficialRowsToTop();
 
   run('the two rows needing a link are now the first two rows of the tab', () => {
-    assert.deepStrictEqual(jobs.grid.slice(1, 6).map((r) => r[0]),
-      ['Stripe', 'Ramp', 'IBM', 'Neuralink', 'Notion']);
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'Ramp']);
   });
   run('the three that do not need one keep their order underneath', () => {
-    assert.deepStrictEqual(jobs.grid.slice(3, 6).map((r) => r[0]),
+    assert.deepStrictEqual(app.grid.slice(3, 6).map((r) => r[1]),
       ['IBM', 'Neuralink', 'Notion']);
   });
   run('the header row is not part of the sort', () => {
-    assert.deepStrictEqual(jobs.grid[0], JOBS_HEADER.concat(['Referral Link']));
+    assert.deepStrictEqual(app.grid[0], APP_FULL_HEADER);
   });
   run('the whole block moves in one write, not one move per row', () => {
+    // A sort that dies halfway leaves applications duplicated above and missing
+    // below, and App is the source of truth for what has been applied to.
     assert.strictEqual(wrote.length, 1);
-    assert.deepStrictEqual(wrote[0], [2, 1, 499, 8]);
+    assert.deepStrictEqual(wrote[0], [2, 1, 7, 12]);
+  });
+  run('the block stops at the last row, so nothing is written below the data', () => {
+    // Out to LAST_ROW the way the Jobs sweep went, this would leave hundreds of
+    // written-and-emptied rows and onEdit would append the next application
+    // underneath all of them.
+    assert.strictEqual(app.grid.length, 8);
   });
   run('the yellow lands on the rows that moved, not on the lines they left', () => {
     // The failure this catches is the one worth having the test for: sort the
     // values and leave the colours behind and the tab paints IBM and Neuralink
     // yellow while Stripe and Ramp sit at the top looking finished.
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill('#FFF2CC'));
-    assert.deepStrictEqual(jobs.colours[2], new Array(8).fill('#FFF2CC'));
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
+    assert.deepStrictEqual(app.colours[2], new Array(12).fill(YELLOW));
     [3, 4, 5].forEach((i) =>
-      assert.deepStrictEqual(jobs.colours[i], new Array(8).fill(null)));
+      assert.deepStrictEqual(app.colours[i], new Array(12).fill(null)));
+  });
+  run('the blank rows are still blank and still at the bottom', () => {
+    assert.strictEqual(s.appRowIsEmpty_(app.grid[6]), true);
+    assert.strictEqual(s.appRowIsEmpty_(app.grid[7]), true);
   });
   run('a second run writes nothing and paints nothing', () => {
     const wroteBefore = wrote.length;
     const paintedBefore = painted.length;
-    const before = jobs.grid.map((r) => r.slice());
-    s.sortJobsReferralRowsToTop();
+    const before = app.grid.map((r) => r.slice());
+    s.sortAppOfficialRowsToTop();
     assert.strictEqual(wrote.length, wroteBefore);
     assert.strictEqual(painted.length, paintedBefore);
-    assert.deepStrictEqual(jobs.grid, before);
-  });
-  run('the blank rows below the data are still blank', () => {
-    assert.strictEqual(s.jobsRowIsEmpty_(jobs.grid[6]), true);
-    assert.strictEqual(s.jobsRowIsEmpty_(jobs.grid[499]), true);
-    assert.strictEqual(jobs.grid.length, 500);
+    assert.deepStrictEqual(app.grid, before);
   });
 }
 
-console.log('sortJobsReferralRowsToTop — a column the tool does not own');
+console.log('sortAppOfficialRowsToTop — a column the tool does not own');
 {
-  jobs = makeSheet('Jobs', [
-    JOBS_HEADER.concat(['Referral Link', 'Notes']),
-    ['IBM', 'Summer Analyst', 'https://boards.example/ibm', '2026-08-14', 'Jobright',
-     false, false, '', 'asked Dana in July'],
-    ['Stripe', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify',
-     false, false, '', 'nobody found yet'],
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    APP_FULL_HEADER.concat(['Follow up']),
+    appHasLink('IBM').concat(['asked Dana in July']),
+    appNeedsLink('Stripe').concat(['nobody found yet']),
   ]);
-  app = freshApp();
   const s = load();
-  s.sortJobsReferralRowsToTop();
+  s.sortAppOfficialRowsToTop();
 
-  run('the block widens to the real last column rather than stopping at H', () => {
-    assert.deepStrictEqual(wrote[0], [2, 1, 499, 9]);
+  run('the block widens to the real last column rather than stopping at Update', () => {
+    assert.deepStrictEqual(wrote[0], [2, 1, 2, 13]);
   });
-  run("an operator's note in column I travels with its own row", () => {
-    // Left behind, Stripe would arrive at the top wearing IBM's note — one job's
-    // note silently reattached to another, which is worse than losing it.
-    assert.deepStrictEqual(jobs.grid.slice(1, 3).map((r) => [r[0], r[8]]),
+  run("an operator's note in column M travels with its own row", () => {
+    // Left behind, Stripe would arrive at the top wearing IBM's note — one
+    // application's notes silently reattached to another, which is worse than
+    // losing them, because nothing about the tab looks wrong afterwards.
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => [r[1], r[12]]),
       [['Stripe', 'nobody found yet'], ['IBM', 'asked Dana in July']]);
   });
-  run('the paint still stops at H, where the tool stops owning the row', () => {
-    assert.strictEqual(jobs.colours[1].length, 8);
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill('#FFF2CC'));
+  run('the history in Update travels with its row too', () => {
+    assert.strictEqual(app.grid[1][11], 'Applied: July 21, 2026');
+  });
+  run('the paint still stops at Update, where the tool stops owning the row', () => {
+    assert.strictEqual(app.colours[1].length, 12);
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
   });
 }
 
-console.log('paintJobsReferralRows sorts, onEdit does not');
+console.log('onEdit — pasting an official link into column I clears the colour');
 {
-  jobs = makeSheet('Jobs', [
-    JOBS_HEADER.concat(['Referral Link']),
-    ['IBM', 'Summer Analyst', 'https://boards.example/ibm', '2026-08-14', 'Jobright', false, false, ''],
-    ['Stripe', 'Summer 2027 SWE Intern', '', '2026-08-14', 'Simplify', false, false, ''],
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    APP_FULL_HEADER,
+    appNeedsLink('Stripe'),
+    appNeedsLink('Ramp'),
   ]);
-  app = freshApp();
   const s = load();
-  s.paintJobsReferralRows();
+  s.paintAppOfficialRows();
+  app.grid[1][8] = 'https://stripe.example/careers/1';
+  s.onEdit({ source: ss, range: app.getRange(2, 9, 1, 1) });
+
+  run('only the edited row is repainted, and it loses its yellow', () => {
+    assert.strictEqual(painted.length, 2);
+    assert.deepStrictEqual(painted[1], [2, 1, 1, 12]);
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(null));
+  });
+  run('the row nobody touched keeps its colour', () => {
+    assert.deepStrictEqual(app.colours[2], new Array(12).fill(YELLOW));
+  });
+  run('clearing the cell again brings the colour back', () => {
+    app.grid[1][8] = '';
+    s.onEdit({ source: ss, range: app.getRange(2, 9, 1, 1) });
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
+  });
+  run('an edit landing in the Update column repaints nothing', () => {
+    const before = painted.length;
+    s.onEdit({ source: ss, range: app.getRange(3, 12, 1, 1) });
+    assert.strictEqual(painted.length, before);
+  });
+  run('an edit in the Process column still writes its history and paints nothing', () => {
+    const before = painted.length;
+    app.grid[2][5] = 'OA';
+    s.onEdit({ source: ss, range: app.getRange(3, 6, 1, 1) });
+    assert.strictEqual(painted.length, before);
+    assert.match(app.grid[2][11], /OA: /);
+  });
+  run('a fill-down across Official repaints those rows in one write', () => {
+    const before = painted.length;
+    s.onEdit({ source: ss, range: app.getRange(2, 9, 2, 1) });
+    assert.strictEqual(painted.length, before + 1);
+    assert.deepStrictEqual(painted[painted.length - 1], [2, 1, 2, 12]);
+  });
+  run('a paste across the whole row reaches Official and repaints it', () => {
+    const before = painted.length;
+    s.onEdit({ source: ss, range: app.getRange(2, 1, 1, 12) });
+    assert.strictEqual(painted.length, before + 1);
+  });
+  run('an edit on the header row alone never paints row 1', () => {
+    const before = painted.length;
+    s.onEdit({ source: ss, range: app.getRange(1, 9, 1, 1) });
+    assert.strictEqual(painted.length, before);
+  });
+}
+
+console.log('paintAppOfficialRows sorts, onEdit does not');
+{
+  jobs = freshJobs();
+  app = makeSheet('App', [
+    APP_FULL_HEADER,
+    appHasLink('IBM'),
+    appNeedsLink('Stripe'),
+  ]);
+  const s = load();
+  s.paintAppOfficialRows();
 
   run('the full repaint brings the row needing a link to the top', () => {
-    assert.deepStrictEqual(jobs.grid.slice(1, 3).map((r) => r[0]), ['Stripe', 'IBM']);
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
   });
   run('and repaints once the rows have moved, so the colour follows them', () => {
     assert.strictEqual(painted.length, 2);
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill('#FFF2CC'));
-    assert.deepStrictEqual(jobs.colours[2], new Array(8).fill(null));
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
+    assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
   });
-  run('pasting a link into H repaints the row but does not move it', () => {
+  run('pasting a link into Official repaints the row but does not move it', () => {
     // Sorting inside onEdit would pull the row out from under the cursor while
     // the person is still typing in it, and the next paste would land on whatever
     // row slid into its place. The colour has to be immediate; the position waits
     // for the next full repaint.
     const wroteBefore = wrote.length;
-    jobs.grid[1][7] = 'https://linkedin.example/in/someone';
-    s.onEdit({ source: ss, range: jobs.getRange(2, 8, 1, 1) });
+    app.grid[1][8] = 'https://stripe.example/careers/1';
+    s.onEdit({ source: ss, range: app.getRange(2, 9, 1, 1) });
     assert.strictEqual(wrote.length, wroteBefore);
-    assert.deepStrictEqual(jobs.grid.slice(1, 3).map((r) => r[0]), ['Stripe', 'IBM']);
-    assert.deepStrictEqual(jobs.colours[1], new Array(8).fill(null));
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(null));
+  });
+  run('a row that stops needing a link keeps its place rather than being demoted', () => {
+    // Stability cuts both ways. Nothing on the tab needs a link now, so the whole
+    // block is one group and the order somebody was working in survives the
+    // repaint — a sort asked only to bring yellow to the top has no business
+    // moving a row that has merely stopped being yellow.
+    s.paintAppOfficialRows();
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(null));
+    assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
+  });
+  run('a new application lands at the bottom and onEdit leaves it there', () => {
+    // The whole reason the repaint is on a clock: App only ever grows, so every
+    // application sent puts a fresh row under the block somebody is working down.
+    app.grid.push(appNeedsLink('Ramp'));
+    const wroteBefore = wrote.length;
+    s.onEdit({ source: ss, range: app.getRange(4, 9, 1, 1) });
+    assert.strictEqual(wrote.length, wroteBefore);
+    assert.deepStrictEqual(app.colours[3], new Array(12).fill(YELLOW));
+    assert.deepStrictEqual(names(app.grid.slice(1, 4)), ['Stripe', 'IBM', 'Ramp']);
+  });
+  run('and the next full repaint is what brings it to the top', () => {
+    s.paintAppOfficialRows();
+    assert.deepStrictEqual(names(app.grid.slice(1, 4)), ['Ramp', 'Stripe', 'IBM']);
+    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
+    assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
+    assert.deepStrictEqual(app.colours[3], new Array(12).fill(null));
   });
 }

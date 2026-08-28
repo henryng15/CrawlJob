@@ -51,17 +51,30 @@ EXPIRED = APPLIED + 1
 STAMP = EXPIRED + 1
 # The application tracker: Property | Company | Application Link | Date Applied |
 # Location (State) | Process | Role | Note | Alumni | Recruiter | Update.
-APP_COMPANY, APP_LINK, APP_PROCESS, APP_ROLE = 1, 2, 5, 6
-# Column K, where sync_applied_to_app.gs appends one "<Stage>: <date>" line per
-# stage the application has passed through.
 #
-# It was column J while the alumni and recruiter marks were background colours
-# occupying no column of their own. Replacing those with real checkbox columns
-# moved Update one to the right and this constant did not follow, so audit_app
-# read the Recruiter checkbox as the stage history: _last_stage("FALSE") is "",
-# which made every row with a Process stage report UNLOGGED. Kept honest by
-# test_the_update_column_sits_one_past_the_recruiter_checkbox.
-APP_UPDATE = 10
+# Named, never numbered — and the numbers that used to live here are gone rather
+# than kept alongside. This layout is about to gain an Official column at position
+# 9, holding a URL pasted by hand, which pushes Alumni, Recruiter and Update each
+# one to the right. The two halves cannot land together, for the reason written
+# above STAMP: the Python arrives on the next cron run, the .gs only when someone
+# pastes it. So any number written down here is wrong on one side of that window
+# whichever value it holds, and wrong for the checkbox columns means a run writes
+# FALSE over the URLs somebody pasted into Official and ticks Alumni from the
+# Recruiter data. Reading row 1 is right on both sides and costs nothing: the
+# header arrives in the same response as the rows.
+#
+# It has gone wrong the numbered way once already. Alumni and Recruiter were
+# background colours occupying no column of their own; turning them into real
+# checkbox columns moved Update from J to K and the constant did not follow, so
+# audit_app read the Recruiter checkbox as the stage history — _last_stage("FALSE")
+# is "" — and reported every staged row UNLOGGED.
+APP_COMPANY_HEADER = "Company"
+APP_LINK_HEADER = "Application Link"
+APP_PROCESS_HEADER = "Process"
+APP_ROLE_HEADER = "Role"
+# Where sync_applied_to_app.gs appends one "<Stage>: <date>" line per stage the
+# application has passed through.
+APP_UPDATE_HEADER = "Update"
 
 
 @dataclass(frozen=True)
@@ -105,6 +118,81 @@ def _quote_tab(tab: str) -> str:
     """A1 notation needs the sheet name quoted; anything with a space or a digit
     at the front is otherwise unparseable. Inside quotes, ' doubles to ''."""
     return "'" + tab.replace("'", "''") + "'"
+
+
+def _whole_tab(tab: str) -> str:
+    """The A1 range that is a tab and no column letters at all.
+
+    Every read of App goes through this instead of naming a width. A width is a
+    second claim about where the columns are, and it is the claim that rots: A:K
+    was the tracker's full span right up until Official was inserted, after which
+    Update sits in L, outside the read, and audit_app reads an empty string for a
+    history it never asked for — reporting every staged row UNLOGGED, which is the
+    exact failure the numbered constants caused the last time this tab grew.
+
+    A header that falls outside the range is indistinguishable from a header that
+    is not there, so a short range does not merely lose a column, it turns into a
+    refusal for a reason that is not true. Asking for the tab asks for whatever the
+    used width is this week, and costs a few columns of blanks at worst."""
+    return _quote_tab(tab)
+
+
+class AppLayoutError(LookupError):
+    """A column the run needs is not named in the App tab's first row.
+
+    Raised, and never resolved to a remembered position, because the position is
+    precisely the thing that moves. Falling back to "Alumni was column I last time"
+    is how a run writes checkbox booleans across the URLs pasted into Official: the
+    guess is always available and always plausible, and it is wrong exactly on the
+    runs that matter. A stopped sync is repaired by looking at row 1; a sync that
+    guessed is repaired by finding out what the cells used to say."""
+
+
+def _header_key(text: str) -> str:
+    """One header cell reduced to what identifies the column.
+
+    Case and surrounding space are noise. A header retyped as " alumni " is the
+    same column to everyone reading the sheet, and stopping the sync over a
+    cosmetic edit would train whoever runs it to reach for the fallback this module
+    refuses to have.
+
+    Everything else is signal: the comparison is on the whole reduced string, so
+    "Alumni Notes" is a different column from "Alumni" and can never stand in for
+    it. Someone adding a notes column beside the checkbox is the likeliest next
+    edit to this tab, and a prefix or substring match would hand them the same
+    corruption the numbering did, reached by a different route."""
+    return " ".join(text.split()).casefold()
+
+
+def app_columns(header: list[str], *wanted: str) -> tuple[int, ...]:
+    """Where each named column sits, read off the App tab's own header row.
+
+    Returns zero-based indices in the order asked for, so a caller unpacks them
+    positionally and never has to say a number out loud.
+
+    Every missing name is collected before anything is raised, so a tab that has
+    not been set up at all reports the whole list rather than one header per run —
+    and an empty tab, whose header row is nothing, says so by naming everything it
+    could not find. The first cell wins where a name somehow appears twice: a
+    duplicate is a mistake in the sheet, and the leftmost is the one the older
+    Apps Script writes and reads."""
+    seen: dict[str, int] = {}
+    for index, cell in enumerate(header):
+        seen.setdefault(_header_key(cell), index)
+    places: list[int] = []
+    missing: list[str] = []
+    for name in wanted:
+        index = seen.get(_header_key(name))
+        if index is None:
+            missing.append(name)
+        else:
+            places.append(index)
+    if missing:
+        raise AppLayoutError(
+            f"the App tab's header row names no column {', '.join(repr(n) for n in missing)}; "
+            f"row 1 reads {', '.join(repr(cell) for cell in header) or '(nothing)'}"
+        )
+    return tuple(places)
 
 
 def _tab_names(service, sheet_id: str) -> list[str]:
@@ -356,12 +444,15 @@ def _already_applied(
     routinely hold different URLs for one job: an application was sent through the
     employer's own board months ago, while the Jobs row still carries whichever
     aggregator link the trackers last published. Without the second reading those
-    rows never match and the checkbox stays empty on a job already applied to."""
+    rows never match and the checkbox stays empty on a job already applied to.
+
+    A tab that cannot be read this way is skipped rather than guessed at. Skipping
+    costs a checkbox left unticked on a job already applied to, which an operator
+    sees and can fix; guessing the columns would compare the Date Applied column
+    against a URL and tick nothing anyway, having said nothing about why."""
     try:
         rows = (
-            values_api.get(
-                spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:H"
-            )
+            values_api.get(spreadsheetId=settings.sheet_id, range=_whole_tab(settings.app_tab))
             .execute()
             .get("values", [])
         )
@@ -371,15 +462,22 @@ def _already_applied(
         # No such tab. Nothing to compare against is not a reason to fail the sync.
         print(f"WARNING: no tab named {settings.app_tab!r}; skipping the applied check.")
         return set(), set()
+    try:
+        company, link_column, role = app_columns(
+            rows[0] if rows else [], APP_COMPANY_HEADER, APP_LINK_HEADER, APP_ROLE_HEADER
+        )
+    except AppLayoutError as unreadable:
+        print(f"WARNING: {unreadable}. Skipping the applied check.")
+        return set(), set()
     links: set[str] = set()
     identities: set[tuple[str, frozenset[str]]] = set()
     for row in rows[1:]:
-        link = row[APP_LINK] if len(row) > APP_LINK else ""
+        link = row[link_column] if len(row) > link_column else ""
         if link.strip():
             links.add(normalize_link(link))
         identity = _loose_identity(
-            row[APP_COMPANY] if len(row) > APP_COMPANY else "",
-            row[APP_ROLE] if len(row) > APP_ROLE else "",
+            row[company] if len(row) > company else "",
+            row[role] if len(row) > role else "",
         )
         # A half-filled row would otherwise match every row missing the same field.
         if all(identity):
@@ -448,11 +546,17 @@ def _mark_applied(
     return by_link, by_name
 
 
-APP_FIELDS = ("Property", "Company", "Application Link", "Date Applied", None, "Process", "Role")
+# The columns a row has to fill in to be an application at all. Location (State)
+# and Note are left out because a row is not wrong for missing them, and Official
+# will not join this list either: it is pasted by hand days after the row is
+# written, so requiring it would report every fresh application as MISSING.
+#
+# A list of names rather than a list of positions, so that a column arriving in
+# the middle of the tracker moves the reading with it. The same tuple names the
+# columns and finds them, which is what stops the two from drifting apart.
+APP_FIELDS = ("Property", "Company", "Application Link", "Date Applied", "Process", "Role")
 # The pipeline setup_process_dropdown.gs writes into the Process column.
-PROCESS_STAGES = frozenset(
-    {"applied", "oa", "completed oa", "interview", "offer", "rejected"}
-)
+PROCESS_STAGES = frozenset({"applied", "oa", "completed oa", "interview", "offer", "rejected"})
 
 
 def _last_stage(cell: str) -> str:
@@ -476,31 +580,54 @@ def audit_app(settings: Settings) -> int:
     two rows describe one application, is the Process outside the pipeline, has the
     Update column kept up with it, and does the link still lead anywhere. The last
     one is why this is a separate command — asking every board costs a minute, and
-    the sync must not pay it."""
+    the sync must not pay it.
+
+    An audit that cannot find its columns reports nothing and says so. There is no
+    reading of a header row that is missing which makes the six findings below
+    truthful, and an audit that invents them is worse than no audit: every one of
+    them names a row number for somebody to go and edit."""
     values_api = _service(settings).spreadsheets().values()
     rows = (
-        values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(settings.app_tab)}!A:K")
+        values_api.get(spreadsheetId=settings.sheet_id, range=_whole_tab(settings.app_tab))
         .execute()
         .get("values", [])
     )
     if not rows:
         print(f"{settings.app_tab} is empty.")
         return 0
+    try:
+        required = app_columns(rows[0], *APP_FIELDS)
+        link_column, company, role, process, update = app_columns(
+            rows[0],
+            APP_LINK_HEADER,
+            APP_COMPANY_HEADER,
+            APP_ROLE_HEADER,
+            APP_PROCESS_HEADER,
+            APP_UPDATE_HEADER,
+        )
+    except AppLayoutError as unreadable:
+        print(f"{settings.app_tab}: {unreadable}. Auditing nothing.")
+        return 0
+
+    def read(row: list[str], column: int) -> str:
+        """The API drops trailing blanks from every row it hands back, so a short
+        row is a blank cell and not a missing column."""
+        return (row[column] if len(row) > column else "").strip()
 
     findings: list[str] = []
     seen_link: dict[str, int] = {}
     seen_identity: dict[tuple[str, frozenset[str]], int] = {}
     for offset, row in enumerate(rows[1:]):
         number = offset + 2  # The sheet's own row number, so a finding is clickable.
-        cell = [(row[i] if len(row) > i else "").strip() for i in range(APP_UPDATE + 1)]
-        empty = [name for i, name in enumerate(APP_FIELDS) if name and not cell[i]]
-        if len(empty) == len(list(filter(None, APP_FIELDS))):
+        cell = {column: read(row, column) for column in set(required) | {process, update}}
+        empty = [name for name, column in zip(APP_FIELDS, required) if not cell[column]]
+        if len(empty) == len(APP_FIELDS):
             findings.append(f"  row {number:<4} EMPTY      nothing but formatting")
             continue
         if empty:
             findings.append(f"  row {number:<4} MISSING    {', '.join(empty)}")
 
-        link = cell[APP_LINK]
+        link = cell[link_column]
         if link:
             key = normalize_link(link)
             if urlsplit(link).scheme not in ("http", "https"):
@@ -509,36 +636,34 @@ def audit_app(settings: Settings) -> int:
                 findings.append(f"  row {number:<4} SAME LINK  as row {seen_link[key]}")
             else:
                 seen_link[key] = number
-        identity = _loose_identity(cell[APP_COMPANY], cell[APP_ROLE])
+        identity = _loose_identity(cell[company], cell[role])
         if all(identity):
             if identity in seen_identity:
                 findings.append(
                     f"  row {number:<4} SAME JOB   as row {seen_identity[identity]} "
-                    f"({cell[APP_COMPANY]} — {cell[APP_ROLE]})"
+                    f"({cell[company]} — {cell[role]})"
                 )
             else:
                 seen_identity[identity] = number
-        stage = cell[APP_PROCESS].casefold()
+        stage = cell[process].casefold()
         if stage and stage not in PROCESS_STAGES:
             findings.append(
-                f"  row {number:<4} STAGE?     {cell[APP_PROCESS]!r} is not in the pipeline"
+                f"  row {number:<4} STAGE?     {cell[process]!r} is not in the pipeline"
             )
         # The Apps Script writes this line the moment Process changes, so the two
         # disagreeing means the change reached the sheet by some route the trigger
         # does not see — an API write, or an edit made while the script was broken.
-        recorded = _last_stage(cell[APP_UPDATE])
+        recorded = _last_stage(cell[update])
         if stage in PROCESS_STAGES and recorded and recorded != stage:
             findings.append(
-                f"  row {number:<4} UNLOGGED   Process is {cell[APP_PROCESS]!r} but Update "
+                f"  row {number:<4} UNLOGGED   Process is {cell[process]!r} but Update "
                 f"stops at {recorded!r}"
             )
 
-    live = {row[APP_LINK] for row in rows[1:] if len(row) > APP_LINK and row[APP_LINK].strip()}
+    live = {read(row, link_column) for row in rows[1:] if read(row, link_column)}
     for url in sorted(dead_links(sorted(live))):
         rows_with = [
-            offset + 2
-            for offset, row in enumerate(rows[1:])
-            if len(row) > APP_LINK and row[APP_LINK].strip() == url
+            offset + 2 for offset, row in enumerate(rows[1:]) if read(row, link_column) == url
         ]
         for number in rows_with:
             findings.append(f"  row {number:<4} DEAD LINK  the board reports it as gone")
@@ -813,9 +938,20 @@ def append_new_jobs(
 
 
 def _column(index: int) -> str:
-    """The A1 letter for a zero-based column. Four owned columns plus a handful of
-    operator ones never reaches AA, so one letter is enough."""
-    return chr(ord("A") + index)
+    """The A1 letters for a zero-based column.
+
+    The Jobs tab has never reached AA and the tracker is nowhere near it, so this
+    was one letter for a long time. It carries the second letter now because the
+    index it is given no longer comes from a constant somebody counted out — it
+    comes from wherever a header turned up in row 1. Past Z the one-letter version
+    returned "[", which is a range the API rejects: an error, not a corruption, but
+    an error naming a bracket rather than the column that moved."""
+    letters = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
 
 
 def _update(values_api, settings: Settings, cells: str, rows: list[list[str]], parse: str) -> None:

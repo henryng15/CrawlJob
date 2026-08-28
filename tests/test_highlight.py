@@ -1,18 +1,21 @@
+import pytest
+
 from job_sync.config import Settings
 from job_sync.highlight import (
-    APP_ALUMNI,
-    APP_RECRUITER,
+    APP_HEADERS,
     HIGHLIGHT,
     PLAIN,
     RECRUITER,
     _boxes,
     _checkbox,
+    _checkbox_columns,
     _is,
     _mark_contacts,
     _requests,
     _runs,
     _state,
 )
+from job_sync.sheet import AppLayoutError
 
 
 def _colour(request: dict) -> dict:
@@ -131,8 +134,31 @@ _SETTINGS = Settings(
 )
 
 
-def _marked(held, alumni, recruiters, rows=3, heading=("Alumni", "Recruiter")):
-    api = _FakeValues([list(heading)] + held)
+# The App tab as it stands, and as the Apps Script migration is about to leave it:
+# Official is inserted at position 9 and pushes the two checkboxes to J and K.
+BEFORE = [
+    "Property",
+    "Company",
+    "Application Link",
+    "Date Applied",
+    "Location (State)",
+    "Process",
+    "Role",
+    "Note",
+    "Alumni",
+    "Recruiter",
+    "Update",
+]
+AFTER = BEFORE[:8] + ["Official"] + BEFORE[8:]
+
+
+def _marked(held, alumni, recruiters, rows=3, heading=BEFORE):
+    """The two-column view each test writes, laid into a whole App row.
+
+    `held` names the Alumni and Recruiter cells and nothing else; where those land
+    is decided by the header, which is the entire point of every test below."""
+    at = list(heading).index("Alumni") if "Alumni" in heading else 0
+    api = _FakeValues([list(heading)] + [[""] * at + list(row) for row in held])
     return api, _mark_contacts(api, _SETTINGS, rows, alumni, recruiters)
 
 
@@ -140,7 +166,7 @@ def test_an_unticked_box_reads_the_same_however_the_sheet_spells_it() -> None:
     """Three spellings of one state: FALSE from a box that was never ticked,
     nothing from a row the validation has not reached, and a row the API cut short
     because its trailing cells were blank."""
-    assert _boxes([["FALSE", "FALSE"], [], ["TRUE"]], 3) == [
+    assert _boxes([["FALSE", "FALSE"], [], ["TRUE"]], 3, (0, 1)) == [
         ["FALSE", "FALSE"],
         ["FALSE", "FALSE"],
         ["TRUE", "FALSE"],
@@ -213,12 +239,116 @@ def test_a_tab_that_has_never_had_the_columns_is_left_alone() -> None:
 def test_the_checkbox_rule_covers_exactly_the_rows_the_ticks_go_into() -> None:
     """The bare word FALSE is a boolean written past where the rule reaches. The
     rule is set from the same row count as the write so the two cannot part."""
-    grid = _checkbox(sheet_id=7, rows=82)["setDataValidation"]["range"]
+    grid = _checkbox(sheet_id=7, rows=82, columns=(8, 9))["setDataValidation"]["range"]
     assert (grid["startRowIndex"], grid["endRowIndex"]) == (1, 83)
-    assert (grid["startColumnIndex"], grid["endColumnIndex"]) == (APP_ALUMNI, APP_RECRUITER + 1)
+    assert (grid["startColumnIndex"], grid["endColumnIndex"]) == (8, 10)
 
 
 def test_the_rule_is_a_checkbox_and_draws_one() -> None:
-    rule = _checkbox(sheet_id=7, rows=1)["setDataValidation"]["rule"]
+    rule = _checkbox(sheet_id=7, rows=1, columns=(8, 9))["setDataValidation"]["rule"]
     assert rule["condition"]["type"] == "BOOLEAN"
     assert rule["showCustomUi"] is True
+
+
+def test_the_layout_the_tab_has_today_puts_the_ticks_in_i_and_j() -> None:
+    """The sheet as it stands. Nothing about reading the header row is allowed to
+    move a write that was landing correctly before any of this."""
+    api, ticks = _marked([["FALSE", "FALSE"]] * 3, {2}, set())
+    assert ticks.columns == (8, 9)
+    assert api.updates[0][0] == "'App'!I2:J4"
+
+
+def test_the_official_column_moves_the_ticks_to_j_and_k_on_its_own() -> None:
+    """The failure this whole module was rewritten for. Official is inserted at
+    position 9 and holds a URL pasted by hand; a run still holding 8 and 9 writes
+    FALSE over every one of those URLs and ticks Alumni out of the Recruiter data.
+
+    No Python release has to accompany the insert — the run reads row 1 and lands
+    on J and K the first time it sees them there."""
+    api, ticks = _marked([["FALSE", "FALSE"]] * 3, {2}, set(), heading=AFTER)
+    assert ticks.columns == (9, 10), "Alumni and Recruiter are columns 10 and 11 now"
+    cells, parse, values = api.updates[0]
+    assert (cells, parse) == ("'App'!J2:K4", "USER_ENTERED")
+    assert values == [["FALSE", "FALSE"], ["TRUE", "FALSE"], ["FALSE", "FALSE"]]
+
+
+def test_what_was_pasted_into_official_is_never_read_as_a_checkbox() -> None:
+    """The other half of the same failure: a run that found the columns must also
+    not carry the column before them into the comparison. A URL in Official is not
+    the word TRUE, so reading it as one would make every run look like it had work
+    to do and rewrite both columns for ever."""
+    held = [["https://careers.example.com/1", "TRUE", "FALSE"]] * 3
+    at = AFTER.index("Official")
+    api = _FakeValues([AFTER] + [[""] * at + row for row in held])
+    ticks = _mark_contacts(api, _SETTINGS, 3, {1, 2, 3}, set())
+    assert (ticks.ready, ticks.wrote) == (True, False)
+    assert api.updates == []
+
+
+def test_a_header_that_moved_is_found_and_one_that_is_missing_is_not_guessed() -> None:
+    """A guess is always available here and always plausible, which is exactly why
+    there is none. Column 9 holds something on every layout this tab has ever had."""
+    assert _checkbox_columns(BEFORE) == (8, 9)
+    assert _checkbox_columns(AFTER) == (9, 10)
+    with pytest.raises(AppLayoutError) as refused:
+        _checkbox_columns([column for column in AFTER if column != "Recruiter"])
+    named, _, echoed = str(refused.value).partition(";")
+    assert "'Recruiter'" in named, "the refusal has to say which header it wanted"
+    assert "'Alumni'" not in named, "and not the ones it found"
+    assert "'Official'" in echoed, "row 1 is quoted back so the sheet can be compared to it"
+
+
+def test_an_empty_tab_names_both_headers_rather_than_reading_row_one_of_nothing() -> None:
+    with pytest.raises(AppLayoutError) as refused:
+        _checkbox_columns([])
+    assert "'Alumni'" in str(refused.value) and "'Recruiter'" in str(refused.value)
+
+
+def test_the_two_checkboxes_have_to_be_side_by_side() -> None:
+    """Both are stated in one two-column write and covered by one validation rule.
+    Separate them and that write lands on whatever ended up between them."""
+    split = ["Alumni", "Note", "Recruiter"]
+    with pytest.raises(AppLayoutError) as refused:
+        _checkbox_columns(split)
+    assert "side by side" in str(refused.value)
+
+
+@pytest.mark.parametrize("spelling", ["Alumni", " Alumni ", "alumni", " ALUMNI\n", "\tAlumni"])
+def test_a_header_retyped_by_hand_is_still_the_same_column(spelling: str) -> None:
+    """Case and surrounding space are cosmetic. Stopping the sync over them would
+    teach whoever runs it that the refusal is noise, which is how a fallback gets
+    added back."""
+    assert _checkbox_columns([spelling, "Recruiter"]) == (0, 1)
+
+
+@pytest.mark.parametrize("other", ["Alumni Notes", "Alumni?", "Alum", "Ex-Alumni", "Alumni2"])
+def test_a_different_word_is_a_different_column(other: str) -> None:
+    """The likeliest next edit to this tab is somebody adding a notes column beside
+    the checkbox. Matching it on a prefix would tick booleans down their notes —
+    the same corruption the hardcoded index caused, reached from the other side."""
+    with pytest.raises(AppLayoutError):
+        _checkbox_columns([other, "Recruiter"])
+
+
+def test_nothing_is_written_where_the_headers_cannot_be_found() -> None:
+    """A refusal, not a fallback: the run says which header it could not find and
+    leaves both columns exactly as they stand."""
+    api, ticks = _marked([["TRUE", "FALSE"]] * 3, {1}, {2}, heading=["Property", "Company"])
+    assert (ticks.ready, ticks.wrote, ticks.columns) == (False, False, None)
+    assert api.updates == []
+
+
+def test_the_checkbox_rule_follows_the_columns_the_ticks_were_written_to() -> None:
+    """The rule and the write are laid over the same two indices, taken from the
+    same reading of row 1. Two independent readings could straddle the migration
+    and leave the rule one column from the booleans, which is the bare word FALSE
+    all over again."""
+    _, ticks = _marked([["FALSE", "FALSE"]] * 3, {1}, set(), heading=AFTER)
+    grid = _checkbox(sheet_id=7, rows=3, columns=ticks.columns)["setDataValidation"]["range"]
+    assert (grid["startColumnIndex"], grid["endColumnIndex"]) == (9, 11)
+
+
+def test_the_two_headers_are_the_words_the_apps_script_writes() -> None:
+    """Matching is on the whole word, so the Python and the .gs have to agree on it
+    exactly — a rename on either side is a silent no-op on this one."""
+    assert APP_HEADERS == ("Alumni", "Recruiter")

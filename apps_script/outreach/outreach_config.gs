@@ -66,10 +66,6 @@ var TAB_ALPHABET       = 'Alphabet_Order';
 // Mixed into one table neither can be scanned: the recruiter rows outnumber the
 // referral rows and both would have to carry the other's columns as blanks.
 var TAB_REFERRAL       = 'Referral';
-// The crawler's output, read here for the first time. Nothing in the sender has
-// ever needed it before: the cold path starts from an application, and this one
-// starts from a posting that may not have been applied to yet.
-var TAB_JOBS           = 'Jobs';
 // Employees, exported by ColdEmail beside Contacts (seed). A separate tab rather
 // than more rows on that one, because the two lists are different people asked
 // for different things, and an export of one must never be able to erase the other.
@@ -80,8 +76,15 @@ var TAB_EMPLOYEES_SEED = 'Employees (seed)';
 // that has been turned down must stop being worked within the hour. Nothing else
 // here writes to App — the tab is already dense, and one more machine-written
 // column would be one more thing to read past.
-var APP_PROPERTY = 1, APP_COMPANY = 2, APP_DATE_APPLIED = 4;
-var APP_PROCESS = 6, APP_ROLE = 7, APP_RECRUITERS = 10, APP_UPDATE = 11;
+var APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE_APPLIED = 4;
+var APP_PROCESS = 6, APP_ROLE = 7;
+// Official, at column 9, is the one column on this tab a human fills in for this
+// project's sake: the application URL a referral can actually be submitted
+// against, pasted by hand when the link in column 3 is an aggregator's. Alumni,
+// Recruiter and Update all moved one to the right to make room for it.
+var APP_OFFICIAL = 9;
+var APP_RECRUITERS = 11, APP_UPDATE = 12;
+var APP_READ_WIDTH = 12;
 
 // The stage a recognised rejection moves an application to, and the date format
 // its line in Update is written in. Both mirror the bound script — STAGES and
@@ -133,12 +136,6 @@ var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9
 var E_COMPANY = 1, E_NAME = 2, E_EMAIL = 3, E_TITLE = 4, E_DOMAIN = 5;
 var E_SENIORITY = 6, E_LINKEDIN = 7, E_ANGLE = 8, E_BUCKET = 9, E_VERIFY = 10;
 var E_WIDTH = 10;
-
-// Jobs tab, 1-based. Column H is the one a human types into: the official
-// application link, pasted by hand when the crawled one in C is an aggregator's.
-var JOB_COMPANY = 1, JOB_ROLE = 2, JOB_LINK = 3, JOB_POSTED = 4;
-var JOB_REFERRAL_LINK = 8;
-var JOB_WIDTH = 8;
 
 // Referral tab, 1-based. Unlike the Email tab this one does hold the recipient's
 // name and address: the Email tab's rule exists because nobody needs to read a
@@ -250,11 +247,22 @@ var REFERRAL_PER_COMPANY = 6;
 // where the remaining names go stale.
 var REFERRAL_COMPANY_DAILY_CAP = 6;
 
-// The word a posting's title has to carry. A referral is being asked for one
-// specific intake, and "summer" is what distinguishes the intake worth asking
-// about from a co-op, a placement year, or a full-time req that happens to
-// mention interns.
+// The word a posting's title had to carry while this path read the crawler's Jobs
+// tab, where hundreds of postings nobody had chosen sat side by side and "summer"
+// was what picked out the intake worth asking about.
+//
+// It is off now, because the path reads the App tab and every row there is an
+// application somebody deliberately made. Having applied is a far stronger
+// statement about which intake matters than a word in a job board's title, and
+// the two disagree constantly: of 327 rows on the live App tab only 81 say
+// "summer", so leaving this on would have thrown away three quarters of the
+// applications on the strength of how a title happened to be written.
+//
+// The word and the rule are kept rather than deleted because turning it back on
+// is a one line change, and because the reasoning above is about this tab and
+// would not survive the path being pointed at a different one.
 var REFERRAL_SEASON_WORD = 'summer';
+var REFERRAL_REQUIRE_SEASON = false;
 
 // Weekends are allowed, and the hours are the follow-up's rather than the cold
 // path's. A referral note is not a recruiting email arriving during a recruiter's

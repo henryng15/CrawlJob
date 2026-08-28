@@ -501,12 +501,12 @@ function outreachReferralIndex_(company, attempt) {
  * rather than sending a referral ask that cannot be acted on.
  */
 function outreachReferralApplied_(company, role, dateApplied, today, formatDate, link) {
-  // Present tense when there is no application, and that is the ordinary case
-  // rather than the edge one: this path queues from a posting on the Jobs tab and
-  // deliberately does not wait for an application, because a referral attached
-  // before the application is the version of the favour that helps. Saying "I
-  // applied" there would be the one sentence in the message the reader can check
-  // and find false, in an email whose entire argument is that it is honest.
+  // Present tense when there is no application. That was the ordinary case while
+  // this path read the crawler's postings and the uncommon one now that it reads
+  // applications, but the rule is the same either way and is the point: this is
+  // the one sentence in the message the reader can check, in an email whose whole
+  // argument is that it is honest, so it says whichever of the two is true rather
+  // than whichever is more flattering.
   if (!dateApplied) {
     return 'I am applying for the ' + role + ' role at ' + company + ': ' + link;
   }

@@ -1,18 +1,24 @@
 /**
  * Referral — deciding who gets asked, and for which posting.
  *
- * The cold path starts from an application: something was applied to, so there is
- * a company, a role and a date, and the only question left is who to write to.
- * This path starts a step earlier, from a posting on the Jobs tab that may never
- * have been applied to at all. That is deliberate. A referral submitted before
- * the application is the version of the favour that actually helps, because the
- * referrer's name goes on the file rather than being attached to it afterwards.
+ * Both paths start from an application on the App tab: something was applied to,
+ * so there is a company, a role, a date and a link. What differs is who is
+ * written to and what is asked. The cold path writes to a recruiter and asks them
+ * to look; this one writes to an engineer and asks them to spend their own
+ * credibility.
+ *
+ * It read the crawler's Jobs tab first, on the reasoning that a referral attached
+ * before an application helps more than one attached after. That reasoning is
+ * sound and the tab was still wrong: Jobs holds every posting the crawler found,
+ * six hundred rows of which two were at a company this project has engineers for.
+ * Reading applications instead is not a narrowing. An application is a decision,
+ * and a favour is worth asking for where a decision has already been made.
  *
  * Four things have to be true before a row is queued, and each is here as its own
  * function so that a row nobody expected can be argued with one rule at a time:
  *
- *   the employer is one ColdEmail found engineers at   outreachReferralEmployees_
- *   the posting is for a summer intake                 outreachReferralSeason_
+ *   the employer is one ColdEmail found engineers at   outreachEmployeesFor_
+ *   the application has not already been rejected      outreachReferralLive_
  *   the link goes to the employer's own application    outreachReferralLinkOk_
  *   this person has never been written to before       outreachReferralPlan_
  *
@@ -21,8 +27,8 @@
  * under an id of their own, and a referral form wants the requisition, not a
  * redirect to it. So the gate is an allowlist of applicant tracking systems plus
  * the employer's own domain, and everything else is refused by default. A refused
- * row is not dropped, it is painted yellow on the Jobs tab and waits for a link
- * pasted by hand into column H.
+ * row is not dropped, it is painted yellow on the App tab and waits for a link
+ * pasted by hand into the Official column.
  *
  * Deny by default, rather than a list of aggregators to reject. The rejects are
  * unbounded and grow whenever somebody launches another job board; the systems
@@ -56,7 +62,7 @@ var REFERRAL_ATS_DOMAINS = [
  *
  * Nothing is gated on this list: the allowlist above already refuses everything
  * it does not recognise, and a second list that could also refuse would be a
- * second place to be wrong. This exists so the Jobs tab can say which kind of
+ * second place to be wrong. This exists so the App tab can say which kind of
  * wrong a link is, because "that is a Jobright redirect, paste the real one" and
  * "I do not recognise this host" ask a person to do different things.
  *
@@ -124,8 +130,8 @@ function outreachReferralLinkOk_(url, companyDomain) {
 /**
  * Why a link was refused, for the person who has to fix it.
  *
- * Returned rather than logged, because where this ends up is a cell on the Jobs
- * tab next to the row it is about. '' means the link was accepted.
+ * Returned rather than logged, because where this ends up is next to the row on
+ * the App tab that it is about. '' means the link was accepted.
  */
 function outreachReferralLinkProblem_(url, companyDomain) {
   var text = String(url == null ? '' : url).trim();
@@ -147,6 +153,7 @@ function outreachReferralLinkProblem_(url, companyDomain) {
  * one of its postings into the queue.
  */
 function outreachReferralSeason_(role) {
+  if (!REFERRAL_REQUIRE_SEASON) return true;
   return new RegExp('\\b' + REFERRAL_SEASON_WORD + '\\b', 'i')
     .test(String(role == null ? '' : role));
 }
@@ -199,60 +206,84 @@ function outreachEmployeesFor_(employees, company) {
 
 
 /**
- * One Jobs row, as the fields this path reads.
+ * One App row, as the fields this path reads.
+ *
+ * The App tab, not the crawler's Jobs tab, and the change of tab is the whole
+ * design rather than a detail. Jobs holds every posting the crawler found, which
+ * on the live sheet meant six hundred rows of which two were at a company this
+ * project has engineers for. App holds the applications actually made. Reading
+ * the second is not a narrowing of the first: an application is a decision, and a
+ * referral is worth asking for exactly where a decision has already been made.
  *
  * The link is decided here rather than by the caller, because which of the two
  * columns won is a fact about the row that both the queue and the yellow paint
- * need to agree on.
+ * have to agree on.
  */
-function outreachParseJob_(row, index, domainFor) {
-  var company = outreachCell_(row, JOB_COMPANY);
-  var crawled = outreachCell_(row, JOB_LINK);
-  var pasted = outreachCell_(row, JOB_REFERRAL_LINK);
+function outreachParseApplication_(row, index, domainFor) {
+  var company = outreachCell_(row, APP_COMPANY);
+  var applied = outreachCell_(row, APP_LINK);
+  var official = outreachCell_(row, APP_OFFICIAL);
   var domain = domainFor ? domainFor(company) : '';
   // The pasted link is preferred when both pass. Somebody typed it deliberately,
-  // and the only reason to type one over a crawled link that already works is
-  // that they know something the crawler does not.
-  var link = outreachReferralLinkOk_(pasted, domain) ? pasted
-           : (outreachReferralLinkOk_(crawled, domain) ? crawled : '');
+  // and the only reason to type one over a link that already works is that they
+  // know something the row does not say.
+  var link = outreachReferralLinkOk_(official, domain) ? official
+           : (outreachReferralLinkOk_(applied, domain) ? applied : '');
   return {
     index: index,
     company: company,
-    role: outreachCell_(row, JOB_ROLE),
-    posted: outreachDate_(row[JOB_POSTED - 1]),
-    crawledLink: crawled,
-    pastedLink: pasted,
+    role: outreachCell_(row, APP_ROLE),
+    dateApplied: outreachDate_(row[APP_DATE_APPLIED - 1]),
+    process: outreachCell_(row, APP_PROCESS),
+    appliedLink: applied,
+    officialLink: official,
     link: link,
     domain: domain
   };
 }
 
 /**
- * Which of a company's summer postings is the one to ask about.
+ * Whether this application is still one worth asking a favour about.
  *
- * A company with four summer reqs is not four referrals. Asking three people at
- * one employer for three different requisitions reads, if any two of them
- * compare notes, as somebody applying to everything rather than to something.
- * One posting is chosen and everybody there is asked about that one.
- *
- * Ordered, and every tie is broken so the answer does not move between runs:
- * a role the shortener recognises as a software engineering internship first,
- * because that is the job actually wanted and the others are near misses that
- * happen to say summer; then the most recently posted, because an older req is
- * closer to being filled; then the role text, which settles the rest.
+ * A rejected application is not. Asking somebody to spend their credibility on a
+ * req that has already turned you down is the one version of this email that
+ * cannot lead anywhere, and it is the version most likely to be mentioned to the
+ * recruiter who sent the rejection.
  */
-function outreachPickReferralRole_(jobs) {
-  var usable = jobs.filter(function (job) {
-    return job.link && outreachReferralSeason_(job.role);
+function outreachReferralLive_(application) {
+  return String(application.process || '').trim() !== STAGE_REJECTED;
+}
+
+/**
+ * Which of a company's applications is the one to ask about.
+ *
+ * Four applications at one employer is not four referrals. Asking six people at
+ * one company about six different requisitions reads, if any two of them compare
+ * notes, as somebody applying to everything rather than to something. One
+ * application is chosen and everybody there is asked about that one.
+ *
+ * Ordered, and every tie broken so the answer does not move between runs: a role
+ * the shortener recognises as a software engineering internship first, because
+ * that is the job actually wanted and the rest are near misses; then the most
+ * recently applied to, because that is the one still moving and the one the
+ * writer can speak about; then the role text, which settles whatever is left.
+ *
+ * An application with no usable link is never the one chosen, so a single
+ * aggregator row cannot hide a company's good link behind it. Nor is a rejected
+ * one, which is a distinction this tab can make and the Jobs tab could not.
+ */
+function outreachPickReferralRole_(applications) {
+  var usable = applications.filter(function (one) {
+    return one.link && outreachReferralLive_(one) && outreachReferralSeason_(one.role);
   });
   if (!usable.length) return null;
-  var rank = function (job) {
-    return outreachShortRole_(job.role) === DEFAULT_SHORT_ROLE ? 0 : 1;
+  var rank = function (one) {
+    return outreachShortRole_(one.role) === DEFAULT_SHORT_ROLE ? 0 : 1;
   };
   usable.sort(function (left, right) {
     if (rank(left) !== rank(right)) return rank(left) - rank(right);
-    var leftAt = left.posted ? left.posted.getTime() : 0;
-    var rightAt = right.posted ? right.posted.getTime() : 0;
+    var leftAt = left.dateApplied ? left.dateApplied.getTime() : 0;
+    var rightAt = right.dateApplied ? right.dateApplied.getTime() : 0;
     if (leftAt !== rightAt) return rightAt - leftAt;
     return left.role < right.role ? -1 : (left.role > right.role ? 1 : 0);
   });
@@ -260,28 +291,28 @@ function outreachPickReferralRole_(jobs) {
 }
 
 /**
- * Rows on the Jobs tab that should be yellow, and why.
+ * Rows on the App tab that should be yellow, and why.
  *
- * Yellow means one thing: this is a posting worth asking about and the link is
- * not one a referral can be submitted against. A row nobody would ask about is
- * never painted, because a colour that appears on rows requiring no action is a
- * colour people stop seeing.
+ * Yellow means one thing: this is an application worth asking about and the link
+ * on it is not one a referral can be submitted against. A row nobody would ask
+ * about is never painted, because a colour that appears on rows requiring no
+ * action is a colour people stop seeing.
  */
-function outreachReferralNeedsLink_(jobs, employees) {
-  return jobs.filter(function (job) {
-    if (!outreachReferralSeason_(job.role)) return false;
-    if (job.link) return false;
-    return outreachEmployeesFor_(employees, job.company).length > 0;
-  }).map(function (job) {
+function outreachReferralNeedsLink_(applications, employees) {
+  return applications.filter(function (one) {
+    if (!outreachReferralSeason_(one.role)) return false;
+    if (!outreachReferralLive_(one)) return false;
+    if (one.link) return false;
+    return outreachEmployeesFor_(employees, one.company).length > 0;
+  }).map(function (one) {
     return {
-      index: job.index,
-      company: job.company,
-      role: job.role,
-      reason: outreachReferralLinkProblem_(job.pastedLink || job.crawledLink, job.domain)
+      index: one.index,
+      company: one.company,
+      role: one.role,
+      reason: outreachReferralLinkProblem_(one.officialLink || one.appliedLink, one.domain)
     };
   });
 }
-
 
 /** One row of the Referral tab, as the fields the planner and the sender read. */
 function outreachParseReferral_(row, index) {
@@ -404,14 +435,19 @@ function outreachReferralSlot_(company, today, load) {
 /**
  * Which rows to add to the Referral tab.
  *
- * Note what is not required here. There is no Date Applied, no waiting period and
- * no check that an application exists: a posting appearing on the Jobs tab with a
- * usable link is enough, and the referral is asked for before the application
- * rather than after it. That is the ordering that helps, and it is also the only
- * ordering the tracker can offer, because a row reaches the App tab only once it
- * has been applied to and by then the referral is late.
+ * Every row here is an application already made, which is a reversal of what this
+ * used to read from. Asking before applying is the better ordering in the
+ * abstract, and it is what the Jobs tab offered; what it also offered was six
+ * hundred postings nobody had chosen, of which two were at a company this project
+ * has engineers for. An application is a decision, and a referral is worth asking
+ * for where a decision has already been made. Thirty nine employers clear that
+ * bar on the live tab against two under the old rule.
+ *
+ * There is still no waiting period. A referral attached the day after applying is
+ * worth more than one attached a fortnight later, because the file is still near
+ * the top of somebody's queue.
  */
-function outreachReferralPlan_(jobRows, referralRows, employees, today) {
+function outreachReferralPlan_(appRows, referralRows, employees, today) {
   var asked = outreachReferralAsked_(referralRows);
   var load = outreachReferralLoad_(referralRows, null);
   var booked = [], skipped = 0;
@@ -419,16 +455,16 @@ function outreachReferralPlan_(jobRows, referralRows, employees, today) {
   // Grouped by employer, because the representative posting is chosen per company
   // and the three-person limit is counted per company.
   var byCompany = {}, order = [];
-  jobRows.forEach(function (job) {
-    if (!job.company) return;
-    var key = outreachNameKey_(job.company);
+  appRows.forEach(function (one) {
+    if (!one.company) return;
+    var key = outreachNameKey_(one.company);
     if (!byCompany[key]) { byCompany[key] = []; order.push(key); }
-    byCompany[key].push(job);
+    byCompany[key].push(one);
   });
 
   // A company that has been started is finished before a new one is opened.
   //
-  // Without this the order is whatever order the Jobs tab happened to be in, and
+  // Without this the order is whatever order the App tab happened to be in, and
   // an employer whose first person was written to in August can sit at two of
   // three for weeks while the queue works through companies nobody has touched.
   // That is the worst arrangement available: the two who were written to are
@@ -437,7 +473,7 @@ function outreachReferralPlan_(jobRows, referralRows, employees, today) {
   // and is not a change to how many are sent, only to which of them go first.
   //
   // Stable within each group, so among started companies and among untouched ones
-  // the Jobs tab's own order still decides, and a run books the same rows a second
+  // the App tab's own order still decides, and a run books the same rows a second
   // time rather than reshuffling them.
   var started = {};
   referralRows.forEach(function (row) {
@@ -450,8 +486,8 @@ function outreachReferralPlan_(jobRows, referralRows, employees, today) {
   }));
 
   openFirst.forEach(function (key) {
-    var jobs = byCompany[key];
-    var job = outreachPickReferralRole_(jobs);
+    var applications = byCompany[key];
+    var job = outreachPickReferralRole_(applications);
     if (!job) return;
 
     var people = outreachEmployeesFor_(employees, job.company);

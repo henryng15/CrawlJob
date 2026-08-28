@@ -3143,84 +3143,111 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       S.outreachReferralLinkProblem_('https://example.com/jobs/1', 'stripe.com')));
   });
 
-  run('summer is a whole word, in any case', () => {
-    assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
-    assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
-    assert.ok(S.outreachReferralSeason_('2027 summer internship'));
-    assert.ok(!S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
-    assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
-    assert.ok(!S.outreachReferralSeason_(''));
+  // Off, because the path reads applications now rather than a board of postings
+  // nobody chose. Of 327 rows on the live App tab only 81 say "summer", and having
+  // applied is a stronger statement about which intake matters than how a title
+  // was written.
+  run('the season rule is off while this path reads applications', () => {
+    assert.strictEqual(S.REFERRAL_REQUIRE_SEASON, false);
+    assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
+    assert.ok(S.outreachReferralSeason_(''));
+  });
+
+  // Kept working rather than deleted, because turning it back on is one line and
+  // the reasoning above is about this tab, not about the rule.
+  run('and still matches a whole word in any case when it is switched on', () => {
+    const was = S.REFERRAL_REQUIRE_SEASON;
+    S.REFERRAL_REQUIRE_SEASON = true;
+    try {
+      assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
+      assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
+      assert.ok(S.outreachReferralSeason_('2027 summer internship'));
+      assert.ok(!S.outreachReferralSeason_('Software Engineer Intern, Fall 2026'));
+      assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
+      assert.ok(!S.outreachReferralSeason_(''));
+    } finally {
+      S.REFERRAL_REQUIRE_SEASON = was;
+    }
   });
 }
 
 {
-  console.log('\nreferral: which posting, and who at that company');
+  console.log('\nreferral: which application, and who at that company');
 
-  const jobRow = (company, role, link, posted, pasted) => {
-    const row = new Array(S.JOB_WIDTH).fill('');
-    row[S.JOB_COMPANY - 1] = company;
-    row[S.JOB_ROLE - 1] = role;
-    row[S.JOB_LINK - 1] = link || '';
-    row[S.JOB_POSTED - 1] = posted || '';
-    row[S.JOB_REFERRAL_LINK - 1] = pasted || '';
+  const appRow = (company, role, link, applied, official, process) => {
+    const row = new Array(S.APP_READ_WIDTH).fill('');
+    row[S.APP_COMPANY - 1] = company;
+    row[S.APP_ROLE - 1] = role;
+    row[S.APP_LINK - 1] = link || '';
+    row[S.APP_DATE_APPLIED - 1] = applied || '';
+    row[S.APP_OFFICIAL - 1] = official || '';
+    row[S.APP_PROCESS - 1] = process || 'Applied';
     return row;
   };
-  const job = (company, role, link, posted, pasted, index) =>
-    S.outreachParseJob_(jobRow(company, role, link, posted, pasted), index || 2,
-                        () => 'stripe.com');
+  const application = (company, role, link, applied, official, process) =>
+    S.outreachParseApplication_(
+      appRow(company, role, link, applied, official, process), 2, () => 'stripe.com');
 
   const GH = 'https://boards.greenhouse.io/stripe/jobs/';
 
-  // Somebody typed the pasted link deliberately, and the only reason to type one
-  // over a crawled link that already works is knowing something the crawler does not.
-  run('a pasted link beats a crawled one, and rescues an aggregator row', () => {
-    assert.strictEqual(job('Stripe', 'Summer Intern', GH + '1', '', GH + '2').link, GH + '2');
+  // Somebody typed the Official link deliberately, and the only reason to type one
+  // over a link that already works is knowing something the row does not say.
+  run('Official beats Application Link, and rescues an aggregator row', () => {
     assert.strictEqual(
-      job('Stripe', 'Summer Intern', 'https://jobright.ai/jobs/info/9', '', GH + '2').link,
+      application('Stripe', 'SWE Intern', GH + '1', '', GH + '2').link, GH + '2');
+    assert.strictEqual(
+      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9', '', GH + '2').link,
       GH + '2');
     assert.strictEqual(
-      job('Stripe', 'Summer Intern', 'https://jobright.ai/jobs/info/9', '', '').link, '');
+      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9', '', '').link, '');
   });
 
-  // A company with four summer reqs is not four referrals: three people asked
-  // about three requisitions reads as applying to everything.
-  run('one posting is chosen per company, the software one first', () => {
-    const jobs = [
-      job('Stripe', 'Data Science Intern, Summer 2027', GH + '1', new Date(2026, 7, 26)),
-      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '2', new Date(2026, 7, 20)),
-      job('Stripe', 'Product Design Intern, Summer 2027', GH + '3', new Date(2026, 7, 27))
-    ];
-    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+  // Asking somebody to spend their credibility on a req that already turned you
+  // down is the one version of this email that cannot lead anywhere, and the one
+  // most likely to be mentioned to the recruiter who sent the rejection.
+  run('a rejected application is not one to ask a favour about', () => {
+    assert.ok(S.outreachReferralLive_(application('Stripe', 'x', GH + '1', '', '', 'Applied')));
+    assert.ok(S.outreachReferralLive_(application('Stripe', 'x', GH + '1', '', '', 'Interview')));
+    assert.ok(!S.outreachReferralLive_(application('Stripe', 'x', GH + '1', '', '', 'Rejected')));
   });
-  run('between two software postings the newest wins', () => {
-    const jobs = [
-      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1', new Date(2026, 7, 20)),
-      job('Stripe', 'Software Engineering Intern, Summer 2027', GH + '2', new Date(2026, 7, 26))
+
+  run('one application is chosen per company, the software one first', () => {
+    const rows = [
+      application('Stripe', 'Data Science Intern', GH + '1', new Date(2026, 7, 26)),
+      application('Stripe', 'Software Engineer Intern', GH + '2', new Date(2026, 7, 20)),
+      application('Stripe', 'Product Design Intern', GH + '3', new Date(2026, 7, 27))
     ];
-    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+    assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
-  run('a posting with no usable link is never the one chosen', () => {
-    const jobs = [
-      job('Stripe', 'Software Engineer Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
-      job('Stripe', 'Data Intern, Summer 2027', GH + '2')
+  run('between two software applications the most recent wins', () => {
+    const rows = [
+      application('Stripe', 'Software Engineer Intern', GH + '1', new Date(2026, 7, 20)),
+      application('Stripe', 'Software Engineering Intern', GH + '2', new Date(2026, 7, 26))
     ];
-    assert.strictEqual(S.outreachPickReferralRole_(jobs).link, GH + '2');
+    assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
-  run('a company with nothing in summer picks nothing', () => {
-    assert.strictEqual(
-      S.outreachPickReferralRole_([job('Stripe', 'Fall 2026 Intern', GH + '1')]), null);
+  run('an application with no usable link is never the one chosen', () => {
+    const rows = [
+      application('Stripe', 'Software Engineer Intern', 'https://jobright.ai/jobs/info/9'),
+      application('Stripe', 'Data Intern', GH + '2')
+    ];
+    assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
+  });
+  run('a company whose only application was rejected picks nothing', () => {
+    assert.strictEqual(S.outreachPickReferralRole_(
+      [application('Stripe', 'SWE Intern', GH + '1', '', '', 'Rejected')]), null);
     assert.strictEqual(S.outreachPickReferralRole_([]), null);
   });
 
   // A colour that appears on rows needing no action is a colour people stop
   // seeing, so only a row somebody could actually act on is ever painted.
-  run('yellow means a summer posting at a company we know, with no usable link', () => {
+  run('yellow means a live application at a company we know, with no usable link', () => {
     const people = [{ company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe') }];
     const rows = [
-      job('Stripe', 'Software Engineer Intern, Summer 2027', 'https://jobright.ai/jobs/info/9'),
-      job('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1'),
-      job('Stripe', 'Fall 2026 Intern', 'https://jobright.ai/jobs/info/9'),
-      job('Nowhere Inc', 'Summer 2027 Intern', 'https://jobright.ai/jobs/info/9')
+      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9'),
+      application('Stripe', 'SWE Intern', GH + '1'),
+      application('Stripe', 'SWE Intern', 'https://jobright.ai/jobs/info/9', '', '', 'Rejected'),
+      application('Nowhere Inc', 'SWE Intern', 'https://jobright.ai/jobs/info/9')
     ];
     const painted = S.outreachReferralNeedsLink_(rows, people);
     assert.strictEqual(painted.length, 1);
@@ -3231,7 +3258,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 {
   console.log('\nreferral: the queue');
 
-  const REF_WIDTH = 17;
+  const REF_WIDTH = S.R_WIDTH;
   const person = (name, email, title, seniority) => ({
     company: 'Stripe', tokens: S.outreachCompanyTokens_('Stripe'),
     name: name, email: email, title: title || 'Software Engineer',
@@ -3247,11 +3274,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   };
   const GH = 'https://boards.greenhouse.io/stripe/jobs/';
   const jobRow = (company, role, link) => {
-    const row = new Array(S.JOB_WIDTH).fill('');
-    row[S.JOB_COMPANY - 1] = company;
-    row[S.JOB_ROLE - 1] = role;
-    row[S.JOB_LINK - 1] = link;
-    return S.outreachParseJob_(row, 2, () => 'stripe.com');
+    const row = new Array(S.APP_READ_WIDTH).fill('');
+    row[S.APP_COMPANY - 1] = company;
+    row[S.APP_ROLE - 1] = role;
+    row[S.APP_LINK - 1] = link;
+    row[S.APP_PROCESS - 1] = 'Applied';
+    return S.outreachParseApplication_(row, 2, () => 'stripe.com');
   };
   const TODAY = new Date(2026, 7, 28, 7, 0, 0);
   const summerJob = [jobRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')];
@@ -3321,13 +3349,15 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       S.outreachReferralPlan_(summerJob, existing, people, TODAY).booked.length, 0);
   });
 
-  run('no summer posting, no usable link, or no employees means no rows', () => {
+  run('no usable link, or no employees, means no rows', () => {
     const people = [person('A', 'a@stripe.com')];
-    const fall = [jobRow('Stripe', 'Fall 2026 Intern', GH + '1')];
     const bad = [jobRow('Stripe', 'Summer 2027 Intern', 'https://jobright.ai/jobs/info/9')];
-    assert.strictEqual(S.outreachReferralPlan_(fall, [], people, TODAY).booked.length, 0);
     assert.strictEqual(S.outreachReferralPlan_(bad, [], people, TODAY).booked.length, 0);
     assert.strictEqual(S.outreachReferralPlan_(summerJob, [], [], TODAY).booked.length, 0);
+    // And an intake the title does not name is no longer excluded, because every
+    // row here is an application somebody chose to make.
+    const fall = [jobRow('Stripe', 'Fall 2026 Intern', GH + '1')];
+    assert.strictEqual(S.outreachReferralPlan_(fall, [], people, TODAY).booked.length, 1);
   });
 
   // Nothing here waits for an application. A referral submitted before the
@@ -3472,10 +3502,11 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     return row;
   };
   const jobsRow = (company, role, link) => {
-    const row = new Array(S.JOB_WIDTH).fill('');
-    row[S.JOB_COMPANY - 1] = company;
-    row[S.JOB_ROLE - 1] = role;
-    row[S.JOB_LINK - 1] = link;
+    const row = new Array(S.APP_READ_WIDTH).fill('');
+    row[S.APP_COMPANY - 1] = company;
+    row[S.APP_ROLE - 1] = role;
+    row[S.APP_LINK - 1] = link;
+    row[S.APP_PROCESS - 1] = 'Applied';
     return row;
   };
   const referralRow = (email, name, scheduled, status, draftId) => {
@@ -3542,8 +3573,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('planning twice in a row books nothing the second time', () => {
     const rows = [];
     sheets = {
-      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
-                        S.JOB_WIDTH),
+      [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.APP_READ_WIDTH),
       [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
       [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH)
     };
@@ -3564,8 +3595,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('an empty employee export books nothing rather than reading every posting as empty', () => {
     const rows = [];
     sheets = {
-      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
-                        S.JOB_WIDTH),
+      [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.APP_READ_WIDTH),
       [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
       [S.TAB_EMPLOYEES_SEED]: tab([], S.E_WIDTH)
     };
@@ -3702,8 +3733,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('a row travels Queued to Drafted to Sent, and the plan does not book it again', () => {
     const rows = [];
     sheets = {
-      [S.TAB_JOBS]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
-                        S.JOB_WIDTH),
+      [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')],
+                        S.APP_READ_WIDTH),
       [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
       [S.TAB_EMPLOYEES_SEED]: tab([employeeRow('Stripe', 'A One', 'a@stripe.com')], S.E_WIDTH)
     };
@@ -3725,7 +3756,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     sheets = { [S.TAB_REFERRAL]: tab([], S.R_WIDTH), [S.TAB_EMPLOYEES_SEED]: tab([], S.E_WIDTH) };
     assert.strictEqual(S.checkReferralService(), false);
     sheets = {
-      [S.TAB_JOBS]: tab([], S.JOB_WIDTH),
+      [S.TAB_APP]: tab([], S.APP_READ_WIDTH),
       [S.TAB_REFERRAL]: tab([referralRow('a@stripe.com', 'A One', minutes(60), S.STATUS_QUEUED)],
                             S.R_WIDTH),
       [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH)
@@ -3814,11 +3845,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('a company already started is finished before a new one is opened', () => {
     const GH = 'https://boards.greenhouse.io/x/jobs/';
     const jobRow = (company, link) => {
-      const row = new Array(S.JOB_WIDTH).fill('');
-      row[S.JOB_COMPANY - 1] = company;
-      row[S.JOB_ROLE - 1] = 'Software Engineer Intern, Summer 2027';
-      row[S.JOB_LINK - 1] = link;
-      return S.outreachParseJob_(row, 2, () => '');
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = company;
+      row[S.APP_ROLE - 1] = 'Software Engineer Intern, Summer 2027';
+      row[S.APP_LINK - 1] = link;
+      row[S.APP_PROCESS - 1] = 'Applied';
+      return S.outreachParseApplication_(row, 2, () => '');
     };
     const at = (company, email) => ({
       company: company, tokens: S.outreachCompanyTokens_(company), name: 'P',
@@ -4060,6 +4092,61 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('the property is named and described alongside the others', () => {
     assert.strictEqual(S.PROP_REFERRAL_MODE, 'REFERRAL_MODE');
+  });
+}
+
+
+{
+  console.log('\nreferral: the date the email claims');
+
+  // Every row on this tab now comes from an application actually made. Saying
+  // "I am applying" about one submitted three weeks ago is the same falsehood the
+  // present tense was introduced to avoid, pointing the other way.
+  run('the applied date is looked up by company and role, earliest first', () => {
+    const appRow = (company, role, when) => {
+      const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_COMPANY - 1] = company;
+      row[S.APP_ROLE - 1] = role;
+      row[S.APP_DATE_APPLIED - 1] = when;
+      return row;
+    };
+    const grid = [
+      appRow('Stripe', 'Software Engineer Intern', day(2026, 8, 21)),
+      appRow('Stripe', 'software engineer intern ', day(2026, 8, 25)),
+      appRow('Reddit', 'Data Intern', day(2026, 8, 10)),
+      appRow('Nowhere', '', day(2026, 8, 10))
+    ];
+    const tracker = {
+      getSheetByName(name) {
+        if (name !== S.TAB_APP) return null;
+        return {
+          getLastRow: () => grid.length + 1,
+          getRange: () => ({ getValues: () => grid })
+        };
+      }
+    };
+    const found = S.outreachReferralAppliedOn_(tracker);
+    const key = S.outreachReferralAppKey_('Stripe', 'Software Engineer Intern');
+    // Case and trailing space are one job, and the earlier of the two dates wins
+    // because that is the one the recipient could go and verify.
+    assert.strictEqual(found[key].getTime(), day(2026, 8, 21).getTime());
+    assert.ok(found[S.outreachReferralAppKey_('Reddit', 'Data Intern')]);
+    // A row with no role cannot be matched to anything and is not stored.
+    assert.strictEqual(Object.keys(found).length, 2);
+  });
+
+  run('no App tab, or an empty one, is an empty lookup rather than a throw', () => {
+    assert.deepStrictEqual(
+      Object.keys(S.outreachReferralAppliedOn_({ getSheetByName: () => null })), []);
+    const empty = { getSheetByName: () => ({ getLastRow: () => 1 }) };
+    assert.deepStrictEqual(Object.keys(S.outreachReferralAppliedOn_(empty)), []);
+  });
+
+  run('the key matches the way the rest of the project matches employers', () => {
+    assert.strictEqual(S.outreachReferralAppKey_('Stripe ', 'SWE Intern'),
+                       S.outreachReferralAppKey_('stripe', 'swe  intern'));
+    assert.notStrictEqual(S.outreachReferralAppKey_('Stripe', 'SWE Intern'),
+                          S.outreachReferralAppKey_('Stripe', 'Data Intern'));
   });
 }
 

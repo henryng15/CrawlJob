@@ -90,7 +90,7 @@ function outreachReadReferralRows_(sheet) {
 /**
  * A company's domain, out of the employee export, remembered per company.
  *
- * outreachParseJob_ needs it because jobs.apple.com and careers.google.com are
+ * outreachParseApplication_ needs it because jobs.apple.com and careers.google.com are
  * the best link a referral ask can carry and no allowlist will ever contain
  * them: the employer's own domain is what recognises them, and the ColdEmail
  * export is the only place this project holds one.
@@ -136,18 +136,17 @@ function planReferralAsks() {
   try {
     var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
     var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
-    var jobs = tracker.getSheetByName(TAB_JOBS);
+    var apps = tracker.getSheetByName(TAB_APP);
     var referral = tracker.getSheetByName(TAB_REFERRAL);
-    if (!jobs) throw new Error('No ' + TAB_JOBS + ' tab.');
+    if (!apps) throw new Error('No ' + TAB_APP + ' tab.');
     // A missing Referral tab is not a fault, it is a path nobody has switched on
     // yet, and the difference matters because runOutreachCycle calls this every
     // hour. Throwing would end every run red for as long as the tab is absent,
     // and a cycle that is always red is a cycle nobody reads: the day something
     // genuinely breaks, the log already says failed and has done for weeks.
     //
-    // The Jobs tab above still throws. That one is not optional and not ours: if
-    // it has gone, the crawler is writing somewhere else and the whole tracker is
-    // wrong, which is worth stopping for.
+    // The App tab above still throws. That one is not optional: if it has gone,
+    // the tracker itself is wrong and every other path is broken too.
     if (!referral) {
       Logger.log('No ' + TAB_REFERRAL + ' tab, so the referral path is not set up '
                + 'yet. Run setupReferralQueue once and this starts working.');
@@ -159,19 +158,24 @@ function planReferralAsks() {
     // the log would say a perfectly ordinary "booked 0". Said out loud instead.
     var employees = outreachReadEmployees_(contactsBook);
     if (!employees.length) {
-      Logger.log('The ' + TAB_EMPLOYEES_SEED + ' tab is empty, so no posting has '
+      Logger.log('The ' + TAB_EMPLOYEES_SEED + ' tab is empty, so no application has '
                + 'anybody to ask. Nothing was booked; run ColdEmail\'s export first.');
       return { booked: 0, skipped: 0 };
     }
 
     var domainFor = outreachReferralDomainFor_(employees);
-    var jobsLast = jobs.getLastRow();
-    var jobRows = jobsLast < 2 ? []
-      : jobs.getRange(2, 1, jobsLast - 1, JOB_WIDTH).getValues()
-            .map(function (row, index) { return outreachParseJob_(row, index + 2, domainFor); });
+    var appLast = apps.getLastRow();
+    // APP_READ_WIDTH, not getLastColumn: the tab can carry columns past the ones
+    // this project knows about, and reading to the end of them would make the row
+    // arrays longer than every index here expects for no gain.
+    var appRows = appLast < 2 ? []
+      : apps.getRange(2, 1, appLast - 1, APP_READ_WIDTH).getValues()
+            .map(function (row, index) {
+              return outreachParseApplication_(row, index + 2, domainFor);
+            });
 
     var referralRows = outreachReadReferralRows_(referral);
-    var plan = outreachReferralPlan_(jobRows, referralRows, employees, new Date());
+    var plan = outreachReferralPlan_(appRows, referralRows, employees, new Date());
 
     // One setValues for the whole block. A write per row on a tab that can gain
     // a dozen rows in a run is a dozen round trips, and a run interrupted in the
@@ -237,6 +241,42 @@ function outreachReferralToDraft_(referralRows, now) {
  * the message carries, and a recovered attempt that merely agreed about the
  * template would hand the second person at a company the first person's bullets.
  */
+/**
+ * The key an application and a referral row agree on.
+ *
+ * Company and role together, both through the same normaliser the rest of this
+ * project matches employers with, so "Software Engineer Intern " and "software
+ * engineer intern" are one job rather than two.
+ */
+function outreachReferralAppKey_(company, role) {
+  return outreachNameKey_(company) + '\u0000' + outreachNameKey_(role);
+}
+
+/**
+ * When each application on the App tab was made, by company and role.
+ *
+ * Read once for the whole firing rather than per row: a dozen referral drafts in
+ * one run would otherwise be a dozen reads of the same eight hundred rows.
+ */
+function outreachReferralAppliedOn_(tracker) {
+  var apps = tracker.getSheetByName(TAB_APP);
+  var out = {};
+  if (!apps) return out;
+  var last = apps.getLastRow();
+  if (last < 2) return out;
+  apps.getRange(2, 1, last - 1, APP_READ_WIDTH).getValues().forEach(function (row) {
+    var company = outreachCell_(row, APP_COMPANY);
+    var role = outreachCell_(row, APP_ROLE);
+    var when = outreachDate_(row[APP_DATE_APPLIED - 1]);
+    if (!company || !role || !when) return;
+    var key = outreachReferralAppKey_(company, role);
+    // The earliest wins. A company with two rows for one role applied once and
+    // edited it; the first date is the one the recipient could verify.
+    if (!out[key] || when < out[key]) out[key] = when;
+  });
+  return out;
+}
+
 function outreachReferralAttemptFor_(company, template) {
   var wanted = (Number(template) || 1) - 1;
   for (var attempt = 1; attempt <= 10; attempt++) {
@@ -308,6 +348,7 @@ function draftReferralAsks() {
     }
 
     var employees = outreachReadEmployees_(contactsBook);
+    var appliedOn = outreachReferralAppliedOn_(tracker);
     var resume = DriveApp.getFileById(outreachProperty_(PROP_RESUME_ID, true)).getBlob();
     var tally = { drafted: 0, failed: 0 };
 
@@ -322,12 +363,18 @@ function draftReferralAsks() {
           angle: person.angle || '',
           bucket: person.bucket || '',
           role: row.role,
-          // No Date Applied, and no column to put one in. This path starts from a
-          // posting that may never have been applied to — that is the ordering
-          // that actually helps, because a referral submitted before the
-          // application puts the referrer's name on the file rather than beside
-          // it — so there is frequently no date to name and never a stored one.
-          dateApplied: null,
+          // Looked up rather than stored, because the Referral tab has no column
+          // for it and does not want one: the date belongs to the application,
+          // and the application already has a row of its own two tabs away that
+          // stays right when it is corrected there.
+          //
+          // It has to be here at all because every row on this tab now comes from
+          // an application that was actually made. While this path read the Jobs
+          // tab there was often no date and the email said "I am applying";
+          // saying that about an application submitted three weeks ago is the same
+          // falsehood the present tense was introduced to avoid, pointing the
+          // other way.
+          dateApplied: appliedOn[outreachReferralAppKey_(row.company, row.role)] || null,
           today: now,
           jobLink: row.jobLink,
           // The tab already names which of the ten this row is getting, and that
@@ -503,13 +550,13 @@ function checkReferralService() {
 
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) problems.push('there is no ' + TAB_REFERRAL + ' tab to write to');
-  if (!tracker.getSheetByName(TAB_JOBS)) {
-    problems.push('there is no ' + TAB_JOBS + ' tab, so no posting can be found');
+  if (!tracker.getSheetByName(TAB_APP)) {
+    problems.push('there is no ' + TAB_APP + ' tab, so no application can be found');
   }
 
   var employees = outreachReadEmployees_(contactsBook);
   if (!employees.length) {
-    problems.push('the ' + TAB_EMPLOYEES_SEED + ' tab is empty, so no posting has '
+    problems.push('the ' + TAB_EMPLOYEES_SEED + ' tab is empty, so no application has '
                 + 'anybody to ask');
   }
 

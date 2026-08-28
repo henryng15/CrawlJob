@@ -3,12 +3,18 @@
 Two questions the App tab cannot answer on its own, and both are about the same
 thing — is there a person on the other side of this application.
 
-  * An alumnus works there. A tick in column I of App, and still a yellow row in
-    the Alumni tab, where there is no application to hang a checkbox off.
-  * A recruiter contact exists. A tick in column J of App, from a list of employer
-    names carried in this repo.
+  * An alumnus works there. A tick in App's Alumni column, and still a yellow row
+    in the Alumni tab, where there is no application to hang a checkbox off.
+  * A recruiter contact exists. A tick in App's Recruiter column, from a list of
+    employer names carried in this repo.
 
-Both App marks used to be colours: yellow across the row, red in column I. A
+Neither is ever addressed by number. Both are found by their header on every run,
+because an Official column is being inserted into the middle of this tab and the
+Apps Script that inserts it cannot land in the same release as this file — see the
+comment above sheet.STAMP. A remembered index would spend that window writing
+checkbox booleans over the URLs pasted into Official.
+
+Both App marks used to be colours: yellow across the row, red under Alumni. A
 checkbox says the same thing and can be filtered and sorted on, which a
 background colour cannot. The paint is lifted on the first run that finds it.
 
@@ -29,17 +35,34 @@ from pathlib import Path
 from googleapiclient.errors import HttpError
 
 from job_sync.config import Settings
-from job_sync.sheet import APP_COMPANY, _column, _quote_tab, _service
+from job_sync.sheet import (
+    APP_COMPANY_HEADER,
+    AppLayoutError,
+    _column,
+    _quote_tab,
+    _service,
+    _whole_tab,
+    app_columns,
+)
 from job_sync.sources import company_tokens, same_employer
 
 ALUMNI_COMPANY = 0
 ALUMNI_WIDTH = 6
 JOBS_WIDTH = 7
+# How wide the row-wide yellow was painted, back when App ended at H and the two
+# marks were colours. Not a column identity and so deliberately still a number: a
+# column inserted at I is inserted after every cell that paint ever touched, so
+# widening this would start clearing background from columns the old build never
+# wrote to — somebody's own highlighting.
 APP_WIDTH = 8
-# Columns I and J of App, the two checkboxes this module owns. Zero-based, and
-# adjacent so both are stated in one write.
-APP_ALUMNI, APP_RECRUITER = 8, 9
-# What those two cells have to say in row 1 before anything is written under them.
+# The two checkboxes this module owns, named rather than numbered. Where they sit
+# is read off row 1 on every run: an Official column lands at position 9 and moves
+# both one to the right, and a run holding 8 and 9 through that would write FALSE
+# over the URLs pasted into Official and tick Alumni from the Recruiter data.
+#
+# They are also the headers that grant permission. Nothing is written to this tab
+# until row 1 names both, so a tab that has not been set up is left alone rather
+# than written to on a guess.
 APP_HEADERS = ("Alumni", "Recruiter")
 FIRST_DATA_ROW = 1  # zero-based; row 1 of the sheet is the header
 HIGHLIGHT = {"red": 1.0, "green": 0.898, "blue": 0.6}
@@ -58,10 +81,17 @@ class _Ticks:
 
     `ready` is the headers being in place, which is the tool's permission to touch
     the columns at all. It is separate from `wrote` because a run can be allowed to
-    write and have nothing to say."""
+    write and have nothing to say.
+
+    `columns` carries out the two indices the write actually used, so the checkbox
+    rule is laid over the columns that were just written rather than over a second,
+    independent reading of the header. Between those two readings the Official
+    migration could have run, and the rule would then cover a column the ticks are
+    not in — which is the bare word FALSE all over again, one column to the left."""
 
     ready: bool = False
     wrote: bool = False
+    columns: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -91,13 +121,21 @@ def recruiter_companies() -> list[frozenset[str]]:
     return [token_set for token_set in tokens if token_set]
 
 
-def _values(values_api, settings: Settings, tab: str, columns: str) -> list[list[str]] | None:
-    """None where the tab is not there, which is different from a tab with no rows."""
+def _values(
+    values_api, settings: Settings, tab: str, columns: str | None
+) -> list[list[str]] | None:
+    """None where the tab is not there, which is different from a tab with no rows.
+
+    `columns` of None asks for the tab and no letters at all, which is what every
+    read of App now does. Naming a width there would be a second, silent claim
+    about the layout beside the one row 1 makes, and a header sitting outside the
+    range is indistinguishable from a header that was never written — so a range
+    left one column short does not lose a column, it refuses the whole run and
+    blames the sheet."""
+    cells = _whole_tab(tab) if columns is None else f"{_quote_tab(tab)}!{columns}"
     try:
         return (
-            values_api.get(spreadsheetId=settings.sheet_id, range=f"{_quote_tab(tab)}!{columns}")
-            .execute()
-            .get("values", [])
+            values_api.get(spreadsheetId=settings.sheet_id, range=cells).execute().get("values", [])
         )
     except HttpError as error:
         if error.status_code != 400:
@@ -121,8 +159,9 @@ def _painted(
 
     One column is enough because each mark is a solid block, and reading it back
     is what makes the clear surgical rather than wiping every background on the
-    tab. The two marks probe different columns — A for the row-wide yellow, I for
-    the recruiter red — so neither can mistake the other for its own work."""
+    tab. The two marks probe different columns — A for the row-wide yellow, the
+    Alumni column for the recruiter red — so neither can mistake the other for its
+    own work."""
     result = (
         service.spreadsheets()
         .get(
@@ -189,14 +228,19 @@ def _requests(
     return requests
 
 
-def _boxes(rows: list[list[str]], count: int) -> list[list[str]]:
+def _boxes(rows: list[list[str]], count: int, columns: tuple[int, int]) -> list[list[str]]:
     """Two checkbox columns, `count` rows deep, every cell reading TRUE or FALSE.
 
     Both halves of the comparison go through this. A checkbox that has never been
     ticked reads back as FALSE, one on a row the validation has not reached reads
     back as nothing at all, and the API drops trailing blanks from every row it
     returns — three spellings of the same state, which would otherwise make a run
-    that changes nothing look like a run with work to do."""
+    that changes nothing look like a run with work to do.
+
+    `columns` is passed in rather than assumed, and has no default, because the
+    only two indices worth defaulting to are the two the Official migration moves.
+    A default here would be the guess the rest of this module refuses to make,
+    hidden where nobody would think to look for it."""
     stated = []
     for index in range(count):
         row = rows[index] if index < len(rows) else []
@@ -205,7 +249,7 @@ def _boxes(rows: list[list[str]], count: int) -> list[list[str]]:
                 "TRUE"
                 if column < len(row) and row[column].strip().casefold() == "true"
                 else "FALSE"
-                for column in (0, 1)
+                for column in columns
             ]
         )
     return stated
@@ -219,6 +263,26 @@ def _state(matched: set[int] | None, index: int, held: str) -> str:
     if matched is None:
         return held
     return "TRUE" if index in matched else "FALSE"
+
+
+def _checkbox_columns(header: list[str]) -> tuple[int, int]:
+    """Where Alumni and Recruiter sit, and the proof they can be written together.
+
+    The write below states both in one rectangular range and the validation rule
+    covers one rectangle too, so the two being side by side is not a convenience,
+    it is what makes a single request mean what it says. Adjacency is checked
+    rather than assumed: separate them and a two-wide write starting at Alumni
+    lands on whatever now sits between them.
+
+    Raises AppLayoutError for the same reason a missing header does — every way of
+    carrying on from here writes booleans into a column nobody named."""
+    alumni, recruiter = app_columns(header, *APP_HEADERS)
+    if recruiter != alumni + 1:
+        raise AppLayoutError(
+            f"{APP_HEADERS[0]} is column {_column(alumni)} and {APP_HEADERS[1]} is "
+            f"column {_column(recruiter)}; the two have to be side by side"
+        )
+    return alumni, recruiter
 
 
 def _mark_contacts(
@@ -235,44 +299,49 @@ def _mark_contacts(
     column is not restated: the tool owns these cells, so computing "no matches"
     from a source that is missing rather than empty would untick the lot.
 
-    Nothing is written until the two headers say so. The sync runs on a cron five
-    times a day, and until setupAppColumns has run, column J is whatever it used to
-    be — which for one day was the Update history. Writing FALSE down a column on
-    that assumption would erase it. Reading the header costs nothing extra: it
-    arrives in the same call as the rows.
+    Nothing is written until row 1 names both columns, and where they are is read
+    off row 1 too. The sync runs on a cron five times a day, so it lands in the
+    middle of whatever the Apps Script half is doing to this tab: before
+    setupAppColumns ran, column J was the Update history, and after the Official
+    column is inserted the two checkboxes are in J and K rather than I and J. A run
+    that carried a remembered position through either of those windows would write
+    FALSE down a column of somebody's text. Both readings come out of the same
+    response as the rows, so neither costs a request.
 
     USER_ENTERED, not RAW: written raw, the string "TRUE" is laid over the
     checkbox as text instead of ticking it, and reads back next run as untouched."""
     if not rows:
         return _Ticks()
-    first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
-    cells = f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"
-    sheet = _values(values_api, settings, settings.app_tab, f"{first}1:{last}") or []
-    heading = [cell.strip() for cell in (sheet[0] if sheet else [])]
-    if heading[: len(APP_HEADERS)] != list(APP_HEADERS):
+    sheet = _values(values_api, settings, settings.app_tab, None) or []
+    try:
+        columns = _checkbox_columns(sheet[0] if sheet else [])
+    except AppLayoutError as unreadable:
         print(
-            f"{settings.app_tab}!{first}1:{last}1 does not read "
-            f"{' and '.join(APP_HEADERS)}; run setupAppColumns in the Apps Script "
-            "editor first. Leaving both columns as they stand."
+            f"{settings.app_tab}: {unreadable}. Run setupAppColumns in the Apps "
+            "Script editor first. Leaving both columns as they stand."
         )
         return _Ticks()
-    current = _boxes(sheet[FIRST_DATA_ROW:], rows)
+    first, last = _column(columns[0]), _column(columns[1])
+    cells = f"{_quote_tab(settings.app_tab)}!{first}2:{last}{rows + FIRST_DATA_ROW}"
+    current = _boxes(sheet[FIRST_DATA_ROW:], rows, columns)
     wanted = [
         [_state(alumni, index, held[0]), _state(recruiters, index, held[1])]
         for index, held in enumerate(current, start=FIRST_DATA_ROW)
     ]
     if wanted == current:
-        return _Ticks(ready=True)
+        return _Ticks(ready=True, columns=columns)
     values_api.update(
         spreadsheetId=settings.sheet_id,
         range=cells,
         valueInputOption="USER_ENTERED",
         body={"values": wanted},
     ).execute()
-    return _Ticks(ready=True, wrote=True)
+    return _Ticks(ready=True, wrote=True, columns=columns)
 
 
-def _boxed(service, settings: Settings, rows: int) -> tuple[int, bool] | None:
+def _boxed(
+    service, settings: Settings, rows: int, columns: tuple[int, int]
+) -> tuple[int, bool] | None:
     """The App tab's id, and whether every cell the ticks go into is a checkbox.
 
     This is the question behind the bare word FALSE. A checkbox cell holds a
@@ -280,7 +349,7 @@ def _boxed(service, settings: Settings, rows: int) -> tuple[int, bool] | None:
     does not reach and Sheets has nothing to draw, so it prints the value instead.
     Every cell in the range is checked rather than the first, because the gap is
     always at the bottom — the rule was applied when the tab was shorter."""
-    first, last = _column(APP_ALUMNI), _column(APP_RECRUITER)
+    first, last = _column(columns[0]), _column(columns[1])
     result = (
         service.spreadsheets()
         .get(
@@ -310,7 +379,7 @@ def _boxed(service, settings: Settings, rows: int) -> tuple[int, bool] | None:
     return sheet_id, True
 
 
-def _checkbox(sheet_id: int, rows: int) -> dict:
+def _checkbox(sheet_id: int, rows: int, columns: tuple[int, int]) -> dict:
     """The checkbox rule over exactly the range the ticks are written to.
 
     Set from here rather than left to the Apps Script setup, because otherwise the
@@ -323,8 +392,8 @@ def _checkbox(sheet_id: int, rows: int) -> dict:
                 "sheetId": sheet_id,
                 "startRowIndex": FIRST_DATA_ROW,
                 "endRowIndex": rows + FIRST_DATA_ROW,
-                "startColumnIndex": APP_ALUMNI,
-                "endColumnIndex": APP_RECRUITER + 1,
+                "startColumnIndex": columns[0],
+                "endColumnIndex": columns[1] + 1,
             },
             "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True},
         }
@@ -339,15 +408,47 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
     a directory writes the registered name and an application writes whatever the
     careers page called it, so "Hakkoda, an IBM Company" has to reach "IBM". Every
     alumni pair is named in the log, because the same looseness can join two
-    unrelated employers over a single shared word."""
+    unrelated employers over a single shared word.
+
+    Nothing here knows what number any App column is. Every index comes out of
+    row 1 of the tab that was just read, so a run lands correctly on both sides of
+    the Official migration and in either order — the Apps Script can insert the
+    column at any time without a Python release having to chase it."""
     service = _service(settings)
     values_api = service.spreadsheets().values()
 
-    app = _values(values_api, settings, settings.app_tab, "A:H") or []
+    app = _values(values_api, settings, settings.app_tab, None) or []
+    # Both indices come out of row 1 of the response just read, before a single row
+    # of it is looked at.
+    #
+    # Company is not optional: it is what every match on this tab is made of, so a
+    # run that guessed it would compute "nothing matches" from a tab it could not
+    # read — and this module owns the two checkbox columns, so it would then write
+    # that down and untick the lot. A tab that cannot name it is emptied instead,
+    # which is the same shape as a tab with no applications in it and is the one
+    # reading that is safe in every direction. Emptied rather than returned from,
+    # because the Jobs separator further down is on another tab entirely.
+    #
+    # Alumni is optional, and only says where the last build's recruiter red is to
+    # be lifted from. Missing means the tab has never been set up, and a tab that
+    # never had a checkbox never had the paint that predates one.
+    company = 0  # Never read: no header means no rows to read it out of.
+    legacy_red: int | None = None
+    if app:
+        try:
+            (company,) = app_columns(app[0], APP_COMPANY_HEADER)
+        except AppLayoutError as unreadable:
+            print(f"{settings.app_tab}: {unreadable}. Leaving the tracker alone.")
+            app = []
+        else:
+            try:
+                legacy_red, _ = _checkbox_columns(app[0])
+            except AppLayoutError:
+                legacy_red = None
     applications = [
-        (row[APP_COMPANY], company_tokens(row[APP_COMPANY]))
+        (row[company], company_tokens(row[company]))
         for row in app[FIRST_DATA_ROW:]
-        if len(row) > APP_COMPANY and row[APP_COMPANY].strip()
+        if len(row) > company and row[company].strip()
     ]
     # A missing tab is not an empty tab. An Alumni tab with no rows in it says
     # truthfully that nobody is anywhere; a tab that is not there says nothing,
@@ -380,7 +481,7 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
     app_alumni: set[int] = set()
     app_recruiter: set[int] = set()
     for index, row in enumerate(app[FIRST_DATA_ROW:], start=FIRST_DATA_ROW):
-        tokens = company_tokens(row[APP_COMPANY]) if len(row) > APP_COMPANY else frozenset()
+        tokens = company_tokens(row[company]) if len(row) > company else frozenset()
         if not tokens:
             continue
         if any(same_employer(tokens, other) for other in directory):
@@ -403,21 +504,27 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
         # directory is a person, not an application, so there is no checkbox of
         # theirs to tick.
         (settings.alumni_tab, alumni, alumni_rows, "A", (0, ALUMNI_WIDTH), HIGHLIGHT),
-        # Both App marks are checkboxes now. These two match nothing by
-        # construction, so all they can do is lift the paint the earlier version
-        # left behind — including the red that sat where the Alumni box now is.
-        # Two reads a run, no requests once the tab is clean, and the sheet
-        # repairs itself if an older build is ever run against it again.
+        # Both App marks are checkboxes now. This matches nothing by construction,
+        # so all it can do is lift the paint the earlier version left behind. One
+        # read a run, no requests once the tab is clean, and the sheet repairs
+        # itself if an older build is ever run against it again.
         (settings.app_tab, app, set(), "A", (0, APP_WIDTH), HIGHLIGHT),
-        (
-            settings.app_tab,
-            app,
-            set(),
-            _column(APP_ALUMNI),
-            (APP_ALUMNI, APP_ALUMNI + 1),
-            RECRUITER,
-        ),
     )
+    # The red followed the Alumni column rather than staying in I. Inserting a
+    # column at position 9 pushes every cell from there rightwards, formatting and
+    # all, so the legacy paint sits wherever Alumni sits now — and probing I after
+    # the migration would read Official, which nobody has ever painted.
+    if app and legacy_red is not None:
+        marks += (
+            (
+                settings.app_tab,
+                app,
+                set(),
+                _column(legacy_red),
+                (legacy_red, legacy_red + 1),
+                RECRUITER,
+            ),
+        )
     for tab, rows, matched, letter, columns, colour in marks:
         if not rows:
             continue
@@ -434,16 +541,21 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
         app_alumni if known else None,
         app_recruiter if recruiters else None,
     )
-    # Only once the headers have said these columns are ours. Laying a checkbox
-    # rule over column J while it still holds the Update history would mark every
-    # line of it invalid.
+    # Only once the headers have said these columns are ours, and only over the
+    # two indices the write itself used. Laying a checkbox rule over a column that
+    # still holds the Update history — or over Official — would mark every line of
+    # it invalid.
     boxed = False
-    if ticks.ready and applied_rows:
-        state = _boxed(service, settings, applied_rows)
+    if ticks.ready and ticks.columns is not None and applied_rows:
+        first, last = _column(ticks.columns[0]), _column(ticks.columns[1])
+        state = _boxed(service, settings, applied_rows, ticks.columns)
         if state is not None and not state[1]:
-            requests.append(_checkbox(state[0], applied_rows))
+            requests.append(_checkbox(state[0], applied_rows, ticks.columns))
             boxed = True
-            print(f"Repairing the checkbox rule over {settings.app_tab}!I2:J{applied_rows + 1}.")
+            print(
+                f"Repairing the checkbox rule over "
+                f"{settings.app_tab}!{first}2:{last}{applied_rows + 1}."
+            )
     if requests:
         service.spreadsheets().batchUpdate(
             spreadsheetId=settings.sheet_id, body={"requests": requests}

@@ -1103,37 +1103,46 @@ Three details the tests pin down:
   name. Somebody else's domain is still somebody else's: an Apple link does not pass for Google.
 - **`http` is refused.** Everything here is a form that will be typed into.
 
-### Yellow on the Jobs tab, and the link pasted by hand
+### Yellow on the App tab, and the link pasted into `Official`
 
 A refused row is not dropped. `outreachReferralNeedsLink_` returns it with a reason, and the bound
-script paints columns A to H yellow on the `Jobs` tab. Yellow means exactly one thing: *this is a
-posting worth asking about and there is no way in yet.* A row nobody would ask about is never
-painted — not a fall posting, not a company with nobody in the dataset — because a colour that
-appears on rows requiring no action is a colour people stop seeing.
+script paints the row yellow on the **`App`** tab. Yellow means exactly one thing: *this is an
+application worth asking somebody about and there is no way in yet.* A row nobody would ask about
+is never painted — not a rejected application, not a company with nobody in the dataset — because a
+colour that appears on rows requiring no action is a colour people stop seeing.
 
-Column **H** on `Jobs` is where the link is pasted. When both columns hold something usable the
-pasted one wins: somebody typed it deliberately, and the only reason to type one over a crawled
-link that already works is knowing something the crawler does not.
+Column **I**, `Official`, is where the link is pasted, and it sits between `Note` and `Alumni`
+rather than at the end because it is read next to the application it belongs to. When both it and
+`Application Link` hold something usable the pasted one wins: somebody typed it deliberately, and
+the only reason to type one over a link that already works is knowing something the row does not
+say.
 
 Clearing the colour is half the job, not a tidy-up, and it happens on the same keystroke. The
 `onEdit` trigger that already answers a tick in `Applied` repaints the rows an edit touched, so a
-link pasted into H stops the row shouting while you are still looking at it. Waiting for
-`paintJobsReferralRows` to be run by hand would leave the tab telling you to go and find a link you
-have already found. A fill-down over twenty rows is still one write, and the full sweep is one read
-and one write for the whole tab — row by row would be 499 round trips against a simple trigger's
-thirty-second ceiling, and the paint would die somewhere in the middle of the sheet.
+link pasted into `Official` stops the row shouting while you are still looking at it. It
+deliberately does **not** re-sort: moving the row somebody is currently pasting into pulls it out
+from under the cursor, and the row that slides into its place is a different application, so the
+next paste lands on the wrong one. `paintAppOfficialRows` does the whole tab in one read and one
+write when the rule itself changes, and `sortAppOfficialRowsToTop` lifts the waiting rows to the
+top so the worklist does not decay as applications are added beneath it.
 
-> **Writing in column H stops that row being retired.** `_is_annotated` in
-> [`job_sync/sheet.py`](../job_sync/sheet.py) reads every cell past `Expired` as a note of yours,
-> and a row carrying a note is never dropped by the liveness check or merged away as a duplicate.
-> A pasted referral link is such a note. That is accepted rather than regretted: a summer posting
-> you are hunting a way into is exactly the row that must not vanish underneath you.
+> **This tab reads applications, not postings, and that is the whole design.** The referral path
+> read the crawler's `Jobs` tab first, on the reasoning that a referral attached before an
+> application helps more than one attached after. The reasoning is sound and the tab was still
+> wrong: `Jobs` held six hundred postings nobody had chosen, of which **two** were at a company
+> this project has engineers for. Against the `App` tab the same rules clear **thirty-nine**
+> employers. An application is a decision, and a favour is worth asking for where a decision has
+> already been made.
 >
-> **The header cell is not a note.** `H1` does *not* annotate anything, because the sync splits
-> `header, data = existing[0], existing[1:]` before `_is_annotated` ever runs and only data rows
-> reach it. That is what lets the crawler keep its `Last updated: …` caption in H1 — it takes the
-> one cell of the notes column no job will ever want — without silencing the retirement sweep on
-> all five hundred rows. Only content on a job's own row marks that job.
+> **A rejected application is never asked about.** Asking somebody to spend their credibility on a
+> req that has already turned you down is the one version of this email that cannot lead anywhere,
+> and the one most likely to be mentioned to the recruiter who sent the rejection.
+>
+> **The season word is switched off here.** On `Jobs`, `summer` was what picked the intake worth
+> asking about out of hundreds nobody had chosen. Of 327 rows on the live `App` tab only 81 say it,
+> and having applied is a far stronger statement about which intake matters than how a title
+> happened to be written. `REFERRAL_REQUIRE_SEASON` is `false`; the rule is kept working rather
+> than deleted, because switching it back on is one line.
 
 ### One posting per company, six people, a company finished in a day
 
@@ -1712,26 +1721,27 @@ the referral path, so nothing below starts sending on its own.
    `setupReferralQueue`. It creates the empty `Referral` tab with its headers, its dropdowns and
    its timestamp formats, contacts nobody, and refuses to write over any header cell that already
    holds something else, which would mean this is a different table.
-3. Run `installJobsReferralTrigger` once. It puts `paintJobsReferralRows` — which colours the rows
-   needing a link and lifts them to the top of `Jobs` — on an hourly trigger. It has to be on a
-   clock rather than run by hand, because `job_sync` re-sorts the whole tab by posting date on
-   every sync and puts the yellow block back into the middle of eight hundred rows. The `onEdit`
-   trigger still keeps the *colour* honest a row at a time and deliberately does not move anything:
-   sorting under somebody who is pasting a link pulls the row out from under their cursor.
+3. In the same bound script, run `migrateAppOfficialColumn`. It opens column I on `App` and moves
+   `Alumni`, `Recruiter` and `Update` one to the right, carrying their values, validation and
+   colour rules with them. Safe to run twice, and it refuses a layout it does not recognise rather
+   than inserting blind.
+4. Run `installAppOfficialTrigger` once. It puts `paintAppOfficialRows` — which colours the rows
+   needing a link and lifts them to the top of `App` — on an hourly trigger. It is on a clock
+   rather than run by hand because `App` only ever grows and `onEdit` deliberately does not move
+   rows, so the worklist at the top decays with every application added under it.
 
-> **`setupJobsReferralColumn` writes no header, on purpose.** `Jobs!H1` is already the crawler's:
-> `STAMP` in [`job_sync/sheet.py`](../job_sync/sheet.py) writes the `Last updated: …` caption there
-> on every sync run, taking the one cell of the notes column that no job will ever want. An earlier
-> version of the setup wrote `Referral Link` into it, which the crawler overwrote within the hour
-> and which the setup then refused to run against, so it could only ever be run once. It now sets
-> the column width and leaves H1 alone. Column H's **data** cells are the referral link and work
-> exactly as described above; the paint, the `onEdit` repaint and the sender's reading of column H
-> none of them need a header.
+> **Redeploy the Python half before running the migration.** `job_sync/highlight.py` writes the
+> `Alumni` and `Recruiter` checkboxes, and it now finds those columns by reading the header row
+> rather than by a fixed index, precisely so that inserting a column cannot make it write
+> checkboxes over the pasted links. That header-driven version has to be the one in use: an older
+> copy addresses columns I and J by position and would tick straight into `Official`. It fails
+> safe — it guards on those cells reading `Alumni` and `Recruiter` and writes nothing when they do
+> not — but a run that writes nothing is still a run that ticks nothing.
 
-4. In the sender project, run `checkReferralService`. It reads and sends nothing and names every
+5. In the sender project, run `checkReferralService`. It reads and sends nothing and names every
    missing piece at once — no tab, no export, a resume that will not open. `previewReferralTemplates`
    logs all forty messages, which is the cheapest way to confirm the templates arrived in the push.
-5. Then `planReferralAsks` by hand, and read the `Referral` tab before letting anything near a
+6. Then `planReferralAsks` by hand, and read the `Referral` tab before letting anything near a
    mailbox. It appends rows and touches no mailbox at all, so this step is free.
 
 `draftReferralAsks` and `sendReferralAsks` are the two that can reach Gmail, in that order and an

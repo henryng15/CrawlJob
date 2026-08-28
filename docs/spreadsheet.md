@@ -16,8 +16,7 @@ bottom of this page.
 | E | **Source** | tool |
 | F | **Applied** ☑ | you, and the tool ticks it ahead of you |
 | G | **Expired** ☑ | you only |
-| H | **Referral Link** | you, by hand — and the crawler owns `H1` |
-| I onward | free-text notes | you only |
+| H onward | free-text notes | you only |
 
 Every sync run **overwrites all of** A–E and sorts again. Column F onward is read back and
 written out untouched, so your tick always travels with its own row rather than staying
@@ -96,38 +95,14 @@ these cells and still has this effect.
 > the first version ticking 0 rows while the workflow still reported green. A test pins it:
 > `test_the_expired_column_is_not_read_as_a_note`.
 
-### Column H — `Referral Link`
-
-The first of the note columns now has a job of its own: **the employer's own application link,
-pasted by hand**, for a posting whose crawled link in C goes to an aggregator instead. It is what
-makes a referral askable — see [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter),
-where the rule for which links count is set out. Nothing writes it for you; the whole column below
-row 1 is yours.
-
-Rows still waiting for one are **painted yellow across A to H**. Yellow means one thing: this is a
-summer posting worth asking somebody about and there is no way in yet. Paste a link and the colour
-goes on the same keystroke, because the `onEdit` trigger repaints the rows the edit touched rather
-than waiting for the next full sweep — a tab that tells you to go and find a link you have already
-found is a tab you stop believing. `paintJobsReferralRows` does the whole sheet in one read and one
-write when the rule itself changes.
-
-A row that needs no action is never painted, and clearing is done with `null` rather than white, so
-a row losing its yellow keeps whatever banding or highlight it already had.
-
-> **A pasted link stops that row being retired, and that is the trade.** Every cell past `Expired`
-> is a note as far as `_is_annotated` in `job_sync/sheet.py` is concerned, and an annotated row is
-> never dropped by the liveness check or merged away as a duplicate. A summer posting you are
-> hunting a way into is exactly the row that must not vanish underneath you, so this is accepted
-> rather than worked around.
->
-> **`H1` is not one of those cells and belongs to the crawler.** The sync splits the header off the
-> data before `_is_annotated` sees anything, so the header row cannot annotate a job — which is why
-> `H1` is where the `Last updated: …` caption lives, on the one cell of the notes column no job will
-> ever want. `setupJobsReferralColumn` therefore writes **no header at all**: it sets the column
-> width and stops. An earlier version wrote `Referral Link` into that cell, which the crawler
-> overwrote within the hour and then refused to run against on the next setup, so the setup could
-> only ever be run once. Nothing in the referral path reads the header, so the column loses a word
-> at the top and gains a setup that does not fight the crawler.
+> **The referral link used to live here, and no longer does.** Column H held a hand-pasted
+> application URL and rows waiting for one were painted yellow. The tab was wrong: `Jobs` holds
+> every posting the crawler found, and on the live sheet that was six hundred rows of which two
+> were at a company this project has engineers for. That work moved to the `App` tab's `Official`
+> column, where every row is an application actually made — see
+> [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter). Nothing on
+> `Jobs` is painted or read by the referral path any more, and `H1` is the crawler's
+> `Last updated: …` caption as it always was.
 
 ### Do not delete rows from `Jobs`
 

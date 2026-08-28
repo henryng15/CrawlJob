@@ -35,19 +35,46 @@ var JOB_COMPANY = 0, JOB_ROLE = 1, JOB_LINK = 2;
 
 // App: Property | Company | Application Link | Date Applied | Location | Process | Role | Note
 // 1-based column numbers for getRange; subtract 1 to index a getValues array.
+//
+// APP_WIDTH is eight and stays eight however many columns the tab grows, because
+// it is not the width of the tab: it is the width of the block this script writes
+// when a ticked row crosses from Jobs, and reads back when it needs the last
+// Property number. That block is A..Note and nothing past it — every later column
+// is either filled in by hand or written by the Python half. Widening it to match
+// the tab would hand setValues a nine-wide range and eight-wide rows, which throws
+// on the real service and would strand every new application half-written.
 var APP_WIDTH = 8, APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE = 4, APP_ROLE = 7;
 var PROCESS_COL = 6;   // App column F — the Process dropdown
 
-// The last three columns of the App tab. I and J are checkboxes written by the
+// App column I, and the only column on this tab a person fills in by hand. It
+// holds the employer's own posting for an application whose Application Link is
+// an aggregator's — the link you send somebody when you ask them to refer you,
+// and the one thing a referral request cannot be written without.
+//
+// It sits between Note and Alumni rather than at the end because it is read with
+// the application, not with the answer to it: Note and Official are what you look
+// at while deciding whether this row is worth chasing, and Alumni, Recruiter and
+// Update are what happens afterwards.
+var APP_OFFICIAL = 9;
+
+// The last three columns of the App tab. J and K are checkboxes written by the
 // Python half (highlight.py): does this company have an alumnus, does it have a
 // recruiter. Both used to be background colours — yellow across the row, red in
 // column I — but a checkbox can be filtered and sorted, and a colour cannot.
-var ALUMNI_COL = 9, RECRUITER_COL = 10, UPDATE_COL = 11;
+var ALUMNI_COL = 10, RECRUITER_COL = 11, UPDATE_COL = 12;
 
+// Wide enough to see which company's board a link points at without opening it —
+// the same reason Application Link is wide.
+var OFFICIAL_WIDTH_PX = 230;
 // The two checkbox columns only need room for the tick and the header word —
 // nothing else ever goes in them. Update is the opposite: it has to hold several
 // stacked lines like "Interview: Aug 12, 2026" without being dragged wider.
 var ALUMNI_WIDTH_PX = 70, RECRUITER_WIDTH_PX = 90, UPDATE_WIDTH_PX = 300;
+
+// The same yellow the Email tab uses for "a person is involved", because it means
+// the same thing here: this row is an application waiting on you to go and find
+// the employer's own posting before anybody can be asked to refer you.
+var APP_OFFICIAL_YELLOW = '#FFF2CC';
 
 // The pipeline setup_process_dropdown.gs builds, and the same list as
 // PROCESS_STAGES in job_sync/sheet.py. The first entry is where every row starts.
@@ -175,22 +202,6 @@ var REFERRAL_HEADERS = [
 // the seniors. peer is somebody who interned there last summer; staff is somebody
 // whose referral carries weight but who owes you nothing.
 var REFERRAL_TIER = ['peer', 'mid', 'senior', 'staff'];
-
-// Jobs column H. Everything past Expired is read as a note of yours by the Python
-// half (see is_annotated in job_sync/sheet.py), so a header here marks every Jobs
-// row annotated and no row is ever retired automatically again. That is known and
-// accepted: a summer posting worth chasing a referral for is one you want to keep
-// looking at, and losing it to the retirement sweep costs more than the sweep is
-// worth.
-var REFERRAL_LINK_COL = 8;
-// No header constant. H1 is the crawler's caption cell and this tool never writes
-// there; see setupJobsReferralColumn for the whole of that reasoning.
-// Wide enough to see which company's board a link points at without opening it —
-// the same reason Link Apply is wide.
-var REFERRAL_LINK_WIDTH_PX = 230;
-// The same yellow the Email tab uses for "a person is involved", because it means
-// the same thing here: this row is waiting on you to go and find a way in.
-var JOBS_REFERRAL_YELLOW = '#FFF2CC';
 
 // A stage that really happened on a date nothing ever recorded. Mark it so it can
 // be found and filled in by hand, rather than inventing a date that looks real.
@@ -571,174 +582,251 @@ function setupReferralQueue() {
 
 
 /**
- * Run once by hand: put the Referral Link header on Jobs column H and give the
- * column its width.
+ * Walk the App tab forward to the current layout by opening a gap for Official at
+ * column I.
  *
- * Writing anything into column H makes every Jobs row look annotated to the
- * Python half — see is_annotated in job_sync/sheet.py, which treats any cell past
- * Expired as a note of yours and never retires a row that carries one. Only the
- * header is written here, so the effect is the whole tab at once. It is accepted
- * on purpose: the rows this column exists for are summer postings worth chasing,
- * and having one swept away while you are still looking for a way in costs more
- * than the sweep saves.
+ * setupAppColumns cannot do this itself. It writes its four headers at fixed
+ * columns, and on a tab a migration behind there is a real name sitting where the
+ * new layout wants a different one — I reads "Alumni" where "Official" belongs. It
+ * refuses, correctly, and the column has to be opened first. insertColumnBefore is
+ * what moves everything to the right of the gap along with its values, its
+ * checkbox validation and its colour rules; rewriting headers over live data would
+ * have left every row's ticks and history sitting one column to the left of the
+ * name that describes them, which reads as an alumnus at every company that has a
+ * recruiter.
  *
- * Safe to run again: it restores the header, but refuses to overwrite a different
- * one, which would mean column H is already somebody else's column.
+ * **The Python half has to be redeployed after this.** highlight.py addresses the
+ * two checkboxes as App columns I and J by number, and this moves them to J and K.
+ * It fails safe rather than silently: it reads I1:J1 first and refuses to write
+ * unless the pair reads "Alumni" and "Recruiter", so between this migration and
+ * that deploy the sync prints its complaint and leaves both columns exactly as
+ * they stand. No tick is lost — but none is written either, so the deploy is the
+ * thing that turns the sync back on.
+ *
+ * Safe to run twice: a tab already carrying Official at I is left alone.
  */
-function setupJobsReferralColumn() {
+function migrateAppOfficialColumn() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var jobs = ss.getSheetByName(JOBS_TAB);
-  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
+  var app = ss.getSheetByName(APP_TAB);
+  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
 
-  // No header is written, and that is not an oversight.
-  //
-  // H1 already belongs to the crawler. job_sync/sheet.py defines STAMP as the
-  // column after Expired, which is H, and writes its "Last updated" caption into
-  // H1 on every single run — including the runs where nothing else changed, which
-  // is the whole reason the caption is blanked before the two versions of the tab
-  // are compared. A header written here would be overwritten within the hour, and
-  // an earlier version of this function threw against the caption instead, which
-  // meant the setup could not be run twice.
-  //
-  // The column still works without one. Only H1 is the crawler's; H2 downward is
-  // operator space, and a link pasted there survives every sync because the
-  // crawler reads the tab out to column Z and writes each row back at its full
-  // width. What is lost by having no header is a word at the top of the column,
-  // and what is bought is a function that does not fight the other half of the
-  // system every hour.
-  jobs.setColumnWidth(REFERRAL_LINK_COL, REFERRAL_LINK_WIDTH_PX);
+  // Never wider than the sheet is. getRange past the last column throws, and the
+  // whole point of this function is to be pointed at a tab narrower than the
+  // layout it is migrating towards.
+  var header = function (column) {
+    var width = Math.min(UPDATE_COL, app.getMaxColumns());
+    if (width < column) return '';
+    var value = app.getRange(1, 1, 1, width).getValues()[0][column - 1];
+    return String(value == null ? '' : value).trim();
+  };
+  var refuse = function (column, found, expected) {
+    throw new Error(
+      'App column ' + column + ' is ' + JSON.stringify(found) + ', expected '
+      + expected + '. This tab is not the layout this migration moves; fix it by '
+      + 'hand or say what it should be.'
+    );
+  };
+
+  var at9 = header(APP_OFFICIAL);
+  var opened = false;
+
+  if (at9 === 'Alumni') {
+    // The layout Official is being inserted into. The two columns behind it are
+    // checked as well, and not out of tidiness: insertColumnBefore is happy to
+    // shift anything, so the only thing standing between a half-built tab and a
+    // blind insert is reading the names first.
+    if (header(APP_OFFICIAL + 1) !== 'Recruiter') {
+      refuse(APP_OFFICIAL + 1, header(APP_OFFICIAL + 1), '"Recruiter"');
+    }
+    if (header(APP_OFFICIAL + 2) !== 'Update') {
+      refuse(APP_OFFICIAL + 2, header(APP_OFFICIAL + 2), '"Update"');
+    }
+    app.insertColumnBefore(APP_OFFICIAL);
+    opened = true;
+  } else if (at9 === 'Official') {
+    // Already migrated, so nothing is inserted. The three behind it are still
+    // read, because "Official is at I" is not on its own proof the rest landed:
+    // a run that died mid-insert would leave exactly that, and a second run that
+    // trusted column I alone would call it finished.
+    if (header(ALUMNI_COL) !== 'Alumni') refuse(ALUMNI_COL, header(ALUMNI_COL), '"Alumni"');
+    if (header(RECRUITER_COL) !== 'Recruiter') {
+      refuse(RECRUITER_COL, header(RECRUITER_COL), '"Recruiter"');
+    }
+    if (header(UPDATE_COL) !== 'Update') refuse(UPDATE_COL, header(UPDATE_COL), '"Update"');
+  } else if (at9 !== '') {
+    refuse(APP_OFFICIAL, at9, '"Alumni" or "Official"');
+  }
+  // A blank at I is the third recognised shape and it is not an error: it is a tab
+  // setupAppColumns has never run on, or one still on the layout that predates
+  // Alumni entirely. There is nothing to shift rightward, because there is nothing
+  // to the right, so falling through to setupAppColumns below is exactly the
+  // repair — and it is the one that knows how to fetch the old Update column.
+
+  // The insert leaves its column blank, header included, so setupAppColumns no
+  // longer has a conflicting name to refuse — it fills in the header and the width
+  // at the new position and rebuilds the checkbox validation where the ticks now
+  // are.
+  setupAppColumns();
   ss.toast(
-    'Jobs column H is ready for pasted links. H1 stays the crawler\'s caption.',
-    'Jobs', 5);
+    opened
+      ? 'Opened Official at column I. Alumni, Recruiter and Update moved to J, K '
+        + 'and L — deploy the Python half before the next sync.'
+      : 'The App tab is already on the current layout. Nothing moved.',
+    'App',
+    opened ? 12 : 8
+  );
 }
 
 
 /** A link you can actually click: present, and going somewhere over http. */
-function jobsReferralUsableLink_(value) {
+function appOfficialUsableLink_(value) {
   return String(value == null ? '' : value).trim().toLowerCase().indexOf('http') === 0;
 }
 
 
 /**
- * Which Jobs rows are worth painting: a summer posting with no way in yet.
+ * Which App rows are worth painting: an application nobody can be asked to refer
+ * you for, because there is no employer link to send them.
  *
- * Whole word, so "summertime" is not a summer internship and neither is a role
- * that merely contains those letters. Case-insensitive because the sources write
- * it every way — "Summer 2027", "SUMMER Intern", "summer analyst".
+ * Company is the test for "this line is an application" rather than a stray. App
+ * really does carry rows holding nothing but a link, and a row with no company is
+ * a row there is nobody to ask about — painting it yellow would put work at the
+ * top of the tab that cannot be done.
  *
- * "Usable" here means only non-empty and starting with http, and that is the
- * whole rule on purpose. Telling an employer's own board from an aggregator is a
+ * "Usable" here means only non-empty and starting with http, and that is the whole
+ * rule on purpose. Telling an employer's own board from an aggregator is a
  * judgement the sender project already makes, and duplicating it here would mean
- * two copies drifting apart with nothing to catch it. This function stays crude
- * so the two stay separable.
+ * two copies drifting apart with nothing to catch it. This function stays crude so
+ * the two stay separable.
  */
-function jobsReferralNeedsLink_(role, linkApply, referralLink) {
-  if (!/\bsummer\b/i.test(String(role == null ? '' : role))) return false;
-  return !jobsReferralUsableLink_(linkApply) && !jobsReferralUsableLink_(referralLink);
+function appOfficialNeedsLink_(company, applicationLink, official) {
+  if (!String(company == null ? '' : company).trim()) return false;
+  return !appOfficialUsableLink_(applicationLink) && !appOfficialUsableLink_(official);
 }
 
 
 /**
- * Paint A..H yellow on every Jobs row still needing a referral link, and clear the
+ * Paint A..L yellow on every App row still needing an official link, and clear the
  * colour from every row that does not.
  *
- * Clearing is half the job, not a tidy-up: paste a link into column H and the row
+ * Clearing is half the job, not a tidy-up: paste a link into column I and the row
  * has to stop shouting, or the colour turns into decoration nobody trusts.
  *
- * One read and one write for the whole tab. Row by row this would be 499 calls to
- * setBackground, each one a round trip to the spreadsheet service, and Apps Script
- * stops a simple trigger at thirty seconds — the paint would die somewhere in the
- * middle of the tab, leaving half of it coloured by the old rule.
+ * One read and one write for the whole block. Row by row this would be one call to
+ * setBackground per application, each one a round trip to the spreadsheet service,
+ * and Apps Script stops a trigger at thirty seconds — the paint would die
+ * somewhere in the middle of the tab, leaving half of it coloured by the old rule.
  *
  * The rows are then brought into order, painted first and sorted second. That way
  * round because the paint is what settles which rows are yellow and the sort needs
  * that settled before it can act on it. The sort writes nothing at all when the
  * rows are already where they belong, so the ordinary case is still one read and
- * one write for the whole tab.
+ * one write.
  */
-function paintJobsReferralRows() {
+function paintAppOfficialRows() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var jobs = ss.getSheetByName(JOBS_TAB);
-  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
-  paintJobsReferralBlock_(jobs, FIRST_ROW, LAST_ROW);
-  sortJobsReferralBlock_(jobs);
+  var app = ss.getSheetByName(APP_TAB);
+  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
+  var bottom = app.getLastRow();
+  if (bottom < FIRST_ROW) {
+    ss.toast('Tab ' + APP_TAB + ' has no rows yet.', 'App', 5);
+    return;
+  }
+  paintAppOfficialBlock_(app, FIRST_ROW, bottom);
+  sortAppOfficialBlock_(app);
 }
 
 
 /**
  * The paint itself, over one block of rows, so the full sweep and the single row
  * onEdit repaints cannot disagree about what yellow means.
+ *
+ * Out to UPDATE_COL, which is where this tool stops owning the row. Not out to
+ * getLastColumn: a colour laid over somebody's own column past Update would be
+ * this script painting a cell it has no opinion about.
  */
-function paintJobsReferralBlock_(jobs, firstRow, lastRow) {
+function paintAppOfficialBlock_(app, firstRow, lastRow) {
   if (lastRow < firstRow) return;
   var count = lastRow - firstRow + 1;
-  var rows = jobs.getRange(firstRow, 1, count, REFERRAL_LINK_COL).getValues();
+  var rows = app.getRange(firstRow, 1, count, UPDATE_COL).getValues();
   var colours = [];
   for (var i = 0; i < count; i++) {
-    var needed = jobsReferralNeedsLink_(
-      rows[i][JOB_ROLE], rows[i][JOB_LINK], rows[i][REFERRAL_LINK_COL - 1]);
+    var needed = appOfficialNeedsLink_(
+      rows[i][APP_COMPANY - 1], rows[i][APP_LINK - 1], rows[i][APP_OFFICIAL - 1]);
     var line = [];
     // null rather than white: white is a colour, and it would paint over whatever
     // banding or manual highlight the row already had.
-    for (var c = 0; c < REFERRAL_LINK_COL; c++) line.push(needed ? JOBS_REFERRAL_YELLOW : null);
+    for (var c = 0; c < UPDATE_COL; c++) line.push(needed ? APP_OFFICIAL_YELLOW : null);
     colours.push(line);
   }
-  jobs.getRange(firstRow, 1, count, REFERRAL_LINK_COL).setBackgrounds(colours);
+  app.getRange(firstRow, 1, count, UPDATE_COL).setBackgrounds(colours);
 }
 
 
 /**
- * Reorder the Jobs data rows so every row still needing a referral link sits at
- * the top of the tab, then repaint.
+ * Reorder the App data rows so every application still needing an official link
+ * sits at the top of the tab, then repaint.
  *
- * The colour on its own is not enough. A summer posting with no way in can be
- * sitting at row 380, and the whole point of painting it was to be told about it
- * without going hunting; a yellow row you have to scroll to find is a yellow row
- * you find next month. The sort is what turns the colour into a worklist.
+ * The colour on its own is not enough. App only ever grows, so an application sent
+ * in July with no employer link on it is a hundred rows down by September, and the
+ * whole point of painting it was to be told about it without going hunting; a
+ * yellow row you have to scroll to find is a yellow row you find next term. The
+ * sort is what turns the colour into a worklist.
  *
- * Run by hand, and run again at the end of paintJobsReferralRows. Deliberately
- * NOT run from onEdit — see the comment in onJobsEdit for why.
+ * Run by hand, and run again at the end of paintAppOfficialRows. Deliberately NOT
+ * run from onEdit — see the comment in onAppEdit for why.
  */
-function sortJobsReferralRowsToTop() {
+function sortAppOfficialRowsToTop() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var jobs = ss.getSheetByName(JOBS_TAB);
-  if (!jobs) throw new Error('No tab named "' + JOBS_TAB + '".');
-  sortJobsReferralBlock_(jobs);
+  var app = ss.getSheetByName(APP_TAB);
+  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
+  sortAppOfficialBlock_(app);
 }
 
 
 /**
- * The sort itself, over one sheet, so paintJobsReferralRows can call it without
+ * The sort itself, over one sheet, so paintAppOfficialRows can call it without
  * going back through SpreadsheetApp for a sheet it is already holding.
  *
  * One read and one write of the whole block, for the same reason
- * paintJobsReferralBlock_ paints in one write: moving rows one at a time would be
+ * paintAppOfficialBlock_ paints in one write: moving rows one at a time would be
  * hundreds of round trips to the spreadsheet service, and Apps Script stops a
  * script at thirty seconds. A sort that dies halfway is far worse than a paint
- * that dies halfway — a half-written block is a tab with rows duplicated above
- * and missing below, which is lost work rather than a cosmetic problem.
+ * that dies halfway — a half-written block is a tab with applications duplicated
+ * above and missing below, and App is the source of truth for what has been
+ * applied to, so that is lost work rather than a cosmetic problem.
  *
- * sheet.sort() is not used, and not because of the round trips. It orders by a
- * key it reads out of a column, and "needs a referral link" is in no column: it
- * is a function of Role, Link Apply and Referral Link together. Writing that key
- * into a helper column would put a value past Expired on every row, which the
- * Python half reads as a note of yours (is_annotated in job_sync/sheet.py) and
- * which would stop the whole tab ever being retired. sheet.sort() is also not
- * documented as stable, and stability is a requirement here rather than a nicety.
+ * sheet.sort() is not used, and not because of the round trips. It orders by a key
+ * it reads out of a column, and "needs an official link" is in no column: it is a
+ * function of Company, Application Link and Official together. Writing that key
+ * into a helper column would put a value past Update on a tab whose columns past
+ * Update belong to whoever added them. sheet.sort() is also not documented as
+ * stable, and stability is a requirement here rather than a nicety.
  */
-function sortJobsReferralBlock_(jobs) {
-  var count = LAST_ROW - FIRST_ROW + 1;
-  // Not REFERRAL_LINK_COL: the Jobs tab really can hold data past column H. The
-  // Python half reads Jobs!A:Z and treats every cell past Source as a note of
-  // yours, and when it re-sorts the tab it carries those columns along, padding
-  // every row to the widest one (_write in job_sync/sheet.py). A row moved here
-  // with only A..H in hand would leave its note sitting on whatever row lands in
-  // its place, quietly attaching one job's note to another. getLastColumn is the
-  // real extent of the data, so the block widens by itself the day somebody adds
-  // a column and there is nothing here to remember to update.
-  var width = Math.max(jobs.getLastColumn(), REFERRAL_LINK_COL);
-  var rows = jobs.getRange(FIRST_ROW, 1, count, width).getValues();
-  var ordered = orderJobsReferralRows_(rows);
+function sortAppOfficialBlock_(app) {
+  // To the real last row and no further, NOT out to LAST_ROW the way the Jobs
+  // sweep used to. Jobs is a fixed five-hundred-row tab; App is appended to, and
+  // onEdit puts each new application at getLastRow() + 1. Writing a block that
+  // reached row 500 would leave five hundred rows of written-and-emptied cells
+  // behind it, and the next row across from Jobs would land at 501 with a
+  // hundred blank lines above it. The same trap setupAppColumns keeps its
+  // checkbox validation clear of.
+  var bottom = app.getLastRow();
+  if (bottom < FIRST_ROW) return false;
+  var count = bottom - FIRST_ROW + 1;
+
+  // Not UPDATE_COL: the App tab really can hold data past column L. Update is
+  // where this tool stops having an opinion, not where the row stops — an
+  // operator's own column sits past it, and a row moved here with only A..L in
+  // hand would leave that cell sitting on whatever row lands in its place,
+  // quietly reattaching one application's notes to a different application.
+  // getLastColumn is the real extent of the data, so the block widens by itself
+  // the day somebody adds a column and there is nothing here to remember to
+  // update. The floor is UPDATE_COL rather than 1, so that a tab whose Update
+  // column happens to be empty still moves the whole layout this tool owns.
+  var width = Math.max(app.getLastColumn(), UPDATE_COL);
+  var rows = app.getRange(FIRST_ROW, 1, count, width).getValues();
+  var ordered = orderAppOfficialRows_(rows);
 
   // Nothing moved, so nothing is written and nothing is repainted. This is what
   // makes a second run a genuine no-op rather than a run that happens to write
@@ -750,17 +838,17 @@ function sortJobsReferralBlock_(jobs) {
   }
   if (!moved) return false;
 
-  jobs.getRange(FIRST_ROW, 1, count, width).setValues(ordered);
+  app.getRange(FIRST_ROW, 1, count, width).setValues(ordered);
 
   // The colours are recomputed from the moved values rather than being permuted
   // alongside them. Carrying them would work, but it means holding two grids in
   // step through one permutation, and the moment they drift the tab paints the
-  // wrong rows yellow — worse than not sorting at all, because a colour that
-  // lies stops being read, and then the rows that really do need a link stop
-  // being read with it. Recomputing cannot drift: yellow is a pure function of
-  // the row's own Role, Link Apply and Referral Link, so whichever row now sits
-  // on a line gets exactly the colour that row earns.
-  paintJobsReferralBlock_(jobs, FIRST_ROW, LAST_ROW);
+  // wrong rows yellow — worse than not sorting at all, because a colour that lies
+  // stops being read, and then the applications that really do need a link stop
+  // being read with it. Recomputing cannot drift: yellow is a pure function of the
+  // row's own Company, Application Link and Official, so whichever row now sits on
+  // a line gets exactly the colour that row earns.
+  paintAppOfficialBlock_(app, FIRST_ROW, bottom);
   return true;
 }
 
@@ -773,11 +861,12 @@ function sortJobsReferralBlock_(jobs) {
  * empty tail. Each group keeps the order it arrived in.
  *
  * Stable because the tab is something a person works down. Rebuilding the yellow
- * group in some other order would mean the row you were half way through chasing
- * has jumped three rows up, and the next link you paste lands on a different job
- * from the one you were reading. The order the rows are already in is
- * information somebody put there, and a sort asked only to bring yellow to the
- * top has no business spending it.
+ * group in some other order would mean the application you were half way through
+ * chasing has jumped three rows up, and the next link you paste lands on a
+ * different job from the one you were reading. The order the rows are already in
+ * is information somebody put there — on App it is the order things were applied
+ * to in, which is the one thing Property numbers them by — and a sort asked only
+ * to bring yellow to the top has no business spending it.
  *
  * The empty tail is held back rather than left to fall into the second group. An
  * empty row is not yellow, so a plain two-way split would leave the blanks
@@ -789,15 +878,15 @@ function sortJobsReferralBlock_(jobs) {
  * below it is a gap somebody left on purpose, and moving that one would be the
  * reshuffle the stability rule exists to prevent.
  */
-function orderJobsReferralRows_(rows) {
+function orderAppOfficialRows_(rows) {
   var end = rows.length;
-  while (end > 0 && jobsRowIsEmpty_(rows[end - 1])) end--;
+  while (end > 0 && appRowIsEmpty_(rows[end - 1])) end--;
 
   var needing = [];
   var rest = [];
   for (var i = 0; i < end; i++) {
-    if (jobsReferralNeedsLink_(
-          rows[i][JOB_ROLE], rows[i][JOB_LINK], rows[i][REFERRAL_LINK_COL - 1])) {
+    if (appOfficialNeedsLink_(
+          rows[i][APP_COMPANY - 1], rows[i][APP_LINK - 1], rows[i][APP_OFFICIAL - 1])) {
       needing.push(rows[i]);
     } else {
       rest.push(rows[i]);
@@ -808,14 +897,14 @@ function orderJobsReferralRows_(rows) {
 
 
 /**
- * A row with nothing on it. The same question _drop_empty_rows asks over in
- * job_sync/sheet.py, and it has to be asked the same way: checkbox validation
- * covers F2:G500 whether or not there is a job on that row, and an unticked
- * checkbox reads back as false rather than as an empty cell. Counting false as
- * content would make all 499 rows look occupied, no row would ever be pinned to
- * the bottom, and the blank middle of the tab would sort as though it were data.
+ * A row with nothing on it. The two checkbox columns are why this cannot just ask
+ * whether every cell is blank: an unticked checkbox reads back as false rather
+ * than as an empty cell, and the Python half writes FALSE down both columns across
+ * every row it covers. Counting false as content would make a row that is nothing
+ * but two unticked boxes look occupied, so it would never be pinned to the bottom
+ * and would sort in among the applications as though it were one.
  */
-function jobsRowIsEmpty_(row) {
+function appRowIsEmpty_(row) {
   for (var c = 0; c < row.length; c++) {
     var cell = row[c];
     if (cell === false || cell === null || cell === undefined) continue;
@@ -828,22 +917,44 @@ function jobsRowIsEmpty_(row) {
 
 
 /**
- * Run once by hand: build the last three columns of the App tab — Alumni (I),
- * Recruiter (J), Update (K) — and fill in the history for the rows already there.
+ * Run once by hand: build the four columns of the App tab past Note — Official
+ * (I), Alumni (J), Recruiter (K), Update (L) — and fill in the history for the
+ * rows already there.
  *
  * Safe to run as many times as you like: an Update cell that already has text is
  * left alone, and the column-move step runs only when there is really a move left
  * to make.
+ *
+ * It refuses rather than writing "Official" over a name that is already there, and
+ * that refusal is what makes migrateAppOfficialColumn necessary — the same
+ * arrangement setupOutreachQueue and migrateOutreachColumns already have. On a tab
+ * from before Official existed, column I is Alumni, and writing the four headers
+ * blind would leave every row's ticks and history one column left of the name
+ * describing them: an alumnus recorded at every company that has a recruiter.
  */
 function setupAppColumns() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var app = ss.getSheetByName(APP_TAB);
   if (!app) throw new Error('No tab named "' + APP_TAB + '".');
 
+  // Only column I is guarded, because it is the only one an insert has to happen
+  // before. A blank there is a tab this has never been run on — including the one
+  // still carrying Update at J, which migrateUpdateColumn below is what fetches.
+  var atOfficial = String(app.getRange(1, APP_OFFICIAL).getValue()).trim();
+  if (atOfficial && atOfficial !== 'Official') {
+    throw new Error(
+      'App column ' + APP_OFFICIAL + ' is ' + JSON.stringify(atOfficial)
+      + ', expected "Official". Run migrateAppOfficialColumn first — it opens the '
+      + 'gap and carries this column\'s values, ticks and colours rightward.'
+    );
+  }
+
   var moved = migrateUpdateColumn(app);
+  app.getRange(1, APP_OFFICIAL).setValue('Official');
   app.getRange(1, ALUMNI_COL).setValue('Alumni');
   app.getRange(1, RECRUITER_COL).setValue('Recruiter');
   app.getRange(1, UPDATE_COL).setValue('Update');
+  app.setColumnWidth(APP_OFFICIAL, OFFICIAL_WIDTH_PX);
   app.setColumnWidth(ALUMNI_COL, ALUMNI_WIDTH_PX);
   app.setColumnWidth(RECRUITER_COL, RECRUITER_WIDTH_PX);
   app.setColumnWidth(UPDATE_COL, UPDATE_WIDTH_PX);
@@ -895,24 +1006,40 @@ function setupAppColumns() {
 }
 
 
+// Column J, written as a number rather than as a constant. It was RECRUITER_COL
+// on the day this was written and it is ALUMNI_COL now, because Official opened a
+// gap at I and pushed both a column right. What moved is the layout, not the
+// history: the sheets this reaches are older than every column past Note, and
+// their Update really is sitting in J. Following the constant would have this
+// looking for it in K, finding a Recruiter header or nothing at all, and leaving a
+// year of stage history stranded in a column that is about to be relabelled.
+var LEGACY_UPDATE_COL = 10;
+
 /**
  * Update used to live at J, up until the day Alumni and Recruiter took I and J.
- * This moves it to K, exactly once.
+ * This moves it to wherever Update lives now, exactly once.
+ *
+ * The destination follows UPDATE_COL rather than being pinned the way the source
+ * is, and the asymmetry is the point: the source is a fact about sheets that
+ * already exist and cannot change, while the destination has to be whichever
+ * column setupAppColumns is about to write the "Update" header over. Pinning it to
+ * K, where it landed the first time, would now drop the history one column short
+ * of its own header and under Recruiter's.
  *
  * Two conditions stand guard and both are needed: J1 must actually read 'Update' (if
  * not, this is a sheet that never built the column and there is nothing to move),
- * and K1 must be empty (if not, the move already happened, and moving again would
- * overwrite the very history it moved across).
+ * and the Update column must be empty (if not, the move already happened, and
+ * moving again would overwrite the very history it moved across).
  */
 function migrateUpdateColumn(app) {
-  if (String(app.getRange(1, RECRUITER_COL).getValue()).trim() !== 'Update') return 0;
+  if (String(app.getRange(1, LEGACY_UPDATE_COL).getValue()).trim() !== 'Update') return 0;
   if (String(app.getRange(1, UPDATE_COL).getValue()).trim()) return 0;
 
   var moved = 0;
   var bottom = app.getLastRow();
   if (bottom >= FIRST_ROW) {
     var count = bottom - FIRST_ROW + 1;
-    var from = app.getRange(FIRST_ROW, RECRUITER_COL, count, 1);
+    var from = app.getRange(FIRST_ROW, LEGACY_UPDATE_COL, count, 1);
     var values = from.getValues();
     for (var i = 0; i < count; i++) if (String(values[i][0]).trim()) moved++;
     app.getRange(FIRST_ROW, UPDATE_COL, count, 1)
@@ -926,7 +1053,7 @@ function migrateUpdateColumn(app) {
 
 function updateReport(filled, unknown, moved) {
   var parts = [];
-  if (moved) parts.push('Moved ' + rowCount(moved) + ' of history from column J to K');
+  if (moved) parts.push('Moved ' + rowCount(moved) + ' of history from column J to L');
   if (filled) {
     var text = 'Filled in ' + rowCount(filled) + ' in the Update column';
     if (unknown) {
@@ -935,7 +1062,7 @@ function updateReport(filled, unknown, moved) {
     }
     parts.push(text);
   }
-  if (!parts.length) return 'All three columns are already right; nothing to fix.';
+  if (!parts.length) return 'All four columns are already right; nothing to fix.';
   return parts.join('. ') + '.';
 }
 
@@ -1007,7 +1134,8 @@ function backfillReport(byLink, byName) {
  * This trigger runs every time any cell in the file is edited, so the first thing it
  * does is ask which tab the cell is on and hand it to the right half. The two tabs
  * listen to different columns and do different things: ticking Applied on Jobs
- * creates a row in App; changing Process on App appends a dated line to Update.
+ * creates a row in App; on App, changing Process appends a dated line to Update
+ * and pasting into Official repaints the row.
  */
 function onEdit(e) {
   var name = e.range.getSheet().getName();
@@ -1019,31 +1147,6 @@ function onEdit(e) {
 function onJobsEdit(e) {
   var range = e.range;
   var jobs = range.getSheet();
-
-  // Column H is its own question and it is answered here rather than on the next
-  // full sweep: paste a referral link and the row has to stop being yellow while
-  // you are still looking at it. Waiting for paintJobsReferralRows to be run by
-  // hand would leave the tab telling you to go and find a link you have already
-  // found. Only the rows the edit touched are repainted — a fill-down over twenty
-  // rows is still one write.
-  if (range.getColumn() <= REFERRAL_LINK_COL && range.getLastColumn() >= REFERRAL_LINK_COL) {
-    var top = Math.max(range.getRow(), FIRST_ROW);
-    var bottom = Math.min(range.getLastRow(), LAST_ROW);
-    paintJobsReferralBlock_(jobs, top, bottom);
-    // The rows are NOT sorted here, and that is a decision rather than an
-    // oversight. This runs while you are typing. Paste a link into H40 and
-    // sorting on the spot would pull row 40 out from under the cursor between
-    // keystrokes, and the row that slid into its place is a different job from
-    // the one you were reading — so the next paste goes on the wrong row. A
-    // fill-down over twenty rows would rearrange the tab halfway through the
-    // drag. Reordering a sheet somebody is working in is hostile even when the
-    // new order is the better one. There is a budget argument too: onEdit is a
-    // simple trigger with thirty seconds, and sorting reads and rewrites all 499
-    // rows, which is not what a single keystroke should cost. So the colour
-    // updates instantly, which is the half that has to be immediate, and the
-    // position waits for paintJobsReferralRows — run when you are ready for the
-    // tab to move under you.
-  }
 
   if (range.getColumn() > APPLIED_COL || range.getLastColumn() < APPLIED_COL) return;
 
@@ -1117,9 +1220,11 @@ function onJobsEdit(e) {
     // above is a set of coloured chips made through the UI, and Apps Script has no API
     // for setting a chip colour. Copying makes the new row identical to the old one
     // however that dropdown was originally created.
-    // Out to the end of column J, not stopping at APP_WIDTH: the two checkboxes are
+    // Out to the end of Recruiter, not stopping at APP_WIDTH: the two checkboxes are
     // validation too, and a new row without them turns the next sync's TRUE/FALSE into
-    // bare words sitting on top of the cell.
+    // bare words sitting on top of the cell. Official is inside that span and wants
+    // no validation of its own, which costs nothing — copying a cell that carries
+    // none is what leaves it free text.
     if (last.row) {
       app.getRange(last.row, 1, 1, RECRUITER_COL)
          .copyTo(app.getRange(start, 1, fresh.length, RECRUITER_COL),
@@ -1145,6 +1250,33 @@ function onJobsEdit(e) {
  */
 function onAppEdit(e) {
   var range = e.range;
+  var app = range.getSheet();
+
+  // Column I is its own question and it is answered here rather than on the next
+  // full sweep: paste the employer's own posting and the row has to stop being
+  // yellow while you are still looking at it. Waiting for paintAppOfficialRows to
+  // be run by hand would leave the tab telling you to go and find a link you have
+  // already found. Only the rows the edit touched are repainted — a fill-down over
+  // twenty rows is still one write.
+  if (range.getColumn() <= APP_OFFICIAL && range.getLastColumn() >= APP_OFFICIAL) {
+    var top = Math.max(range.getRow(), FIRST_ROW);
+    var bottom = Math.min(range.getLastRow(), app.getLastRow());
+    paintAppOfficialBlock_(app, top, bottom);
+    // The rows are NOT sorted here, and that is a decision rather than an
+    // oversight. This runs while you are typing. Paste a link into I40 and
+    // sorting on the spot would pull row 40 out from under the cursor between
+    // keystrokes, and the row that slid into its place is a different
+    // application from the one you were reading — so the next paste goes on the
+    // wrong row. A fill-down over twenty rows would rearrange the tab halfway
+    // through the drag. Reordering a sheet somebody is working in is hostile even
+    // when the new order is the better one. There is a budget argument too:
+    // onEdit is a simple trigger with thirty seconds, and sorting reads and
+    // rewrites every application on the tab, which is not what a single keystroke
+    // should cost. So the colour updates instantly, which is the half that has to
+    // be immediate, and the position waits for paintAppOfficialRows — run when
+    // you are ready for the tab to move under you.
+  }
+
   if (range.getColumn() > PROCESS_COL || range.getLastColumn() < PROCESS_COL) return;
   var firstRow = Math.max(range.getRow(), FIRST_ROW);
   var lastRow = range.getLastRow();
@@ -1152,7 +1284,6 @@ function onAppEdit(e) {
 
   // Fill-down and paste edit many rows at once, so read the whole block rather than
   // just the first cell.
-  var app = range.getSheet();
   var count = lastRow - firstRow + 1;
   var stages = app.getRange(firstRow, PROCESS_COL, count, 1).getValues();
   var notes = app.getRange(firstRow, UPDATE_COL, count, 1).getValues();
@@ -1307,37 +1438,41 @@ function report(added, skipped, expired) {
 /**
  * Put the repaint and the sort on the clock.
  *
- * They cannot be left to run by hand, and the reason is the other half of the
- * system rather than forgetfulness. job_sync re-sorts the whole Jobs tab on every
- * sync, by posting date, carrying each row's extra columns with it. That is the
- * right behaviour for a crawler and it undoes this one: rows brought to the top
- * because they need a link go back into date order the next time the sheet is
- * written, and the person who was working down a short yellow block at the top
- * finds it scattered through eight hundred rows again.
+ * They cannot be left to run by hand, and the reason is that App only ever grows.
+ * Every ticked box on Jobs appends a row to the bottom of this tab, and onEdit
+ * deliberately does not move it — so the yellow block at the top is accurate only
+ * until the next application goes out, and by the end of a week the rows with no
+ * employer link on them are scattered down the tab again. A worklist that is only
+ * right just after you remember to rebuild it is one nobody reads.
  *
- * Hourly, which is the same cadence the sync runs at, so the top of the tab is
- * never wrong for longer than it takes the next firing to notice. This does not
- * race the crawler: a sort that lands mid-sync is undone by that sync and put
- * back by the firing after it, and neither writes anything the other would lose,
- * because the only thing this changes is row order and the only thing it reads is
- * what the crawler has already written.
+ * Hourly, which is the same cadence the outreach machinery runs at, so the top of
+ * the tab is never wrong for longer than it takes the next firing to notice.
+ *
+ * It is not free of races and it is worth naming the one it has. highlight.py
+ * reads App A:H, works out which row numbers earn a tick, and writes the two
+ * checkbox columns back by position — so a sort landing between that read and that
+ * write puts an alumnus against the wrong application. The window is the seconds
+ * between two calls in one sync, and the sort writes nothing at all in the
+ * ordinary case where no row moved, which is what keeps it narrow rather than what
+ * closes it. Run removeAppOfficialTrigger while the Python half is being worked
+ * on, the same way the sender is stopped before a migration.
  *
  * Safe to run again. The old trigger is removed before the new one is made, so
  * running this three times leaves one trigger rather than three tabs' worth of
  * repaints an hour.
  */
-function installJobsReferralTrigger() {
-  removeJobsReferralTrigger();
-  ScriptApp.newTrigger('paintJobsReferralRows').timeBased().everyHours(1).create();
+function installAppOfficialTrigger() {
+  removeAppOfficialTrigger();
+  ScriptApp.newTrigger('paintAppOfficialRows').timeBased().everyHours(1).create();
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Jobs rows needing a referral link will be repainted and moved to the top every hour.',
+    'App rows needing an official link will be repainted and moved to the top every hour.',
     'Installed', 5);
 }
 
 /** The kill switch for the above, and the only one. */
-function removeJobsReferralTrigger() {
+function removeAppOfficialTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === 'paintJobsReferralRows') {
+    if (trigger.getHandlerFunction() === 'paintAppOfficialRows') {
       ScriptApp.deleteTrigger(trigger);
     }
   });
