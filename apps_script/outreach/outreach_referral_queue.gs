@@ -442,6 +442,10 @@ function outreachReferralSlot_(company, today, load, roomOn) {
   for (var ahead = 0; ahead < 180; ahead++) {
     var day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + ahead);
     var key = outreachDayKey_(day);
+    // Saturday and Sunday are skipped whole. A first message to a stranger asking
+    // for a favour, arriving on a Saturday morning, says the sender either did not
+    // notice or did not mind; it is the same message on Monday and reads better.
+    if (!REFERRAL_WEEKENDS && (day.getDay() === 0 || day.getDay() === 6)) continue;
     var used = load[key] || { total: 0, companies: {} };
     // Three limits, and the third is the one that knows about the rest of the
     // system. roomOn asks what the whole mailbox has left on that day once the
@@ -452,30 +456,29 @@ function outreachReferralSlot_(company, today, load, roomOn) {
     var cap = roomOn ? Math.min(REFERRAL_DAILY_CAP, roomOn(day)) : REFERRAL_DAILY_CAP;
     if (used.total >= cap) continue;
     if ((used.companies[name] || 0) >= REFERRAL_COMPANY_DAILY_CAP) continue;
-    // The hour is chosen from how full the day is, not from the cap: a day the
-    // budget has narrowed still spreads its few across the same eleven hours
-    // rather than bunching them at the front.
-    var hour = hours[Math.min(used.total, hours.length - 1)];
-    var slot = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
-    // Today's earlier hours are gone. A slot in the past would be sent by the
-    // next firing regardless of the hour it claims, which quietly defeats the
-    // spreading this function exists to do.
+    // Where in the day's list to start. Nought on any day still ahead; on today it
+    // is the first hour that has not already gone, because a slot in the past
+    // would be sent by the next firing whatever hour it claims.
     //
-    // Only this hour is skipped, not the whole day. An earlier version stepped to
-    // the next day here, which meant that after 08:00 the day was written off
-    // entirely and eleven usable hours went unused every time the queue was
-    // rebuilt in the morning.
-    if (ahead === 0 && slot <= today) {
-      var later = null;
-      for (var i = used.total; i < hours.length; i++) {
-        var candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(),
-                                 hours[i], 0, 0);
-        if (candidate > today) { later = candidate; break; }
+    // Only the hours that have gone are skipped, not the whole day. An earlier
+    // version stepped to the next day here, which wrote off eleven usable hours
+    // every time the queue was rebuilt mid-morning.
+    var first = 0;
+    if (ahead === 0) {
+      while (first < hours.length
+             && new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+                         hours[first], 0, 0) <= today) {
+        first++;
       }
-      if (!later) continue;
-      slot = later;
     }
-    return slot;
+    // The day's own bookings then push past that. Adding them to the offset rather
+    // than indexing by them alone is what stops two rows landing on one hour: on a
+    // day already half gone, indexing by the count alone kept returning the first
+    // hour still in the future for every row in turn.
+    var index = first + used.total;
+    if (index >= hours.length) continue;
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+                    hours[index], 0, 0);
   }
   return null;
 }

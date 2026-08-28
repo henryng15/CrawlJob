@@ -291,11 +291,21 @@ var REFERRAL_REQUIRE_SEASON = false;
 // Matched as whole words, so a company called Springer is not a spring intake.
 var REFERRAL_SEASON_EXCLUDES = ['2026', 'winter', 'spring', 'fall', 'autumn'];
 
-// Weekends are allowed, and the hours are the follow-up's rather than the cold
-// path's. A referral note is not a recruiting email arriving during a recruiter's
-// working hours; it lands in an engineer's inbox and is read whenever they read
-// their mail.
-var REFERRAL_HOUR_FIRST = 8;
+// Weekdays only, and this is a reversal.
+//
+// The follow-up sends at weekends because it is a nudge on a thread the recipient
+// already has, and a nudge arriving on a Sunday costs nobody anything. A referral
+// ask is a first message to a stranger asking them to spend their own credibility,
+// and one that turns up on a Saturday morning says the sender either did not
+// notice or did not mind. It is the same message on Monday and it reads better.
+var REFERRAL_WEEKENDS = false;
+
+// Six in the morning to seven at night. Wider than the cold path's nine to five,
+// because that window is shaped around when a recruiter is at their desk reading
+// applications, and this one is not: it lands in a working engineer's mailbox and
+// is read whenever they next look. Six is the top of the inbox for somebody who
+// opens their mail at eight.
+var REFERRAL_HOUR_FIRST = 6;
 var REFERRAL_HOUR_LAST  = 19;
 // Twelve, so a day is two companies finished rather than one. With six allowed at
 // one employer, a cap of six would mean one company a day and nothing else, and

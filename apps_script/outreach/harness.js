@@ -3395,11 +3395,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(tiers.join(','), 'staff,mid,peer');
   });
 
+  // Friday night: the next hour this path will use is Monday morning, because a
+  // first message to a stranger asking a favour should not arrive on a Saturday.
   run('a slot is never booked in an hour that has already gone', () => {
     const late = new Date(2026, 7, 28, 23, 0, 0);
     const slot = S.outreachReferralSlot_('Stripe', late, {});
     assert.ok(slot > late);
-    assert.strictEqual(slot.getDate(), 29);
+    assert.strictEqual(slot.getDay(), 1, 'a Monday: ' + slot);
+    assert.strictEqual(slot.getDate(), 31);
   });
 
   run('the daily cap holds across companies, not just within one', () => {
@@ -4216,10 +4219,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     return row;
   };
   const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
-  // Past the last sending hour, so the first day with room is tomorrow and the
-  // assertions below are about the shape of the queue rather than about how much
-  // of today happens to be left.
+  // Friday evening, past the last sending hour. Aug 29 and 30 are the weekend and
+  // the referral path does not book them, so the first day with room is Monday the
+  // 31st — which is what these assertions are about: the shape of the queue, not
+  // how much of any one day happens to be left.
   const NOW = new Date(2026, 7, 28, 21, 0, 0);
+  const FIRST = S.REFERRAL_HOUR_FIRST;
 
   // The queue is a line. Calling somebody off should move the line up rather than
   // leave a hole in it.
@@ -4232,9 +4237,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     const byRow = {};
     moved.forEach((m) => { byRow[m.index] = m.scheduled.getHours(); });
-    assert.strictEqual(byRow[3], 8, 'B should take the freed 08:00');
-    assert.strictEqual(byRow[4], 9, 'C should follow it');
-    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getDate(), 29);
+    assert.strictEqual(byRow[3], FIRST, 'B should take the freed first hour');
+    assert.strictEqual(byRow[4], FIRST + 1, 'C should follow it');
+    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getDate(), 31);
   });
 
   // A Drafted row has a message written, addressed and sitting in Gmail against a
@@ -4242,14 +4247,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // supposed to be readable in, which is the one guarantee drafting gives.
   run('a drafted row keeps its hour and still occupies the day', () => {
     const rows = [
-      REF(2, 'A', 'a@x.com', at(29, 8), 'Drafted'),
-      REF(3, 'B', 'b@x.com', at(29, 12), 'Queued')
+      REF(2, 'A', 'a@x.com', at(31, FIRST), 'Drafted'),
+      REF(3, 'B', 'b@x.com', at(31, 14), 'Queued')
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     assert.ok(!moved.some((m) => m.index === 2), 'the drafted row must not move');
     const b = moved.find((m) => m.index === 3);
-    assert.strictEqual(b.scheduled.getDate(), 29);
-    assert.strictEqual(b.scheduled.getHours(), 9, 'B fills behind the drafted 08:00');
+    assert.strictEqual(b.scheduled.getDate(), 31);
+    assert.strictEqual(b.scheduled.getHours(), FIRST + 1, 'B fills in behind the drafted row');
   });
 
   run('a sent row is history and is never re-timed', () => {
@@ -4261,8 +4266,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // whole tab every hour and the version history would stop being a record.
   run('a queue that is already tight reports no movement', () => {
     const rows = [
-      REF(2, 'A', 'a@x.com', at(29, 8), 'Queued'),
-      REF(3, 'B', 'b@x.com', at(29, 9), 'Queued')
+      REF(2, 'A', 'a@x.com', at(31, FIRST), 'Queued'),
+      REF(3, 'B', 'b@x.com', at(31, FIRST + 1), 'Queued')
     ];
     assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
   });
@@ -4276,9 +4281,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     const byRow = {};
     moved.forEach((m) => { byRow[m.index] = m.scheduled.getHours(); });
-    assert.strictEqual(byRow[2], 8);
-    assert.strictEqual(byRow[3], 9);
-    assert.strictEqual(byRow[4], 10);
+    assert.strictEqual(byRow[2], FIRST);
+    assert.strictEqual(byRow[3], FIRST + 1);
+    assert.strictEqual(byRow[4], FIRST + 2);
   });
 
   // A tick can arrive by paste, fill-down or undo, none of which fire a simple
@@ -4290,7 +4295,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     assert.ok(!moved.some((m) => m.index === 2), 'a ticked row is not re-timed');
-    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getHours(), 8);
+    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getHours(), FIRST);
   });
 
   run('a cancelled row still holding a draft is the one to discard', () => {
@@ -4308,8 +4313,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // queue is told to skip, rather than one it books into and discovers at sending.
   run('the budget narrows a day rather than the queue discovering it later', () => {
     const rows = [];
-    for (let i = 0; i < 8; i++) rows.push(REF(i + 2, 'C' + i, i + '@x.com', at(29, 8 + i), 'Queued'));
-    const roomOn = (day) => (day.getDate() === 29 ? 3 : 12);
+    for (let i = 0; i < 8; i++) rows.push(REF(i + 2, 'C' + i, i + '@x.com', at(31, 6 + i), 'Queued'));
+    const roomOn = (day) => (day.getDate() === 31 ? 3 : 12);
     const moved = S.outreachReferralReplan_(rows, NOW, roomOn);
     const byDay = {};
     // Rows that did not move kept the day they had; count the whole outcome.
@@ -4319,24 +4324,50 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       const k = when.getDate();
       byDay[k] = (byDay[k] || 0) + 1;
     });
-    assert.strictEqual(byDay[29], 3, JSON.stringify(byDay));
+    assert.strictEqual(byDay[31], 3, JSON.stringify(byDay));
   });
 
   // An earlier version stepped to the next day here, so after 08:00 the day was
   // written off entirely and eleven usable hours went unused every morning.
   run('the rest of today is used rather than written off', () => {
-    const midMorning = new Date(2026, 7, 28, 10, 8, 0);
+    const midMorning = new Date(2026, 7, 28, 10, 8, 0);   // a Friday
     const slot = S.outreachReferralSlot_('A', midMorning, {}, null);
     assert.strictEqual(slot.getDate(), 28, 'should still be today: ' + slot);
     assert.ok(slot > midMorning);
-    assert.strictEqual(slot.getHours(), 11);
   });
 
-  run('but an evening past the last hour does move to tomorrow', () => {
-    const late = new Date(2026, 7, 28, 21, 0, 0);
+  // Indexing by the day's booking count alone kept handing back the first hour
+  // still in the future, so every row on a half-gone day landed on one hour.
+  run('and two rows booked on a half-gone day take different hours', () => {
+    const midMorning = new Date(2026, 7, 28, 10, 8, 0);
+    const load = {};
+    const first = S.outreachReferralSlot_('A', midMorning, load, null);
+    load[S.outreachDayKey_(first)] = { total: 1, companies: {} };
+    const second = S.outreachReferralSlot_('B', midMorning, load, null);
+    assert.notStrictEqual(first.getHours(), second.getHours());
+    assert.ok(second > first);
+  });
+
+  // A first message to a stranger asking a favour, arriving on a Saturday, says
+  // the sender either did not notice or did not mind.
+  run('an evening past the last hour skips the weekend to Monday', () => {
+    const late = new Date(2026, 7, 28, 21, 0, 0);        // Friday night
     const slot = S.outreachReferralSlot_('A', late, {}, null);
-    assert.strictEqual(slot.getDate(), 29);
-    assert.strictEqual(slot.getHours(), 8);
+    assert.strictEqual(slot.getDay(), 1, 'should be a Monday: ' + slot);
+    assert.strictEqual(slot.getDate(), 31);
+    assert.strictEqual(slot.getHours(), S.REFERRAL_HOUR_FIRST);
+  });
+
+  run('no slot ever lands on a Saturday or a Sunday', () => {
+    const load = {};
+    let when = new Date(2026, 7, 28, 6, 0, 0);
+    for (let i = 0; i < 40; i++) {
+      const slot = S.outreachReferralSlot_('C' + i, when, load, null);
+      assert.ok(slot.getDay() !== 0 && slot.getDay() !== 6, slot.toDateString());
+      const key = S.outreachDayKey_(slot);
+      if (!load[key]) load[key] = { total: 0, companies: {} };
+      load[key].total++;
+    }
   });
 }
 
@@ -4422,14 +4453,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // A cancelled row holds no hour, so the ask's whole day comes back at once.
   run('cancelling an ask hands all of its hours back together', () => {
     const NOW = new Date(2026, 7, 28, 21, 0, 0);
-    const at = (h) => new Date(2026, 7, 29, h, 0, 0);
+    const at = (h) => new Date(2026, 7, 31, h, 0, 0);
     const rows = [
       Object.assign(ROW(2, 'Stripe', 'SWE Intern', 'Cancelled', true), { scheduled: at(8) }),
       Object.assign(ROW(3, 'Stripe', 'SWE Intern', 'Cancelled', true), { scheduled: at(9) }),
       Object.assign(ROW(4, 'Figma', 'SWE Intern', 'Queued'), { scheduled: at(10) })
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
-    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), 8);
+    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), S.REFERRAL_HOUR_FIRST);
   });
 }
 
@@ -4450,21 +4481,21 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // unless the tick moves it in the queue rather than only in the day's order.
   run('a priority tick takes the earliest slot', () => {
     const rows = [
-      ROW(2, 'A', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 8) }),
-      ROW(3, 'B', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 9) }),
-      ROW(4, 'C', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 10), priority: true })
+      ROW(2, 'A', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 6) }),
+      ROW(3, 'B', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7) }),
+      ROW(4, 'C', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 8), priority: true })
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
-    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), 8);
+    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), S.REFERRAL_HOUR_FIRST);
   });
 
   // Six people at one company are one decision. Lifting one above the other five
   // would send the ask twice over, days apart, to colleagues who see each other.
   run('priority lifts the whole ask, not one row of it', () => {
     const rows = [
-      ROW(2, 'Other', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 8) }),
-      ROW(3, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 9), priority: true }),
-      ROW(4, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(29, 10) })
+      ROW(2, 'Other', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 6) }),
+      ROW(3, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7), priority: true }),
+      ROW(4, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 8) })
     ];
     const moved = S.outreachReferralReplan_(rows, NOW, null);
     const hours = {};

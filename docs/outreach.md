@@ -1176,6 +1176,14 @@ shortener recognised the first heading and not the second. The newer application
 moving and the one whose posting is likeliest still open. The title is now only the tie break, for
 two applications made on the same day.
 
+**Weekdays only, 06:00 to 19:00.** The follow-up sends at weekends because it is a nudge on a
+thread the recipient already has, and a nudge on a Sunday costs nobody anything. A referral ask is a
+first message to a stranger asking them to spend their own credibility, and one that turns up on a
+Saturday morning says the sender either did not notice or did not mind — it is the same message on
+Monday and it reads better. The window is wider than the cold path's nine to five because that one
+is shaped around when a recruiter is at their desk reading applications, and this one is not: it
+lands in a working engineer's mailbox and is read whenever they next look.
+
 `REFERRAL_PER_COMPANY` is **6**. Still far short of the twenty-three engineers this dataset holds at
 Reddit or the twenty-two at Goldman Sachs; asking all of them is not outreach, it is a mailing list
 that happens to be about one person. Six is the number that makes an employer a real attempt rather
@@ -1245,7 +1253,7 @@ The planner runs after it, so the freed days are days it can top up into.
 > the scarce thing is different: there a contact is spent only if the message reached them, here
 > the count is of decisions already made about a company with three names in it.
 
-### Six a day, weekends included, spread across eleven hours
+### Twelve a day, weekdays only, spread across the working day
 
 `REFERRAL_DAILY_CAP` is six, counted across every employer rather than within one. It is this
 path's own cap; what the *account* may send in a day across all three paths is a second, smaller
