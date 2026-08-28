@@ -33,6 +33,19 @@ var PROP_MODE        = 'OUTREACH_MODE';
 // OUTREACH_MODE, never less.
 var PROP_FOLLOWUP_MODE = 'FOLLOWUP_MODE';
 
+// The same switch again, for the referral path, and for a sharper reason than the
+// follow-up had. A follow-up is a reply on a thread the recipient already has; a
+// referral ask is a first message to somebody who has never heard from us, and the
+// path goes live the moment the Referral tab exists, because runOutreachCycle has
+// been firing hourly for weeks and will find it. Without a switch of its own the
+// only way to look at the first batch before it leaves is to stop the cold path,
+// which is a thing nobody will do, so the batch would go unlooked-at.
+//
+// Set REFERRAL_MODE to Draft and the messages are written, addressed and left in
+// Drafts to be read. Clear it and they go. It can only ever be more cautious than
+// OUTREACH_MODE, never less.
+var PROP_REFERRAL_MODE = 'REFERRAL_MODE';
+
 // ---------------------------------------------------------------------- tabs
 
 var TAB_APP            = 'App';
@@ -596,6 +609,7 @@ function setupOutreachProperties() {
   var wanted = [
     [PROP_TRACKER_ID,  'ID of the Track App spreadsheet (from its URL)'],
     [PROP_CONTACTS_ID, 'ID of the contacts spreadsheet owned by this account'],
+    [PROP_REFERRAL_MODE, 'Draft to hold referral asks in Drafts, blank to send them'],
     [PROP_RESUME_ID,   'Drive file ID of Henry_Nguyen_Resume.pdf'],
     [PROP_SALT,        'any long random string; changing it re-opens every past contact']
   ];

@@ -411,7 +411,11 @@ function outreachReferralToSend_(referralRows, now, globalMode, queueRows) {
  */
 function sendReferralAsks() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
-  var globalMode = outreachProperty_(PROP_MODE, false);
+  // Two switches, and either alone holds a referral back. The narrow one exists so
+  // this path can have its own first week without the cold path being stopped to
+  // watch it, which is the arrangement the follow-up rollout already uses.
+  var globalMode = outreachProperty_(PROP_REFERRAL_MODE, false) === MODE_DRAFT
+    ? MODE_DRAFT : outreachProperty_(PROP_MODE, false);
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
 

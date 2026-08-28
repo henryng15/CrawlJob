@@ -4015,6 +4015,35 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 }
 
 
+{
+  console.log('\nreferral: the switch that holds the first batch back');
+
+  // A follow up is a reply on a thread the recipient already has. A referral ask
+  // is a first message to somebody who has never heard from us, and the path goes
+  // live the moment the tab exists because runOutreachCycle is already firing.
+  run('REFERRAL_MODE alone holds a row, with OUTREACH_MODE wide open', () => {
+    const rows = [{ index: 2, status: S.STATUS_DRAFTED, mode: '',
+                    scheduled: day(2026, 8, 28), email: 'a@x.com', jobLink: 'https://x' }];
+    const now = new Date(2026, 7, 28, 20, 0, 0);
+    assert.strictEqual(S.outreachReferralToSend_(rows, now, S.MODE_DRAFT, []).length, 0);
+    assert.strictEqual(S.outreachReferralToSend_(rows, now, '', []).length, 1);
+  });
+
+  // It can only ever be more cautious than the row's own Mode, never less: a
+  // person who set that cell to Draft is not overruled by an open global switch.
+  run('a row set to Draft by hand still wins over an open switch', () => {
+    const rows = [{ index: 2, status: S.STATUS_DRAFTED, mode: S.MODE_DRAFT,
+                    scheduled: day(2026, 8, 28), email: 'a@x.com', jobLink: 'https://x' }];
+    const now = new Date(2026, 7, 28, 20, 0, 0);
+    assert.strictEqual(S.outreachReferralToSend_(rows, now, '', []).length, 0);
+  });
+
+  run('the property is named and described alongside the others', () => {
+    assert.strictEqual(S.PROP_REFERRAL_MODE, 'REFERRAL_MODE');
+  });
+}
+
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');
