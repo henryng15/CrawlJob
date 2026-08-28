@@ -269,7 +269,16 @@ var REFERRAL_COMPANY_DAILY_CAP = 6;
 // is a one line change, and because the reasoning above is about this tab and
 // would not survive the path being pointed at a different one.
 var REFERRAL_SEASON_WORD = 'summer';
-var REFERRAL_REQUIRE_SEASON = true;
+// Off, and the difference between this and the excludes below is the whole rule.
+//
+// Requiring the word threw away most of the queue for a reason that was about how
+// a title happened to be written rather than about which intake it was. "Software
+// Engineering Intern" at NVIDIA, "Software Engineer Intern" at Figma and "AI
+// Builder Intern" at Scale AI are all the summer intake; none of them says so.
+// What actually needs refusing is a title naming a DIFFERENT intake, and that is
+// what REFERRAL_SEASON_EXCLUDES does. A role that names no season is the one that
+// was applied to, which is a stronger statement than a word in a job board title.
+var REFERRAL_REQUIRE_SEASON = false;
 
 // And the words that disqualify a role even when it does say summer.
 //

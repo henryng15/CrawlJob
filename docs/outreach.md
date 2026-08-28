@@ -1158,6 +1158,24 @@ because an older req is closer to being filled; then the role text, which settle
 A posting with no usable link is never the one chosen, so one aggregator row cannot hide a company's
 good link behind it.
 
+**The intake rule refuses a wrong one rather than requiring a right one.** A title naming a
+different intake is out — `Fall / Winter 2026`, `Winter/Spring 2027`, `2026 Intern Conversion` —
+because asking somebody to spend their credibility on an intake that has closed, or on one you are
+not asking about, is the same wasted message as asking about a req that already rejected you. But a
+title naming *no* intake is in. `Software Engineering Intern` at NVIDIA, `Software Engineer Intern`
+at Figma and `AI Builder Intern` at Scale AI are all the summer intake and none of them says so;
+requiring the word threw eighteen employers away for a reason about how a job board worded a heading
+rather than about which intake it was. Having applied is the stronger statement. `REFERRAL_SEASON_EXCLUDES`
+is the rule that binds; `REFERRAL_REQUIRE_SEASON` is off and is one line from being back on.
+
+**Between two applications at one company, the most recent wins.** This was the other way round and
+it was wrong: it ranked by how squarely the title read as a software engineering internship and only
+then by date, so Intuit kept being asked about `Intern, Software Engineering` from the 18th instead
+of `Summer 2027: Software Engineering Intern - Full Stack` from the 28th, purely because the
+shortener recognised the first heading and not the second. The newer application is the one still
+moving and the one whose posting is likeliest still open. The title is now only the tie break, for
+two applications made on the same day.
+
 `REFERRAL_PER_COMPANY` is **6**. Still far short of the twenty-three engineers this dataset holds at
 Reddit or the twenty-two at Goldman Sachs; asking all of them is not outreach, it is a mailing list
 that happens to be about one person. Six is the number that makes an employer a real attempt rather

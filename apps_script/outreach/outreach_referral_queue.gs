@@ -153,14 +153,19 @@ function outreachReferralLinkProblem_(url, companyDomain) {
  * one of its postings into the queue.
  */
 function outreachReferralSeason_(role) {
-  if (!REFERRAL_REQUIRE_SEASON) return true;
   var text = String(role == null ? '' : role);
-  if (!new RegExp('\\b' + REFERRAL_SEASON_WORD + '\\b', 'i').test(text)) return false;
-  // A title can name two intakes, and the wrong one disqualifies it. "Summer 2026"
-  // has already happened; "Summer/Winter" is not only the intake being asked about.
-  return !REFERRAL_SEASON_EXCLUDES.some(function (word) {
-    return new RegExp('\\b' + word + '\\b', 'i').test(text);
-  });
+  // The excludes apply always, and they are the rule that matters. A title naming
+  // a different intake is refused whether or not it also says summer: "Fall /
+  // Winter 2026" is an intake that has gone, "Winter/Spring 2027" is not the one
+  // being asked about, and "Summer 2026" is both at once.
+  if (REFERRAL_SEASON_EXCLUDES.some(function (word) {
+        return new RegExp('\\b' + word + '\\b', 'i').test(text);
+      })) return false;
+  // Requiring the season word is separate and off. A title that names no intake at
+  // all is the one that was applied to, and having applied says more about which
+  // intake matters than how a job board chose to word the heading.
+  if (!REFERRAL_REQUIRE_SEASON) return true;
+  return new RegExp('\\b' + REFERRAL_SEASON_WORD + '\\b', 'i').test(text);
 }
 
 
@@ -286,10 +291,19 @@ function outreachPickReferralRole_(applications) {
     return outreachShortRole_(one.role) === DEFAULT_SHORT_ROLE ? 0 : 1;
   };
   usable.sort(function (left, right) {
-    if (rank(left) !== rank(right)) return rank(left) - rank(right);
+    // The most recent application first, and this is the ordering that was wrong.
+    // It used to rank by how squarely the title read as a software engineering
+    // internship and only then by date, which meant a company that gained a newer
+    // application kept being asked about the older one: Intuit's "Intern, Software
+    // Engineering" outranked its "Summer 2027: Software Engineering Intern - Full
+    // Stack" purely because the shortener recognised the first heading and not the
+    // second. The newer application is the one still moving, the one the writer
+    // can speak to, and the one whose posting is likeliest still open.
     var leftAt = left.dateApplied ? left.dateApplied.getTime() : 0;
     var rightAt = right.dateApplied ? right.dateApplied.getTime() : 0;
     if (leftAt !== rightAt) return rightAt - leftAt;
+    // Only then how well the title reads, for two applications made the same day.
+    if (rank(left) !== rank(right)) return rank(left) - rank(right);
     return left.role < right.role ? -1 : (left.role > right.role ? 1 : 0);
   });
   return usable[0];

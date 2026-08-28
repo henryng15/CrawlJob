@@ -3145,16 +3145,16 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   // Back on, and stricter than it was. The word alone was never enough: a title
   // can name two intakes, and the wrong one disqualifies it.
-  run('the intake has to be the one being asked about', () => {
-    assert.strictEqual(S.REFERRAL_REQUIRE_SEASON, true);
+  // Naming no intake is not the same as naming the wrong one. "Software
+  // Engineering Intern" at NVIDIA and "AI Builder Intern" at Scale AI are the
+  // summer intake and neither says so; requiring the word threw both away for a
+  // reason about how a heading was written rather than about which intake it was.
+  run('a role that names no intake is the one that was applied to', () => {
+    assert.strictEqual(S.REFERRAL_REQUIRE_SEASON, false);
+    assert.ok(S.outreachReferralSeason_('Software Engineer Intern'));
+    assert.ok(S.outreachReferralSeason_('AI Builder Intern'));
     assert.ok(S.outreachReferralSeason_('Software Engineer Intern, Summer 2027'));
-    assert.ok(S.outreachReferralSeason_('SUMMER 2027 SWE INTERN'));
-    assert.ok(S.outreachReferralSeason_('2027 summer internship'));
-    // Not an intake at all.
-    assert.ok(!S.outreachReferralSeason_('Software Engineer Intern'));
-    assert.ok(!S.outreachReferralSeason_(''));
-    // A whole word, so a surname or a product name is not a season.
-    assert.ok(!S.outreachReferralSeason_('Summertime Analytics Intern'));
+    assert.ok(S.outreachReferralSeason_(''));
   });
 
   // Summer 2026 has already happened; Summer/Winter is not only the intake being
@@ -3214,11 +3214,25 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(!S.outreachReferralLive_(application('Stripe', 'x', GH + '1', '', '', 'Rejected')));
   });
 
-  run('one application is chosen per company, the software one first', () => {
+  // Recency decides, and it used to be the other way round. Intuit kept being asked
+  // about its older application because the shortener recognised that heading and
+  // not the newer one's.
+  run('the most recent application is the one chosen', () => {
     const rows = [
       application('Stripe', 'Data Science Intern, Summer 2027', GH + '1', new Date(2026, 7, 26)),
       application('Stripe', 'Software Engineer Intern, Summer 2027', GH + '2', new Date(2026, 7, 20)),
       application('Stripe', 'Product Design Intern, Summer 2027', GH + '3', new Date(2026, 7, 27))
+    ];
+    assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '3');
+  });
+
+  // How squarely a title reads as a software engineering internship is the tie
+  // break, not the first key: two applications made on one day.
+  run('and the title decides only between applications made the same day', () => {
+    const day = new Date(2026, 7, 27);
+    const rows = [
+      application('Stripe', 'Product Design Intern, Summer 2027', GH + '1', day),
+      application('Stripe', 'Software Engineer Intern, Summer 2027', GH + '2', day)
     ];
     assert.strictEqual(S.outreachPickReferralRole_(rows).link, GH + '2');
   });
@@ -4592,8 +4606,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   // on nothing at that company qualified — and the row just sat there, booked and
   // due, about to ask a stranger for a favour over it.
   run('a company with nothing qualifying has its open rows closed', () => {
-    const applications = [appRow('Intuit', 'Intern, Software Engineering', GH + '1', at(18, 9))];
-    const rows = [REF(2, 'Intuit', 'Intern, Software Engineering', 'Queued',
+    // A title naming a different intake, which is what actually disqualifies one.
+    const applications = [appRow('Intuit', 'SWE Intern, Winter 2027', GH + '1', at(18, 9))];
+    const rows = [REF(2, 'Intuit', 'SWE Intern, Winter 2027', 'Queued',
                       { jobLink: GH + '1' })];
     const seen = S.outreachReferralReconcile_(rows, applications);
     assert.strictEqual(seen.repoint.length, 0);
