@@ -8,6 +8,22 @@ var statusNode = document.getElementById('status');
 var submit = document.getElementById('submit');
 var settings = document.getElementById('settings');
 
+function copyText(value) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(value);
+  }
+
+  var textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  var copied = document.execCommand('copy');
+  textarea.remove();
+  return copied ? Promise.resolve() : Promise.reject(new Error('Copy is not available.'));
+}
+
 function setStatus(message, kind) {
   statusNode.textContent = message;
   statusNode.className = 'status' + (kind ? ' ' + kind : '');
@@ -54,6 +70,19 @@ chrome.storage.local.get(['endpoint', 'secret', 'applicationDraft'], function (s
 [company, role, link].forEach(function (field) {
   field.addEventListener('input', saveDraft);
   field.addEventListener('change', saveDraft);
+});
+
+document.querySelectorAll('.copy-link').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var originalText = button.textContent;
+    copyText(button.dataset.url).then(function () {
+      button.textContent = 'Copied!';
+      setStatus(button.dataset.url + ' copied to clipboard.', 'success');
+      setTimeout(function () { button.textContent = originalText; }, 1500);
+    }).catch(function () {
+      setStatus('Could not copy the link. Please try again.', 'error');
+    });
+  });
 });
 
 document.getElementById('settings-toggle').addEventListener('click', function () {
