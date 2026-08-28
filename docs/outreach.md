@@ -404,6 +404,219 @@ something to fix here.
 Watch the bounce count over the first week. Above 2–3% means a bad slice of the contact list,
 not a bad day, and the run should stop until it is found.
 
+## The follow-up — one reply, five to ten days later
+
+A cold email that goes quiet is not evidence of a no. It is evidence of an inbox. Every `Sent`
+row earns exactly **one** short reply on its own thread, and then that row is finished forever.
+
+Three columns hold it, and they sit immediately after `Mode` because they are the same four
+questions asked one message later: `Follow Up` is the **hour** it is booked for, `Follow Up
+Template` is which of the twenty sentences it will use, and `Follow Up Status` is where it has got
+to.
+Read next to `Status` they are one story — *this went out, nobody answered, so a nudge is booked
+for Tuesday.* Put out past the audit references they would have been three columns nobody
+scrolls to, which is exactly what happened to `Priority` before it moved.
+
+### One reply at a company silences the whole company
+
+If Samsara had three emails and **one** of them came back, none of the three is chased.
+
+This reverses the cold path on purpose, and the reversal is the point rather than an
+inconsistency. `outreachAttemptsWanted_` says a reply does not stop the rest, because one
+recruiter answering *we will pass this on* is not the same as being in and the person who owns
+the req may be the second or the third. That reasoning is about a **first** email to somebody who
+has not heard from us.
+
+A follow-up is the opposite case. The company has now answered once. Chasing two of their
+colleagues about the silence of a thread that is not silent is how a careful sequence turns into
+the thing recruiters forward to each other. Employers are matched the way they are matched
+everywhere else in this system, so `Samsara` and `Samsara Inc.` are one company here too.
+
+A booking already made comes off when the answer arrives after it: a row booked on Monday for
+Thursday has three days in which a colleague can reply, and the run after that reply is recorded
+clears the date and writes `Stopped`. Without that half, the rule would only hold for rows nobody
+had looked at yet — which is the subset it matters least for.
+
+### What never earns one
+
+`Status` has to be `Sent`. That single line is also the answer to *what about the bounced ones* —
+a bounce moves the row to `Bounced`, so it never reaches the question, and neither does `Replied`,
+`Cancelled` or `Failed`. Beyond that:
+
+- **no thread to reply on.** Without a `Gmail Message ID` there is nothing to reply *to*, and a
+  new message with `Re:` on it is worse than no message.
+- **sent over 21 days ago.** Past that the first email is not recent enough for *following up* to
+  be a true description of the message. It is inside the 30-day reply-scan window, so a reply
+  that lands late is still seen before the row is written off.
+- **already decided.** A blank `Follow Up Status` is the only state the planner will touch. That
+  is what makes one follow-up permanent rather than something the next run has to be trusted to
+  remember.
+
+### Five to ten days, weekends included, six a day
+
+The delay is a **window**, not a number. Five days is the earliest a nudge reads as patience
+instead of pestering; ten is the point past which the first email is no longer recent. Anywhere
+inside that is equally honest — and having six days to choose from is the whole mechanism that
+keeps any one day light.
+
+Weekends count here where `DAILY_CAP` zeroes them. A cold email read on a Saturday is read badly
+and a first impression is worth waiting a weekday for; a follow-up is one sentence on a thread
+the recipient already has. The two extra days exist for the same reason the window does.
+
+`FOLLOWUP_DAILY_CAP` is six, and it is counted **separately** from the weekday cap. Sharing one
+budget would have made every follow-up cost a cold email, and the cold email is the one with the
+deadline attached. Six is under half the lightest sending weekday, so both streams together stay
+near what one of them used to be.
+
+The first day in the window with room wins, rather than the emptiest. Spreading for its own sake
+would hold a nudge back four days to keep a number even, which serves the table and not the
+message.
+
+When the window is full the search keeps walking, out to the 21-day ceiling, rather than putting a
+seventh row on a day inside the window.
+
+> **This was wrong on the day it shipped, and only the live tab showed it.** The first version put
+> the overflow on the emptiest day *inside* the window. Sixty-eight rows were already sent and
+> quiet when the feature went out, and every one of their windows is at most six days wide and
+> ends at most ten days out — so the whole backlog wanted to land inside nine days, which is
+> fifty-four slots for seventy rows. Seven of those nine days came back holding eight or nine, on
+> a feature whose stated point is that no day carries a pile. Walking past the window costs a
+> follow-up on day twelve instead of day nine. Overloading cost the cap entirely, and the cap is
+> the thing that was asked for.
+
+Only when everything out to the ceiling is full does the emptiest day take it. By then the queue
+is saturated and there is no day that is not a compromise; the row still goes rather than being
+silently dropped.
+
+Because the planner never touches a row that already has a `Follow Up Status`, a change to *how
+days are chosen* cannot reach bookings already made under the old rule. `replanOutreachFollowUps`
+is the way out: it clears every `Queued` booking and books again. It is deliberately narrow —
+nothing `Sent`, `Drafted`, `Skipped` or `Stopped` is touched, so no follow-up can go twice and no
+decision about a replying company is undone.
+
+> **Why the first run does not empty the backlog onto one afternoon.** Every row already sent has
+> a window that finished before the feature existed. A window that has *already shut* is replaced
+> by a fresh one of the same length starting today, so those rows fan out over the next five days
+> like anything else instead of collapsing onto a single date. Rows older than 21 days never get
+> that far.
+
+### The hour is booked with the day
+
+`Follow Up` is a timestamp, not a date, and that is worth stating because it was a bare date for
+the first hour of this feature's life and it was wrong. `outreachProjectSchedule_` already says
+why in as many words about `Scheduled At`: *"Aug 24" on fifteen rows reads as fifteen emails at
+once, which is the one thing this is built not to do.* Six rows all reading `August 29, 2026` are
+six replies at nine in the morning as far as anybody scanning the column can tell.
+
+So the day's six hours are handed out when the day is booked. The row then goes at that hour
+exactly as a cold email goes at its `Scheduled At`: `followUpAt <= now` on the whole timestamp, so
+a row set for 15:00 is not a row the 08:20 firing may send.
+
+The window is **08:00 to 19:00**, against the cold path's 10:00 to 17:00, and it is wider at both
+ends for the same reason: nothing here waits an hour in Drafts. The cold path cannot send in its
+first hour because that is the hour it *writes* in, and cannot write in its last because there
+would be no hour left to wait; a follow-up is composed and posted in one step, so the first and
+last firings of the day are both firings it can go on. The trigger has always fired at these
+hours — `everyHours(1)` runs around the clock. 08:00 and 19:00 were never hours nothing ran in,
+only hours nothing was allowed to leave in.
+
+Twelve hours for six emails is the point rather than a side effect, and it needs its own
+arithmetic. `outreachSpreadHours_`, which the cold path uses, fills from the front taking each
+firing's fair share of what is left — right when the count is at or above the hours available
+(fifteen across eight comes out 2,2,2,2,2,2,2,1) and right when a light day *should* finish early,
+because the application it is about is ageing while it waits. It degenerates when the count is well
+under the hours, and for follow-ups that is not the corner case but every case: six across twelve
+filled from the front is 08,09,10,11,12,13 and an empty afternoon.
+
+Nothing is ageing here, so there is no reason to finish by lunchtime and every reason to be far
+apart. `outreachSpaceHours_` anchors at both ends and spaces the rest between:
+
+```
+08:00   10:00   12:00   15:00   17:00   19:00
+```
+
+Two and three hours apart, first at the open and last at the close. The window was widened to buy
+distance between the six, not an earlier start.
+
+An hour that has already gone by is still due, which is what makes a weekend of downtime catch up
+rather than silently drop. A per-firing brake survives from before the hours were booked, and its
+job is now only that: after a day nothing ran on, six rows come due together, and sending them in
+one firing would undo the point of having booked six different hours.
+
+A day pushed past its cap by the saturation fallback puts the overflow on the last firing rather
+than inventing an hour the table does not have.
+
+> **Bookings made before the hour existed are upgraded in place.** A booking is decided, and a
+> decided row is one the planner will not touch — which is what makes one follow-up per row
+> permanent, and also why a change to *when inside the day* a row goes could not reach the seventy
+> rows already carrying midnight. So the planner has a narrow pass that moves the hour and never
+> the day, only on `Queued` rows, and never on one the reply rule has just called off. A booking
+> that already has a real hour matches nothing, so it stops finding work the moment there is none:
+> no flag, and no second run to remember.
+
+### Twenty sentences, and why twenty
+
+Twice the ten the cold path uses, and the number is doing real work. A cold email varies its
+subject, its number and its ask across ten variations — plenty of surface to be different on. A
+follow-up has one sentence and no subject of its own, so the sentence is the only place variety
+can live, and these go to people who are by definition on a thread that already exists. Two
+identical nudges landing at one employer in the same week is the failure the list is sized
+against.
+
+Each is a `note` and a `close` kept apart, so the two axes multiply when they are read: twenty
+openings and twenty sign-offs, paired but never repeating either. House rules are the same as the
+cold template — no dash anywhere, nothing over about twenty-five words, and **no claim the first
+email did not already make.** There is no new fact in any of them on purpose: a follow-up that
+adds an argument is a second pitch, and a second pitch is the thing this is built not to be.
+
+Which one a row gets is stored, not recomputed, for the reason `Template` is stored — what the
+tab said before the message went is what you read afterwards to know what went. The company
+decides where in the list to start and the count decides how far along, so two people at one
+employer never get the same sentence and two employers rarely start in the same place. Run
+`previewOutreachFollowUps` to print all twenty; it sends nothing.
+
+### It is a real reply, not a new email with `Re:` on it
+
+`GmailMessage.reply` and `GmailThread.reply` both answer **the sender of the message**, and on a
+thread this account started that sender is this account — calling either would have mailed Henry
+a follow-up about Henry's own email, and neither offers a `to` override. So the follow-up is the
+one place in this project that uses the **Gmail advanced service**: `Gmail.Users.Messages.send`
+with the thread's id, and `In-Reply-To` / `References` naming the original `Message-ID`. Gmail
+threads on those headers rather than on the subject; without them the nudge arrives as a separate
+conversation with `Re:` written on it, which looks like a mistake.
+
+No extra OAuth scope is needed — `https://mail.google.com/` already covers it — but the service
+has to be enabled, and `clasp push` does that from the manifest.
+
+The reply is **plain text and carries no attachment.** The resume is already on the thread one
+message up, and re-attaching it to a two-sentence nudge is the single loudest bulk-mail signal
+this system could send.
+
+### The six follow-up states
+
+| | |
+|---|---|
+| *(blank)* | nothing has decided about this row yet |
+| `Queued` | a day is booked; `Follow Up` says which |
+| `Drafted` | `Mode` held it back, so it is a draft for you to send |
+| `Sent` | gone, and `Follow Up` now says the day it really went |
+| `Skipped` | never going to be chased — too old, no thread, or a colleague had already answered |
+| `Stopped` | had a day booked and lost it, because somebody at that company replied in between |
+
+`Skipped` and `Stopped` look alike and are worth telling apart: one is a decision made once, the
+other is a decision reversed, and the reversed one is what you go looking for.
+
+`Mode` is honoured exactly as the cold path honours it. A row held to `Draft`, or a global
+`OUTREACH_MODE` of `Draft`, produces a draft instead of a sent reply and the row says `Drafted`.
+Sending it is then a person's decision, and the row keeps saying `Drafted` afterwards — the same
+thing a cold email in `Draft` mode does.
+
+Three checks are made again on the day rather than trusted from planning time, because each is a
+thing that can change in between: the application may have closed, a colleague may have answered,
+and **this very thread** may have been answered. The third is free — the thread has to be fetched
+to reply on it anyway — and it is the one the reply scan can miss, because a reply that landed
+inside the same hour has not been recorded yet.
+
 ## Reading the tab
 
 The `Email` tab is ordered so the three columns copied straight from `App` lead it —
@@ -975,6 +1188,18 @@ Dropping it keeps the sentence true without drawing the line under it.
 The kill switch is one thing and only one thing: `removeOutreachTriggers`. Layers of switches
 produce a system that is off in a way nobody can find.
 
+The follow-up gets its own first week the same way, through a second script property,
+`FOLLOWUP_MODE = Draft`. It is the one exception to the paragraph above and it earns it: by the
+time follow-ups shipped the cold path had been sending unattended for weeks, and stopping *that*
+to watch a new feature's first week would have been the more expensive mistake. It can only ever
+be more cautious than `OUTREACH_MODE`, never less — either switch alone holds a reply back, and
+neither can push one out.
+
+With it set, the whole planner still runs: days are booked, templates chosen, `Follow Up Status`
+fills in, and the tab shows exactly what would have gone. Only the last step changes, from a
+reply on the thread to a draft in the mailbox. Clear the property when the twenty sentences have
+been read against real rows.
+
 ## Installing it
 
 Everything below happens in **`hoanng15.work@gmail.com`**, not in the account that owns the
@@ -996,6 +1221,12 @@ tracker.
    With `OUTREACH_MODE = Draft` it can only produce drafts.
 8. `installOutreachTriggers` when the tab looks right. Leave `OUTREACH_MODE` on `Draft` until
    you have read a few of the drafts it produces.
+
+The manifest turns the **Gmail advanced service** on, which `clasp push` carries over, but the
+first run afterwards will ask to be re-authorised: the grant has to match the code, and the code
+now reaches Gmail through a second door. No new scope is requested. Run `previewOutreachFollowUps`
+once at that point — it prints the twenty sentences and sends nothing, which is the cheapest way
+to confirm the file arrived.
 
 Nothing leaves the account until `OUTREACH_MODE` is cleared, whatever else is installed. The
 `App` tab is not touched at any point, so nothing above needs undoing if you stop here.

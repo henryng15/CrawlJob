@@ -210,6 +210,7 @@ recruiter's name, email address, or drafted message into this spreadsheet.
 | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
 | Priority | tick to move this posting to the front of the queue; a checkbox, and the only column here a person writes to |
 | Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
+| Follow Up / Follow Up Template / Follow Up Status | the day the one chasing reply is booked for, which of the twenty sentences it uses, and where it has got to |
 | Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
 | Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
 | Result / Last Error / Version | delivery outcome, diagnostic, and concurrency guard |
@@ -218,21 +219,28 @@ All rows start empty. The future queue worker will be the only automation allowe
 move them; until then this tab is safe to inspect and format manually.
 
 `Priority` leads `Status` because the two read as one answer: whether this row was asked for, and
-where it has got to.
+where it has got to. The three `Follow Up` columns sit immediately after `Mode` for the same
+reason one column over: they are those questions asked one message later, and they only mean
+anything read next to the status of the email they are chasing.
 
-A tab built before the column existed opens it by itself. `outreachEnsurePriorityColumn_` is the
-first thing `runOutreachCycle` does, before anything reads the queue and outside the per-step
-isolation, so either the layout is right or the run stops without touching a row. It is the sender
-that migrates rather than a button somebody presses because the schema and the code have to change
-together: a tab on the old layout read by the new constants has `Status` where `Mode` should be, so
-no row matches any status, no row counts as having spent a contact, and the next enqueue writes a
-second cold email to people already written to. Deploying the sender is the whole migration, and
-there is no window in between.
+A tab built before those columns existed opens them by itself. `outreachEnsurePriorityColumn_` and
+`outreachEnsureFollowUpColumns_` are the first two things `runOutreachCycle` does, before anything
+reads the queue and outside the per-step isolation, so either the layout is right or the run stops
+without touching a row. They run in that order because the second is written against the layout
+the first produces, and a tab two migrations behind is walked forward twice in one firing.
 
-`setupOutreachQueue` cannot do this itself — it refuses to write `Priority` over a header that says
-`Status`, which is the guard doing its job. `migrateOutreachPriorityColumn` in the bound script is
-the manual equivalent, for a tab being brought up to the current layout by hand; both are
-idempotent and safe to run after the other.
+It is the sender that migrates rather than a button somebody presses because the schema and the
+code have to change together: a tab on an old layout read by the new constants has `Status` where
+`Mode` should be, or `Contact Fingerprint` where `Follow Up` should be, so no row matches any
+status, no row counts as having spent a contact, and the next enqueue writes a second cold email
+to people already written to. Deploying the sender is the whole migration, and there is no window
+in between.
+
+`setupOutreachQueue` cannot do this itself — it refuses to write a header over a different one,
+which is the guard doing its job. `migrateOutreachColumns` in the bound script is the manual
+equivalent, for a tab being brought up to the current layout by hand with the sender switched off;
+it walks both steps and is idempotent, and `migrateOutreachPriorityColumn` is kept as a name that
+calls it.
 
 One tick covers the job, not the row. Ticking any row lifts every row with the same company and
 the same role — the same two tests the one-posting-one-wave rule uses — so a tick on attempt 1 at

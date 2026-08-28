@@ -26,6 +26,14 @@ function makeSheet(name, data) {
       });
       return sheet;
     },
+    // The real sheet throws on a getRange past its last column, and the migration
+    // reads the header of a tab narrower than the layout it is moving towards.
+    // Modelled as the widest row, which is what an inserted column grows.
+    getMaxColumns() {
+      let widest = 0;
+      grid.forEach((row) => { if (row.length > widest) widest = row.length; });
+      return widest;
+    },
     getConditionalFormatRules() { return formatRules[name] || []; },
     setConditionalFormatRules(rules) { formatRules[name] = rules; return this; },
     getLastRow() {
@@ -419,12 +427,13 @@ console.log('setupOutreachQueue');
     assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
     assert.strictEqual(outreach.getLastRow(), 1);
   });
-  run('it freezes the header and validates Priority, Status and Mode without adding rows', () => {
+  run('it freezes the header and validates the four dropdown columns without adding rows', () => {
     assert.deepStrictEqual(frozen, [['Email', 1]]);
     // Left to right: Priority, then Status and Mode, once the six columns a human
-    // reads and the two timestamps lead the table.
-    assert.deepStrictEqual(
-      validated.slice(-3), [[2, 10, 499, 1], [2, 11, 499, 1], [2, 12, 499, 1]]);
+    // reads and the two timestamps lead the table. Follow Up Status is the fourth,
+    // two columns further right, with the booked day and the template between.
+    assert.deepStrictEqual(validated.slice(-4),
+      [[2, 10, 499, 1], [2, 11, 499, 1], [2, 12, 499, 1], [2, 15, 499, 1]]);
     assert.strictEqual(outreach.getLastRow(), 1);
   });
   run('Priority is the column left of Status, and Version is still last', () => {
@@ -432,7 +441,25 @@ console.log('setupOutreachQueue');
     assert.strictEqual(header[9], 'Priority');
     assert.strictEqual(header[10], 'Status');
     assert.strictEqual(header[header.length - 1], 'Version');
-    assert.strictEqual(header.length, 20);
+    assert.strictEqual(header.length, 23);
+  });
+  run('the three follow-up columns sit immediately after Mode', () => {
+    const header = Array.from(s.OUTREACH_HEADERS);
+    assert.strictEqual(header[11], 'Mode');
+    assert.strictEqual(header[12], 'Follow Up');
+    assert.strictEqual(header[13], 'Follow Up Template');
+    assert.strictEqual(header[14], 'Follow Up Status');
+    // And the audit references start straight after them, where they always were
+    // relative to the machinery rather than to a fixed number.
+    assert.strictEqual(header[15], 'Contact Fingerprint');
+  });
+  run('Follow Up Status is coloured by value, and Queued is left plain there too', () => {
+    const rules = (formatRules['Email'] || [])
+      .filter((r) => r.getRanges()[0].getColumn() === 15);
+    assert.strictEqual(rules.length, 5);
+    assert.ok(!rules.some((r) => r.text === 'Queued'));
+    rules.forEach((r) => assert.ok(
+      Array.from(s.OUTREACH_FOLLOWUP_STATUS).indexOf(r.text) !== -1, r.text));
   });
   run('Status and Mode are coloured by value, and Queued is left plain', () => {
     const rules = formatRules['Email'] || [];
@@ -483,15 +510,23 @@ console.log('migrateOutreachPriorityColumn — opening a gap on a tab that is al
     run('the header ends up as the new layout, Priority ahead of Status', () => {
       assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
     });
-    run('every value to the right of the gap moved with it', () => {
-      // Status was column 10 and is column 11; the whole tail shifted one right,
-      // which is the half a header rewrite over live data would have got wrong.
+    run('every value to the right of both gaps moved with them', () => {
+      // Two migrations in one call: Status was column 10 and is column 11, and
+      // everything from Contact Fingerprint on moved three further right again.
+      // This is the half a header rewrite over live data would have got wrong.
       assert.strictEqual(outreach.grid[1][9], '');
       assert.strictEqual(outreach.grid[1][10], 'Sent');
       assert.strictEqual(outreach.grid[1][11], 'Send');
       assert.strictEqual(outreach.grid[2][10], 'Queued');
-      assert.strictEqual(outreach.grid[1][18], 'P12-A1');
-      assert.strictEqual(outreach.grid[1][19], 1);
+      // The three new columns are opened empty. A migration adds a place to put
+      // something; the planner is what puts anything in it.
+      assert.strictEqual(outreach.grid[1][12], '');
+      assert.strictEqual(outreach.grid[1][13], '');
+      assert.strictEqual(outreach.grid[1][14], '');
+      assert.strictEqual(outreach.grid[1][15], 'fp-Acme');
+      assert.strictEqual(outreach.grid[1][16], 'draft-1');
+      assert.strictEqual(outreach.grid[1][21], 'P12-A1');
+      assert.strictEqual(outreach.grid[1][22], 1);
     });
     run('the rows themselves are left alone — a migration adds a column, not data', () => {
       assert.strictEqual(outreach.getLastRow(), 3);
@@ -513,7 +548,8 @@ console.log('migrateOutreachPriorityColumn — opening a gap on a tab that is al
       assert.strictEqual(outreach.grid[0].length, width);
       assert.deepStrictEqual(outreach.grid[0], Array.from(s.OUTREACH_HEADERS));
       assert.strictEqual(outreach.grid[1][10], 'Sent');
-      assert.match(toasts[toasts.length - 1], /already column 10/);
+      assert.strictEqual(outreach.grid[1][15], 'fp-Acme');
+      assert.match(toasts[toasts.length - 1], /already on the current layout/);
     });
   }
 

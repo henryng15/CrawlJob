@@ -119,6 +119,14 @@ function outreachParseQueue_(row, index) {
     id: outreachCell_(row, Q_ID),
     status: outreachCell_(row, Q_STATUS),
     mode: outreachCell_(row, Q_MODE),
+    // The three follow-up cells, read as one fact the way Drafted At and
+    // Scheduled At are: the day the nudge is booked for, which of the twenty it
+    // will use, and whether it has gone. A blank status is the important value
+    // here — it means nothing has decided about this row yet, which is what makes
+    // the planner idempotent without keeping a list of what it has already seen.
+    followUpAt: outreachDate_(row[Q_FOLLOWUP_AT - 1]),
+    followUpTemplate: Number(outreachCell_(row, Q_FOLLOWUP_TEMPLATE)) || 0,
+    followUpStatus: outreachCell_(row, Q_FOLLOWUP_STATUS),
     fingerprint: outreachCell_(row, Q_FINGERPRINT),
     draftId: outreachCell_(row, Q_DRAFT_ID),
     // Parsed rather than read out of a second range the way scanOutreachReplies
@@ -765,6 +773,20 @@ function enqueueAndProject() {
  * recognise is a tab that must not be shifted blind, because every row under it
  * would end up beneath the wrong name.
  */
+/**
+ * The header row, never wider than the sheet actually is.
+ *
+ * getRange past the last column throws, and both migrations below have to read
+ * the header of a tab built before the columns they are adding existed — which is
+ * precisely a tab narrower than Q_WIDTH. Reading blind was survivable while the
+ * Email tab sat inside the twenty-six columns a new sheet is born with; the third
+ * follow-up column is the one that could push a trimmed tab over.
+ */
+function outreachHeaderRow_(queue) {
+  var width = Math.min(Q_WIDTH, queue.getMaxColumns());
+  return queue.getRange(1, 1, 1, width).getValues()[0];
+}
+
 function outreachPriorityColumnAction_(headerRow) {
   var at = String((headerRow || [])[Q_PRIORITY - 1] || '').trim();
   if (at === 'Priority') return 'ready';
@@ -798,9 +820,7 @@ function outreachEnsurePriorityColumn_(tracker) {
   var queue = tracker.getSheetByName(TAB_QUEUE);
   if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
 
-  if (outreachPriorityColumnAction_(queue.getRange(1, 1, 1, Q_WIDTH).getValues()[0]) === 'ready') {
-    return false;
-  }
+  if (outreachPriorityColumnAction_(outreachHeaderRow_(queue)) === 'ready') return false;
 
   queue.insertColumnBefore(Q_PRIORITY);
   queue.getRange(1, Q_PRIORITY)
@@ -811,6 +831,75 @@ function outreachEnsurePriorityColumn_(tracker) {
   queue.setColumnWidth(Q_PRIORITY, 75);
   outreachDressQueueRows_(queue);
   Logger.log('Inserted the Priority column at ' + Q_PRIORITY + '.');
+  return true;
+}
+
+// What the three new headers say, left to right, in the order they are inserted.
+var FOLLOWUP_HEADERS = ['Follow Up', 'Follow Up Template', 'Follow Up Status'];
+
+/**
+ * What the Email tab's header says about where the follow-up columns are.
+ *
+ * The same shape as outreachPriorityColumnAction_, and separate from the sheet
+ * work for the same reason: the decision that can go badly wrong — shifting a tab
+ * somebody has rearranged — is a pure function with tests rather than something
+ * only a live spreadsheet can prove.
+ *
+ * 'ready' means column 13 already says Follow Up. 'insert' means the tab predates
+ * these three and column 13 is still Contact Fingerprint. Anything else throws,
+ * because a header this does not recognise is a tab whose rows must not be moved
+ * under names nobody has checked.
+ */
+function outreachFollowUpColumnsAction_(headerRow) {
+  var at = String((headerRow || [])[Q_FOLLOWUP_AT - 1] || '').trim();
+  if (at === FOLLOWUP_HEADERS[0]) return 'ready';
+  if (at === 'Contact Fingerprint') return 'insert';
+  throw new Error(
+    'Email column ' + Q_FOLLOWUP_AT + ' is ' + JSON.stringify(at) + ', expected '
+    + '"' + FOLLOWUP_HEADERS[0] + '" or "Contact Fingerprint". This tab is not a '
+    + 'layout the sender knows how to migrate, and it will not shift rows under a '
+    + 'header it cannot read.'
+  );
+}
+
+/**
+ * Open the three follow-up columns on a tab built before they existed.
+ *
+ * Runs inside the sender rather than as a button somebody remembers to press, for
+ * exactly the reason outreachEnsurePriorityColumn_ above it does. The constants
+ * moved eight headers to the right: a sheet on the old layout read by the new code
+ * has Contact Fingerprint where Follow Up should be and Gmail Draft ID where the
+ * template number goes, so no row matches any status, no row counts as having
+ * spent a contact, and the next enqueue writes a second cold email to people
+ * already written to. There is no version of that worth leaving a gap for.
+ *
+ * As the second thing runOutreachCycle does, and outside the per-step isolation,
+ * there is no gap: either both layouts are right before anything reads the queue,
+ * or the run stops without reading it.
+ *
+ * Three separate insertColumnBefore calls at the same index rather than
+ * insertColumnsBefore(index, 3), so each one is the operation whose behaviour is
+ * already known here — values, validation and colour rules to the right travel
+ * with their columns — repeated. Inserting at Q_FOLLOWUP_AT three times leaves the
+ * three new columns in the order the headers are then written across them.
+ */
+function outreachEnsureFollowUpColumns_(tracker) {
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  if (outreachFollowUpColumnsAction_(outreachHeaderRow_(queue)) === 'ready') return false;
+
+  for (var i = 0; i < FOLLOWUP_HEADERS.length; i++) queue.insertColumnBefore(Q_FOLLOWUP_AT);
+  queue.getRange(1, Q_FOLLOWUP_AT, 1, FOLLOWUP_HEADERS.length)
+       .setValues([FOLLOWUP_HEADERS])
+       .setFontWeight('bold')
+       .setBackground('#D9EAD3')
+       .setHorizontalAlignment('center');
+  [130, 95, 120].forEach(function (width, index) {
+    queue.setColumnWidth(Q_FOLLOWUP_AT + index, width);
+  });
+  outreachDressQueueRows_(queue);
+  Logger.log('Inserted the three follow-up columns at ' + Q_FOLLOWUP_AT + '.');
   return true;
 }
 
@@ -890,7 +979,7 @@ function outreachDressQueueRows_(queue) {
          // allowInvalid stays on: a cell somebody typed into is not worth failing
          // a run over, and outreachTicked_ reads those spellings anyway.
          .requireCheckbox().setAllowInvalid(true).build());
-  [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT].forEach(function (column) {
+  [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT, Q_FOLLOWUP_AT].forEach(function (column) {
     queue.getRange(2, column, rows, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
   });
   // Date Applied belongs on that list even though it is not a timestamp. A cell
@@ -918,8 +1007,15 @@ function outreachDressQueueRows_(queue) {
   queue.getRange(2, Q_MODE, rows, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(QUEUE_MODES, true).setAllowInvalid(false).build());
+  // allowInvalid false, the same as Status and for the same reason: every word in
+  // this column is written by this project, so a value the dropdown does not know
+  // is a bug worth being shown rather than a spelling worth tolerating.
+  queue.getRange(2, Q_FOLLOWUP_STATUS, rows, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(QUEUE_FOLLOWUP_STATUSES, true).setAllowInvalid(false).build());
   outreachColourQueueColumn_(queue, Q_STATUS, QUEUE_STATUS_COLOURS, rows);
   outreachColourQueueColumn_(queue, Q_MODE, QUEUE_MODE_COLOURS, rows);
+  outreachColourQueueColumn_(queue, Q_FOLLOWUP_STATUS, QUEUE_FOLLOWUP_COLOURS, rows);
 }
 
 /**
@@ -1022,13 +1118,20 @@ function refileOutreachQueue() {
 
   var removed = outreachRepairQueueLayout_(queue);
   var closed = cancelStaleOutreachRows();
+  // Planned but never sent, which is the same line this whole function draws.
+  // Booking a day writes three cells and touches nothing outside the tab, so it
+  // belongs to the rearranging half; sendFollowUpReplies is the other half and is
+  // as deliberately absent here as sendPreparedDrafts is.
+  var followUp = planFollowUpReplies();
   var projected = refreshOutreachSchedule();
   var moved = outreachSortQueueByTime_(queue);
 
   Logger.log('Deleted ' + removed + ' empty row(s); called off ' + closed
-           + ' row(s) whose application had already closed; reprojected '
-           + projected + '; moved ' + moved + ' row(s) into place.');
-  return { removed: removed, closed: closed, projected: projected, moved: moved };
+           + ' row(s) whose application had already closed; booked '
+           + followUp.booked + ' follow-up(s) and stopped ' + followUp.stopped
+           + '; reprojected ' + projected + '; moved ' + moved + ' row(s) into place.');
+  return { removed: removed, closed: closed, followUp: followUp,
+           projected: projected, moved: moved };
 }
 
 function repairOutreachQueueLayout() {

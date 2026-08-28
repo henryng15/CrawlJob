@@ -541,7 +541,14 @@ function runOutreachCycle() {
   // writes a second cold email to people already written to. A failure here must
   // stop the run, not be collected and worked around.
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
-  summary.schema = outreachEnsurePriorityColumn_(tracker) ? 'inserted Priority' : 'ready';
+  var opened = [];
+  if (outreachEnsurePriorityColumn_(tracker)) opened.push('Priority');
+  // Second, and after Priority rather than beside it, because the two migrations
+  // are written against different layouts: the follow-up check expects Contact
+  // Fingerprint at column 13, which is only true once Priority has already been
+  // opened. A tab two migrations behind is walked forward one at a time.
+  if (outreachEnsureFollowUpColumns_(tracker)) opened.push('the follow-up columns');
+  summary.schema = opened.length ? 'inserted ' + opened.join(' and ') : 'ready';
 
   // Each step is allowed to fail on its own. Run as one unbroken expression, a
   // Gmail search that throws in step 1 takes step 4 with it, so nothing is sent
@@ -579,6 +586,19 @@ function runOutreachCycle() {
   // still stops it. A failed scan costs an hour of freshness, not the check.
   step('sent', sendPreparedDrafts);
   step('written', prepareOutreachDrafts);
+  // After both halves of the cold path, and in this order between themselves.
+  //
+  // After, because a follow-up is the cheaper message of the two and the cold
+  // email is the one with a deadline attached: an application ages while it waits
+  // and a nudge does not, so on the firing where something has to give, the nudge
+  // is what gives. It also means a row sent minutes ago is on the tab as Sent
+  // before the planner reads it, and gets its day in the same run.
+  //
+  // Planning before sending, because the plan is what the send reads. A row
+  // booked for today by the step above may go out on this very firing rather than
+  // waiting an hour for the next one to notice it.
+  step('followUpPlanned', planFollowUpReplies);
+  step('followUpSent', sendFollowUpReplies);
   step('projected', refreshOutreachSchedule);
   // A report, so it goes after everything that could change what it reports on.
   // Rebuilt every firing rather than stamped once, for the reason the Recruiters
@@ -693,7 +713,8 @@ function installOutreachTriggers() {
 function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
-              'scanRejectionEmails', 'onOutreachQueueEdit'];
+              'scanRejectionEmails', 'onOutreachQueueEdit',
+              'planFollowUpReplies', 'sendFollowUpReplies', 'replanOutreachFollowUps'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

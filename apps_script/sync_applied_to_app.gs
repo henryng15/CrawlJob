@@ -74,9 +74,16 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // Priority leads Status because the two read as one answer: whether this row was
 // asked for, and where it has got to. Ticking one lifts every row for the same
 // company and role, so it is ticked once per job rather than once per attempt.
+//
+// The three follow-up columns sit immediately after Mode, because they answer the
+// same question one message later: this row was sent, nobody replied, so a nudge
+// is booked for that day, using that sentence, and here is whether it has gone.
+// Read next to Status they are one story; read from past the audit references
+// they would be three columns nobody scrolls to.
 var OUTREACH_HEADERS = [
   'Company', 'Role', 'Date Applied', 'Property', 'Recruiters', 'Attempt',
   'Template', 'Drafted At', 'Scheduled At', 'Priority', 'Status', 'Mode',
+  'Follow Up', 'Follow Up Template', 'Follow Up Status',
   'Contact Fingerprint', 'Gmail Draft ID', 'Gmail Message ID', 'Sent At',
   'Result', 'Last Error', 'Queue ID', 'Version'
 ];
@@ -89,6 +96,19 @@ var OUTREACH_STATUS = [
   'Queued', 'Drafted', 'Sent', 'Replied', 'Bounced', 'Cancelled', 'Failed'
 ];
 var OUTREACH_MODE = ['Draft', 'Send'];
+
+// Six, and the same list as QUEUE_FOLLOWUP_STATUSES in the sender's
+// outreach_config.gs — two Apps Script projects cannot share a file, so these
+// have to agree by hand, the same arrangement OUTREACH_STATUS already has.
+//
+// Skipped and Stopped are the two worth telling apart. Skipped is a row this was
+// never going to chase; Stopped is a row that had a day booked and lost it,
+// because somebody at that company answered in between. One is a decision made
+// once, the other a decision reversed, and the reversed one is what you go
+// looking for.
+var OUTREACH_FOLLOWUP_STATUS = [
+  'Queued', 'Drafted', 'Sent', 'Skipped', 'Stopped', 'Failed'
+];
 
 // Colour by value, the same way the Process dropdown does it. Queued is
 // deliberately left plain: it is what most rows read most of the time, and a
@@ -109,6 +129,17 @@ var OUTREACH_STATUS_COLOURS = [
 var OUTREACH_MODE_COLOURS = [
   { name: 'Draft', bg: '#FFF2CC', fg: '#BF9000' },
   { name: 'Send',  bg: '#CFE2F3', fg: '#1155CC' }
+];
+// The same palette as Status, so the two columns can be read together without
+// learning a second colour language. Green is on Stopped here rather than on a
+// reply, and it is the same news wearing a different word: somebody answered, so
+// this nudge is not needed.
+var OUTREACH_FOLLOWUP_COLOURS = [
+  { name: 'Drafted', bg: '#FFF2CC', fg: '#BF9000' },
+  { name: 'Sent',    bg: '#CFE2F3', fg: '#1155CC' },
+  { name: 'Stopped', bg: '#D9EAD3', fg: '#38761D' },
+  { name: 'Failed',  bg: '#FCE5CD', fg: '#B45F06' },
+  { name: 'Skipped', bg: '#EFEFEF', fg: '#999999' }
 ];
 var OUTREACH_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 
@@ -227,9 +258,13 @@ function setupOutreachQueue() {
       .setHorizontalAlignment('center');
   queue.setFrozenRows(1);
 
-  // Date Applied is a date; the other three fields record an exact sending slot.
+  // Date Applied is the one bare date on the tab.
   queue.getRange(FIRST_ROW, 3, LAST_ROW - FIRST_ROW + 1, 1).setNumberFormat(DATE_FORMAT);
-  [8, 9, 16].forEach(function (column) {
+  // The other four record an exact sending slot, Follow Up included. The hour
+  // matters as much as the day there: six rows reading "August 29" are six replies
+  // at nine in the morning as far as anybody scanning the column can tell, which
+  // is the one thing this is built not to do.
+  [8, 9, 13, 19].forEach(function (column) {
     queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
          .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
   });
@@ -252,13 +287,19 @@ function setupOutreachQueue() {
          .requireValueInList(OUTREACH_MODE, true)
          .setAllowInvalid(false)
          .build());
+  queue.getRange(FIRST_ROW, 15, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(OUTREACH_FOLLOWUP_STATUS, true)
+         .setAllowInvalid(false)
+         .build());
 
-  [170, 240, 115, 85, 85, 70, 100, 145, 145, 75, 105, 80, 180, 160, 180, 145,
-   280, 200, 120, 70]
+  [170, 240, 115, 85, 85, 70, 100, 145, 145, 75, 105, 80, 130, 95, 120, 180, 160,
+   180, 145, 280, 200, 120, 70]
     .forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
 
   colourQueueColumn_(queue, 11, OUTREACH_STATUS_COLOURS);
   colourQueueColumn_(queue, 12, OUTREACH_MODE_COLOURS);
+  colourQueueColumn_(queue, 15, OUTREACH_FOLLOWUP_COLOURS);
 
   ss.toast(
     created
@@ -271,15 +312,19 @@ function setupOutreachQueue() {
 
 
 /**
- * Make room for Priority on a tab that was built before it existed.
+ * Walk the Email tab forward to the current layout, one added column at a time.
  *
  * setupOutreachQueue cannot do this itself. Its whole safety property is that it
- * refuses to write a header over a different one, and on an existing tab column 10
- * says Status where the new layout wants Priority — so it throws, correctly, and
- * the column has to be opened first. insertColumnBefore is what moves the ten
- * columns to its right along with their values, validation and colour rules;
- * rewriting headers over live data would have left every row shifted under the
- * wrong name.
+ * refuses to write a header over a different one, and on a tab a migration behind
+ * there is a real name sitting where the new layout wants a different one — so it
+ * throws, correctly, and the columns have to be opened first. insertColumnBefore
+ * is what moves everything to the right of the gap along with its values,
+ * validation and colour rules; rewriting headers over live data would have left
+ * every row shifted under the wrong name.
+ *
+ * Two steps now, run in order, because the second is written against the layout
+ * the first produces. A tab two migrations behind is walked forward twice in one
+ * call rather than being refused for not being either shape.
  *
  * **Stop the sender before running this.** Run removeOutreachTriggers in the
  * standalone sender project, run this, deploy the sender, then run
@@ -289,9 +334,15 @@ function setupOutreachQueue() {
  * contact, and queue a second cold email to people already written to. An hour of
  * no sending is the cheap half of that trade.
  *
- * Safe to run twice: a tab that already has Priority in column 10 is left alone.
+ * Since the sender learned to run both migrations itself — outreachEnsure-
+ * PriorityColumn_ and outreachEnsureFollowUpColumns_, ahead of everything that
+ * reads the queue — this is the manual path rather than the only one. It stays
+ * because a tab can be repaired from the spreadsheet with the sender switched off,
+ * which is the order you want when something has already gone wrong.
+ *
+ * Safe to run twice: a tab already on the current layout is left alone.
  */
-function migrateOutreachPriorityColumn() {
+function migrateOutreachColumns() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var queue = ss.getSheetByName(OUTREACH_QUEUE_TAB);
   if (!queue) {
@@ -299,18 +350,23 @@ function migrateOutreachPriorityColumn() {
     return;
   }
 
-  var header = queue.getRange(1, 1, 1, OUTREACH_HEADERS.length).getValues()[0];
-  var at10 = String(header[9] == null ? '' : header[9]).trim();
+  // Never wider than the sheet is. getRange past the last column throws, and the
+  // whole point of this function is to be pointed at a tab narrower than the
+  // layout it is migrating towards.
+  var header = function (index) {
+    var width = Math.min(OUTREACH_HEADERS.length, queue.getMaxColumns());
+    var value = queue.getRange(1, 1, 1, width).getValues()[0][index];
+    return String(value == null ? '' : value).trim();
+  };
 
-  if (at10 === 'Priority') {
-    setupOutreachQueue();
-    ss.toast('Priority is already column 10. Nothing moved.', 'Email', 8);
-    return;
-  }
-  // Anything other than the layout this migration was written against is a tab
-  // somebody has already rearranged, and shifting it blind would put every row
-  // under the wrong header. Say what was found instead.
-  if (at10 !== 'Status') {
+  var opened = [];
+
+  // Step one: Priority, which used to be this function's whole job.
+  var at10 = header(9);
+  if (at10 === 'Status') {
+    queue.insertColumnBefore(10);
+    opened.push('Priority at column 10');
+  } else if (at10 !== 'Priority') {
     throw new Error(
       'Email column 10 is ' + JSON.stringify(at10) + ', expected "Status" or '
       + '"Priority". This tab is not the layout this migration moves; fix it by '
@@ -318,17 +374,46 @@ function migrateOutreachPriorityColumn() {
     );
   }
 
-  queue.insertColumnBefore(10);
-  // The insert leaves column 10 blank, including its header, so setupOutreachQueue
-  // no longer has a conflicting name to refuse — it fills in the header, the
-  // checkbox, the widths and the two dropdown colourings at their new positions.
+  // Step two, and only reachable once step one has run, because it is written
+  // against the layout step one produces: Contact Fingerprint sits at 13 on a
+  // tab that has Priority and does not yet have these three.
+  //
+  // A blank there is the state a run that died between the insert and
+  // setupOutreachQueue leaves behind. It is not an error and it is not a second
+  // insert: the columns are already open and unnamed, so falling through to
+  // setupOutreachQueue below is exactly the repair.
+  var at13 = header(12);
+  if (at13 === 'Contact Fingerprint') {
+    for (var i = 0; i < 3; i++) queue.insertColumnBefore(13);
+    opened.push('the three follow-up columns at 13');
+  } else if (at13 !== 'Follow Up' && at13 !== '') {
+    throw new Error(
+      'Email column 13 is ' + JSON.stringify(at13) + ', expected "Contact '
+      + 'Fingerprint" or "Follow Up". This tab is not the layout this migration '
+      + 'moves; fix it by hand or say what it should be.'
+    );
+  }
+
+  // Each insert leaves its columns blank, headers included, so setupOutreachQueue
+  // no longer has a conflicting name to refuse — it fills in the headers, the
+  // checkbox, the widths and the three dropdown colourings at their new positions.
   setupOutreachQueue();
   ss.toast(
-    'Inserted Priority as column 10. Deploy the sender now, before the hourly '
-    + 'trigger goes back on.',
+    opened.length
+      ? 'Inserted ' + opened.join(' and ') + '. Deploy the sender now, before the '
+        + 'hourly trigger goes back on.'
+      : 'The Email tab is already on the current layout. Nothing moved.',
     'Email',
-    12
+    opened.length ? 12 : 8
   );
+}
+
+/**
+ * The name this used to have, kept because docs/spreadsheet.md and a year of
+ * notes point at it. It has never done anything the general one does not.
+ */
+function migrateOutreachPriorityColumn() {
+  migrateOutreachColumns();
 }
 
 

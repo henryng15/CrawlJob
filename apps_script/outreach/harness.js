@@ -50,7 +50,7 @@ function load() {
   };
   vm.createContext(context);
   ['outreach_config.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
-   'outreach_send.gs', 'outreach_rejections.gs']
+   'outreach_send.gs', 'outreach_rejections.gs', 'outreach_followup.gs']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context));
   return context;
 }
@@ -1414,7 +1414,9 @@ console.log('the Priority column opens itself, because the schema and the code m
   run('the column it guards is the one left of Status', () => {
     assert.strictEqual(S.Q_PRIORITY, 10);
     assert.strictEqual(S.Q_STATUS, 11);
-    assert.strictEqual(S.Q_WIDTH, 20);
+    // Priority and Status did not move when the follow-up columns were added;
+    // everything to their right did, which is what Q_WIDTH is reporting here.
+    assert.strictEqual(S.Q_WIDTH, 23);
   });
 }
 
@@ -1731,11 +1733,14 @@ console.log('the table stays one block — no gap between the rows and the new o
     assert.strictEqual(S.outreachRepairQueueLayout_(q.sheet), 0);
     assert.deepStrictEqual(q.calls.deleted, []);
     const columns = q.calls.formatted.map((f) => f[0]).sort((a, b) => a - b);
-    assert.deepStrictEqual(columns,
-      [S.Q_DATE_APPLIED, S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT]);
+    assert.strictEqual(columns.join(','), [S.Q_DATE_APPLIED, S.Q_DRAFTED_AT,
+      S.Q_SCHEDULED, S.Q_FOLLOWUP_AT, S.Q_SENT_AT].sort((a, b) => a - b).join(','));
     const format = {};
     q.calls.formatted.forEach((f) => { format[f[0]] = f[2]; });
-    [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT].forEach((c) =>
+    // Four timestamps, Follow Up among them: the hour a reply is booked for is as
+    // much a fact about it as the hour a cold email leaves at, and a bare date on
+    // six rows reads as six replies at once.
+    [S.Q_DRAFTED_AT, S.Q_SCHEDULED, S.Q_SENT_AT, S.Q_FOLLOWUP_AT].forEach((c) =>
       assert.strictEqual(format[c], S.QUEUE_TIMESTAMP_FORMAT));
     // A date, not a timestamp — but dressed all the same, because the sort moves
     // values between cells and the format stays behind with the cell.
@@ -1750,7 +1755,7 @@ console.log('the table stays one block — no gap between the rows and the new o
     S.outreachRepairQueueLayout_(q.sheet);
     // Two data rows now, so every dressed range has to have grown to cover both.
     const heights = q.calls.formatted.map((f) => f[1]);
-    assert.strictEqual(heights.length, 4);
+    assert.strictEqual(heights.length, 5);
     heights.forEach((h) => assert.strictEqual(h, 2));
   });
 
@@ -1761,6 +1766,7 @@ console.log('the table stays one block — no gap between the rows and the new o
     q.calls.validated.forEach(([c, nr, v]) => { byColumn[c] = [nr, v]; });
     assert.deepStrictEqual(byColumn[S.Q_STATUS][1].list, S.QUEUE_STATUSES);
     assert.deepStrictEqual(byColumn[S.Q_MODE][1].list, S.QUEUE_MODES);
+    assert.deepStrictEqual(byColumn[S.Q_FOLLOWUP_STATUS][1].list, S.QUEUE_FOLLOWUP_STATUSES);
     // Two data rows, so the dropdown has to reach both of them.
     assert.strictEqual(byColumn[S.Q_STATUS][0], 2);
     assert.strictEqual(byColumn[S.Q_MODE][0], 2);
@@ -1773,8 +1779,14 @@ console.log('the table stays one block — no gap between the rows and the new o
       S.STATUS_BOUNCED, S.STATUS_CANCELLED, S.STATUS_FAILED]));
     assert.strictEqual(JSON.stringify(S.QUEUE_MODES),
                        JSON.stringify([S.MODE_DRAFT, S.MODE_SEND]));
-    S.QUEUE_STATUS_COLOURS.concat(S.QUEUE_MODE_COLOURS).forEach((entry) => {
-      assert.ok(S.QUEUE_STATUSES.concat(S.QUEUE_MODES).indexOf(entry.name) !== -1,
+    assert.strictEqual(JSON.stringify(S.QUEUE_FOLLOWUP_STATUSES), JSON.stringify([
+      S.FOLLOWUP_QUEUED, S.FOLLOWUP_DRAFTED, S.FOLLOWUP_SENT,
+      S.FOLLOWUP_SKIPPED, S.FOLLOWUP_STOPPED, S.FOLLOWUP_FAILED]));
+    const offered = S.QUEUE_STATUSES.concat(S.QUEUE_MODES)
+                                    .concat(S.QUEUE_FOLLOWUP_STATUSES);
+    S.QUEUE_STATUS_COLOURS.concat(S.QUEUE_MODE_COLOURS)
+                          .concat(S.QUEUE_FOLLOWUP_COLOURS).forEach((entry) => {
+      assert.ok(offered.indexOf(entry.name) !== -1,
         entry.name + ' is painted but is not a value the dropdown offers');
     });
   });
@@ -1786,10 +1798,12 @@ console.log('the table stays one block — no gap between the rows and the new o
                        S.QUEUE_STATUS_COLOURS.length);
     assert.strictEqual(columns.filter((c) => c === S.Q_MODE).length,
                        S.QUEUE_MODE_COLOURS.length);
+    assert.strictEqual(columns.filter((c) => c === S.Q_FOLLOWUP_STATUS).length,
+                       S.QUEUE_FOLLOWUP_COLOURS.length);
     // Run twice: the rules are replaced, never stacked.
     S.outreachRepairQueueLayout_(q.sheet);
-    assert.strictEqual(q.calls.rules.length,
-      S.QUEUE_STATUS_COLOURS.length + S.QUEUE_MODE_COLOURS.length);
+    assert.strictEqual(q.calls.rules.length, S.QUEUE_STATUS_COLOURS.length
+      + S.QUEUE_MODE_COLOURS.length + S.QUEUE_FOLLOWUP_COLOURS.length);
   });
   run('a real row whose company has zero recruiters is still a real row', () => {
     const r = full('Acme');
@@ -2433,6 +2447,453 @@ console.log('how much Gmail is asked on each firing');
     const many = [];
     for (let i = 0; i < 500; i++) many.push(qrow({ rowNumber: i + 2, status: 'Sent', sentAt: day(2026, 1, 5) }));
     assert.strictEqual(S.outreachRowsToScan_(many, now).length, 0);
+  });
+}
+
+console.log('follow-up — one reply per row, and only while nobody at the company has answered');
+{
+  const fup = (over) => Object.assign(qrow({
+    messageId: 'm1', followUpAt: null, followUpTemplate: 0, followUpStatus: ''
+  }), over);
+
+  console.log('  the twenty templates');
+  run('there are twenty, which is what the column number indexes into', () => {
+    assert.strictEqual(S.FOLLOWUP_TEMPLATES.length, 20);
+  });
+  run('no two say the same thing, on either half', () => {
+    const notes = new Set(S.FOLLOWUP_TEMPLATES.map((t) => t.note));
+    const closes = new Set(S.FOLLOWUP_TEMPLATES.map((t) => t.close));
+    assert.strictEqual(notes.size, 20);
+    assert.strictEqual(closes.size, 20);
+  });
+  run('every one is short, and none of them uses a dash', () => {
+    S.FOLLOWUP_TEMPLATES.forEach((t, i) => {
+      assert.ok(t.note.split(/\s+/).length <= 25, 'note ' + (i + 1) + ' is long');
+      assert.ok(!/[\u2014\u2013]/.test(t.note + t.close), 'template ' + (i + 1) + ' has a dash');
+    });
+  });
+  run('the body is a greeting, one note, a wish and a name', () => {
+    const body = S.outreachFollowUpBody_(1, 'Marianne Fournier');
+    assert.ok(body.startsWith('Hi Marianne,'));
+    assert.ok(body.indexOf(S.FOLLOWUP_TEMPLATES[0].note) !== -1);
+    assert.ok(body.indexOf(S.FOLLOWUP_TEMPLATES[0].close) !== -1);
+    assert.ok(body.trim().endsWith('Henry Nguyen'));
+  });
+  run('a nameless contact is still greeted, not left with a blank', () => {
+    assert.ok(S.outreachFollowUpBody_(3, '').startsWith('Hi there,'));
+  });
+  run('a template number nothing wrote falls back rather than throwing', () => {
+    assert.ok(S.outreachFollowUpBody_(0, 'A').indexOf(S.FOLLOWUP_TEMPLATES[0].note) !== -1);
+    assert.ok(S.outreachFollowUpBody_(99, 'A').indexOf(S.FOLLOWUP_TEMPLATES[0].note) !== -1);
+  });
+  run('the number is 1-based, because a person reads that column', () => {
+    for (let i = 0; i < 25; i++) {
+      const n = S.outreachFollowUpTemplateFor_('Datadog', i);
+      assert.ok(n >= 1 && n <= 20, 'got ' + n);
+    }
+  });
+  run('three people at one employer get three different sentences', () => {
+    const seen = new Set([0, 1, 2].map((i) => S.outreachFollowUpTemplateFor_('Samsara', i)));
+    assert.strictEqual(seen.size, 3);
+  });
+  run('the same company and index always hands back the same number', () => {
+    assert.strictEqual(S.outreachFollowUpTemplateFor_('Samsara Inc.', 1),
+                       S.outreachFollowUpTemplateFor_('Samsara Inc.', 1));
+  });
+
+  console.log('  what earns one');
+  const today = day(2026, 8, 27);
+  run('a sent row that went quiet earns a follow-up', () => {
+    assert.ok(S.outreachFollowUpEarns_(fup({ sentAt: day(2026, 8, 20) }), today).ok);
+  });
+  run('a bounced row does not, and neither does a replied or cancelled one', () => {
+    ['Bounced', 'Replied', 'Cancelled', 'Failed', 'Queued', 'Drafted'].forEach((status) => {
+      assert.ok(!S.outreachFollowUpEarns_(
+        fup({ status, sentAt: day(2026, 8, 20) }), today).ok, status + ' earned one');
+    });
+  });
+  run('a row with no thread to reply on is passed over', () => {
+    assert.ok(!S.outreachFollowUpEarns_(
+      fup({ sentAt: day(2026, 8, 20), messageId: '' }), today).ok);
+  });
+  run('a send too old to chase is passed over rather than chased late', () => {
+    assert.ok(!S.outreachFollowUpEarns_(fup({ sentAt: day(2026, 7, 1) }), today).ok);
+  });
+  run('a row already decided about is never decided about twice', () => {
+    ['Queued', 'Sent', 'Drafted', 'Skipped', 'Stopped', 'Failed'].forEach((state) => {
+      assert.ok(!S.outreachFollowUpEarns_(
+        fup({ sentAt: day(2026, 8, 20), followUpStatus: state }), today).ok, state);
+    });
+  });
+
+  console.log('  the company-wide silence rule');
+  const samsara = [
+    fup({ rowNumber: 2, company: 'Samsara', sentAt: day(2026, 8, 20) }),
+    fup({ rowNumber: 3, company: 'Samsara', sentAt: day(2026, 8, 20) }),
+    fup({ rowNumber: 4, company: 'Samsara Inc.', status: 'Replied', sentAt: day(2026, 8, 20) })
+  ];
+  run('one reply at Samsara silences all three of its rows', () => {
+    const plan = S.outreachPlanFollowUps_(samsara, today);
+    assert.strictEqual(plan.booked.length, 0);
+    assert.strictEqual(plan.skipped.length, 2);
+  });
+  run('a different employer is untouched by that reply', () => {
+    const mixed = samsara.concat([
+      fup({ rowNumber: 5, company: 'Datadog', sentAt: day(2026, 8, 20) })
+    ]);
+    const plan = S.outreachPlanFollowUps_(mixed, today);
+    assert.strictEqual(plan.booked.map((b) => b.rowNumber).join(','), '5');
+  });
+  run('a booking already made comes off when the reply lands after it', () => {
+    const booked = [
+      fup({ rowNumber: 2, company: 'Samsara', sentAt: day(2026, 8, 20),
+            followUpAt: day(2026, 8, 29), followUpTemplate: 4, followUpStatus: 'Queued' }),
+      fup({ rowNumber: 3, company: 'Samsara', status: 'Replied', sentAt: day(2026, 8, 20) })
+    ];
+    const plan = S.outreachPlanFollowUps_(booked, today);
+    assert.strictEqual(plan.stopped.map((s) => s.rowNumber).join(','), '2');
+  });
+  run('a booking comes off when its own row is cancelled or rejected', () => {
+    ['Cancelled', 'Bounced', 'Replied', 'Failed'].forEach((status) => {
+      const rows = [fup({ rowNumber: 2, company: 'Solo', status, sentAt: day(2026, 8, 20),
+                          followUpAt: day(2026, 8, 29), followUpTemplate: 4,
+                          followUpStatus: 'Queued' })];
+      assert.strictEqual(S.outreachPlanFollowUps_(rows, today).stopped.length, 1, status);
+    });
+  });
+  run('a follow-up already sent is not un-sent by a later reply', () => {
+    const gone = [
+      fup({ rowNumber: 2, company: 'Samsara', sentAt: day(2026, 8, 20),
+            followUpAt: day(2026, 8, 26), followUpTemplate: 4, followUpStatus: 'Sent' }),
+      fup({ rowNumber: 3, company: 'Samsara', status: 'Replied', sentAt: day(2026, 8, 20) })
+    ];
+    assert.strictEqual(S.outreachPlanFollowUps_(gone, today).stopped.length, 0);
+  });
+  run('containment is over whole words here too, so Data does not silence Datadog', () => {
+    assert.ok(!S.outreachCompanyHasReply_(
+      [fup({ company: 'Datadog', status: 'Replied' })], 'Data'));
+  });
+
+  console.log('  the five to ten day window, weekends included');
+  run('the ordinary window opens five days after the send and shuts at ten', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 26), day(2026, 8, 27));
+    assert.strictEqual(w.earliest.getDate(), 31);
+    assert.strictEqual(w.latest.getDate(), 5);
+  });
+  run('a window that has already opened starts today, not in the past', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 20), day(2026, 8, 27));
+    assert.strictEqual(S.outreachDaysBetween_(day(2026, 8, 27), w.earliest), 0);
+    assert.strictEqual(w.latest.getDate(), 30);
+  });
+  run('a window that has already shut is replaced by a fresh one starting today', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 10), day(2026, 8, 27));
+    assert.strictEqual(S.outreachDaysBetween_(day(2026, 8, 27), w.earliest), 0);
+    assert.strictEqual(S.outreachDaysBetween_(day(2026, 8, 27), w.latest), 5);
+  });
+  run('a Saturday is a day a follow-up may land on', () => {
+    assert.ok(S.outreachFollowUpDayAllowed_(day(2026, 8, 29)));
+    assert.strictEqual(S.outreachDailyCap_(day(2026, 8, 29)), 0);
+  });
+
+  console.log('  spreading, so no one day carries a pile');
+  run('the first day with room wins, rather than the emptiest', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 26), day(2026, 8, 27));
+    const load = {};
+    load[S.outreachDayKey_(day(2026, 8, 31))] = 2;
+    assert.strictEqual(S.outreachFollowUpDay_(w, load).getDate(), 31);
+  });
+  run('a full day is stepped over', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 26), day(2026, 8, 27));
+    const load = {};
+    load[S.outreachDayKey_(day(2026, 8, 31))] = S.FOLLOWUP_DAILY_CAP;
+    assert.strictEqual(S.outreachFollowUpDay_(w, load).getDate(), 1);
+  });
+  run('a full window is walked past, not overloaded', () => {
+    // The live tab is what taught this. Overloading the emptiest day in the window
+    // put eight and nine rows on seven of the first nine days, on a feature whose
+    // whole point is that no day carries a pile.
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 26), day(2026, 8, 27));
+    const load = {};
+    load[S.outreachDayKey_(day(2026, 8, 31))] = S.FOLLOWUP_DAILY_CAP;
+    for (let d = 1; d <= 5; d++) load[S.outreachDayKey_(day(2026, 9, d))] = S.FOLLOWUP_DAILY_CAP;
+    const picked = S.outreachFollowUpDay_(w, load);
+    assert.strictEqual(picked.getDate(), 6);
+    // Past `latest`, but inside the 21-day ceiling, which is where past ends.
+    assert.ok(picked.getTime() > w.latest.getTime());
+    assert.ok(picked.getTime() <= w.ceiling.getTime());
+  });
+  run('the walk stops at the 21-day ceiling, and then the emptiest day takes it', () => {
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 26), day(2026, 8, 27));
+    const load = {};
+    for (let i = 0; i <= 30; i++) {
+      load[S.outreachDayKey_(S.outreachAddDays_(day(2026, 8, 27), i))] = 99;
+    }
+    load[S.outreachDayKey_(day(2026, 9, 3))] = 7;
+    const picked = S.outreachFollowUpDay_(w, load);
+    assert.strictEqual(picked.getDate(), 3);
+    assert.ok(picked.getTime() <= w.ceiling.getTime());
+  });
+  run('the ceiling is never behind the window it bounds', () => {
+    // The replaced-window branch can put sent + 21 days in the past, and a ceiling
+    // behind `latest` would leave the picker nowhere to walk.
+    const w = S.outreachFollowUpWindow_(day(2026, 8, 10), day(2026, 8, 27));
+    assert.ok(w.ceiling.getTime() >= w.latest.getTime());
+  });
+  run('seventy rows sent the same day never put more than the cap on one date', () => {
+    // The size the live backlog actually was, and the case the first version of
+    // the day picker got wrong: seventy rows into a nine-day horizon that holds
+    // fifty-four. They have to spill forward, not upward.
+    const rows = [];
+    for (let i = 0; i < 70; i++) {
+      rows.push(fup({ rowNumber: i + 2, company: 'Co' + i, sentAt: day(2026, 8, 26) }));
+    }
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.booked.length, 70);
+    const perDay = {};
+    plan.booked.forEach((b) => {
+      const key = S.outreachDayKey_(b.day);
+      perDay[key] = (perDay[key] || 0) + 1;
+    });
+    Object.keys(perDay).forEach((key) => {
+      assert.ok(perDay[key] <= S.FOLLOWUP_DAILY_CAP, 'one day got ' + perDay[key]);
+    });
+  });
+  run('days already booked are counted, so a second run does not double up on them', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'A', sentAt: day(2026, 8, 26),
+            followUpAt: day(2026, 8, 31), followUpTemplate: 1, followUpStatus: 'Queued' }),
+      fup({ rowNumber: 3, company: 'B', sentAt: day(2026, 8, 26) })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.booked.length, 1);
+    assert.strictEqual(plan.booked[0].rowNumber, 3);
+  });
+  run('two rows at one company booked together get two different templates', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'Samsara', sentAt: day(2026, 8, 26) }),
+      fup({ rowNumber: 3, company: 'Samsara', sentAt: day(2026, 8, 26) })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.notStrictEqual(plan.booked[0].template, plan.booked[1].template);
+  });
+  run('the oldest send takes the earliest day left', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'New', sentAt: day(2026, 8, 24) }),
+      fup({ rowNumber: 3, company: 'Old', sentAt: day(2026, 8, 18) })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.booked[0].rowNumber, 3);
+  });
+  run('a row nothing has sent yet is not stamped with a word about follow-ups', () => {
+    const plan = S.outreachPlanFollowUps_(
+      [fup({ rowNumber: 2, status: 'Queued', sentAt: null })], today);
+    assert.strictEqual(plan.skipped.length, 0);
+    assert.strictEqual(plan.booked.length, 0);
+  });
+  run('planning twice changes nothing the second time', () => {
+    const rows = [fup({ rowNumber: 2, company: 'A', sentAt: day(2026, 8, 26) })];
+    const first = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    rows[0].followUpAt = first.booked[0].day;
+    rows[0].followUpTemplate = first.booked[0].template;
+    rows[0].followUpStatus = 'Queued';
+    const second = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(second.booked.length, 0);
+    assert.strictEqual(second.stopped.length, 0);
+    assert.strictEqual(second.skipped.length, 0);
+  });
+
+  console.log('  which of them go out on this firing');
+  // A booked row now carries the hour as well as the day, so the fixtures do too.
+  const slot = (y, m, d, h) => new Date(y, m - 1, d, h === undefined ? 9 : h, 0, 0);
+  const booked = (n, when) => fup({
+    rowNumber: n, company: 'C' + n, sentAt: day(2026, 8, 20),
+    followUpAt: when, followUpTemplate: 1, followUpStatus: 'Queued'
+  });
+  const at = (h) => new Date(2026, 7, 27, h, 20, 0);
+  run('nothing goes before the window opens or after it shuts', () => {
+    const rows = [booked(2, slot(2026, 8, 27, S.FOLLOWUP_HOUR_FIRST))];
+    assert.strictEqual(
+      S.outreachFollowUpsDueNow_(rows, at(S.FOLLOWUP_HOUR_FIRST - 1)).length, 0);
+    assert.strictEqual(
+      S.outreachFollowUpsDueNow_(rows, at(S.FOLLOWUP_HOUR_LAST + 1)).length, 0);
+  });
+  run('the window is wider than the cold path at both ends', () => {
+    // 08:00-19:00 against 10:00-17:00. Nothing waits an hour in Drafts here, so
+    // the first and last firings are both firings a reply can leave on.
+    assert.strictEqual(S.FOLLOWUP_HOUR_FIRST, 8);
+    assert.strictEqual(S.FOLLOWUP_HOUR_LAST, 19);
+    assert.ok(S.FOLLOWUP_HOUR_FIRST < S.SEND_HOUR_FIRST);
+    assert.ok(S.FOLLOWUP_HOUR_LAST > S.SEND_HOUR_LAST);
+  });
+  run('the eight and the seven both send, where the cold path has neither', () => {
+    [S.FOLLOWUP_HOUR_FIRST, S.FOLLOWUP_HOUR_LAST].forEach((h) => {
+      const rows = [booked(2, slot(2026, 8, 27, h))];
+      assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(h)).length, 1, 'hour ' + h);
+    });
+  });
+  run('an hour still ahead is not due, even on the right day', () => {
+    // This is the whole point of booking the hour: a row set for 14:00 is not a
+    // row the 09:20 firing may send.
+    const rows = [booked(2, slot(2026, 8, 27, 14))];
+    assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(9)).length, 0);
+    assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(14))[0].rowNumber, 2);
+  });
+  run('a missed day catches up one firing at a time, not all at once', () => {
+    const rows = [];
+    for (let i = 0; i < 6; i++) rows.push(booked(i + 2, slot(2026, 8, 26, 8 + i)));
+    assert.ok(S.outreachFollowUpsDueNow_(rows, at(8)).length < 6);
+  });
+  run('a day already at its cap sends no more', () => {
+    const rows = [];
+    for (let i = 0; i < S.FOLLOWUP_DAILY_CAP; i++) {
+      rows.push(Object.assign(booked(i + 2, slot(2026, 8, 27, 9)), { followUpStatus: 'Sent' }));
+    }
+    rows.push(booked(99, slot(2026, 8, 27, 9)));
+    assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(15)).length, 0);
+  });
+  run('a day that was missed catches up rather than being dropped', () => {
+    const rows = [booked(2, slot(2026, 8, 22, 9))];
+    assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(11))[0].rowNumber, 2);
+  });
+  run('a day still ahead is left alone', () => {
+    assert.strictEqual(
+      S.outreachFollowUpsDueNow_([booked(2, slot(2026, 8, 30, 9))], at(11)).length, 0);
+  });
+  run('only Queued rows go; Sent, Stopped and Skipped are settled', () => {
+    ['Sent', 'Stopped', 'Skipped', 'Failed', 'Drafted'].forEach((state) => {
+      const row = Object.assign(booked(2, slot(2026, 8, 27, 9)), { followUpStatus: state });
+      assert.strictEqual(S.outreachFollowUpsDueNow_([row], at(15)).length, 0, state);
+    });
+  });
+
+  console.log('  the hour, booked with the day');
+  run('a full day reaches both ends of the window, not just the morning', () => {
+    // The failure this guards is the one that would come back if the follow-up
+    // hours were ever switched to outreachSpreadHours_: six across twelve hours
+    // filled from the front is 8,9,10,11,12,13 and an empty afternoon.
+    const hours = S.outreachFollowUpHoursForDay_();
+    assert.strictEqual(hours.length, S.FOLLOWUP_DAILY_CAP);
+    assert.strictEqual(hours[0], S.FOLLOWUP_HOUR_FIRST);
+    assert.strictEqual(hours[hours.length - 1], S.FOLLOWUP_HOUR_LAST);
+  });
+  run('the gaps between them are even, give or take the rounding', () => {
+    const hours = S.outreachFollowUpHoursForDay_();
+    const gaps = hours.slice(1).map((h, i) => h - hours[i]);
+    assert.ok(Math.max(...gaps) - Math.min(...gaps) <= 1, hours.join(','));
+    assert.ok(Math.min(...gaps) >= 2, hours.join(','));
+  });
+  run('spacing one item puts it at the front, and never divides by zero', () => {
+    assert.strictEqual(S.outreachSpaceHours_(1, 8, 19).join(','), '8');
+    assert.strictEqual(S.outreachSpaceHours_(0, 8, 19).length, 0);
+  });
+  run('the cold path keeps its own distribution, which fills from the front', () => {
+    // Fifteen across eight hours as 2,2,2,2,2,2,2,1 — the shape the comment in
+    // outreachDraftHoursForDay_ promises, and not the one above.
+    assert.strictEqual(S.outreachSpreadHours_(15, 9, 16).join(','),
+                       '9,9,10,10,11,11,12,12,13,13,14,14,15,15,16');
+  });
+  run('no two rows on one day share an hour while the day is under its cap', () => {
+    const hours = S.outreachFollowUpHoursForDay_();
+    assert.strictEqual(new Set(hours).size, hours.length);
+  });
+  run('a saturated day puts the overflow on the last firing, not on a made-up hour', () => {
+    const over = S.outreachFollowUpAt_(day(2026, 8, 27), S.FOLLOWUP_DAILY_CAP + 3);
+    assert.strictEqual(over.getHours(), S.FOLLOWUP_HOUR_LAST);
+  });
+  run('six rows on one day get six different hours, in order', () => {
+    const rows = [];
+    for (let i = 0; i < S.FOLLOWUP_DAILY_CAP; i++) {
+      rows.push(fup({ rowNumber: i + 2, company: 'Co' + i, sentAt: day(2026, 8, 24) }));
+    }
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    const hours = plan.booked.map((b) => b.day.getHours());
+    assert.strictEqual(new Set(hours).size, S.FOLLOWUP_DAILY_CAP);
+    assert.strictEqual(hours.join(','), hours.slice().sort((a, b) => a - b).join(','));
+  });
+  run('a booking made before the hour existed is given one, and keeps its day', () => {
+    const midnight = new Date(2026, 7, 29, 0, 0, 0);
+    const rows = [];
+    for (let i = 0; i < S.FOLLOWUP_DAILY_CAP; i++) {
+      rows.push(fup({ rowNumber: i + 2, company: 'Co' + i, sentAt: day(2026, 8, 24),
+                      followUpAt: midnight, followUpTemplate: 1, followUpStatus: 'Queued' }));
+    }
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.rehoured.length, S.FOLLOWUP_DAILY_CAP);
+    const hours = plan.rehoured.map((r) => r.day.getHours());
+    assert.strictEqual(new Set(hours).size, S.FOLLOWUP_DAILY_CAP);
+    hours.forEach((h) =>
+      assert.ok(h >= S.FOLLOWUP_HOUR_FIRST && h <= S.FOLLOWUP_HOUR_LAST));
+    // The day is what was decided; only the hour was missing.
+    plan.rehoured.forEach((r) => assert.strictEqual(r.day.getDate(), 29));
+  });
+  run('a booking that already has an hour is left completely alone', () => {
+    const rows = [fup({ rowNumber: 2, company: 'A', sentAt: day(2026, 8, 24),
+                        followUpAt: slot(2026, 8, 29, 11), followUpTemplate: 1,
+                        followUpStatus: 'Queued' })];
+    assert.strictEqual(S.outreachPlanFollowUps_(rows, day(2026, 8, 27)).rehoured.length, 0);
+  });
+  run('a row the reply rule just called off is not given an hour on the way out', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'Samsara', sentAt: day(2026, 8, 24),
+            followUpAt: new Date(2026, 7, 29, 0, 0, 0), followUpTemplate: 1,
+            followUpStatus: 'Queued' }),
+      fup({ rowNumber: 3, company: 'Samsara', status: 'Replied', sentAt: day(2026, 8, 24) })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.stopped.length, 1);
+    assert.strictEqual(plan.rehoured.length, 0);
+  });
+  run('an hourless row shares its day with an houred one without colliding', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'A', sentAt: day(2026, 8, 24),
+            followUpAt: slot(2026, 8, 29, 9), followUpTemplate: 1, followUpStatus: 'Queued' }),
+      fup({ rowNumber: 3, company: 'B', sentAt: day(2026, 8, 24),
+            followUpAt: new Date(2026, 7, 29, 0, 0, 0), followUpTemplate: 2,
+            followUpStatus: 'Queued' })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.rehoured.length, 1);
+    assert.notStrictEqual(plan.rehoured[0].day.getHours(), 9);
+  });
+  run('an hour already booked on a day is counted, so the next row takes the next one', () => {
+    const rows = [
+      fup({ rowNumber: 2, company: 'A', sentAt: day(2026, 8, 24),
+            followUpAt: slot(2026, 8, 29, 9), followUpTemplate: 1, followUpStatus: 'Queued' }),
+      fup({ rowNumber: 3, company: 'B', sentAt: day(2026, 8, 24) })
+    ];
+    const plan = S.outreachPlanFollowUps_(rows, day(2026, 8, 27));
+    assert.strictEqual(plan.booked.length, 1);
+    assert.notStrictEqual(plan.booked[0].day.getHours(), 9);
+  });
+}
+
+console.log('the Email tab layout — where the three new columns sit, and how a tab reaches them');
+{
+  run('the follow-up columns sit immediately after Mode', () => {
+    assert.strictEqual(S.Q_FOLLOWUP_AT, S.Q_MODE + 1);
+    assert.strictEqual(S.Q_FOLLOWUP_TEMPLATE, S.Q_MODE + 2);
+    assert.strictEqual(S.Q_FOLLOWUP_STATUS, S.Q_MODE + 3);
+  });
+  run('everything that used to follow Mode moved three to the right', () => {
+    assert.strictEqual(S.Q_FINGERPRINT, 16);
+    assert.strictEqual(S.Q_MESSAGE_ID, 18);
+    assert.strictEqual(S.Q_VERSION, 23);
+    assert.strictEqual(S.Q_WIDTH, 23);
+  });
+  const header = (at13) => {
+    const row = new Array(S.Q_WIDTH).fill('');
+    row[S.Q_FOLLOWUP_AT - 1] = at13;
+    return row;
+  };
+  run('a tab that already has them is left alone', () => {
+    assert.strictEqual(S.outreachFollowUpColumnsAction_(header('Follow Up')), 'ready');
+  });
+  run('a tab on the previous layout is migrated', () => {
+    assert.strictEqual(S.outreachFollowUpColumnsAction_(header('Contact Fingerprint')), 'insert');
+  });
+  run('a header nobody recognises stops the run rather than shifting rows blind', () => {
+    assert.throws(() => S.outreachFollowUpColumnsAction_(header('Something Else')));
+    assert.throws(() => S.outreachFollowUpColumnsAction_(header('')));
   });
 }
 

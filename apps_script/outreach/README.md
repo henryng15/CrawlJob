@@ -15,7 +15,8 @@ which is a different address, and the one that must never appear as the sender.
 | `outreach_queue.gs` | what earns a queue row, in what order, how many go out this hour, and the `Season` report |
 | `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
 | `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
-| `appsscript.json` | the manifest: timezone, and the five scopes spelled out |
+| `outreach_followup.gs` | the twenty short replies, which rows earn one, what day it lands on, and posting it onto the thread |
+| `appsscript.json` | the manifest: timezone, the five scopes spelled out, and the one advanced service |
 | `.claspignore` / `.clasp.json.example` | so the project is deployed with `clasp push` rather than pasted |
 
 The scopes are declared rather than inferred. Apps Script works out what to ask for by scanning
@@ -31,6 +32,14 @@ the files arrived in.
 | `mail.google.com` | drafting, sending, reading a thread to see if it was answered, and labelling rejections |
 | `script.scriptapp` | installing the hourly trigger |
 | `userinfo.email` | knowing whose account this is, so a preview can be addressed to you |
+
+One **advanced service** is declared alongside them: `Gmail`, v1. It exists for a single call.
+`GmailMessage.reply` and `GmailThread.reply` both answer the *sender* of the message, and on a
+thread this account started that sender is this account — so a follow-up sent through `GmailApp`
+would have gone to Henry. Neither method takes a `to`. `Gmail.Users.Messages.send` with the
+thread's id and the original `Message-ID` in `In-Reply-To` is what makes the nudge a real reply
+rather than a new conversation wearing `Re:`. It asks for no scope `https://mail.google.com/` does
+not already cover, but the first run after it arrives will ask to be re-authorised.
 
 Everything that *decides* is pure — it takes rows, a message and a date, and returns rows.
 Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:

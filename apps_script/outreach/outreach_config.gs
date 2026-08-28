@@ -26,6 +26,12 @@ var PROP_SALT        = 'FINGERPRINT_SALT';   // salts the contact fingerprint
 // is the rollout switch: for the first weeks nothing should leave unattended,
 // and one property is easier to be sure about than a column of them.
 var PROP_MODE        = 'OUTREACH_MODE';
+// The same switch again, for follow-ups alone. OUTREACH_MODE holds everything
+// back; this holds back only the chasing reply, which is what a rollout needs:
+// the cold path has been sending unattended for weeks and should not be stopped
+// to watch a new feature's first week. It can only ever be more cautious than
+// OUTREACH_MODE, never less.
+var PROP_FOLLOWUP_MODE = 'FOLLOWUP_MODE';
 
 // ---------------------------------------------------------------------- tabs
 
@@ -64,10 +70,21 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // both are the projection; once it is written both are what happened.
 var Q_COMPANY = 1, Q_ROLE = 2, Q_DATE_APPLIED = 3, Q_PROPERTY = 4, Q_RECRUITERS = 5;
 var Q_ATTEMPT = 6, Q_TEMPLATE = 7, Q_DRAFTED_AT = 8, Q_SCHEDULED = 9;
-var Q_PRIORITY = 10, Q_STATUS = 11, Q_MODE = 12, Q_FINGERPRINT = 13;
-var Q_DRAFT_ID = 14, Q_MESSAGE_ID = 15, Q_SENT_AT = 16, Q_RESULT = 17;
-var Q_ERROR = 18, Q_ID = 19, Q_VERSION = 20;
-var Q_WIDTH = 20;
+var Q_PRIORITY = 10, Q_STATUS = 11, Q_MODE = 12;
+// The three follow-up columns sit immediately after Mode, and that position is
+// the point of them. Everything to their left is the first email: which contact,
+// which words, which hour, and where it got to. These three are the same four
+// questions asked a second time about the reply that chases it, and reading them
+// next to Status is how you see at a glance that a row was sent, went quiet, and
+// has a nudge booked for Tuesday.
+//
+// Put out past the audit references instead, they would have been three columns
+// nobody scrolls to — which is exactly what happened to Priority before it moved.
+var Q_FOLLOWUP_AT = 13, Q_FOLLOWUP_TEMPLATE = 14, Q_FOLLOWUP_STATUS = 15;
+var Q_FINGERPRINT = 16;
+var Q_DRAFT_ID = 17, Q_MESSAGE_ID = 18, Q_SENT_AT = 19, Q_RESULT = 20;
+var Q_ERROR = 21, Q_ID = 22, Q_VERSION = 23;
+var Q_WIDTH = 23;
 
 // Priority leads Status because the two are read as one answer: whether this row
 // was asked for, and where it has got to. It is the only column here a person
@@ -286,6 +303,106 @@ var STATUS_SPENDS_CONTACT = [
 ];
 var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
 
+// ----------------------------------------------------------------- follow-up
+
+// A cold email that got no answer earns exactly one reply on its own thread, and
+// these four numbers are the whole policy.
+//
+// The delay is a window rather than a number. Five days is the earliest a nudge
+// reads as patience instead of pestering; ten is the point past which the first
+// email is no longer recent enough for "following up" to be a true description of
+// what the message is. Anywhere inside that is equally honest, and having six days
+// to choose from is what lets the planner keep any one day light.
+var FOLLOWUP_AFTER_DAYS  = 5;
+var FOLLOWUP_WINDOW_DAYS = 10;
+
+// Per calendar day, and counted separately from DAILY_CAP.
+//
+// Sharing one budget would have made every follow-up cost a cold email, and the
+// cold email is the one with the deadline attached: an application ages, a
+// follow-up does not. Six is under half the lightest sending weekday, so the two
+// streams together stay near what one of them used to be.
+var FOLLOWUP_DAILY_CAP = 6;
+
+// Past this, the first email is too old to chase and the row is passed over
+// instead. Twenty-one days is inside REPLY_WINDOW_DAYS, so a reply that lands
+// late still gets seen before the row is written off, and it is the age at which
+// "just following up" stops being a nudge and becomes a second cold email with
+// none of the first one's freshness.
+//
+// This is also what stops the feature's own first run dumping the backlog: every
+// row sent before today is measured by the same rule as every row sent after it.
+var FOLLOWUP_LATEST_DAYS = 21;
+
+// Weekends count. DAILY_CAP zeroes Saturday and Sunday because a cold email read
+// on a Saturday is read badly, and a first impression is worth waiting for a
+// weekday for. A follow-up is not a first impression: it is one sentence on a
+// thread the recipient already has, and the reason to allow the two extra days is
+// the reason the window exists at all — seven days to spread six emails over
+// keeps every one of them off a pile.
+var FOLLOWUP_WEEKENDS = true;
+
+// 08:00 to 19:00, which is three hours wider than the cold path at one end and
+// two at the other. Both edges are wider for the same reason: nothing here waits
+// an hour in Drafts. The cold path cannot send at its first hour because that is
+// the hour it *writes* in, and cannot write in its last because there would be no
+// hour left to wait; a follow-up is composed and posted in one step, so the first
+// and last firings of the day are both firings it can go on.
+//
+// The trigger has always fired at these hours. runOutreachCycle is on everyHours
+// (1) and fires around the clock — 08:00 and 19:00 were never hours nothing ran
+// in, only hours nothing was allowed to leave in.
+//
+// Twelve hours for six emails is the point rather than a side effect. The window
+// is not widened so the day can start earlier; it is widened so the six can be
+// further apart. See outreachSpaceHours_.
+var FOLLOWUP_HOUR_FIRST = 8;
+var FOLLOWUP_HOUR_LAST  = 19;
+
+var FOLLOWUP_QUEUED = 'Queued', FOLLOWUP_SENT = 'Sent';
+var FOLLOWUP_DRAFTED = 'Drafted', FOLLOWUP_SKIPPED = 'Skipped';
+var FOLLOWUP_FAILED = 'Failed', FOLLOWUP_STOPPED = 'Stopped';
+
+/**
+ * What the Follow Up Status dropdown offers.
+ *
+ * Six words, and the two that look alike are the two worth telling apart. Skipped
+ * is a row this was never going to chase: too old, no thread to reply on, or a
+ * colleague had already answered by the time it was first looked at. Stopped is a
+ * row that had a date booked and lost it, because somebody at that company replied
+ * in between. One is a decision made once; the other is a decision reversed, and a
+ * reversed decision is the one you want to be able to find.
+ */
+var QUEUE_FOLLOWUP_STATUSES = [
+  FOLLOWUP_QUEUED, FOLLOWUP_DRAFTED, FOLLOWUP_SENT,
+  FOLLOWUP_SKIPPED, FOLLOWUP_STOPPED, FOLLOWUP_FAILED
+];
+
+// The same palette the Status column uses, for the same reasons, so the two
+// columns can be read together without learning a second colour language. Queued
+// stays plain here too: it is what every booked row says, and a colour on the
+// ordinary case is a colour that stops meaning anything.
+var QUEUE_FOLLOWUP_COLOURS = [
+  { name: FOLLOWUP_DRAFTED, bg: '#FFF2CC', fg: '#BF9000' },
+  { name: FOLLOWUP_SENT,    bg: '#CFE2F3', fg: '#1155CC' },
+  { name: FOLLOWUP_STOPPED, bg: '#D9EAD3', fg: '#38761D' },
+  { name: FOLLOWUP_FAILED,  bg: '#FCE5CD', fg: '#B45F06' },
+  { name: FOLLOWUP_SKIPPED, bg: '#EFEFEF', fg: '#999999' }
+];
+
+/**
+ * Whether a day may carry follow-ups at all.
+ *
+ * Split out rather than inlined because it is the one rule that differs from the
+ * cold path, and a reader comparing the two should find one function to compare
+ * rather than a condition buried in a loop.
+ */
+function outreachFollowUpDayAllowed_(date) {
+  if (FOLLOWUP_WEEKENDS) return true;
+  var weekday = date.getDay();
+  return weekday !== 0 && weekday !== 6;
+}
+
 /**
  * What the Status and Mode dropdowns offer, and the colours behind them.
  *
@@ -467,12 +584,65 @@ function outreachDailyCap_(date) {
  * Datadog sat at 09:00 above an Anduril row really written at 10:21.
  */
 function outreachDraftHoursForDay_(count, firstHour) {
-  var hours = [];
-  var remaining = count;
   var first = firstHour === undefined ? SEND_HOUR_FIRST
                                       : Math.max(SEND_HOUR_FIRST, firstHour);
-  for (var hour = first; hour <= DRAFT_HOUR_LAST && remaining > 0; hour++) {
-    var slots = Math.min(remaining, Math.ceil(remaining / (DRAFT_HOUR_LAST - hour + 1)));
+  return outreachSpreadHours_(count, first, DRAFT_HOUR_LAST);
+}
+
+/**
+ * Hand out `count` hours between two bounds, taking each firing's fair share of
+ * what is left.
+ *
+ * Lifted out of outreachDraftHoursForDay_ when follow-ups needed the same
+ * arithmetic over a different pair of bounds. There is one distribution in this
+ * project and both callers use it: a second copy would have drifted, and the
+ * shape it produces — no hour carrying much more than its neighbours — is the
+ * whole reason either column reads as a schedule rather than a batch.
+ *
+ * `ceil(remaining / firings left)` rather than a flat division, because a flat
+ * one leaves a remainder to dump somewhere. Fifteen across eight hours comes out
+ * 2,2,2,2,2,2,2,1 instead of 1,1,1,1,1,1,1,8.
+ */
+/**
+ * Hand out `count` hours spaced evenly across the whole span, both ends included.
+ *
+ * The other distribution in this file, and the two are not interchangeable
+ * because the two callers want opposite things.
+ *
+ * outreachSpreadHours_ fills from the front, taking each firing's fair share of
+ * what is left. That is right for the cold path, where the count is usually at or
+ * above the number of hours — fifteen across eight comes out 2,2,2,2,2,2,2,1 —
+ * and where a light day *should* finish early, because the application it is
+ * about is ageing while it waits.
+ *
+ * It degenerates when the count is well under the hours available, and for
+ * follow-ups that is not the corner case, it is every case: six across twelve
+ * comes out 8,9,10,11,12,13 and leaves the whole afternoon empty. Nothing is
+ * ageing here, so there is no reason to finish by lunchtime and every reason to
+ * be far apart — the window was widened to buy distance between the six, not an
+ * earlier start.
+ *
+ * Anchored at both ends, so the first goes at `firstHour` and the last at
+ * `lastHour` and the rest land between: six across 08:00-19:00 becomes 08, 10,
+ * 12, 15, 17, 19. A count above the span produces repeats, which is the honest
+ * answer — that many in a day is more than one an hour.
+ */
+function outreachSpaceHours_(count, firstHour, lastHour) {
+  if (count <= 0) return [];
+  if (count === 1) return [firstHour];
+  var hours = [];
+  var span = lastHour - firstHour;
+  for (var i = 0; i < count; i++) {
+    hours.push(firstHour + Math.round((i * span) / (count - 1)));
+  }
+  return hours;
+}
+
+function outreachSpreadHours_(count, firstHour, lastHour) {
+  var hours = [];
+  var remaining = count;
+  for (var hour = firstHour; hour <= lastHour && remaining > 0; hour++) {
+    var slots = Math.min(remaining, Math.ceil(remaining / (lastHour - hour + 1)));
     for (var i = 0; i < slots; i++) hours.push(hour);
     remaining -= slots;
   }
