@@ -175,7 +175,17 @@ function planReferralAsks() {
             });
 
     var referralRows = outreachReadReferralRows_(referral);
-    var plan = outreachReferralPlan_(appRows, referralRows, employees, new Date());
+    // The Email tab, read so the planner can ask what each day has left across all
+    // three paths rather than only what this queue has taken. A day the cold path
+    // has filled is a day to skip, not one to book into and discover at sending.
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    var queueRows = [];
+    if (queue && queue.getLastRow() > 1) {
+      queueRows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+        .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
+    }
+    var plan = outreachReferralPlan_(appRows, referralRows, employees, new Date(),
+                                     outreachReferralRoomOn_(queueRows, referralRows));
 
     // One setValues for the whole block. A write per row on a tab that can gain
     // a dozen rows in a run is a dozen round trips, and a run interrupted in the
@@ -593,4 +603,90 @@ function outreachReferralNotSetUp_() {
 /** A run that did nothing because there was nothing set up to do it with. */
 function outreachReferralIdle_() {
   return { sent: 0, drafted: 0, cancelled: 0, failed: 0, ready: false };
+}
+
+
+/**
+ * Take the cancellations, hand back the hours, and tighten the queue.
+ *
+ * Three jobs that have to happen together and in this order, because each one is
+ * the reason the next has anything to do.
+ *
+ * First the drafts. A row cancelled on the tab leaves a written, addressed message
+ * in Gmail, and the bound script cannot reach it: it runs as the tracker's account
+ * and the drafts belong to the sender's. Left alone it is a message the tab says
+ * was called off, sitting in Drafts waiting for somebody to send it by hand.
+ *
+ * Then the hours. Cancelling six rows on one day should move the line up, not
+ * leave six unused hours in it with everything behind them still waiting a week.
+ *
+ * Then nothing else: the topping up is planReferralAsks' job, and it runs after
+ * this in the cycle so that it sees the freed days.
+ */
+function replanReferralAsks() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
+
+  var rows = outreachReadReferralRows_(referral);
+  if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
+
+  var tally = { discarded: 0, moved: 0, cancelled: 0, ready: true };
+
+  // A tick that the bound script's onEdit never saw — the box was filled by a
+  // paste, a fill-down, or an undo, none of which fire a simple trigger. The tab
+  // is the record either way, so the state is settled here rather than trusted to
+  // have been settled there.
+  rows.forEach(function (row) {
+    if (!row.cancel || row.status === STATUS_CANCELLED || row.status === STATUS_SENT) return;
+    outreachWriteRow_(referral, row.index, (function () {
+      var updates = {};
+      updates[R_STATUS] = STATUS_CANCELLED;
+      updates[R_SCHEDULED] = '';
+      updates[R_DRAFTED_AT] = '';
+      return updates;
+    })());
+    row.status = STATUS_CANCELLED;
+    row.scheduled = null;
+    tally.cancelled++;
+  });
+
+  outreachReferralAbandoned_(rows).forEach(function (row) {
+    var updates = {};
+    try {
+      GmailApp.getDraft(row.draftId).deleteDraft();
+      tally.discarded++;
+    } catch (error) {
+      // Already gone is the outcome this wanted. Anything else is worth keeping,
+      // because a draft that cannot be deleted is a message that can still be
+      // sent by hand from a mailbox the tab says is finished with it.
+      if (!/not found|no longer exists|Invalid draft/i.test(String(error.message || error))) {
+        updates[R_ERROR] = 'Could not discard the draft: '
+          + String(error.message || error).slice(0, 200);
+      }
+    }
+    updates[R_DRAFT_ID] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    row.draftId = '';
+  });
+
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var queueRows = [];
+  if (queue && queue.getLastRow() > 1) {
+    queueRows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
+  }
+
+  var moved = outreachReferralReplan_(rows, new Date(),
+                                      outreachReferralRoomOn_(queueRows, rows));
+  moved.forEach(function (change) {
+    var updates = {};
+    updates[R_SCHEDULED] = change.scheduled;
+    outreachWriteRow_(referral, change.index, updates);
+  });
+  tally.moved = moved.length;
+
+  Logger.log('Referral replan: ' + tally.cancelled + ' newly cancelled, '
+           + tally.discarded + ' draft(s) discarded, ' + tally.moved + ' row(s) re-timed.');
+  return tally;
 }

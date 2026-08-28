@@ -144,15 +144,19 @@ var E_WIDTH = 10;
 var R_COMPANY = 1, R_ROLE = 2, R_JOB_LINK = 3, R_PERSON = 4, R_EMAIL = 5;
 var R_TITLE = 6, R_TIER = 7, R_TEMPLATE = 8, R_DRAFTED_AT = 9, R_SCHEDULED = 10;
 var R_STATUS = 11, R_MODE = 12;
+// Cancel sits beside Status and Mode because those three are the only columns on
+// this tab a person touches. An audit reference further right would be read past;
+// a switch that calls off a message has to be next to the state it changes.
+var R_CANCEL = 13;
 // A column of its own, exactly as the Email tab gives one. An earlier layout had
 // no room for it and let the draft's id ride in Result until the message went,
 // after which Result held the sent id instead. Both are Gmail ids and neither
 // says which it is, so reading Result meant also reading Status to know what you
 // were looking at, and Result stopped being the column that says how it went.
-var R_DRAFT_ID = 13;
-var R_SENT_AT = 14, R_RESULT = 15, R_ERROR = 16;
-var R_ID = 17, R_VERSION = 18;
-var R_WIDTH = 18;
+var R_DRAFT_ID = 14;
+var R_SENT_AT = 15, R_RESULT = 16, R_ERROR = 17;
+var R_ID = 18, R_VERSION = 19;
+var R_WIDTH = 19;
 
 // How Drafted At, Scheduled At and Sent At are written. The same string as
 // OUTREACH_TIMESTAMP_FORMAT in the bound script, and it has to stay the same: a

@@ -332,6 +332,10 @@ function outreachParseReferral_(row, index) {
     status: outreachCell_(row, R_STATUS),
     mode: outreachCell_(row, R_MODE),
     draftId: outreachCell_(row, R_DRAFT_ID),
+    // A checkbox reads back as the boolean, not as the word, and an untouched one
+    // reads as the empty string rather than as false — so the test is for truth,
+    // not for "not false".
+    cancel: row[R_CANCEL - 1] === true,
     sentAt: outreachDate_(row[R_SENT_AT - 1]),
     id: outreachCell_(row, R_ID)
   };
@@ -412,21 +416,45 @@ function outreachReferralLoad_(referralRows, booked) {
  * both. There is no ceiling: unlike a follow up, a referral ask has no window it
  * can miss, so a backlog is spread rather than dropped.
  */
-function outreachReferralSlot_(company, today, load) {
+function outreachReferralSlot_(company, today, load, roomOn) {
   var hours = outreachSpaceHours_(REFERRAL_DAILY_CAP, REFERRAL_HOUR_FIRST, REFERRAL_HOUR_LAST);
   var name = outreachNameKey_(company);
   for (var ahead = 0; ahead < 180; ahead++) {
     var day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + ahead);
     var key = outreachDayKey_(day);
     var used = load[key] || { total: 0, companies: {} };
-    if (used.total >= REFERRAL_DAILY_CAP) continue;
+    // Three limits, and the third is the one that knows about the rest of the
+    // system. roomOn asks what the whole mailbox has left on that day once the
+    // cold path and the follow-ups have taken their share, so a day this queue
+    // could fill on its own is still refused when the account cannot afford it.
+    // Optional, because the planner is also called from places holding no view
+    // of the other two paths, and an unknown budget must not read as no budget.
+    var cap = roomOn ? Math.min(REFERRAL_DAILY_CAP, roomOn(day)) : REFERRAL_DAILY_CAP;
+    if (used.total >= cap) continue;
     if ((used.companies[name] || 0) >= REFERRAL_COMPANY_DAILY_CAP) continue;
+    // The hour is chosen from how full the day is, not from the cap: a day the
+    // budget has narrowed still spreads its few across the same eleven hours
+    // rather than bunching them at the front.
     var hour = hours[Math.min(used.total, hours.length - 1)];
     var slot = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
     // Today's earlier hours are gone. A slot in the past would be sent by the
     // next firing regardless of the hour it claims, which quietly defeats the
     // spreading this function exists to do.
-    if (ahead === 0 && slot <= today) continue;
+    //
+    // Only this hour is skipped, not the whole day. An earlier version stepped to
+    // the next day here, which meant that after 08:00 the day was written off
+    // entirely and eleven usable hours went unused every time the queue was
+    // rebuilt in the morning.
+    if (ahead === 0 && slot <= today) {
+      var later = null;
+      for (var i = used.total; i < hours.length; i++) {
+        var candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+                                 hours[i], 0, 0);
+        if (candidate > today) { later = candidate; break; }
+      }
+      if (!later) continue;
+      slot = later;
+    }
     return slot;
   }
   return null;
@@ -447,7 +475,7 @@ function outreachReferralSlot_(company, today, load) {
  * worth more than one attached a fortnight later, because the file is still near
  * the top of somebody's queue.
  */
-function outreachReferralPlan_(appRows, referralRows, employees, today) {
+function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) {
   var asked = outreachReferralAsked_(referralRows);
   var load = outreachReferralLoad_(referralRows, null);
   var booked = [], skipped = 0;
@@ -499,7 +527,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today) {
     people.forEach(function (person) {
       if (room <= 0) return;
       if (asked[person.email]) { skipped++; return; }
-      var slot = outreachReferralSlot_(job.company, today, load);
+      var slot = outreachReferralSlot_(job.company, today, load, roomOn);
       if (!slot) return;
       var tier = outreachReferralTier_(person.title, person.seniority);
       booked.push({
@@ -549,4 +577,95 @@ function outreachReferralDueNow_(referralRows, now, queueRows) {
   }).sort(function (left, right) {
     return left.scheduled - right.scheduled;
   }).slice(0, room);
+}
+
+
+/**
+ * How many referral asks a given day can still afford across the whole mailbox.
+ *
+ * Returned as a function rather than a table because the planner asks about days
+ * it has not thought of yet: it walks forward until it finds room, and how far it
+ * walks depends on what it has already placed.
+ *
+ * This is where the three paths meet. outreachBudgetRoom_ subtracts what the cold
+ * path and the follow-ups have already spent on that day and holds back nothing
+ * for them, because referral leads EMAIL_PATH_ORDER — but it does subtract, so a
+ * day the cold path has filled is a day this queue is told to skip rather than a
+ * day it books into and discovers at sending time.
+ */
+function outreachReferralRoomOn_(queueRows, referralRows) {
+  return function (day) {
+    return outreachBudgetRoom_(queueRows, referralRows, day, 'referral');
+  };
+}
+
+/**
+ * A cancelled row's slot handed back to the rows behind it.
+ *
+ * The queue is a line, and calling somebody off should move the line up rather
+ * than leave a hole in it. Without this, cancelling six rows on one day means six
+ * unused hours and everything behind them still waiting a week.
+ *
+ * Only Queued rows are re-timed, and that restriction is the whole safety of this
+ * function. A Drafted row has a message written, addressed and sitting in Gmail
+ * against a particular hour; moving its hour earlier would have it sent before the
+ * hour it was supposed to be readable in, which is the one guarantee the drafting
+ * step exists to give. Sent rows are history. Both still occupy their day, so the
+ * caps continue to count them.
+ *
+ * Order is preserved: rows are re-placed in the order they were already going out,
+ * so a re-plan tightens the queue without reshuffling who is next.
+ */
+function outreachReferralReplan_(referralRows, today, roomOn) {
+  var fixed = {};
+  var add = function (when, company) {
+    if (!when) return;
+    var key = outreachDayKey_(when);
+    if (!fixed[key]) fixed[key] = { total: 0, companies: {} };
+    fixed[key].total++;
+    var name = outreachNameKey_(company);
+    fixed[key].companies[name] = (fixed[key].companies[name] || 0) + 1;
+  };
+
+  var movable = [];
+  referralRows.forEach(function (row) {
+    if (row.status === STATUS_QUEUED && !row.cancel) { movable.push(row); return; }
+    // Cancelled rows hold nothing. That is the point of cancelling one.
+    if (row.status === STATUS_CANCELLED || row.cancel) return;
+    add(row.scheduled, row.company);
+  });
+
+  movable.sort(function (left, right) {
+    var a = left.scheduled ? left.scheduled.getTime() : Infinity;
+    var b = right.scheduled ? right.scheduled.getTime() : Infinity;
+    return a === b ? left.index - right.index : a - b;
+  });
+
+  var moved = [];
+  movable.forEach(function (row) {
+    var slot = outreachReferralSlot_(row.company, today, fixed, roomOn);
+    if (!slot) return;
+    add(slot, row.company);
+    // Only a real change is reported. A re-plan that rewrites every row to the
+    // value it already held would touch the whole tab every hour, and the version
+    // history would stop being a record of anything.
+    if (!row.scheduled || row.scheduled.getTime() !== slot.getTime()) {
+      moved.push({ index: row.index, scheduled: slot });
+    }
+  });
+  return moved;
+}
+
+/**
+ * The rows whose Gmail draft is now pointing at a message nobody wants sent.
+ *
+ * Cancelling on the sheet has to reach the mailbox, or the draft sits there and
+ * the next person to open Drafts finds a message the tab says was called off. The
+ * bound script cannot do this itself: it runs as the tracker's account and the
+ * drafts belong to the sender's.
+ */
+function outreachReferralAbandoned_(referralRows) {
+  return referralRows.filter(function (row) {
+    return (row.status === STATUS_CANCELLED || row.cancel) && row.draftId;
+  });
 }

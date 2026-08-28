@@ -299,11 +299,12 @@ blanks.
 | Template | which of that tier's ten messages this row uses |
 | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them |
 | Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
-| Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail is what calls the message off |
+| Cancel | tick it to call a row off. `Status` goes to `Cancelled` and both timestamps clear on the keystroke |
+| Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail also calls the message off |
 | Sent At / Result / Last Error | when it went, the id of the message that went, and why it did not go |
 | Queue ID / Version | `R-` and the person's address, and the concurrency guard |
 
-Eighteen columns, and the order is the argument. `Person`, `Email` and `Title` come first because
+Nineteen columns, and the order is the argument. `Person`, `Email` and `Title` come first because
 they are what the tab is opened to read. `Tier` sits beside `Template` because the tier is what
 decides which template is worth using. Everything from `Status` rightwards is the same machinery
 the `Email` tab carries, in the same order and wearing the same status colours, so the two tabs
@@ -313,7 +314,15 @@ only have to be learned twice.
 `Tier` is a dropdown rather than free text because a tier typed by hand drifts — `Senior`, `sr`,
 `Sr.` — and then no filter finds the seniors.
 
-`Gmail Draft ID` sits between `Mode` and `Sent At` because that is where it happens in the row's
+`Cancel` sits beside `Status` and `Mode` because those three are the only columns on this tab a
+person touches — a switch that calls off a message has to be next to the state it changes, and an
+audit reference further right would be read past. Ticking it does three things, and only the first
+happens on the keystroke: the row goes `Cancelled` and loses both its timestamps immediately, and
+then on the next hourly cycle the sender discards the Gmail draft it orphaned and hands the row's
+hour to whoever was behind it in the queue. Nothing is un-cancelled by unticking the box; the row
+is out of the line and the way back is a new row.
+
+`Gmail Draft ID` sits between `Cancel` and `Sent At` because that is where it happens in the row's
 life. An earlier layout had no column for it and let the draft's id ride in `Result` until the send
 replaced it with the sent message's id — two different kinds of Gmail id in one cell, tellable
 apart only by also reading `Status`, in the column whose whole job is to say how it went.

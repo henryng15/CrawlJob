@@ -4151,6 +4151,145 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 }
 
 
+{
+  console.log('\nreferral: cancelling a row, and the line moving up');
+
+  const REF = (index, company, email, scheduled, status, extra) => {
+    const row = Object.assign({
+      index: index, company: company, tokens: S.outreachCompanyTokens_(company),
+      role: 'SWE Intern', jobLink: 'https://boards.greenhouse.io/x/jobs/1',
+      person: 'P', email: email, title: 'Software Engineer', tier: 'mid', template: 1,
+      draftedAt: null, scheduled: scheduled, status: status, mode: '',
+      draftId: '', cancel: false, sentAt: null, id: 'R-' + email
+    }, extra || {});
+    return row;
+  };
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  // Past the last sending hour, so the first day with room is tomorrow and the
+  // assertions below are about the shape of the queue rather than about how much
+  // of today happens to be left.
+  const NOW = new Date(2026, 7, 28, 21, 0, 0);
+
+  // The queue is a line. Calling somebody off should move the line up rather than
+  // leave a hole in it.
+  run('a cancelled row hands its hour to the rows behind it', () => {
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(29, 8), 'Cancelled'),
+      REF(3, 'B', 'b@x.com', at(29, 9), 'Queued'),
+      REF(4, 'C', 'c@x.com', at(29, 10), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const byRow = {};
+    moved.forEach((m) => { byRow[m.index] = m.scheduled.getHours(); });
+    assert.strictEqual(byRow[3], 8, 'B should take the freed 08:00');
+    assert.strictEqual(byRow[4], 9, 'C should follow it');
+    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getDate(), 29);
+  });
+
+  // A Drafted row has a message written, addressed and sitting in Gmail against a
+  // particular hour. Moving it earlier would send it before the hour it was
+  // supposed to be readable in, which is the one guarantee drafting gives.
+  run('a drafted row keeps its hour and still occupies the day', () => {
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(29, 8), 'Drafted'),
+      REF(3, 'B', 'b@x.com', at(29, 12), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    assert.ok(!moved.some((m) => m.index === 2), 'the drafted row must not move');
+    const b = moved.find((m) => m.index === 3);
+    assert.strictEqual(b.scheduled.getDate(), 29);
+    assert.strictEqual(b.scheduled.getHours(), 9, 'B fills behind the drafted 08:00');
+  });
+
+  run('a sent row is history and is never re-timed', () => {
+    const rows = [REF(2, 'A', 'a@x.com', at(27, 8), 'Sent', { sentAt: at(27, 8) })];
+    assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
+  });
+
+  // A re-plan that rewrote every row to the value it already held would touch the
+  // whole tab every hour and the version history would stop being a record.
+  run('a queue that is already tight reports no movement', () => {
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(29, 8), 'Queued'),
+      REF(3, 'B', 'b@x.com', at(29, 9), 'Queued')
+    ];
+    assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
+  });
+
+  run('the order rows were going out in is preserved', () => {
+    const rows = [
+      REF(4, 'C', 'c@x.com', at(29, 14), 'Queued'),
+      REF(2, 'A', 'a@x.com', at(29, 9), 'Queued'),
+      REF(3, 'B', 'b@x.com', at(29, 11), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const byRow = {};
+    moved.forEach((m) => { byRow[m.index] = m.scheduled.getHours(); });
+    assert.strictEqual(byRow[2], 8);
+    assert.strictEqual(byRow[3], 9);
+    assert.strictEqual(byRow[4], 10);
+  });
+
+  // A tick can arrive by paste, fill-down or undo, none of which fire a simple
+  // trigger, so the box alone has to be enough to take the row out of the line.
+  run('a ticked box counts as cancelled even if onEdit never saw it', () => {
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(29, 8), 'Queued', { cancel: true }),
+      REF(3, 'B', 'b@x.com', at(29, 9), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    assert.ok(!moved.some((m) => m.index === 2), 'a ticked row is not re-timed');
+    assert.strictEqual(moved.find((m) => m.index === 3).scheduled.getHours(), 8);
+  });
+
+  run('a cancelled row still holding a draft is the one to discard', () => {
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(29, 8), 'Cancelled', { draftId: 'draft-1' }),
+      REF(3, 'B', 'b@x.com', at(29, 9), 'Cancelled'),
+      REF(4, 'C', 'c@x.com', at(29, 10), 'Queued', { cancel: true, draftId: 'draft-2' }),
+      REF(5, 'D', 'd@x.com', at(29, 11), 'Drafted', { draftId: 'draft-3' })
+    ];
+    const gone = S.outreachReferralAbandoned_(rows).map((r) => r.draftId);
+    assert.deepStrictEqual(gone.join(','), 'draft-1,draft-2');
+  });
+
+  // Where the three paths meet: a day the cold path has filled is a day this
+  // queue is told to skip, rather than one it books into and discovers at sending.
+  run('the budget narrows a day rather than the queue discovering it later', () => {
+    const rows = [];
+    for (let i = 0; i < 8; i++) rows.push(REF(i + 2, 'C' + i, i + '@x.com', at(29, 8 + i), 'Queued'));
+    const roomOn = (day) => (day.getDate() === 29 ? 3 : 12);
+    const moved = S.outreachReferralReplan_(rows, NOW, roomOn);
+    const byDay = {};
+    // Rows that did not move kept the day they had; count the whole outcome.
+    rows.forEach((r) => {
+      const m = moved.find((x) => x.index === r.index);
+      const when = m ? m.scheduled : r.scheduled;
+      const k = when.getDate();
+      byDay[k] = (byDay[k] || 0) + 1;
+    });
+    assert.strictEqual(byDay[29], 3, JSON.stringify(byDay));
+  });
+
+  // An earlier version stepped to the next day here, so after 08:00 the day was
+  // written off entirely and eleven usable hours went unused every morning.
+  run('the rest of today is used rather than written off', () => {
+    const midMorning = new Date(2026, 7, 28, 10, 8, 0);
+    const slot = S.outreachReferralSlot_('A', midMorning, {}, null);
+    assert.strictEqual(slot.getDate(), 28, 'should still be today: ' + slot);
+    assert.ok(slot > midMorning);
+    assert.strictEqual(slot.getHours(), 11);
+  });
+
+  run('but an evening past the last hour does move to tomorrow', () => {
+    const late = new Date(2026, 7, 28, 21, 0, 0);
+    const slot = S.outreachReferralSlot_('A', late, {}, null);
+    assert.strictEqual(slot.getDate(), 29);
+    assert.strictEqual(slot.getHours(), 8);
+  });
+}
+
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');

@@ -588,6 +588,12 @@ function runOutreachCycle() {
   // Sending before writing, exactly as the cold path below does, so that no
   // message can be written and sent inside one firing and the hour in which it
   // could have been read always exists.
+  // Before the planner, and the order is the point. This takes the cancellations,
+  // discards the drafts they orphaned and hands their hours back to the rows
+  // behind them; the planner then tops the queue up against days that already
+  // reflect all of that. Run the other way round, a cancelled row's hour would be
+  // filled by a new person and the row behind it would still be waiting a week.
+  step('referralReplanned', function () { return replanReferralAsks().moved; });
   step('referralPlanned', function () { return planReferralAsks().booked; });
   step('referralSent', sendReferralAsks);
   step('referralDrafted', draftReferralAsks);
@@ -736,7 +742,8 @@ function removeOutreachTriggers() {
               // The referral path's three. A kill switch that misses a handler is
               // worse than no kill switch, because the log will say every trigger
               // was removed and one of them will still be sending.
-              'planReferralAsks', 'draftReferralAsks', 'sendReferralAsks'];
+              'planReferralAsks', 'draftReferralAsks', 'sendReferralAsks',
+              'replanReferralAsks'];
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (mine.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
   });

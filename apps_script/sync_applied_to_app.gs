@@ -184,19 +184,38 @@ var OUTREACH_TIMESTAMP_FORMAT = 'mmm d, yyyy h:mm AM/PM';
 // the Email tab carries, in the same order, so the two tabs read alike where they
 // do the same job.
 var REFERRAL_QUEUE_TAB = 'Referral';
-// Eighteen, and Gmail Draft ID is the one worth explaining. It sits between Mode
-// and Sent At because that is where it happens: the row is written, the draft
-// exists for an hour under this id, and deleting that draft in Gmail is what
-// calls the message off. An earlier layout had no column for it and let the id
-// ride in Result until the send replaced it with the sent message's id, which
-// meant Result held two different kinds of Gmail id and you had to read Status
-// to know which. The same arrangement the Email tab already uses, for the same
-// reason it uses it.
+// Nineteen, and two of them are worth explaining.
+//
+// Gmail Draft ID sits between Cancel and Sent At because that is where it
+// happens: the row is written, the draft exists for an hour under this id, and
+// deleting that draft in Gmail is what calls the message off. An earlier layout
+// had no column for it and let the id ride in Result until the send replaced it
+// with the sent message's id, which meant Result held two different kinds of
+// Gmail id and you had to read Status to know which.
+//
+// Cancel is at 13 rather than out at the end with the machinery because the three
+// columns a person actually reaches for — Status, Mode, Cancel — have to be one
+// contiguous run. Put Cancel past Gmail Draft ID and calling a row off means
+// scrolling five columns of ids and error text you were not looking at, on a tab
+// wide enough that the person's name has already left the screen; half the point
+// of a tick box is that it is next to the thing it is about.
 var REFERRAL_HEADERS = [
   'Company', 'Role', 'Job Link', 'Person', 'Email', 'Title', 'Tier', 'Template',
-  'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Gmail Draft ID', 'Sent At',
-  'Result', 'Last Error', 'Queue ID', 'Version'
+  'Drafted At', 'Scheduled At', 'Status', 'Mode', 'Cancel', 'Gmail Draft ID',
+  'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
 ];
+// The Referral columns this file addresses by number. They are named rather than
+// written as digits because onEdit, the migration and the sort all reach for the
+// same four, and a layout change that updated one call site and not the next
+// would clear the wrong pair of timestamps on a row it had just cancelled — a
+// silent corruption, because every column involved holds a plausible value for
+// its neighbour.
+var REFERRAL_DRAFTED_AT = 9, REFERRAL_SCHEDULED_AT = 10;
+var REFERRAL_STATUS = 11, REFERRAL_MODE = 12, REFERRAL_CANCEL = 13;
+// The one Status the Cancel box writes, and the one it refuses to write over.
+// Both are already in OUTREACH_STATUS; spelling them here is what keeps the two
+// rules from drifting apart from the list they have to match.
+var REFERRAL_CANCELLED = 'Cancelled', REFERRAL_SENT = 'Sent';
 // Four rungs, and the reason they are a dropdown rather than free text is that a
 // tier typed by hand drifts — "Senior", "sr", "Sr." — and then no filter finds
 // the seniors. peer is somebody who interned there last summer; staff is somebody
@@ -537,7 +556,10 @@ function setupReferralQueue() {
   // Drafted At, Scheduled At and Sent At, with the hour on them for the same
   // reason the Email tab keeps it: a column of bare days cannot tell you whether
   // four messages went out one at a time or all together at nine in the morning.
-  [9, 10, 14].forEach(function (column) {
+  // Sent At is 15 rather than 14 because Cancel took a column ahead of it; a
+  // stale number here would put the timestamp format on Gmail Draft ID and leave
+  // the send time rendering as a bare serial number nobody can read as a date.
+  [REFERRAL_DRAFTED_AT, REFERRAL_SCHEDULED_AT, 15].forEach(function (column) {
     queue.getRange(FIRST_ROW, column, LAST_ROW - FIRST_ROW + 1, 1)
          .setNumberFormat(OUTREACH_TIMESTAMP_FORMAT);
   });
@@ -546,30 +568,45 @@ function setupReferralQueue() {
          .requireValueInList(REFERRAL_TIER, true)
          .setAllowInvalid(false)
          .build());
-  queue.getRange(FIRST_ROW, 11, LAST_ROW - FIRST_ROW + 1, 1)
+  queue.getRange(FIRST_ROW, REFERRAL_STATUS, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(OUTREACH_STATUS, true)
          .setAllowInvalid(false)
          .build());
-  queue.getRange(FIRST_ROW, 12, LAST_ROW - FIRST_ROW + 1, 1)
+  queue.getRange(FIRST_ROW, REFERRAL_MODE, LAST_ROW - FIRST_ROW + 1, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(OUTREACH_MODE, true)
          .setAllowInvalid(false)
          .build());
+  // A real checkbox and not a free-text column, for the reason the Email tab's
+  // Follow Up box is one: this cell is a decision, and the difference between a
+  // box you click and a cell you type TRUE into is how often it is set wrong —
+  // "cancel", "x", "yes" all mean the same thing to a person and none of them to
+  // onReferralEdit, which fires on true alone.
+  //
+  // No setAllowInvalid(false), unlike the three dropdowns above. A checkbox rule
+  // with allowInvalid off rejects every value that is not exactly TRUE or FALSE,
+  // and the cells this lands on include rows somebody filled in by hand before
+  // the column existed; those rows would come up flagged as errors for holding
+  // nothing at all. The default keeps them.
+  queue.getRange(FIRST_ROW, REFERRAL_CANCEL, LAST_ROW - FIRST_ROW + 1, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireCheckbox()
+         .build());
 
   // Person, Email, Title and Result are the four that get read rather than
-  // glanced at, so they get the room; Tier and Version hold one short word each
-  // and would only push the readable columns off the screen if they were wider.
-  // Gmail Draft ID is narrow on purpose: it is an audit reference nobody reads
-  // until something has gone wrong, and it earns its column by existing, not by
-  // being legible at a glance.
-  [170, 240, 230, 150, 220, 180, 70, 100, 145, 145, 105, 80, 110, 145, 280, 200,
-   120, 70].forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
+  // glanced at, so they get the room; Tier, Cancel and Version hold one short
+  // word or one box each and would only push the readable columns off the screen
+  // if they were wider. Gmail Draft ID is narrow on purpose: it is an audit
+  // reference nobody reads until something has gone wrong, and it earns its
+  // column by existing, not by being legible at a glance.
+  [170, 240, 230, 150, 220, 180, 70, 100, 145, 145, 105, 80, 70, 110, 145, 280,
+   200, 120, 70].forEach(function (width, index) { queue.setColumnWidth(index + 1, width); });
 
   // The same palette as the Email tab, because it is the same seven words meaning
   // the same seven things — a second colour language for one more tab would only
   // have to be learned twice.
-  colourQueueColumn_(queue, 11, OUTREACH_STATUS_COLOURS);
+  colourQueueColumn_(queue, REFERRAL_STATUS, OUTREACH_STATUS_COLOURS);
 
   ss.toast(
     created
@@ -577,6 +614,161 @@ function setupReferralQueue() {
       : 'Referral tab headers and formatting are already set. No rows changed.',
     'Referral',
     8
+  );
+}
+
+
+/**
+ * Walk the Referral tab forward to the current layout by opening a gap for Cancel
+ * at column M.
+ *
+ * setupReferralQueue cannot do this itself. Its whole safety property is that it
+ * refuses to write a header over a different one, and on a tab a migration behind
+ * there is a real name sitting where the new layout wants a different one — M
+ * reads "Gmail Draft ID" where "Cancel" belongs. It refuses, correctly, and the
+ * column has to be opened first. insertColumnBefore is what moves everything from
+ * Gmail Draft ID rightwards along with its values; rewriting headers over live
+ * data would have left every row's draft id, send time and error text sitting one
+ * column to the left of the name that describes them, which reads as a queue where
+ * every message was sent at the moment its draft was created and every one of them
+ * failed.
+ *
+ * **The sender project has to be redeployed after this.** It addresses the Referral
+ * tab by column number from Gmail Draft ID rightwards, and this moves all six of
+ * them one to the right. Until that deploy it writes a draft id into Cancel, which
+ * a checkbox column reads as an invalid entry — so run this when you are ready to
+ * push the other half, not the week before.
+ *
+ * Safe to run twice: a tab already carrying Cancel at M is left alone.
+ */
+function migrateReferralCancelColumn() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(REFERRAL_QUEUE_TAB);
+  if (!queue) throw new Error('No tab named "' + REFERRAL_QUEUE_TAB + '".');
+
+  // Never wider than the sheet is. getRange past the last column throws, and the
+  // whole point of this function is to be pointed at a tab narrower than the
+  // layout it is migrating towards — the pre-migration Referral tab is eighteen
+  // columns and the layout it is moving to is nineteen.
+  var header = function (column) {
+    var width = Math.min(REFERRAL_HEADERS.length, queue.getMaxColumns());
+    if (width < column) return '';
+    var value = queue.getRange(1, 1, 1, width).getValues()[0][column - 1];
+    return String(value == null ? '' : value).trim();
+  };
+  var refuse = function (column, found, expected) {
+    throw new Error(
+      'Referral column ' + column + ' is ' + JSON.stringify(found) + ', expected '
+      + expected + '. This tab is not the layout this migration moves; fix it by '
+      + 'hand or say what it should be.'
+    );
+  };
+
+  var at13 = header(REFERRAL_CANCEL);
+  var opened = false;
+  var healed = 0;
+
+  if (at13 === 'Gmail Draft ID') {
+    // The layout Cancel is being inserted into. The two columns behind it are
+    // checked as well, and not out of tidiness: insertColumnBefore is happy to
+    // shift anything, so the only thing standing between a half-built tab and a
+    // blind insert is reading the names first.
+    if (header(REFERRAL_CANCEL + 1) !== 'Sent At') {
+      refuse(REFERRAL_CANCEL + 1, header(REFERRAL_CANCEL + 1), '"Sent At"');
+    }
+    if (header(REFERRAL_CANCEL + 2) !== 'Result') {
+      refuse(REFERRAL_CANCEL + 2, header(REFERRAL_CANCEL + 2), '"Result"');
+    }
+    queue.insertColumnBefore(REFERRAL_CANCEL);
+    // And then strip what the insert brought with it, which is the whole reason
+    // this branch does not simply end at the line above. A column inserted next
+    // to another column inherits that column's data validation and formatting,
+    // and Cancel lands between Mode and Gmail Draft ID — so every row of the new
+    // column comes up wearing Mode's dropdown, a two-value list of Draft and Send
+    // with allowInvalid off. Tick that box and the cell holds TRUE, which is not
+    // in the list, so the entire column flags red on a tab where nothing is
+    // wrong. Worse, a person picking from the dropdown it offers puts the word
+    // "Draft" in Cancel, and onReferralEdit fires on true alone, so the row reads
+    // as called off to a human and as live to the script.
+    //
+    // Cleared to the sheet's full height rather than to the last data row: the
+    // validation is applied to the whole column, and rows added later would
+    // otherwise arrive with the inherited rule already on them. clearContent goes
+    // with it because an inherited checkbox rule renders every empty cell as
+    // FALSE, and FALSE is a value — it would make the column look like a tab of
+    // rows somebody had already declined to cancel.
+    var inserted = queue.getRange(1, REFERRAL_CANCEL, queue.getMaxRows(), 1);
+    inserted.clearDataValidations();
+    inserted.clearContent();
+    inserted.setBackground(null);
+    opened = true;
+  } else if (at13 === 'Cancel') {
+    // Already migrated, so nothing is inserted. The columns around it are still
+    // read, because "Cancel is at M" is not on its own proof the rest landed: a
+    // run that died mid-insert would leave exactly that, and a second run that
+    // trusted column M alone would call it finished.
+    if (header(REFERRAL_MODE) !== 'Mode') refuse(REFERRAL_MODE, header(REFERRAL_MODE), '"Mode"');
+    if (header(REFERRAL_CANCEL + 1) !== 'Gmail Draft ID') {
+      refuse(REFERRAL_CANCEL + 1, header(REFERRAL_CANCEL + 1), '"Gmail Draft ID"');
+    }
+    if (header(REFERRAL_HEADERS.length) !== 'Version') {
+      refuse(REFERRAL_HEADERS.length, header(REFERRAL_HEADERS.length), '"Version"');
+    }
+
+    // Repair, not tidying, and the reason it lives on the already-migrated branch
+    // is the lesson migrateAppOfficialColumn had to be patched twice to learn: a
+    // tab whose column was opened by hand, or by a version of this that did not
+    // strip, carries Mode's dropdown on every row of Cancel and cannot be fixed by
+    // running the migration again unless this branch does it — the insert has
+    // already happened, so the branch that strips is never reached.
+    //
+    // The validation is cleared over the whole column and rebuilt by
+    // setupReferralQueue below, which is safe on a tab that never needed it: the
+    // checkbox rule it lands is the rule that should be there either way.
+    //
+    // Only ever clears cells holding a Mode word, which is the only junk the
+    // inherited dropdown can produce. A true or false is a real decision somebody
+    // made about a real row and survives everything this file does.
+    var below = queue.getMaxRows() - 1;
+    if (below > 0) {
+      var column = queue.getRange(2, REFERRAL_CANCEL, below, 1);
+      var junk = column.getValues();
+      var repaired = 0;
+      for (var row = 0; row < junk.length; row++) {
+        if (OUTREACH_MODE.indexOf(junk[row][0]) !== -1) {
+          junk[row][0] = '';
+          repaired++;
+        }
+      }
+      column.clearDataValidations();
+      if (repaired) {
+        column.setValues(junk);
+        healed = repaired;
+      }
+    }
+  } else if (at13 !== '') {
+    refuse(REFERRAL_CANCEL, at13, '"Gmail Draft ID" or "Cancel"');
+  }
+  // A blank at M is the third recognised shape and it is not an error: it is a tab
+  // setupReferralQueue has never run on. There is nothing to shift rightward,
+  // because there is nothing to the right, so falling through to
+  // setupReferralQueue below is exactly the repair.
+
+  // The insert leaves its column blank, header included, so setupReferralQueue no
+  // longer has a conflicting name to refuse — it fills in the header and the width
+  // at the new position and lands the checkbox rule deliberately, which is the
+  // only validation column M is ever meant to carry.
+  setupReferralQueue();
+  ss.toast(
+    opened
+      ? 'Opened Cancel at column M. Gmail Draft ID through Version moved one to '
+        + 'the right — deploy the sender project before the next run.'
+      : (healed
+          ? 'The Referral tab was already on the current layout. Cleared ' + healed
+            + ' inherited dropdown cell(s) out of Cancel; real ticks were left alone.'
+          : 'The Referral tab is already on the current layout. Nothing moved.'),
+    'Referral',
+    opened ? 12 : 8
   );
 }
 
@@ -963,6 +1155,155 @@ function appRowIsEmpty_(row) {
 
 
 /**
+ * Whether this row has been called off. Compared case-insensitively on purpose:
+ * the Status dropdown allows a value typed by hand, so a row reading "cancelled"
+ * is a row somebody cancelled, and a sort that only recognised the capital C
+ * would leave it sitting among the live rows looking like work still to do.
+ */
+function referralCancelled_(status) {
+  return String(status == null ? '' : status).trim().toLowerCase()
+         === REFERRAL_CANCELLED.toLowerCase();
+}
+
+
+/**
+ * The ordering decision on its own — rows in, reordered rows out, no sheet — so
+ * that what the sort does can be checked without a spreadsheet to check it on.
+ * The same split appOfficialNeedsLink_ gets, for the same reason: the interesting
+ * half of a sort is which row goes where, and that half should be testable.
+ *
+ * Three groups, in this order: live rows, cancelled rows, then the empty tail.
+ * Each group keeps the order it arrived in.
+ *
+ * Sinking rather than deleting, and that is the whole design. A cancelled ask is
+ * the record that you decided not to write to this person, which is exactly what
+ * stops you asking them again in six weeks having forgotten — so it has to stay on
+ * the tab. But it is finished work, and finished work at the top of a queue is
+ * what makes people stop reading the queue.
+ *
+ * Stable because the tab is something a person works down. Rebuilding the live
+ * group in some other order would mean the ask you were half way through
+ * preparing has jumped three rows up, and the address you paste next lands on a
+ * different person from the one you were reading. The order the rows are already
+ * in is information somebody put there, and a sort asked only to sink the dead
+ * rows has no business spending it. The cancelled group is held in its old order
+ * for the same reason: it is a history, and a history reordered is a history you
+ * cannot scan for "what did I stop doing last week".
+ *
+ * The empty tail is held back rather than left to fall into the live group. An
+ * empty row is not cancelled, so a plain two-way split would leave the blanks
+ * wherever they were — which is fine while they are all at the bottom, and wrong
+ * the moment they are not. Pinning the tail makes "the blank rows are at the
+ * bottom" true for any input, instead of true by luck of this one.
+ *
+ * appRowIsEmpty_ is reused rather than copied. Referral has the same trap the
+ * comment on that function describes and now has it twice over: Cancel is a
+ * checkbox, so an untouched row reads back with a false in it, and counting false
+ * as content would make a blank row look occupied and sort it in among the asks.
+ */
+function orderReferralCancelledRows_(rows) {
+  var end = rows.length;
+  while (end > 0 && appRowIsEmpty_(rows[end - 1])) end--;
+
+  var live = [];
+  var cancelled = [];
+  for (var i = 0; i < end; i++) {
+    if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) cancelled.push(rows[i]);
+    else live.push(rows[i]);
+  }
+  return live.concat(cancelled, rows.slice(end));
+}
+
+
+/**
+ * The sort itself, over one sheet, kept separate from the entry point so a caller
+ * already holding the sheet does not go back through SpreadsheetApp for it.
+ *
+ * One read and one write of the whole block, for the same reason
+ * sortAppOfficialBlock_ works that way: moving rows one at a time would be a round
+ * trip to the spreadsheet service per row, and Apps Script stops a script at
+ * thirty seconds. A sort that dies halfway leaves the tab with asks duplicated
+ * above and missing below — and a missing row here is a person who never gets
+ * written to, with nothing left on the tab to say they were ever going to be.
+ *
+ * sheet.sort() is not used. It is not documented as stable, and stability is a
+ * requirement here rather than a nicety; it would also sort the blank rows in
+ * with the rest, which is the case orderReferralCancelledRows_ exists to get
+ * right.
+ *
+ * Nothing is repainted afterwards, unlike the App sort. Status wears its colour
+ * from a conditional-format rule keyed on the cell's own text, so the colour
+ * recomputes itself wherever the row lands; App's yellow is a background this file
+ * paints by hand, which is why that sort has to repaint and this one must not.
+ */
+function sortReferralCancelledBlock_(queue) {
+  // To the real last row and no further, NOT out to LAST_ROW. LAST_ROW is where
+  // setupReferralQueue stops laying formatting; the data stops at getLastRow, and
+  // writing a block that reached row 500 would leave hundreds of rows of
+  // written-and-emptied cells behind the queue, so the next ask appended landed
+  // at 501 under a screen of blanks. The same trap sortAppOfficialBlock_ keeps
+  // clear of.
+  var bottom = queue.getLastRow();
+  if (bottom < FIRST_ROW) return false;
+  var count = bottom - FIRST_ROW + 1;
+
+  // The width is the real extent of the data, floored at the nineteen columns
+  // this layout owns. Not REFERRAL_HEADERS.length alone: a row moved with only
+  // A..S in hand would leave a column somebody added past Version sitting on
+  // whatever row slid into its place, quietly reattaching one person's note to a
+  // different person — and on this tab the note is about a human being asked for
+  // a favour, so getting it wrong is worse than a wrong cell. Not getLastColumn
+  // alone either: a tab whose Version column happens to be empty would come back
+  // narrower than the layout, and the sort would tear the right-hand end off
+  // every row it moved.
+  var width = Math.max(queue.getLastColumn(), REFERRAL_HEADERS.length);
+  var rows = queue.getRange(FIRST_ROW, 1, count, width).getValues();
+  var ordered = orderReferralCancelledRows_(rows);
+
+  // Nothing moved, so nothing is written. This is what makes a second run a
+  // genuine no-op rather than a run that happens to write back the same bytes —
+  // which matters more here than on App, because a write to this block is a write
+  // over a queue the sender may be reading in the same minute.
+  var moved = false;
+  for (var i = 0; i < count; i++) {
+    if (ordered[i] !== rows[i]) { moved = true; break; }
+  }
+  if (!moved) return false;
+
+  queue.getRange(FIRST_ROW, 1, count, width).setValues(ordered);
+  return true;
+}
+
+
+/**
+ * Reorder the Referral data rows so the asks still to do sit at the top and the
+ * ones called off sink to the bottom.
+ *
+ * Ticking Cancel turns a row grey where it stands, and on a short tab that is
+ * enough. It stops being enough as the tab grows: the tab only ever gets longer,
+ * so a row cancelled in July is still sitting between two live asks in September,
+ * and a queue you have to read past to find the work is a queue that stops getting
+ * read. The colour says which rows are dead; this is what gets them out of the way.
+ *
+ * Run by hand, or from a clock trigger. Deliberately NOT run from onReferralEdit —
+ * see the comment there for why.
+ */
+function sortReferralCancelledToBottom() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var queue = ss.getSheetByName(REFERRAL_QUEUE_TAB);
+  if (!queue) throw new Error('No tab named "' + REFERRAL_QUEUE_TAB + '".');
+  var moved = sortReferralCancelledBlock_(queue);
+  ss.toast(
+    moved
+      ? 'Cancelled rows moved to the bottom of the Referral tab.'
+      : 'The Referral rows are already in order. Nothing moved.',
+    'Referral',
+    5
+  );
+}
+
+
+/**
  * Run once by hand: build the four columns of the App tab past Note — Official
  * (I), Alumni (J), Recruiter (K), Update (L) — and fill in the history for the
  * rows already there.
@@ -1178,15 +1519,132 @@ function backfillReport(byLink, byName) {
 
 /**
  * This trigger runs every time any cell in the file is edited, so the first thing it
- * does is ask which tab the cell is on and hand it to the right half. The two tabs
+ * does is ask which tab the cell is on and hand it to the right half. The three tabs
  * listen to different columns and do different things: ticking Applied on Jobs
  * creates a row in App; on App, changing Process appends a dated line to Update
- * and pasting into Official repaints the row.
+ * and pasting into Official repaints the row; on Referral, ticking Cancel calls the
+ * ask off.
+ *
+ * One entry point, and the branches go inside it rather than beside it. Apps Script
+ * binds exactly one onEdit per project and silently keeps whichever definition it
+ * loaded last — a second function of this name added for the Referral tab would not
+ * fail, it would quietly turn Jobs and App off, and the first thing anybody noticed
+ * would be that ticking Applied had stopped creating rows for a reason nothing in
+ * the file explains.
  */
 function onEdit(e) {
   var name = e.range.getSheet().getName();
   if (name === JOBS_TAB) return onJobsEdit(e);
   if (name === APP_TAB) return onAppEdit(e);
+  if (name === REFERRAL_QUEUE_TAB) return onReferralEdit(e);
+}
+
+
+/**
+ * Referral: ticking Cancel in column M calls that ask off where you are standing —
+ * Status goes to Cancelled and both booked hours are wiped.
+ *
+ * Both timestamps, not just Scheduled At. Drafted At is the hour the message
+ * appears in Gmail Drafts, an hour ahead of sending, so a row left holding a
+ * Drafted At is a row that still puts a draft in front of you tomorrow morning for
+ * a person you decided last week not to write to. Clearing one and not the other
+ * is the failure this pair exists to prevent.
+ *
+ * Immediately rather than on the next sweep, because the window is real: the draft
+ * is created an hour before the send, and a Cancel that waited for a clock trigger
+ * could easily wait past the moment it was meant to stop. A tick that does nothing
+ * visible for ten minutes is also a tick somebody clicks a second time.
+ */
+function onReferralEdit(e) {
+  var range = e.range;
+  var queue = range.getSheet();
+
+  if (range.getColumn() > REFERRAL_CANCEL || range.getLastColumn() < REFERRAL_CANCEL) return;
+  var firstRow = Math.max(range.getRow(), FIRST_ROW);
+  var lastRow = range.getLastRow();
+  if (lastRow < firstRow) return;  // only the header was edited
+
+  // Fill-down and paste edit many rows at once, so read the whole block rather than
+  // just the first cell. Drafted At through Cancel in one read and one write:
+  // every cell this function looks at or changes is inside that span, so the
+  // contiguous block costs one round trip where four column reads would cost four,
+  // and a person ticking a box should not be paying for a trigger's round trips.
+  var count = lastRow - firstRow + 1;
+  var span = REFERRAL_CANCEL - REFERRAL_DRAFTED_AT + 1;
+  var block = queue.getRange(firstRow, REFERRAL_DRAFTED_AT, count, span).getValues();
+  var DRAFTED = 0, SCHEDULED = 1, STATUS = 2, CANCEL = span - 1;
+  var cancelled = 0;
+  var refused = 0;
+  var changed = false;
+
+  for (var i = 0; i < count; i++) {
+    // Unticking is ignored, deliberately. The box is not a switch with an off
+    // position: what would put this row back in the queue is a Scheduled At, and
+    // the sender is the only thing that picks one — it reads the tab, decides which
+    // hour is free and books it. Restoring the hour here would either invent one
+    // the sender never agreed to or resurrect the hour that has since been given to
+    // somebody else, and two messages in the same slot is exactly what the
+    // scheduling exists to avoid. Untick it if the tick was a mistake, then let the
+    // sender re-plan the row.
+    if (block[i][CANCEL] !== true) continue;
+
+    var status = String(block[i][STATUS] == null ? '' : block[i][STATUS]).trim();
+
+    // A row with no Status at all is not a queue row — it is one of the blank
+    // lines below the data, which carry a checkbox because the validation covers
+    // the whole column. Writing Cancelled there would conjure an ask that never
+    // existed, and it would extend getLastRow so every sweep after it read a
+    // phantom row as the bottom of the queue.
+    if (!status) continue;
+
+    // Sent is the one Status this refuses to touch. The message has gone; there is
+    // no draft left to delete and no hour left to give back, so "cancelled" would
+    // be the tab telling you a thing that is not true — and the reply, when it
+    // comes, would land on a row claiming you never wrote. The row is left exactly
+    // as it stands, and the box is put back to unticked rather than left sitting
+    // there as a grey claim that this one was called off.
+    if (status.toLowerCase() === REFERRAL_SENT.toLowerCase()) {
+      block[i][CANCEL] = false;
+      refused++;
+      changed = true;
+      continue;
+    }
+
+    block[i][STATUS] = REFERRAL_CANCELLED;
+    block[i][SCHEDULED] = '';
+    block[i][DRAFTED] = '';
+    // The tick itself stays. It is the difference between a row the sender gave up
+    // on and a row a person called off, which is the only record of that decision
+    // the tab keeps.
+    cancelled++;
+    changed = true;
+  }
+
+  if (!changed) return;
+  queue.getRange(firstRow, REFERRAL_DRAFTED_AT, count, span).setValues(block);
+
+  // The rows are NOT sorted here, and that is a decision rather than an oversight —
+  // the same one onAppEdit already makes. This runs while you are clicking. Sinking
+  // the row on the spot would pull it out from under the cursor, and the row that
+  // slid up into its place is a different person, so the next box you tick cancels
+  // an ask you meant to keep. A fill-down over twenty rows would rearrange the tab
+  // halfway through the drag. There is a budget argument too: onEdit is a simple
+  // trigger with thirty seconds, and the sort reads and rewrites every row on the
+  // tab, which is not what one click should cost. Nor is anything re-scheduled here
+  // for the same reason plus a better one — picking a new hour for the rows behind
+  // this one is the sender's job, and doing it from a keystroke would mean two
+  // things booking slots with no idea the other exists. So the row goes grey
+  // instantly, which is the half that has to be immediate, and its position waits
+  // for sortReferralCancelledToBottom.
+  e.source.toast(referralCancelReport(cancelled, refused), 'Referral', 6);
+}
+
+
+function referralCancelReport(cancelled, refused) {
+  if (!cancelled) return 'Nothing cancelled: ' + rowCount(refused) + ' already sent.';
+  var text = 'Cancelled ' + rowCount(cancelled) + '; the booked hours were cleared';
+  if (refused) text += ', and ' + rowCount(refused) + ' left alone as already sent';
+  return text + '.';
 }
 
 

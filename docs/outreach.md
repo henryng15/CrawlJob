@@ -1179,6 +1179,42 @@ the part of the spreading that was doing real work.
 have been one company a day and nothing else. Twelve is also what the mailbox has room for: 25 at
 the cold path's Tuesday peak, plus 6 follow-ups, plus 12, is 43 against a budget of 45.
 
+### Calling a row off, and the line moving up
+
+Tick `Cancel` on the `Referral` tab and the row goes `Cancelled` and loses both its timestamps on
+the keystroke. Everything else waits for the hourly cycle, because everything else is heavy and
+because the two halves of it live in different Apps Script projects.
+
+`replanReferralAsks` runs first in the cycle, ahead of the planner, and does three things in an
+order where each is the reason the next has anything to do:
+
+1. **It settles the state.** A tick that arrived by paste, fill-down or undo never fired the
+   `onEdit` trigger at all, so the box itself is what counts, not whether the trigger saw it.
+2. **It discards the orphaned draft.** A cancelled row leaves a written, addressed message sitting
+   in Gmail. The bound script cannot reach it — that script runs as the tracker's account and the
+   drafts belong to the sender's — so this is the only place it can happen. A draft already gone is
+   the outcome this wanted; any other failure is written to `Last Error`, because a draft that
+   cannot be deleted is a message somebody can still send by hand from a mailbox the tab says is
+   finished with it.
+3. **It hands the hour back.** Cancelling six rows on one day should move the line up, not leave
+   six unused hours with everything behind them still waiting a week.
+
+Only `Queued` rows are re-timed, and that restriction is the whole safety of it. A `Drafted` row has
+a message written and sitting in Gmail against a particular hour; moving that hour earlier would
+send it before the hour it was supposed to be readable in, which is the one guarantee the drafting
+step exists to give. `Sent` rows are history. Both still occupy their day, so the caps keep counting
+them. The order rows were already going out in is preserved, so a re-plan tightens the queue without
+reshuffling who is next, and a queue that is already tight reports no movement rather than rewriting
+every row to the value it already held.
+
+The planner runs after it, so the freed days are days it can top up into.
+
+> **This is where the three paths meet.** Re-timing and planning both ask
+> `outreachBudgetRoom_` what each day has left across the cold path, the follow-ups and this queue
+> together, and refuse a day the mailbox cannot afford rather than booking into it and discovering
+> the problem at sending time. `REFERRAL_DAILY_CAP` is what this queue may take; the budget is what
+> the account may send.
+
 > **A person is asked once, ever.** By address, and by address only. There is no second attempt in
 > this design, because what is being asked for is a favour, and asking twice for a favour that was
 > not granted is not persistence.
