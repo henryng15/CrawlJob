@@ -366,7 +366,7 @@ company have I already asked* — a tab that answers that with a non-reversible 
 you have to open the contacts spreadsheet to use, which means row 14 stays anonymous exactly when
 you need to know who row 14 is.
 
-The rules the rows will be created under — which posting, which three people, which day, and why a
+The rules the rows will be created under — which posting, which six people, which day, and why a
 person is asked once and never again — are in
 [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
 

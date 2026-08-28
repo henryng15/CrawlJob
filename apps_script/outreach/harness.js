@@ -3256,22 +3256,42 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   const TODAY = new Date(2026, 7, 28, 7, 0, 0);
   const summerJob = [jobRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')];
 
-  run('three people at one employer, and never a fourth', () => {
-    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com'),
-                    person('C', 'c@stripe.com'), person('D', 'd@stripe.com')];
-    const plan = S.outreachReferralPlan_(summerJob, [], people, TODAY);
+  const sixPeople = () => ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+    .map((letter) => person(letter.toUpperCase(), letter + '@stripe.com'));
+
+  run('six people at one employer, and never a seventh', () => {
+    const plan = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY);
     assert.strictEqual(plan.booked.length, S.REFERRAL_PER_COMPANY);
-    assert.strictEqual(plan.booked.length, 3);
+    assert.strictEqual(plan.booked.length, 6);
   });
 
-  // Colleagues talk. Two near identical notes arriving at one company inside a
-  // day is the thing that gets reported rather than deleted.
-  run('never two people at one employer on one day', () => {
-    const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com'),
-                    person('C', 'c@stripe.com')];
-    const days = S.outreachReferralPlan_(summerJob, [], people, TODAY)
+  // All six may land on one day, which is the reverse of what this used to check.
+  // What makes six notes read as one mailing shot is six identical notes, and the
+  // next test is the one that has to hold for this to be safe.
+  run('a company is finished in a day rather than spread over six', () => {
+    const days = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY)
       .booked.map((one) => one.scheduled.toDateString());
-    assert.strictEqual(new Set(days).size, 3, days.join(' | '));
+    assert.strictEqual(new Set(days).size, 1, days.join(' | '));
+    // Different hours within it, so six do not leave the mailbox together.
+    const hours = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY)
+      .booked.map((one) => one.scheduled.getHours());
+    assert.strictEqual(new Set(hours).size, 6, hours.join(','));
+  });
+
+  // Six colleagues can compare notes over lunch. Every part of the message that
+  // carries meaning has to differ, or the six are visibly one mailing shot.
+  run('six at one company get six different messages, not one repeated', () => {
+    const booked = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY).booked;
+    assert.strictEqual(booked.length, 6);
+    const templates = booked.map((one) => one.template);
+    assert.strictEqual(new Set(templates).size, 6, templates.join(','));
+    const pairs = booked.map((one) =>
+      S.outreachReferralBullets_('fintech', one.attempt).join('|'));
+    assert.strictEqual(new Set(pairs).size, 6, 'bullet pairs repeated');
+    const subjects = booked.map((one) =>
+      S.outreachReferralSubject_(
+        S.outreachReferralSubjectIndex_('Stripe', one.attempt), 'Stripe', 'x'));
+    assert.strictEqual(new Set(subjects).size, 6, subjects.join(' | '));
   });
 
   run('a person already written to is never written to again', () => {
@@ -3293,9 +3313,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(plan.booked[0].person.email, 'b@stripe.com');
   });
 
-  run('a company already at three gets nothing more', () => {
-    const people = [person('D', 'd@stripe.com')];
-    const existing = ['a', 'b', 'c'].map((n) =>
+  run('a company already at six gets nothing more', () => {
+    const people = [person('G', 'g@stripe.com')];
+    const existing = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) =>
       refRow('Stripe', n + '@stripe.com', new Date(2026, 7, 20, 9), 'Sent'));
     assert.strictEqual(
       S.outreachReferralPlan_(summerJob, existing, people, TODAY).booked.length, 0);
@@ -3904,11 +3924,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const saved = S.DAILY_CAP[2];
     S.DAILY_CAP[2] = 40;
     try {
-      // Cold has sent 39 of a raised cap of 40. Its own cap says it may send one
-      // more; the six held back for referral say it may not.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 39), [], TUE, 'cold'), 0);
-      // And the referral path finds its room waiting for it.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 39), [], TUE, 'referral'),
+      // Cold has sent 30 of a raised cap of 40, so its own cap says ten more. The
+      // twelve held back for referral say three.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 30), [], TUE, 'cold'),
+                         S.DAILY_EMAIL_BUDGET - 30 - S.REFERRAL_DAILY_CAP);
+      // And the referral path finds its whole share waiting for it.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 30), [], TUE, 'referral'),
                          S.REFERRAL_DAILY_CAP);
     } finally {
       S.DAILY_CAP[2] = saved;
@@ -3922,10 +3943,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       const queue = coldSent(TUE, 40);
       const referral = referralSent(TUE, S.REFERRAL_DAILY_CAP);
       assert.strictEqual(S.outreachBudgetRoom_(queue, referral, TUE, 'followup'), 0);
-      // Nothing is over budget: 40 and 6 is 46, and the cap is 45, so the one
-      // over is exactly what follow up was refused.
-      assert.strictEqual(S.outreachDaySpend_(queue, referral, TUE).total,
-                         S.DAILY_EMAIL_BUDGET + 1);
+      // The day is over budget by what the two paths above already spent, and
+      // follow up is refused rather than adding to it.
+      assert.ok(S.outreachDaySpend_(queue, referral, TUE).total > S.DAILY_EMAIL_BUDGET);
     } finally {
       S.DAILY_CAP[2] = saved;
     }

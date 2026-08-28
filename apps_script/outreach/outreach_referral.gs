@@ -339,25 +339,39 @@ var REFERRAL_TEMPLATES = {
  * tier is already doing its own job on the wording. The bucket is ColdEmail's,
  * so this is the same judgement that wrote the company angle.
  *
- * Six keys per bucket, read as three pairs. Attempt 2 takes the second pair and
- * attempt 3 the third, so three people at Reddit do not receive one list. Past
- * three it wraps, which is the right failure: a fourth person at one company is
- * already a volume decision made elsewhere.
+ * Twelve keys per bucket, read as six pairs, one per person a company is allowed.
+ * It was six keys and three pairs while three people were the limit, and raising
+ * the limit to six without this would have had the fourth, fifth and sixth person
+ * repeat the first three lists. That mattered little while the six were spread
+ * over six days and matters a great deal now they can arrive on one morning:
+ * whether six notes read as six people being written to or as one mailing shot is
+ * decided by whether they are actually different, and the bullets are the part of
+ * the message carrying the numbers somebody might quote to a colleague.
  */
 var REFERRAL_BULLET_ORDER = {
-  ai:       ['rag', 'mcp', 'freshness', 'coverage', 'polars', 'locks'],
-  data:     ['polars', 'mcp', 'freshness', 'calibration', 'rag', 'lambda'],
-  fintech:  ['webhooks', 'locks', 'lambda', 'cves', 'coverage', 'mcp'],
-  cloud:    ['locks', 'freshness', 'webhooks', 'coverage', 'mcp', 'rag'],
-  security: ['cves', 'integrity', 'coverage', 'webhooks', 'locks', 'mcp'],
-  hardware: ['freshness', 'locks', 'polars', 'lambda', 'coverage', 'mcp'],
-  consumer: ['menulens', 'coverage', 'locks', 'webhooks', 'rag', 'polars'],
-  edtech:   ['workspaces', 'coverage', 'mcp', 'menulens', 'locks', 'polars']
+  ai:       ['rag', 'mcp', 'freshness', 'coverage', 'polars', 'locks',
+             'calibration', 'webhooks', 'cves', 'lambda', 'menulens', 'integrity'],
+  data:     ['polars', 'mcp', 'freshness', 'calibration', 'rag', 'lambda',
+             'coverage', 'locks', 'webhooks', 'cves', 'integrity', 'menulens'],
+  fintech:  ['webhooks', 'locks', 'lambda', 'cves', 'coverage', 'mcp',
+             'freshness', 'polars', 'rag', 'integrity', 'calibration', 'menulens'],
+  cloud:    ['locks', 'freshness', 'webhooks', 'coverage', 'mcp', 'rag',
+             'lambda', 'polars', 'cves', 'calibration', 'integrity', 'workspaces'],
+  security: ['cves', 'integrity', 'coverage', 'webhooks', 'locks', 'mcp',
+             'freshness', 'rag', 'lambda', 'polars', 'calibration', 'menulens'],
+  hardware: ['freshness', 'locks', 'polars', 'lambda', 'coverage', 'mcp',
+             'calibration', 'webhooks', 'cves', 'rag', 'integrity', 'menulens'],
+  consumer: ['menulens', 'coverage', 'locks', 'webhooks', 'rag', 'polars',
+             'mcp', 'freshness', 'calibration', 'lambda', 'cves', 'workspaces'],
+  edtech:   ['workspaces', 'coverage', 'mcp', 'menulens', 'locks', 'polars',
+             'rag', 'freshness', 'calibration', 'webhooks', 'lambda', 'integrity']
 };
 
 // What a company with no bucket gets. The first pair is the strongest two numbers
 // on the resume that are true of any employer.
-var REFERRAL_BULLET_DEFAULT = ['mcp', 'polars', 'locks', 'coverage', 'rag', 'webhooks'];
+var REFERRAL_BULLET_DEFAULT = ['mcp', 'polars', 'locks', 'coverage', 'rag', 'webhooks',
+                               'freshness', 'calibration', 'cves', 'lambda',
+                               'menulens', 'integrity'];
 
 function outreachReferralBullets_(bucket, attempt) {
   var order = REFERRAL_BULLET_ORDER[String(bucket || '').toLowerCase()]

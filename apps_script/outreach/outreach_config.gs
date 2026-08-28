@@ -232,17 +232,23 @@ var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
 
 // How many people at one employer are ever asked for a referral.
 //
-// Three, and the number is small on purpose. Reddit has twenty three engineers in
-// the dataset and Goldman Sachs twenty two, and asking all of them is not outreach,
-// it is a mailing list that happens to be about one person. Three is enough that a
-// single ignored message is not the whole attempt at that company.
-var REFERRAL_PER_COMPANY = 3;
+// Six. Still far short of the twenty three engineers the dataset holds at Reddit,
+// because asking all of them is not outreach, it is a mailing list that happens to
+// be about one person. Six is the number that makes a company a real attempt
+// rather than a gesture: at three, two ignored messages were the whole of it.
+var REFERRAL_PER_COMPANY = 6;
 
-// Never two people at one employer on the same day. Colleagues talk, and two
-// near-identical notes arriving at one company inside an hour is the thing that
-// gets reported rather than deleted. Spread over days it is three people who each
-// received one email.
-var REFERRAL_COMPANY_DAILY_CAP = 1;
+// And all six may go on one day, which is a reversal of what this used to say.
+//
+// The old rule was one a day, on the reasoning that colleagues talk and two
+// near-identical notes at one company read as a mailing shot. The reasoning still
+// holds and the fix for it is not the calendar: what makes six notes read as one
+// mailing shot is six identical notes, and the tier, the template, the subject and
+// the bullet pair are all different per person. Spreading them over six days
+// bought distance between messages nobody can see side by side anyway, and cost
+// the thing that does matter, which is that a company half asked is a company
+// where the remaining names go stale.
+var REFERRAL_COMPANY_DAILY_CAP = 6;
 
 // The word a posting's title has to carry. A referral is being asked for one
 // specific intake, and "summer" is what distinguishes the intake worth asking
@@ -256,7 +262,14 @@ var REFERRAL_SEASON_WORD = 'summer';
 // their mail.
 var REFERRAL_HOUR_FIRST = 8;
 var REFERRAL_HOUR_LAST  = 19;
-var REFERRAL_DAILY_CAP  = 6;
+// Twelve, so a day is two companies finished rather than one. With six allowed at
+// one employer, a cap of six would mean one company a day and nothing else, and
+// the queue would move at the speed of its slowest possible arrangement.
+//
+// Twelve is also what the mailbox has room for: twenty five at the cold path's
+// Tuesday peak, plus six follow-ups, plus twelve, is forty three against a budget
+// of forty five. Raising it further is a change to DAILY_EMAIL_BUDGET first.
+var REFERRAL_DAILY_CAP  = 12;
 
 
 // People written to in one go, and how long the silence has to last before the

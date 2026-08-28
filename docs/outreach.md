@@ -156,8 +156,8 @@ be thinking about the other two. A guard rail you are leaning on is one that was
 `EMAIL_PATH_ORDER` is `referral`, `cold`, `followup`, and it decides who gives way when the budget
 binds:
 
-- **Referral first**, because it is the scarcest thing here. Three people per employer and no second
-  attempt ever, so an ask displaced today is not delayed — it is one of three chances at that
+- **Referral first**, because it is the scarcest thing here. Six people per employer and no second
+  attempt ever, so an ask displaced today is not delayed — it is one of six chances at that
   company spent on nothing.
 - **Cold email next.** It has by far the most rows, but one it cannot send today still goes tomorrow
   with nothing lost, because the application it is about will still be there.
@@ -1135,11 +1135,11 @@ thirty-second ceiling, and the paint would die somewhere in the middle of the sh
 > one cell of the notes column no job will ever want — without silencing the retirement sweep on
 > all five hundred rows. Only content on a job's own row marks that job.
 
-### One posting per company, three people, never two on a day
+### One posting per company, six people, a company finished in a day
 
 A company with four summer reqs is not four referrals. `outreachPickReferralRole_` chooses **one
-representative posting per employer** and everybody there is asked about that one — three people
-asked about three different requisitions reads, if any two of them compare notes, as somebody
+representative posting per employer** and everybody there is asked about that one — six people
+asked about six different requisitions reads, if any two of them compare notes, as somebody
 applying to everything rather than to something.
 
 The choice is ordered and every tie is broken, so the answer does not move between runs: a role the
@@ -1149,15 +1149,26 @@ because an older req is closer to being filled; then the role text, which settle
 A posting with no usable link is never the one chosen, so one aggregator row cannot hide a company's
 good link behind it.
 
-`REFERRAL_PER_COMPANY` is **3**, and the number is small on purpose. Reddit has twenty-three
-engineers in this dataset and Goldman Sachs twenty-two; asking all of them is not outreach, it is a
-mailing list that happens to be about one person. Three is enough that one ignored message is not
-the whole attempt at that employer.
+`REFERRAL_PER_COMPANY` is **6**. Still far short of the twenty-three engineers this dataset holds at
+Reddit or the twenty-two at Goldman Sachs; asking all of them is not outreach, it is a mailing list
+that happens to be about one person. Six is the number that makes an employer a real attempt rather
+than a gesture — at three, two ignored messages were the whole of it.
 
-`REFERRAL_COMPANY_DAILY_CAP` is **1**: never two people at one employer on the same day. Colleagues
-talk, and two near-identical notes arriving at one company inside a day is the thing that gets
-reported rather than deleted. Spread over three days it is three people who each received one
-email, which is what it actually is.
+`REFERRAL_COMPANY_DAILY_CAP` is **6**, so all six may go on one day. This is a reversal of what the
+rule used to be, and the reasoning it reversed is worth stating because it was not wrong. The old
+cap was one a day, on the grounds that colleagues talk and two near-identical notes at one company
+read as a mailing shot. What that reasoning gets wrong is the remedy: six notes read as a mailing
+shot when they are *six identical notes*, and the tier, the template, the subject line and the
+bullet pair all differ per person. Spreading them over six days bought distance between messages
+nobody can see side by side anyway, and cost the thing that does matter — a company half-asked is a
+company whose remaining names go stale.
+
+The six still leave at six different hours between 08:00 and 19:00 rather than together, which is
+the part of the spreading that was doing real work.
+
+`REFERRAL_DAILY_CAP` is **12**, so a day is two employers finished rather than one. At six it would
+have been one company a day and nothing else. Twelve is also what the mailbox has room for: 25 at
+the cold path's Tuesday peak, plus 6 follow-ups, plus 12, is 43 against a budget of 45.
 
 > **A person is asked once, ever.** By address, and by address only. There is no second attempt in
 > this design, because what is being asked for is a favour, and asking twice for a favour that was
@@ -1364,8 +1375,11 @@ because a subject is read on a phone.
 The two resume bullets are chosen by **what the company does**, not by who is reading: a Staff
 engineer at Stripe and a new grad at Stripe both care about the payments number, and the tier is
 already doing its own work on the wording. The bucket is ColdEmail's, so it is the same judgement
-that wrote the company angle. Six numbers per bucket read as three pairs, one pair per person, so
-three people at one employer do not receive one list.
+that wrote the company angle. Twelve numbers per bucket read as six pairs, one pair per person, so
+six people at one employer do not receive one list. It was six numbers and three pairs while three
+people were the limit; raising the limit without widening this would have had the fourth, fifth and
+sixth person repeat the first three, which matters far more now that all six can arrive on one
+morning.
 
 `previewReferralTemplates` logs one example of every tier and every template and sends nothing.
 Forty messages is past what anybody holds in their head, and the thing worth checking is not any
