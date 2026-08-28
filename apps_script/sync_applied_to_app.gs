@@ -250,6 +250,9 @@ var REFERRAL_SENT_AT = 16;
 // Both are already in OUTREACH_STATUS; spelling them here is what keeps the two
 // rules from drifting apart from the list they have to match.
 var REFERRAL_CANCELLED = 'Cancelled', REFERRAL_SENT = 'Sent';
+// The state a row is in while it still has an hour to be given and no message
+// written against it. It is the only state reflowReferralTimes_ may re-time.
+var REFERRAL_QUEUED = 'Queued';
 // Four rungs, and the reason they are a dropdown rather than free text is that a
 // tier typed by hand drifts — "Senior", "sr", "Sr." — and then no filter finds
 // the seniors. peer is somebody who interned there last summer; staff is somebody
@@ -1717,6 +1720,57 @@ function orderReferralCancelledRows_(rows) {
  * recomputes itself wherever the row lands; App's yellow is a background this file
  * paints by hand, which is why that sort has to repaint and this one must not.
  */
+/**
+ * The queue's own hours dealt out again in the order the rows now sit in.
+ *
+ * Lifting an ask to the top is half an answer. The row that moved still carries
+ * the hour it was given when it was tenth in the line, so the tab shows it first
+ * and sending shows it last, and the person who ticked the box is told two
+ * different things by one screen.
+ *
+ * The hours are redealt rather than recomputed, and that distinction is the whole
+ * safety of doing this from a keystroke. Choosing new hours here would be a second
+ * thing picking sending slots with no idea what the sender's caps, budget and
+ * per-employer limits allow. Permuting the ones already on the tab cannot break
+ * any of them at the level they are counted: the same set of times, the same
+ * number on each day, only a different row against each.
+ *
+ * Only Queued rows join the deal. A Drafted row has a message written and sitting
+ * in Gmail against a particular hour, and handing it an earlier one would send it
+ * before the hour it was meant to be readable in — the one guarantee drafting
+ * exists to give. A Cancelled row loses both its times, because it is not going.
+ */
+function reflowReferralTimes_(rows) {
+  var DRAFTED = REFERRAL_DRAFTED_AT - 1, SCHEDULED = REFERRAL_SCHEDULED_AT - 1;
+  var STATUS = REFERRAL_STATUS - 1;
+
+  var hours = [];
+  for (var i = 0; i < rows.length; i++) {
+    if (referralCancelled_(rows[i][STATUS])) continue;
+    if (String(rows[i][STATUS] || '').trim() !== REFERRAL_QUEUED) continue;
+    if (rows[i][SCHEDULED] === '' || rows[i][SCHEDULED] == null) continue;
+    hours.push(rows[i][SCHEDULED]);
+  }
+  // Ascending, because the order rows sit in is the order they should go out in,
+  // and the tab's own times are the only supply of hours this may draw on.
+  hours.sort(function (left, right) {
+    return new Date(left).getTime() - new Date(right).getTime();
+  });
+
+  var next = 0;
+  for (var j = 0; j < rows.length; j++) {
+    var state = String(rows[j][STATUS] || '').trim();
+    if (referralCancelled_(rows[j][STATUS])) {
+      rows[j][SCHEDULED] = '';
+      rows[j][DRAFTED] = '';
+      continue;
+    }
+    if (state !== REFERRAL_QUEUED) continue;
+    if (next < hours.length) rows[j][SCHEDULED] = hours[next++];
+  }
+  return rows;
+}
+
 function sortReferralCancelledBlock_(queue) {
   // To the real last row and no further, NOT out to LAST_ROW. LAST_ROW is where
   // setupReferralQueue stops laying formatting; the data stops at getLastRow, and
@@ -1742,6 +1796,7 @@ function sortReferralCancelledBlock_(queue) {
   var width = Math.max(queue.getLastColumn(), REFERRAL_HEADERS.length);
   var rows = queue.getRange(FIRST_ROW, 1, count, width).getValues();
   var ordered = orderReferralCancelledRows_(rows);
+  reflowReferralTimes_(ordered);
 
   // Nothing moved, so nothing is written. This is what makes a second run a
   // genuine no-op rather than a run that happens to write back the same bytes —
@@ -2243,23 +2298,18 @@ function onReferralEdit(e) {
   for (var w = low; w <= high; w++) out.push(block[w].slice(DRAFTED, CANCEL + 1));
   queue.getRange(FIRST_ROW + low, REFERRAL_DRAFTED_AT, out.length, span).setValues(out);
 
-  // The rows are NOT sorted here, and that is a decision rather than an oversight —
-  // the same one onAppEdit already makes. This runs while you are clicking. Sinking
-  // the row on the spot would pull it out from under the cursor, and the row that
-  // slid up into its place is a different person, so the next box you tick cancels
-  // an ask you meant to keep. Cancelling a group makes that worse rather than
-  // better: six rows would leave at once and everything below them would jump six
-  // lines. A fill-down over twenty rows would rearrange the tab halfway through the
-  // drag. There is a budget argument too: onEdit is a simple trigger with thirty
-  // seconds, and the sort reads and rewrites every row on the tab, which is not what
-  // one click should cost. Priority is the same decision made once more: it changes
-  // which rows lead the queue, so acting on it here would reorder the tab mid-drag
-  // for the same non-reason. Nor is anything re-scheduled here for the same reason
-  // plus a better one — picking a new hour for the rows behind this one is the
-  // sender's job, and doing it from a keystroke would mean two things booking slots
-  // with no idea the other exists. So the rows go grey instantly, which is the half
-  // that has to be immediate, and their position waits for the hourly
-  // runHourlyHousekeeping.
+  // Sunk on the spot. This was deliberately left to the hourly sweep, on the
+  // reasoning that moving rows while somebody is clicking pulls the row out from
+  // under the cursor and the one that slides up is a different person — so the
+  // next box ticked cancels an ask you meant to keep. That risk is real and it is
+  // not the trade the owner wants: a row that says Cancelled and stays sitting
+  // among the live ones is a queue you have to read twice, and reading it twice is
+  // how the wrong box gets ticked anyway.
+  //
+  // The block write is one round trip, which is what makes this affordable inside
+  // a simple trigger's thirty seconds, and reflowReferralTimes_ hands the freed
+  // hours to the rows still going rather than inventing new ones.
+  sortReferralCancelledBlock_(queue);
   e.source.toast(referralCancelReport(cancelled, refused), 'Referral', 6);
 }
 
@@ -2762,7 +2812,13 @@ function onReferralPriorityEdit(e, queue) {
   for (var k = 0; k < count; k++) column.push([block[k][PRIORITY]]);
   queue.getRange(FIRST_ROW, REFERRAL_PRIORITY, count, 1).setValues(column);
 
+  // Straight away, not on the hourly sweep. An earlier version left the ordering
+  // to the clock on the reasoning that moving rows under the hand that just
+  // clicked is hostile — which is true, and is not the trade the owner wants. A
+  // tick that changes nothing you can see for an hour is a control you stop
+  // believing, and believing it is what the column is for.
+  sortReferralCancelledBlock_(queue);
   e.source.toast(
-    'Priority set across the ask: ' + (touched + 1) + ' row(s). They move to the top '
-    + 'and take the earliest free hours on the next hourly run.', 'Referral', 6);
+    'Priority set across the ask. It is at the top of the queue now and holds the '
+    + 'earliest hours the tab had.', 'Referral', 6);
 }

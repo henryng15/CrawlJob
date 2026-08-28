@@ -1848,6 +1848,31 @@ const freshReferral = (rows) =>
   ].concat(rows));
 // The three cells the tick is about, read straight out of the grid: what a person
 // would see on the row after clicking.
+// Looked up by company rather than by position, because a cancelled row no longer
+// stays where it was: onEdit sinks it to the bottom on the keystroke. Reading a
+// fixed index would silently test whichever row slid up into that line.
+const stateOf = (company) => {
+  for (var i = 1; i < referral.grid.length; i++) {
+    if (String(referral.grid[i][0]) === company) {
+      return {
+        drafted: referral.grid[i][7],
+        scheduled: referral.grid[i][8],
+        status: referral.grid[i][10],
+        cancel: referral.grid[i][12],
+      };
+    }
+  }
+  return null;
+};
+// Where a company's first row now sits, one-based as the sheet counts.
+const rowOf = (company) => {
+  for (var i = 1; i < referral.grid.length; i++) {
+    if (String(referral.grid[i][0]) === company) return i + 1;
+  }
+  return -1;
+};
+// One cell of a company's first row, by name rather than by line number.
+const cellOf = (company, col) => referral.grid[rowOf(company) - 1][col];
 const cancelState = (row) => ({
   drafted: referral.grid[row][7],
   scheduled: referral.grid[row][8],
@@ -2548,37 +2573,43 @@ console.log('onEdit on the Referral Cancel column');
   run('ticking Cancel sets Cancelled and clears both booked hours', () => {
     referral.grid[1][12] = true;
     s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
-    assert.deepStrictEqual(cancelState(1),
+    assert.deepStrictEqual(stateOf('Stripe'),
       { drafted: '', scheduled: '', status: 'Cancelled', cancel: true });
   });
+
+  // The row does not stay where it was. Sinking it on the keystroke is the point:
+  // a row that says Cancelled and sits among the live ones is a queue you have to
+  // read twice, and reading it twice is how the wrong box gets ticked.
+  run('and it sinks to the bottom on the same keystroke', () => {
+    assert.strictEqual(rowOf('Stripe'), 3);
+    assert.strictEqual(rowOf('Notion'), 2);
+  });
+
   run('both timestamps, not just the one that says when it leaves', () => {
     // Drafted At is the hour the message appears in Gmail Drafts, an hour ahead of
     // sending. A row left holding one still puts a draft in front of you tomorrow
     // morning for somebody you decided last week not to write to.
-    // 7 and 8, not 8 and 9: the pair slid one to the left when Job Link left
-    // column C, and Priority opened behind them rather than in front.
-    assert.strictEqual(referral.grid[1][7], '');
-    assert.strictEqual(referral.grid[1][8], '');
+    assert.strictEqual(cellOf('Stripe', 7), '');
+    assert.strictEqual(cellOf('Stripe', 8), '');
   });
   run('the tick itself stays, because it is the record of who called it off', () => {
-    assert.strictEqual(referral.grid[1][12], true);
+    assert.strictEqual(cellOf('Stripe', 12), true);
   });
-  run('the row beside it is not touched', () => {
-    assert.deepStrictEqual(cancelState(2), {
+  run('the row beside it keeps everything, including its hour', () => {
+    // A Drafted row has a message written against a particular hour, so the reflow
+    // leaves it alone even as it moves up the tab.
+    assert.deepStrictEqual(stateOf('Notion'), {
       drafted: 'Aug 20, 2026 9:00 AM', scheduled: 'Aug 20, 2026 10:00 AM',
       status: 'Drafted', cancel: false,
     });
   });
   run('everything outside Drafted At..Cancel is left exactly as it was', () => {
-    // The write is one block, columns 8 to 13 — six wide now that Priority sits
-    // inside it. A block written wider than that would carry stale values over the
-    // job link, the draft id and the queue id beside it.
-    assert.strictEqual(referral.grid[1][0], 'Stripe');
-    assert.strictEqual(referral.grid[1][2], 'Stripe Person');
-    assert.strictEqual(referral.grid[1][11], 'Draft');
-    assert.strictEqual(referral.grid[1][13], 'https://boards.example/Stripe');
-    assert.strictEqual(referral.grid[1][14], 'draft-Stripe');
-    assert.strictEqual(referral.grid[1][18], 'q-Stripe');
+    assert.strictEqual(cellOf('Stripe', 0), 'Stripe');
+    assert.strictEqual(cellOf('Stripe', 2), 'Stripe Person');
+    assert.strictEqual(cellOf('Stripe', 11), 'Draft');
+    assert.strictEqual(cellOf('Stripe', 13), 'https://boards.example/Stripe');
+    assert.strictEqual(cellOf('Stripe', 14), 'draft-Stripe');
+    assert.strictEqual(cellOf('Stripe', 18), 'q-Stripe');
   });
   run('it says what it did rather than going silent', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 1 row/);
@@ -2692,27 +2723,28 @@ console.log('onEdit on Referral — a fill-down over many rows');
   const wroteBefore = wrote.length;
   s.onEdit({ source: ss, range: referral.getRange(2, 13, 3, 1) });
 
-  run('a drag over three rows is still one write, not one per row', () => {
+  run('a drag over three rows is two writes, not one per row', () => {
     // onEdit is a simple trigger with thirty seconds. One round trip per row is
-    // how a fill-down over a real queue dies halfway down the tab.
-    assert.strictEqual(wrote.length, wroteBefore + 1);
+    // how a fill-down over a real queue dies halfway down the tab. Two: the block
+    // of cancelled cells, then the reordered tab.
+    assert.strictEqual(wrote.length, wroteBefore + 2);
   });
   run('the two live rows are cancelled and the sent one is stepped over', () => {
-    assert.strictEqual(referral.grid[1][10], 'Cancelled');
-    assert.strictEqual(referral.grid[2][10], 'Sent');
-    assert.strictEqual(referral.grid[3][10], 'Cancelled');
-    assert.strictEqual(referral.grid[2][12], false);
+    assert.strictEqual(stateOf('Stripe').status, 'Cancelled');
+    assert.strictEqual(stateOf('Notion').status, 'Sent');
+    assert.strictEqual(stateOf('Ramp').status, 'Cancelled');
+    assert.strictEqual(stateOf('Notion').cancel, false);
   });
   run('the toast reports both halves rather than only the ones it changed', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 2 rows/);
     assert.match(toasts[toasts.length - 1], /1 row left alone as already sent/);
   });
-  run('nothing was sorted — the rows are where they were', () => {
-    // Sinking the row on the spot would pull it out from under the cursor, and the
-    // row that slid up into its place is a different person, so the next box you
-    // tick cancels an ask you meant to keep.
+
+  // The sent row is the only one still going, so it leads; the two called off sink
+  // behind it in the order they were met.
+  run('the cancelled rows sink and the live one leads', () => {
     assert.deepStrictEqual(companies(referral.grid.slice(1, 4)),
-      ['Stripe', 'Notion', 'Ramp']);
+                           ['Notion', 'Stripe', 'Ramp']);
   });
 }
 
@@ -2932,17 +2964,19 @@ console.log('the Cancel box end to end: tick, then sort');
   ]);
   const s = load();
 
-  run('ticking the top row cancels it in place, and the sort is what moves it', () => {
+  run('ticking the top row sinks it on the keystroke', () => {
     referral.grid[1][12] = true;
     s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
     assert.deepStrictEqual(companies(referral.grid.slice(1, 4)),
-      ['Stripe', 'Notion', 'Ramp']);
+      ['Notion', 'Ramp', 'Stripe']);
+  });
+  run('and running the sweep afterwards changes nothing', () => {
     s.sortReferralCancelledToBottom();
     assert.deepStrictEqual(companies(referral.grid.slice(1, 4)),
       ['Notion', 'Ramp', 'Stripe']);
   });
   run('and the cancelled row still holds no booked hours after the move', () => {
-    assert.deepStrictEqual(cancelState(3),
+    assert.deepStrictEqual(stateOf('Stripe'),
       { drafted: '', scheduled: '', status: 'Cancelled', cancel: true });
   });
 }
@@ -3050,50 +3084,60 @@ console.log('onEdit on Referral — one tick cancels the whole ask');
   referral.grid[3][12] = true;
   s.onEdit({ source: ss, range: referral.getRange(4, 13, 1, 1) });
 
+  // The ask sinks on the keystroke, so it is no longer the first six rows. Read it
+  // by the people in it rather than by where they used to sit.
+  const askRows = () => referral.grid.slice(1).filter(
+    (r) => ['Ana', 'Bo', 'Cy', 'Di', 'Ed', 'Fi'].indexOf(String(r[2])) !== -1);
+  const personRow = (name) =>
+    referral.grid.slice(1).filter((r) => String(r[2]) === name)[0];
+
   run('all six people of the ask are cancelled from the one tick', () => {
-    assert.deepStrictEqual(statuses(referral.grid.slice(1, 7)),
+    assert.strictEqual(askRows().length, 6);
+    assert.deepStrictEqual(statuses(askRows()),
       ['Cancelled', 'Cancelled', 'Cancelled', 'Cancelled', 'Cancelled', 'Cancelled']);
   });
   run('every one of the six shows its own tick, not just the row clicked', () => {
     // An ask with one tick and five bare Cancelled cells reads as five rows that
     // lost their draft for five separate reasons nobody wrote down.
-    assert.deepStrictEqual(ticks(referral.grid.slice(1, 7)),
-      [true, true, true, true, true, true]);
+    assert.deepStrictEqual(ticks(askRows()), [true, true, true, true, true, true]);
   });
   run('and every one of them loses both booked hours', () => {
-    for (let r = 1; r <= 6; r++) {
-      assert.strictEqual(referral.grid[r][7], '', 'row ' + r + ' kept a Drafted At');
-      assert.strictEqual(referral.grid[r][8], '', 'row ' + r + ' kept a Scheduled At');
-    }
+    askRows().forEach((r) => {
+      assert.strictEqual(r[7], '', String(r[2]) + ' kept a Drafted At');
+      assert.strictEqual(r[8], '', String(r[2]) + ' kept a Scheduled At');
+    });
+  });
+  run('the six sink below the rows still going', () => {
+    assert.deepStrictEqual(people(referral.grid.slice(1, 3)), ['Gus', 'Hal']);
   });
   run('the same employer on a different job is a different ask and is untouched', () => {
-    assert.deepStrictEqual(cancelState(7), {
-      drafted: 'Aug 20, 2026 9:00 AM', scheduled: 'Aug 20, 2026 10:00 AM',
-      status: 'Queued', cancel: false,
-    });
+    const gus = personRow('Gus');
+    assert.strictEqual(gus[10], 'Queued');
+    assert.strictEqual(gus[12], false);
+    // Its hour is one of the two the tab still had, redealt to the rows still going.
+    assert.ok(String(gus[8]).length > 0);
   });
   run('and so is the same job at a different employer', () => {
-    assert.deepStrictEqual(cancelState(8), {
-      drafted: 'Aug 20, 2026 9:00 AM', scheduled: 'Aug 20, 2026 10:00 AM',
-      status: 'Queued', cancel: false,
-    });
+    const hal = personRow('Hal');
+    assert.strictEqual(hal[10], 'Queued');
+    assert.strictEqual(hal[12], false);
+    assert.ok(String(hal[8]).length > 0);
   });
-  run('six rows go in one write, not one round trip per person', () => {
+  run('six rows go in one write, and the reorder is the second', () => {
     // A simple trigger has thirty seconds. A group cancel that dies partway leaves
     // half the ask called off and half of it still sending, on a tab that looks tidy.
-    assert.strictEqual(wrote.length, wroteBefore + 1);
+    assert.strictEqual(wrote.length, wroteBefore + 2);
   });
-  run('the write covers the ask and stops there', () => {
-    const last = wrote[wrote.length - 1];
-    assert.strictEqual(last[0], 2);   // the first row of the ask
-    assert.strictEqual(last[1], 8);   // Drafted At
-    assert.strictEqual(last[2], 6);   // the six, not the eight rows on the tab
-    assert.strictEqual(last[3], 6);   // Drafted At..Cancel, Priority riding inside it
+  run('the cancel write covers the ask and stops there', () => {
+    const cancelWrite = wrote[wrote.length - 2];
+    assert.strictEqual(cancelWrite[0], 2);   // the first row of the ask
+    assert.strictEqual(cancelWrite[1], 8);   // Drafted At
+    assert.strictEqual(cancelWrite[2], 6);   // the six, not the eight rows on the tab
+    assert.strictEqual(cancelWrite[3], 6);   // Drafted At..Cancel, Priority inside it
   });
   run('nothing outside Drafted At..Cancel moved on any of the six', () => {
-    assert.deepStrictEqual(people(referral.grid.slice(1, 7)),
-      ['Ana', 'Bo', 'Cy', 'Di', 'Ed', 'Fi']);
-    assert.strictEqual(referral.grid[3][13], 'https://boards.example/Stripe');
+    assert.deepStrictEqual(people(askRows()), ['Ana', 'Bo', 'Cy', 'Di', 'Ed', 'Fi']);
+    assert.strictEqual(personRow('Di')[13], 'https://boards.example/Stripe');
     assert.strictEqual(referral.grid[3][14], 'draft-Stripe');
     assert.strictEqual(referral.grid[3][18], 'q-Stripe');
   });
@@ -3116,15 +3160,23 @@ console.log('onEdit on Referral — one ask spelled six different ways');
   referral.grid[1][12] = true;
   s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
 
+  const byPerson = (name) =>
+    referral.grid.slice(1).filter((r) => String(r[2]) === name)[0];
+
   run('case, doubled spaces and a hyphen do not hide a member of the ask', () => {
     // A row that fell out of the group because somebody typed the role in lower
     // case is a message that still goes out, and nothing on the tab looks wrong.
-    assert.deepStrictEqual(statuses(referral.grid.slice(1, 4)),
-      ['Cancelled', 'Cancelled', 'Cancelled']);
+    ['Ana', 'Bo', 'Cy'].forEach((who) => {
+      assert.strictEqual(byPerson(who)[10], 'Cancelled', who);
+    });
   });
   run('the other job at that employer still is not part of it', () => {
-    assert.strictEqual(referral.grid[4][10], 'Queued');
-    assert.strictEqual(referral.grid[4][12], false);
+    assert.strictEqual(byPerson('Di')[10], 'Queued');
+    assert.strictEqual(byPerson('Di')[12], false);
+  });
+  run('and the three called off are now below the one still going', () => {
+    assert.deepStrictEqual(people(referral.grid.slice(1, 5)),
+      ['Di', 'Ana', 'Bo', 'Cy']);
   });
 }
 
@@ -3142,30 +3194,35 @@ console.log('onEdit on Referral — a Sent row inside the ask');
   referral.grid[1][12] = true;
   s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
 
+  const who = (name) => referral.grid.slice(1).filter((r) => String(r[2]) === name)[0];
+
   run('the colleague already written to keeps her Status', () => {
     // The message has gone. "Cancelled" would be the tab telling you a thing that
     // is not true, and the reply, when it comes, lands on a row claiming you never
     // wrote.
-    assert.strictEqual(referral.grid[2][10], 'Sent');
+    assert.strictEqual(who('Bo')[10], 'Sent');
   });
   run('she keeps both timestamps, which are the record of when it went', () => {
-    assert.strictEqual(referral.grid[2][7], 'Aug 20, 2026 9:00 AM');
-    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 10:00 AM');
+    assert.strictEqual(who('Bo')[7], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(who('Bo')[8], 'Aug 20, 2026 10:00 AM');
   });
   run('and her box is left unticked rather than claiming she was called off', () => {
-    assert.strictEqual(referral.grid[2][12], false);
+    assert.strictEqual(who('Bo')[12], false);
   });
   run('the guard is per row, so the rest of the ask still goes', () => {
     // One colleague having already been written to is no reason to leave the other
     // two queued — which is what a group-wide Sent guard would do.
-    assert.strictEqual(referral.grid[1][10], 'Cancelled');
-    assert.strictEqual(referral.grid[3][10], 'Cancelled');
-    assert.strictEqual(referral.grid[1][12], true);
-    assert.strictEqual(referral.grid[3][12], true);
+    assert.strictEqual(who('Ana')[10], 'Cancelled');
+    assert.strictEqual(who('Cy')[10], 'Cancelled');
+    assert.strictEqual(who('Ana')[12], true);
+    assert.strictEqual(who('Cy')[12], true);
   });
-  run('still one write, spanning the ask', () => {
-    assert.strictEqual(wrote.length, wroteBefore + 1);
-    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 8, 3, 6]);
+  run('the cancel write spans the ask, and the reorder follows it', () => {
+    assert.strictEqual(wrote.length, wroteBefore + 2);
+    assert.deepStrictEqual(wrote[wrote.length - 2], [2, 8, 3, 6]);
+  });
+  run('and the one still standing leads the tab', () => {
+    assert.deepStrictEqual(people(referral.grid.slice(1, 4)), ['Bo', 'Ana', 'Cy']);
   });
   run('the toast reports both halves rather than only the rows it changed', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 2 rows/);
@@ -3185,17 +3242,21 @@ console.log('onEdit on Referral — the tick lands on the Sent row itself');
   referral.grid[1][12] = true;
   s.onEdit({ source: ss, range: referral.getRange(2, 13, 1, 1) });
 
+  const at = (name) => referral.grid.slice(1).filter((r) => String(r[2]) === name)[0];
   run('the sent row is put back exactly as it stood', () => {
-    assert.deepStrictEqual(cancelState(1), {
-      drafted: 'Aug 20, 2026 9:00 AM', scheduled: 'Aug 20, 2026 10:00 AM',
-      status: 'Sent', cancel: false,
-    });
+    const row = at('Ana');
+    assert.deepStrictEqual(
+      { drafted: row[7], scheduled: row[8], status: row[10], cancel: row[12] },
+      { drafted: 'Aug 20, 2026 9:00 AM', scheduled: 'Aug 20, 2026 10:00 AM',
+        status: 'Sent', cancel: false });
   });
   run('but the ask is still called off — the click meant the ask, not the row', () => {
     // Ticking the box on the one row that has gone is the likeliest way to say
     // "stop this"; refusing the whole ask because of it would leave the other five
     // sending.
-    assert.deepStrictEqual(cancelState(2),
+    const row = at('Bo');
+    assert.deepStrictEqual(
+      { drafted: row[7], scheduled: row[8], status: row[10], cancel: row[12] },
       { drafted: '', scheduled: '', status: 'Cancelled', cancel: true });
   });
 }
@@ -3220,34 +3281,50 @@ console.log('onEdit on Referral — an ask scattered down the tab');
   referral.grid[3][12] = true;
   s.onEdit({ source: ss, range: referral.getRange(4, 13, 1, 1) });
 
+  const who = (name) => referral.grid.slice(1).filter((r) => String(r[2]) === name)[0];
+
   run('every member is caught, above and below the rows between them', () => {
-    assert.deepStrictEqual(statuses(referral.grid.slice(1, 6)),
-      ['Cancelled', 'Queued', 'Cancelled', 'Drafted', 'Cancelled']);
+    assert.strictEqual(who('Ana')[10], 'Cancelled');
+    assert.strictEqual(who('Cy')[10], 'Cancelled');
+    assert.strictEqual(who('Ed')[10], 'Cancelled');
   });
   run('the strangers sitting inside the ask are not cancelled', () => {
-    assert.strictEqual(referral.grid[2][12], false);
-    assert.strictEqual(referral.grid[4][12], false);
+    assert.strictEqual(who('Bo')[10], 'Queued');
+    assert.strictEqual(who('Bo')[12], false);
+    assert.strictEqual(who('Di')[10], 'Drafted');
+    assert.strictEqual(who('Di')[12], false);
   });
-  run('and they keep their booked hours, though the write spanned them', () => {
-    // The write covers row 2 to row 6 in one block, so the untouched rows inside it
-    // are written back over themselves. Anything less than identical here would be
-    // this trigger quietly rescheduling somebody it was never asked about.
-    assert.strictEqual(referral.grid[2][7], 'Aug 20, 2026 9:00 AM');
-    assert.strictEqual(referral.grid[2][8], 'Aug 20, 2026 10:00 AM');
-    assert.strictEqual(referral.grid[4][8], 'Aug 20, 2026 10:00 AM');
+  run('and the drafted stranger keeps the hour its message was written against', () => {
+    // The reflow re-deals hours among Queued rows only. A Drafted row has a message
+    // in Gmail against a particular hour, and handing it an earlier one would send
+    // it before the hour it was meant to be readable in.
+    assert.strictEqual(who('Di')[7], 'Aug 20, 2026 9:00 AM');
+    assert.strictEqual(who('Di')[8], 'Aug 20, 2026 10:00 AM');
+  });
+  run('the queued stranger still holds an hour, drawn from the tab own supply', () => {
+    // Its hour may not be the one it had — the cancelled rows gave theirs back and
+    // the survivors were dealt the earliest ones — but it must still have one.
+    assert.ok(String(who('Bo')[8]).length > 0);
   });
   run('the half-typed row is skipped: no Status means it is not a queue row', () => {
     // Writing Cancelled there would conjure an ask that never existed, and the tick
     // would claim somebody called off a row nobody had finished writing.
-    assert.strictEqual(referral.grid[6][10], '');
-    assert.strictEqual(referral.grid[6][12], false);
+    const blank = referral.grid.slice(1).filter((r) => String(r[2]) === '')[0];
+    assert.strictEqual(blank[10], '');
+    assert.strictEqual(blank[12], false);
   });
   run('and skipping it does not stop the three real rows going', () => {
     assert.match(toasts[toasts.length - 1], /Cancelled 3 rows/);
   });
-  run('the scattered ask is still one write, from its first row to its last', () => {
-    assert.strictEqual(wrote.length, wroteBefore + 1);
-    assert.deepStrictEqual(wrote[wrote.length - 1], [2, 8, 5, 6]);
+  run('the scattered ask is one write, and the reorder is the second', () => {
+    assert.strictEqual(wrote.length, wroteBefore + 2);
+    assert.deepStrictEqual(wrote[wrote.length - 2], [2, 8, 5, 6]);
+  });
+  run('the three called off end up below everything still standing', () => {
+    // The half-typed row keeps its place among the live ones rather than being
+    // herded to either end: somebody is in the middle of writing it.
+    assert.deepStrictEqual(people(referral.grid.slice(1, 7)),
+      ['Bo', 'Di', '', 'Ana', 'Cy', 'Ed']);
   });
 }
 
@@ -3685,15 +3762,20 @@ console.log('onEdit on the Referral Priority column');
     assert.strictEqual(priorityOf(3), false);
   });
 
-  // Nothing else moves: picking hours here would be a second thing choosing
-  // sending slots with no idea the first exists.
-  run('no status, no hour and no row order is changed', () => {
+  // The whole ask goes to the top, the sent member included: splitting it so that
+  // one row leads the tab and the rest sit in the middle is the mess the grouping
+  // exists to prevent.
+  run('the prioritised ask leads the tab straight away', () => {
     tick(2, true);
-    assert.strictEqual(referral.grid[1][s.REFERRAL_STATUS - 1], 'Queued');
-    assert.strictEqual(referral.grid[1][s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
-    assert.strictEqual(referral.grid[1][s.REFERRAL_DRAFTED_AT - 1], 'Aug 20, 2026 9:00 AM');
-    // names() reads the App tab's company column; on this tab company is the first.
     const order = referral.grid.slice(1, 5).map((r) => String(r[s.REFERRAL_COMPANY - 1]));
-    assert.strictEqual(order.join(','), 'Acme,Acme,Beta,Acme');
+    assert.strictEqual(order.join(','), 'Acme,Acme,Acme,Beta');
+  });
+
+  // Hours are redealt, never invented: choosing new ones here would be a second
+  // thing picking sending slots with no idea what the sender's caps allow.
+  run('and it holds an hour the tab already had, with its status untouched', () => {
+    const first = referral.grid[1];
+    assert.strictEqual(first[s.REFERRAL_STATUS - 1], 'Queued');
+    assert.strictEqual(first[s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
   });
 }
