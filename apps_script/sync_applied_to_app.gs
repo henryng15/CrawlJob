@@ -253,6 +253,15 @@ var REFERRAL_CANCELLED = 'Cancelled', REFERRAL_SENT = 'Sent';
 // The state a row is in while it still has an hour to be given and no message
 // written against it. It is the only state reflowReferralTimes_ may re-time.
 var REFERRAL_QUEUED = 'Queued';
+
+// How far ahead of sending a message is written, in hours. The same number as
+// DRAFT_LEAD_HOURS in the sender's outreach_config.gs, and it has to stay the
+// same: two Apps Script projects cannot share a file, so this agrees by hand,
+// exactly as OUTREACH_STATUS and the follow-up statuses already do.
+//
+// Used only to fill a draft hour that is missing. A row that has one keeps it,
+// because the sender wrote it and the sender is the authority on when it drafts.
+var REFERRAL_DRAFT_LEAD_HOURS = 1;
 // Four rungs, and the reason they are a dropdown rather than free text is that a
 // tier typed by hand drifts — "Senior", "sr", "Sr." — and then no filter finds
 // the seniors. peer is somebody who interned there last summer; staff is somebody
@@ -1776,7 +1785,13 @@ function reflowReferralTimes_(rows) {
     if (state !== REFERRAL_QUEUED) continue;
     if (next < slots.length) {
       rows[j][SCHEDULED] = slots[next].scheduled;
-      rows[j][DRAFTED] = slots[next].drafted;
+      // A pair whose draft half was never written gets one here rather than
+      // travelling empty for another hour. Rows booked before that column existed
+      // sit at exactly the hour the planner would give them, so the sender's own
+      // backfill reaches them on its next run and not before — and a column that
+      // is full on some rows and blank on others reads as a fault rather than as a
+      // queue partway through being filled in.
+      rows[j][DRAFTED] = slots[next].drafted || draftHourFor_(slots[next].scheduled);
       next++;
     }
   }
@@ -2833,4 +2848,33 @@ function onReferralPriorityEdit(e, queue) {
   e.source.toast(
     'Priority set across the ask. It is at the top of the queue now and holds the '
     + 'earliest hours the tab had.', 'Referral', 6);
+}
+
+
+/**
+ * A send hour turned into the hour its message is written, one lead earlier.
+ *
+ * Only ever called for a row whose draft hour is missing. Anything already there
+ * is the sender's, and the sender is the authority on when it drafts; this is the
+ * gap-filler, not a second opinion.
+ *
+ * Takes whatever the cell held — a Date from the sheet, a string from a test — and
+ * gives back the same kind of thing the column already holds, so the caller can
+ * write it straight back without knowing which it was.
+ */
+function draftHourFor_(scheduled) {
+  if (!scheduled) return '';
+  // Duck typed rather than `instanceof Date`. A Date made outside this script's
+  // own realm — by the test harness, or by any other context sharing the sheet —
+  // fails instanceof while behaving in every way like a Date, and the fallback it
+  // fell into produced a string in a column that holds dates.
+  var when = (typeof scheduled.getTime === 'function')
+    ? new Date(scheduled.getTime())
+    : new Date(scheduled);
+  if (isNaN(when.getTime())) return '';
+  when.setHours(when.getHours() - REFERRAL_DRAFT_LEAD_HOURS);
+  // Always a Date. The column carries a timestamp format, so a Date is what it
+  // wants; handing back a string would leave one cell in the column holding text
+  // that sorts and reads differently from every other.
+  return when;
 }

@@ -3830,3 +3830,100 @@ console.log('reflowReferralTimes_ — the two hours travel as a pair');
     assert.deepStrictEqual(sent, ['Aug 31, 2026 10:00 AM', 'Aug 31, 2026 2:00 PM'].sort());
   });
 }
+
+
+console.log('orderReferralCancelledRows_ — several asks prioritised at once');
+{
+  const s = load();
+  const row = (company, status, priority) => {
+    const r = new Array(20).fill('');
+    r[s.REFERRAL_COMPANY - 1] = company;
+    r[s.REFERRAL_ROLE - 1] = 'SWE Intern';
+    r[s.REFERRAL_SCHEDULED_AT - 1] = 'Aug 31, 2026 9:00 AM';
+    r[s.REFERRAL_STATUS - 1] = status;
+    r[s.REFERRAL_PRIORITY - 1] = !!priority;
+    return r;
+  };
+  const names = (rows) => rows.map((r) => String(r[s.REFERRAL_COMPANY - 1]));
+
+  // Two employers ticked, not one. Lifting only the first would leave the second
+  // marked urgent and sitting where it was, which is the dead control again.
+  run('every prioritised ask leads, in the order they already stood', () => {
+    const out = s.orderReferralCancelledRows_([
+      row('Acme', 'Queued'),
+      row('Beta', 'Queued', true),
+      row('Cyan', 'Queued'),
+      row('Delta', 'Queued', true),
+    ]);
+    assert.strictEqual(names(out).join(','), 'Beta,Delta,Acme,Cyan');
+  });
+
+  run('and their own members stay together behind them', () => {
+    const out = s.orderReferralCancelledRows_([
+      row('Acme', 'Queued'),
+      row('Beta', 'Queued', true),
+      row('Acme', 'Queued'),
+      row('Beta', 'Queued'),
+    ]);
+    // One tick lifts the ask, so both Beta rows lead and both Acme rows follow.
+    assert.strictEqual(names(out).join(','), 'Beta,Beta,Acme,Acme');
+  });
+
+  // A cancelled row sinks whatever its box says: the tick is a note about work
+  // still to do, and a called-off row is not work.
+  run('a prioritised ask that was then cancelled still sinks', () => {
+    const out = s.orderReferralCancelledRows_([
+      row('Acme', 'Queued'),
+      row('Beta', 'Cancelled', true),
+    ]);
+    assert.strictEqual(names(out).join(','), 'Acme,Beta');
+  });
+}
+
+console.log('reflowReferralTimes_ — a pair whose draft half was never written');
+{
+  const s = load();
+  const row = (status, drafted, scheduled) => {
+    const r = new Array(20).fill('');
+    r[s.REFERRAL_COMPANY - 1] = 'Acme';
+    r[s.REFERRAL_ROLE - 1] = 'SWE Intern';
+    r[s.REFERRAL_DRAFTED_AT - 1] = drafted;
+    r[s.REFERRAL_SCHEDULED_AT - 1] = scheduled;
+    r[s.REFERRAL_STATUS - 1] = status;
+    return r;
+  };
+
+  // A column full on some rows and blank on others reads as a fault rather than
+  // as a queue partway through being filled in.
+  run('a queued row missing its draft hour is given one', () => {
+    const rows = [row('Queued', '', new Date(2026, 7, 31, 9, 0, 0))];
+    s.reflowReferralTimes_(rows);
+    const drafted = rows[0][s.REFERRAL_DRAFTED_AT - 1];
+    // Duck typed, not instanceof: a Date built inside the vm carries that realm's
+    // prototype and fails instanceof against this one, exactly as the code it is
+    // testing had to stop doing.
+    assert.strictEqual(typeof drafted.getTime, 'function', 'expected a Date: ' + drafted);
+    assert.strictEqual(drafted.getHours(), 9 - s.REFERRAL_DRAFT_LEAD_HOURS);
+  });
+
+  // The sender wrote it and the sender is the authority on when it drafts.
+  run('and one that already has it keeps exactly what the sender wrote', () => {
+    const mine = new Date(2026, 7, 31, 7, 30, 0);
+    const rows = [row('Queued', mine, new Date(2026, 7, 31, 9, 0, 0))];
+    s.reflowReferralTimes_(rows);
+    assert.strictEqual(rows[0][s.REFERRAL_DRAFTED_AT - 1].getTime(), mine.getTime());
+  });
+
+  run('a cancelled row is still given neither', () => {
+    const rows = [row('Cancelled', '', new Date(2026, 7, 31, 9, 0, 0))];
+    s.reflowReferralTimes_(rows);
+    assert.strictEqual(rows[0][s.REFERRAL_DRAFTED_AT - 1], '');
+    assert.strictEqual(rows[0][s.REFERRAL_SCHEDULED_AT - 1], '');
+  });
+
+  // The two projects cannot share a file, so this agrees by hand — and a drift
+  // would put every draft hour an hour away from where the sender expects it.
+  run('the lead matches the sender constant it has to agree with', () => {
+    assert.strictEqual(s.REFERRAL_DRAFT_LEAD_HOURS, 1);
+  });
+}
