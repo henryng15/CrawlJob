@@ -94,7 +94,7 @@ tab ticks for all 720. On 70 companies that tick would promise someone to write 
 would produce nothing — the column saying one thing and the system doing another.
 
 So the count lives on the `Email` tab instead, next to the application it belongs to, and
-**nothing in this system writes to `App` at all**. Column J there keeps its existing meaning —
+**nothing in this system writes to `App` at all**. The `Recruiter` checkbox there keeps its existing meaning —
 *is there a contact anywhere* — written by `job_sync` exactly as it is today. `Recruiters` on the
 `Email` tab answers the sharper question: *how many of them can actually be written to*.
 
@@ -350,14 +350,19 @@ sheet as `Software Engineer Intern` often enough that fixing one by hand is rout
 rule above that correction is not cosmetic. It moves the application out of the Summer bucket,
 which is what decides whether its recruiters may be written to again.
 
-So the `Role` column in `App` is watched. Type the missing season, press Enter, and three tabs
+So the `Role` column in `App` is watched. Type the missing season, press Enter, and two tabs
 catch up in the same second:
 
 | | |
 |---|---|
-| `Alphabet_Order` | the same row, matched by `Property`, gets the corrected title |
 | `Email` | every queue row of that application gets the corrected title, and a row **not yet sent** also moves bucket |
 | `Season` | rebuilt, so the employer appears — or stops appearing — as two-intake straight away |
+
+> **`Alphabet_Order` is not on that list, and must not be.** It is one array formula in its `A1`
+> that reads `App` live, so the corrected title is already there before the trigger runs. This code
+> did once write the cell, back when the tab was a copy kept by hand. Writing it now would drop a
+> literal into the formula's spill range, which Sheets answers by collapsing the whole tab to
+> `#REF!` — a Role correction would blank the tab it was meant to keep in step.
 
 The bucket move is the half that matters, and it is deliberately limited to rows that have not gone
 out. A `Sent` row records who was written to and which intake it was spent on; that is history, and
@@ -682,8 +687,8 @@ projection; once it is written both are what happened. That pair is the column t
 want to intervene, because the gap between them is the hour in which deleting the draft still
 calls the send off.
 
-**Almost nothing in this system writes to `App`.** An earlier version put the contact count in
-column J there, and it was one more machine-written column on a tab that is already dense enough
+**Almost nothing in this system writes to `App`.** An earlier version put the contact count in a
+column there, and it was one more machine-written column on a tab that is already dense enough
 to read past. Everything the outreach system knows lives on the `Email` tab instead.
 
 The one exception is a rejection, below — it writes `Process` and appends a line to `Update`,

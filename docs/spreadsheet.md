@@ -1,9 +1,9 @@
-# Four tabs, and who writes where
+# Five tabs, and who writes where
 
 The spreadsheet is the interface to the whole system. Understanding who owns which column is
-most of understanding it. `Jobs` and `App` are the tracker itself; `Email` and `Referral` are the
-two outreach queues, and a fifth tab of people lives in a different spreadsheet entirely, at the
-bottom of this page.
+most of understanding it. `Jobs` and `App` are the tracker itself; `Alphabet_Order` is `App`
+read a second way; `Email` and `Referral` are the two outreach queues, and a sixth tab of people
+lives in a different spreadsheet entirely, at the bottom of this page.
 
 ## Tab `Jobs` — still to be applied to
 
@@ -125,9 +125,10 @@ deleting.
 | F | Process | dropdown: Applied / OA / Completed OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
-| I | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
-| J | **Recruiter** ☑ | the tool ticks it where that company has a recruiter in the contact list |
-| K | **Update** | stage history, one line per stage |
+| I | Official | filled in **by hand**: the employer's own posting, for when column C is an aggregator's link — see [outreach.md](outreach.md) |
+| J | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
+| K | **Recruiter** ☑ | the tool ticks it where that company has a recruiter in the contact list |
+| L | **Update** | stage history, one line per stage |
 
 `Property` is worked out as **the largest number present + 1**, not the row number — App may
 have had rows deleted out of the middle, and two rows sharing a number is worse than a gap.
@@ -137,22 +138,22 @@ because the coloured-chip `Process` dropdown is made through the Sheets interfac
 Script has no API for setting chip colours. Copying makes the new row identical to the old one,
 whatever way the dropdown happened to be created.
 
-### Columns I and J — `Alumni`, `Recruiter`
+### Columns J and K — `Alumni`, `Recruiter`
 
-Two checkboxes **the tool ticks**, not you. Column I turns on where the `Alumni` tab has
-someone working at that company; column J turns on where that company is in the recruiter list
+Two checkboxes **the tool ticks**, not you. Column J turns on where the `Alumni` tab has
+someone working at that company; column K turns on where that company is in the recruiter list
 shipped with the repo. Both are rewritten from scratch on every sync run, so a tick by hand is
 cleared on the next one — the place to write anything you want kept is column H, `Note`.
 Details in [alumni.md](alumni.md).
 
-> Column J answers *is there a contact anywhere*. **How many of them can actually be written
+> Column K answers *is there a contact anywhere*. **How many of them can actually be written
 > to** is a different question with a different answer, and it lives in the `Email` tab rather
 > than here — see [outreach.md](outreach.md). Nothing in the outreach system writes to `App`.
 
 
 
 These two columns are the **only** cells outside the Jobs tab that the tool writes. They are
-kept narrow (70px and 90px) because nothing else ever goes in them; column K is 300px wide so
+kept narrow (70px and 90px) because nothing else ever goes in them; column L is 300px wide so
 a few stacked lines of history fit.
 
 A row with no match shows an empty tick box, not an empty cell — that is what an unticked
@@ -160,9 +161,9 @@ checkbox normally looks like. Where the cell shows the word `FALSE`, the checkbo
 reached that row yet; the next sync run fixes it, see
 [alumni.md](alumni.md#when-the-cell-shows-the-word-false).
 
-### Column K — `Update`
+### Column L — `Update`
 
-Every time you change `Process` in column F, Apps Script appends one line to the K cell of
+Every time you change `Process` in column F, Apps Script appends one line to the L cell of
 **that same row**, naming the stage just moved to and today's date. Several lines live in one
 cell, separated by line breaks (Alt+Enter):
 
@@ -202,6 +203,49 @@ real.
 
 From the build onwards every stage change records itself, so `?` only shows up on the rows that
 came before it.
+
+## Tab `Alphabet_Order` — `App` filed by company
+
+`App` is in the order things were applied to, which answers *what have I been doing this week*.
+This tab is the same rows filed by employer, which answers *have I already applied here, and to
+what*. Two questions, one table, so the second is a view rather than a copy.
+
+**The whole tab is one formula, in `A1`.** Nothing else on it is written by anything — not by
+hand, not by Apps Script, not by `job_sync`:
+
+```
+=LET(d, IFERROR(SORT(FILTER(App!A2:L, App!B2:B<>""), 2, TRUE, 4, TRUE), ""),
+  IF(COUNTA(d)=0, App!A1:L1,
+    {App!A1:L1;
+     {CHOOSECOLS(d,1,2,3,4,5,6,7,8,9),
+      ARRAYFORMULA(IF(CHOOSECOLS(d,10)=TRUE,"✓","")),
+      ARRAYFORMULA(IF(CHOOSECOLS(d,11)=TRUE,"✓","")),
+      CHOOSECOLS(d,12)}}))
+```
+
+Sorted by `Company` and then by `Date Applied`, so a company applied to twice reads oldest
+first. The two checkbox columns are turned into `✓` and blank, because a column of `FALSE`
+down a table meant for reading is noise; every other column passes through untouched.
+
+> **The column numbers here have to be kept in step with `App` by hand.** They are the one
+> place in the system that names `App`'s layout by position rather than by header name — the
+> Python half finds `Alumni` and `Recruiter` by their headers, and the Apps Script half has
+> named constants. Inserting `Official` at column I is exactly what once broke it: the header
+> reference was widened to `A1:L1` and the `CHOOSECOLS` indices were not, so the array literal
+> was 12 columns wide on top and 11 underneath. **Add a column to `App` and edit this formula
+> in the same sitting.**
+
+> **Do not write into it, and do not let a script write into it.** Everything below `A1` is
+> that formula's spill range. Put a literal anywhere in it — even the value that is already
+> there — and Sheets collapses the whole tab to `#REF!`. `syncRoleEdit_` in the outreach
+> project used to set the `Role` cell here, back when this tab was a copy kept by hand; that
+> is why it no longer does. See [outreach.md](outreach.md#a-role-corrected-by-hand).
+
+> **If the tab looks empty, read `A1` rather than the tab.** An earlier version wrapped the
+> whole formula in `IFERROR(…, "")`, which turned every structural mistake into a blank tab
+> with nothing to say about itself. The form above only catches the one error worth catching —
+> `App` having no rows yet, which shows the header alone — and lets anything else surface as a
+> visible error.
 
 ## Tab `Email` — the outreach queue
 
