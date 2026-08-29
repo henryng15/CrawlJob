@@ -3,6 +3,8 @@ import pytest
 from job_sync.config import Settings
 from job_sync.highlight import (
     APP_HEADERS,
+    H1B_SPONSOR,
+    H1B_SPONSORS,
     HIGHLIGHT,
     PLAIN,
     RECRUITER,
@@ -14,6 +16,8 @@ from job_sync.highlight import (
     _requests,
     _runs,
     _state,
+    h1b_sponsors,
+    is_h1b_sponsor,
 )
 from job_sync.sheet import AppLayoutError
 
@@ -101,6 +105,30 @@ def test_a_company_list_line_that_is_a_comment_is_not_a_company() -> None:
     companies = recruiter_companies()
     assert companies, "the recruiter list parsed to nothing"
     assert all(tokens for tokens in companies), "a blank or comment line became a company"
+
+
+def test_h1b_sponsor_list_ships_with_the_package() -> None:
+    assert H1B_SPONSORS.exists(), "the FY2024–FY2025 SWE H-1B sponsor list is missing"
+    assert len(h1b_sponsors()) == 12_614
+
+
+@pytest.mark.parametrize(
+    "company",
+    ["Google", "Google Cloud", "AWS", "Meta", "Facebook", "Apple, Inc.", "JPMorgan Chase"],
+)
+def test_h1b_matching_handles_legal_names_and_brand_variations(company: str) -> None:
+    assert is_h1b_sponsor(company, h1b_sponsors())
+
+
+def test_h1b_matching_rejects_a_generic_one_word_overlap() -> None:
+    assert not is_h1b_sponsor("Data", h1b_sponsors())
+
+
+def test_h1b_green_is_limited_to_the_company_cell() -> None:
+    request = _requests(sheet_id=7, matched={3}, painted=set(), columns=(0, 1), colour=H1B_SPONSOR)[0]
+    grid = request["repeatCell"]["range"]
+    assert (grid["startColumnIndex"], grid["endColumnIndex"]) == (0, 1)
+    assert _colour(request) == H1B_SPONSOR
 
 
 class _Request:

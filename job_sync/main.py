@@ -179,6 +179,7 @@ def main() -> None:
         f"{marks.app_rows} applications, {marks.app_lit} have an alumnus and "
         f"{marks.recruiter_lit} have a recruiter contact."
     )
+    print(f"Marked {marks.h1b_lit} Jobs company cells as FY2024–FY2025 SWE H-1B sponsors.")
     print(
         "Restated the Alumni and Recruiter checkboxes."
         if marks.ticked
