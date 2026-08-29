@@ -1,8 +1,9 @@
+import pytest
+
 from job_sync.config import Settings
 from job_sync.highlight import (
     APP_ALUMNI,
     APP_RECRUITER,
-    APP_HEADERS,
     H1B_SPONSOR,
     H1B_SPONSORS,
     HIGHLIGHT,
