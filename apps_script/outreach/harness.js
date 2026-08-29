@@ -2313,13 +2313,6 @@ console.log('a Role corrected by hand reaches the tabs that repeat it');
     assert.ok(!S.outreachEditTouchesRole_('App', range(7, 7, 1)));
   });
 
-  run('the matching Property is found in Alphabet_Order, wherever it sits', () => {
-    const values = [['Property', 'Company'], ['205', 'AbbVie'], ['9', 'Akuna']];
-    assert.strictEqual(S.outreachRowForProperty_(values, '9', 1), 3);
-    assert.strictEqual(S.outreachRowForProperty_(values, '404', 1), 0);
-    assert.strictEqual(S.outreachRowForProperty_(values, '', 1), 0);
-  });
-
   const people = [contact('Acme', 'A One', 'a@acme.com')];
   const summerPrint = S.outreachFingerprint_('a@acme.com', SALT, SUMMER);
   const offcyclePrint = S.outreachFingerprint_('a@acme.com', SALT, OFFCYCLE);

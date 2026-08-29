@@ -56,9 +56,11 @@ var TAB_CONTACTS_MANUAL= 'Contacts (manual)';
 // they run two intakes, so a contact list can be spent knowing a second wave is
 // coming rather than finding out afterwards.
 var TAB_SEASON         = 'Season';
-// The App tab again, sorted by company. A view, kept by hand, that nothing used to
-// write to — which is why a Role fixed in App used to sit wrong here until the next
-// time it was rebuilt.
+// The App tab again, sorted by company. Named here only so that it is written down
+// somewhere that nothing in this project touches it: the tab is one array formula
+// in its A1 reading App live, so a Role fixed in App is already fixed here, and a
+// script that wrote the cell would drop a literal into that formula's spill range
+// and collapse the tab to #REF!.
 var TAB_ALPHABET       = 'Alphabet_Order';
 // The referral queue, and deliberately not more rows on the Email tab. One tab
 // answers "who have I written to about my application" and the other "who have I

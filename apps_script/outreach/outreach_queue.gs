@@ -598,18 +598,6 @@ function outreachEditTouchesRole_(tabName, range) {
   return range.getLastRow() >= 2;
 }
 
-/** The 1-based sheet row holding this Property, or 0. */
-function outreachRowForProperty_(values, property, column) {
-  var wanted = String(property == null ? '' : property).trim();
-  if (!wanted) return 0;
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][column - 1] == null ? '' : values[i][column - 1]).trim() === wanted) {
-      return i + 1;
-    }
-  }
-  return 0;
-}
-
 /**
  * What a corrected Role means for that application's queue rows.
  *
@@ -652,7 +640,7 @@ function outreachRolePlan_(queueRows, property, role, contacts, salt) {
 }
 
 /**
- * Carry a corrected Role out to the three tabs that repeat it.
+ * Carry a corrected Role out to the queue rows that repeat it.
  *
  * Deliberately does not enqueue. Everything here rearranges what is already
  * written; opening a wave is the hourly cycle's job, and an edit trigger that
@@ -661,14 +649,14 @@ function outreachRolePlan_(queueRows, property, role, contacts, salt) {
  * the hour.
  */
 function syncRoleEdit_(tracker, contactsBook, property, role, salt) {
-  var done = { alphabet: 0, queue: 0 };
+  var done = { queue: 0 };
 
-  var alphabet = tracker.getSheetByName(TAB_ALPHABET);
-  if (alphabet && alphabet.getLastRow() >= 2) {
-    var rows = alphabet.getRange(1, 1, alphabet.getLastRow(), APP_ROLE).getValues();
-    var at = outreachRowForProperty_(rows, property, APP_PROPERTY);
-    if (at) { alphabet.getRange(at, APP_ROLE).setValue(role); done.alphabet = 1; }
-  }
+  // Alphabet_Order is deliberately not written to. It stopped being a hand-kept
+  // copy of App and became a single array formula in its A1 that reads App live,
+  // so the corrected Role is already there by the time this runs. Writing the
+  // cell anyway would put a literal inside that formula's spill range, and Sheets
+  // answers that by collapsing the whole tab to #REF! — a Role correction would
+  // blank the tab it was meant to keep in step.
 
   var queue = tracker.getSheetByName(TAB_QUEUE);
   if (queue && queue.getLastRow() >= 2) {
