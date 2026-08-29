@@ -17,8 +17,8 @@ most of understanding it.
 | H onward | free-text notes | you only |
 
 The tool paints only a Company cell **light green** when its employer matches a
-company with a DOL-certified H-1B LCA for a Software Engineer role in FY2024 or
-FY2025.  It normalizes punctuation, legal suffixes, and extra parent-company
+company with a DOL-certified H-1B LCA for a Software Engineer role in **both
+FY2024 and FY2025**.  It normalizes punctuation, legal suffixes, and extra parent-company
 wording, and recognizes a small set of high-confidence brand aliases (for
 example, AWS).  It is a sponsorship signal, not a guarantee for a particular
 role or candidate; every normal GitHub Actions sync re-checks the shipped list,

@@ -129,7 +129,7 @@ def recruiter_companies() -> list[frozenset[str]]:
 
 
 def h1b_sponsors() -> list[frozenset[str]]:
-    """DOL-certified FY2024–FY2025 SWE H-1B sponsors, ready for name matching.
+    """DOL-certified SWE H-1B sponsors present in both FY2024 and FY2025.
 
     The file is generated from ColdEmail's DOL extraction and ships with the
     package so GitHub Actions uses precisely the same sponsor list as a local
@@ -154,7 +154,7 @@ def _h1b_tokens(company: str) -> frozenset[str]:
 
 
 def is_h1b_sponsor(company: str, sponsors: list[frozenset[str]]) -> bool:
-    """Whether a Jobs company has a FY2024–FY2025 certified SWE H-1B sponsor.
+    """Whether a Jobs company sponsored certified SWE H-1B LCAs in both years.
 
     Legal suffixes, punctuation, and added parent-company wording are ignored.
     Matching remains whole-word and is conservative for generic one-word names,
@@ -498,7 +498,10 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
             if state is not None:
                 sheet_id, already = state
                 requests += _requests(sheet_id, h1b_rows, already, (0, 1), H1B_SPONSOR)
-            print(f"Marked {len(h1b_rows)} Jobs companies as FY2024–FY2025 SWE H-1B sponsors.")
+            print(
+                f"Marked {len(h1b_rows)} Jobs companies as SWE H-1B sponsors "
+                "in both FY2024 and FY2025."
+            )
     else:
         h1b_rows = set()
     marks = (
