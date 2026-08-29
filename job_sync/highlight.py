@@ -44,12 +44,48 @@ APP_HEADERS = ("Alumni", "Recruiter")
 FIRST_DATA_ROW = 1  # zero-based; row 1 of the sheet is the header
 HIGHLIGHT = {"red": 1.0, "green": 0.898, "blue": 0.6}
 RECRUITER = {"red": 0.957, "green": 0.8, "blue": 0.8}
+# A light green that belongs to this tool alone.  Only Jobs!A is ever painted
+# with it, so it can never overwrite an operator's notes, checkbox state, or a
+# hand-applied colour elsewhere on the row.
+H1B_SPONSOR = {"red": 0.718, "green": 0.882, "blue": 0.804}
 PLAIN = {"red": 1.0, "green": 1.0, "blue": 1.0}
 # Sheets returns the colour it stored, not the float that was sent.
 TOLERANCE = 0.02
 # Inside the package, not beside it: pip install . copies job_sync/ and nothing
 # else, so a list at the repo root is present in a checkout and absent on a runner.
 RECRUITER_COMPANIES = Path(__file__).resolve().parent / "data" / "recruiter_companies.txt"
+H1B_SPONSORS = Path(__file__).resolve().parent / "data" / "h1b_software_engineer_sponsors.txt"
+
+# A career page sometimes uses the product or former brand while the DOL LCA
+# uses the legal employer.  These are intentionally short, high-confidence
+# aliases; everything else is matched through the normalized whole-name tokens
+# below rather than an unrestricted fuzzy match that would paint lookalikes.
+H1B_ALIASES = {
+    "aws": frozenset({"amazon", "web", "services"}),
+    "gcp": frozenset({"google"}),
+    "facebook": frozenset({"meta", "platforms"}),
+    "twitter": frozenset({"x"}),
+    "x": frozenset({"twitter"}),
+}
+
+# These words occur in enough unrelated registered names that a one-word
+# containment match would be misleading (for example, a company named simply
+# "Data").  Multi-word matches remain useful and safe, and distinctive
+# one-word brands such as Google and Stripe still match their LLC/Inc variants.
+H1B_GENERIC_SINGLE_WORDS = frozenset(
+    {
+        "data",
+        "digital",
+        "global",
+        "health",
+        "information",
+        "international",
+        "services",
+        "solutions",
+        "systems",
+        "ventures",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -71,6 +107,7 @@ class HighlightResult:
     app_rows: int = 0
     app_lit: int = 0
     recruiter_lit: int = 0
+    h1b_lit: int = 0
     # Whether the two checkbox columns had to be restated. A run that changes
     # nothing sends nothing, same as the sheet write.
     ticked: bool = False
@@ -89,6 +126,51 @@ def recruiter_companies() -> list[frozenset[str]]:
     lines = RECRUITER_COMPANIES.read_text(encoding="utf-8").splitlines()
     tokens = [company_tokens(line) for line in lines if line.strip() and not line.startswith("#")]
     return [token_set for token_set in tokens if token_set]
+
+
+def h1b_sponsors() -> list[frozenset[str]]:
+    """DOL-certified FY2024–FY2025 SWE H-1B sponsors, ready for name matching.
+
+    The file is generated from ColdEmail's DOL extraction and ships with the
+    package so GitHub Actions uses precisely the same sponsor list as a local
+    run.  A missing list deliberately becomes an empty result: it leaves the
+    green paint alone rather than falsely declaring every company a non-sponsor.
+    """
+    if not H1B_SPONSORS.exists():
+        return []
+    lines = H1B_SPONSORS.read_text(encoding="utf-8").splitlines()
+    tokens = [company_tokens(line) for line in lines if line.strip() and not line.startswith("#")]
+    return [token_set for token_set in tokens if token_set]
+
+
+def _h1b_tokens(company: str) -> frozenset[str]:
+    """Normalize a company name and expand only high-confidence brand aliases."""
+    tokens = company_tokens(company)
+    expanded = set(tokens)
+    for alias, legal_name in H1B_ALIASES.items():
+        if alias in tokens:
+            expanded.update(legal_name)
+    return frozenset(expanded)
+
+
+def is_h1b_sponsor(company: str, sponsors: list[frozenset[str]]) -> bool:
+    """Whether a Jobs company has a FY2024–FY2025 certified SWE H-1B sponsor.
+
+    Legal suffixes, punctuation, and added parent-company wording are ignored.
+    Matching remains whole-word and is conservative for generic one-word names,
+    avoiding an accidental green mark for an unrelated company with a shared
+    word.
+    """
+    candidate = _h1b_tokens(company)
+    if not candidate:
+        return False
+    for sponsor in sponsors:
+        if not same_employer(candidate, _h1b_tokens(" ".join(sponsor))):
+            continue
+        shared = candidate & sponsor
+        if len(shared) != 1 or next(iter(shared)) not in H1B_GENERIC_SINGLE_WORDS:
+            return True
+    return False
 
 
 def _values(values_api, settings: Settings, tab: str, columns: str) -> list[list[str]] | None:
@@ -398,6 +480,27 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
             sheet_id, already = state
             wanted = {separator - 1} if separator else set()
             requests += _requests(sheet_id, wanted, already, (0, JOBS_WIDTH), HIGHLIGHT)
+
+        # The H-1B indicator belongs solely to the Company cell.  Read and clear
+        # only this exact green, which leaves any colours the user added by hand
+        # (and the yellow divider in the same column) untouched.
+        sponsors = h1b_sponsors()
+        if not sponsors:
+            print("No H-1B sponsor list in this build; leaving Jobs company colours as they stand.")
+        else:
+            jobs = _values(values_api, settings, settings.sheet_tab, "A:A") or []
+            h1b_rows = {
+                index
+                for index, row in enumerate(jobs[FIRST_DATA_ROW:], start=FIRST_DATA_ROW)
+                if row and is_h1b_sponsor(row[0], sponsors)
+            }
+            state = _painted(service, settings, settings.sheet_tab, jobs_rows, "A", H1B_SPONSOR)
+            if state is not None:
+                sheet_id, already = state
+                requests += _requests(sheet_id, h1b_rows, already, (0, 1), H1B_SPONSOR)
+            print(f"Marked {len(h1b_rows)} Jobs companies as FY2024–FY2025 SWE H-1B sponsors.")
+    else:
+        h1b_rows = set()
     marks = (
         # Still a colour, and the only one left on this tab: a row in the alumni
         # directory is a person, not an application, so there is no checkbox of
@@ -455,6 +558,7 @@ def highlight(settings: Settings, separator: int = 0, jobs_rows: int = 0) -> Hig
         app_rows=applied_rows,
         app_lit=len(app_alumni),
         recruiter_lit=len(app_recruiter),
+        h1b_lit=len(h1b_rows),
         ticked=ticks.wrote,
         boxed=boxed,
     )
