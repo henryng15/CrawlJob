@@ -109,7 +109,7 @@ def test_a_company_list_line_that_is_a_comment_is_not_a_company() -> None:
 
 def test_h1b_sponsor_list_ships_with_the_package() -> None:
     assert H1B_SPONSORS.exists(), "the FY2024–FY2025 SWE H-1B sponsor list is missing"
-    assert len(h1b_sponsors()) == 12_614
+    assert len(h1b_sponsors()) == 4_657
 
 
 @pytest.mark.parametrize(
