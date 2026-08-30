@@ -138,6 +138,42 @@ self-corrects if a firing is missed.
 Gmail allows a consumer account 100 recipients a day through Apps Script. The busiest day here
 asks for a quarter of that.
 
+### Employers take turns there, too
+
+`outreachOrderForSending_` is the cold path's single ordering point — both `outreachDueNow_`, which
+picks what goes out this firing, and `outreachProjectSchedule_`, which writes the dates on the tab,
+read it, so they cannot disagree about who is next.
+
+It used to sort by ticked-first, then Date Applied, then row number. A wave of three shares one
+application and therefore one Date Applied, so those three rows sorted adjacent and went out **back
+to back** — three near-identical notes into one office inside a morning, while other employers
+waited a day. `COMPANY_WEEKLY_CAP` bounds a week and had nothing to say about an afternoon, and the
+referral path's per-employer *daily* cap has no equivalent here.
+
+It now builds two lines exactly as the referral re-plan does — ticked first, served whole — and runs
+`outreachInterleaveByCompany_` over each:
+
+```
+old   Intuit  Intuit  Intuit  NVIDIA  NVIDIA  NVIDIA  Nuro  Nuro  Nuro  …
+new   Intuit  NVIDIA  Nuro  AmEx  Samsara  Figma  Scale AI  HP  Intuit  NVIDIA  …
+```
+
+Longest run at one employer: **3 → 1**.
+
+Three things this does *not* change:
+
+- **The wave is not broken up.** This orders; it does not schedule. The same three rows are still
+  queued together and still spend the same three attempts — what changes is which hours they land
+  on, and where a day fills, which day.
+- **Sent rows never reach it.** Both callers hand over rows that are still `Queued`: the projection
+  filters on status, the sender on what is due. Ordering only ever concerns what has yet to go.
+- **A tick still grants nothing.** It does not make a row eligible early, raise the day's cap, or
+  lift `COMPANY_WEEKLY_CAP`. It decides which rows get slots that already existed.
+
+The key is `outreachCompanyTokens_`, not `outreachNameKey_`: the legal form has to come off, or
+"Stripe" and "Stripe Inc." take two turns each and that office is written to twice as fast as the
+interleaver thinks it is.
+
 ### One budget for the mailbox
 
 Three features now send from one address: the cold email, the follow-up that chases it, and the
@@ -148,10 +184,25 @@ done.
 
 `DAILY_EMAIL_BUDGET` is **45**, and it is a limit on the account rather than on any path: what gets
 a sending address penalised is the volume leaving one mailbox in a day, and the mailbox neither
-knows nor cares which of three features asked. The three caps sum to thirty-seven today, so the
-budget does not bind — and saying that out loud is the point rather than an admission. The sum is a
-coincidence of three constants chosen separately, and the next person to raise one of them will not
-be thinking about the other two. A guard rail you are leaning on is one that was installed too late.
+knows nor cares which of three features asked.
+
+**It now binds exactly.** 25 at the cold path's Tuesday peak, plus 6 follow-ups, plus 14 referrals,
+is 45 on the nose. There is no slack left, so the next raise to any one cap is a raise to this
+number whether or not whoever makes it has read this section — which is the first time the guard
+rail has been load-bearing rather than decorative.
+
+`REFERRAL_DAILY_CAP` went from twelve to fourteen and this number did not move, which is the outcome
+worth having: the extra asks came out of hours the day already had rather than out of the account's
+allowance. It was briefly 50, for a referral cap of sixteen that reached to nine at night; the
+window came back to 19:00 and so did this.
+
+Two ceilings sit above this one and neither binds. Apps Script allows a consumer `gmail.com` account
+[100 recipients a day](https://developers.google.com/apps-script/guides/services/quotas), so this is
+under half of what the platform permits. The real ceiling is reputation: this is cold mail from a
+free Gmail address with no domain and no dedicated IP, and what penalises such an account is bounce
+rate and complaint rate rather than volume. Bounces are dealt with upstream — every address on the
+employees tab passed an anymail `valid` check in `export_referrals.py` before it was exported, and
+the recruiter tab drops `UNSENDABLE_VERIFY` on the way in.
 
 `EMAIL_PATH_ORDER` is `referral`, `cold`, `followup`, and it decides who gives way when the budget
 binds:
@@ -714,34 +765,56 @@ worth hunting a contact for are still nameable. The moment a name is typed into
 
 There is **one** hourly trigger, not four on separate clocks — four would drift apart and leave
 the table describing four different moments. `runOutreachCycle` does the round in the order the
-steps depend on each other:
+steps depend on each other. **Eighteen steps**, each isolated — `step(name, work)` catches per
+step, so a Gmail search that throws in step 2 does not take step 12 with it:
 
-1. **what came back** — replies and bounces, so a reply seen now stops an attempt being created
-   in step 4
-2. **who said no** — rejections sitting in the mailbox, which close the application in `App` and
-   delete any draft already written for it
-3. **who said no elsewhere** — applications closed by hand in `App`, whose queue rows nothing had
-   called off, because the refusal arrived in a mailbox this project cannot read
-4. **what is new** — applications ticked `Applied` since the last firing
-5. **what goes out** — the drafts written an hour ago, unless one was deleted in the meantime
-6. **what is written** — this hour's share of the day's cap, into `Drafts`, to sit for an hour
-7. **what is chased** — follow-ups booked onto a day, and bookings taken back off
-8. **what is chased now** — the follow-ups whose day has come, replied onto their own threads
-9. **what happens next** — `Drafted At` and `Scheduled At`, recomputed across everything queued
-10. **what to expect** — the `Season` tab, rebuilt from `App` after everything that could change it
+```
+schema migration                       ← OUTSIDE the isolation; fatal by design
+health stamp: started
+ 1 layout            the Email tab's table pulled back together
+ 2 scan              replies and bounces on the Email tab
+ 3 rejections        rejections in the mailbox close the application in App
+ 4 stale             applications closed by hand, whose queue rows nothing called off
+ 5 referralScan      replies on the Referral tab
+ 6 referralReplanned cancellations settled, hours handed back, the queue tightened
+ 7 referralPlanned   new asks appended
+ 8 referralSent      referral drafts whose hour has come
+ 9 referralDrafted   the next hour's referral asks written into Drafts
+10 queued            applications ticked Applied since the last firing
+11 sent              cold drafts written an hour ago
+12 written           this hour's share of the day's cap, into Drafts
+13 followUpPlanned   follow-ups booked onto a day, and bookings taken back off
+14 followUpSent      the follow-ups whose day has come
+15 projected         Drafted At and Scheduled At, recomputed across everything queued
+16 season            the Season tab, rebuilt from App
+17 sorted            the Email tab filed in time order
+18 referralSorted    the Referral tab filed the same way
+health stamp: finished
+```
 
-Reversing any pair leaves the table a firing out of date: projecting before sending would put a
-date on rows that are about to leave, and enqueueing before scanning would create an attempt 2
-for someone who has already replied. **Step 5 before step 6** is the load-bearing one: drafting
-first would let a message be written and sent inside a single firing, and the hour in which it
-could have been read would never have existed. **Step 2 before step 4** is the other: a rejection
-read now has to close the application before anything opens a fresh attempt underneath it.
-**Steps 7 and 8 after 5 and 6** is the third: a follow-up is the cheaper of the two messages and
-the cold email is the one with a deadline attached — an application ages while it waits and a
-nudge does not — so on the firing where something has to give, the nudge is what gives. It also
-means a row sent minutes ago is on the tab as `Sent` before the planner reads it, and gets its day
-in the same round. Planning before sending, so a row booked for today can leave on this very
-firing rather than waiting an hour for the next one to notice it.
+Four orderings are load-bearing:
+
+- **Send before write** — 11 before 12, and 8 before 9. Drafting first would let a message be
+  written and sent inside a single firing, and the hour in which it could have been read would
+  never have existed.
+- **Rejections before enqueue** — 3 before 10. A rejection read now has to close the application
+  before anything opens a fresh attempt underneath it.
+- **`referralScan` before `referralReplanned`** — 5 before 6. The replan closes the rest of a group
+  somebody answered, and it can only close what the scan has marked; the other way round, a reply
+  landing on Monday would not call anything off until Tuesday, by which point Monday's colleague
+  has been written to.
+- **Follow-ups after the cold path** — 13 and 14 after 11 and 12. A follow-up is the cheaper of the
+  two messages and the cold email is the one with a deadline attached: an application ages while it
+  waits and a nudge does not, so on the firing where something has to give, the nudge is what
+  gives. It also means a row sent minutes ago is on the tab as `Sent` before the planner reads it.
+
+Planning comes before sending on both the follow-up and referral paths, so a row booked for today
+can leave on this very firing rather than waiting an hour for the next one to notice it.
+
+The **health stamp is written before the schema migration**, which is the one step deliberately
+outside the isolation and fatal by design. A run that dies part way leaves a row on `Cycle Health`
+that says it started and never says it finished — the only record such a death leaves behind, and
+the reason the tab exists.
 
 Step 1 only asks Gmail about rows sent in the last 30 days. Every sent row would mean one API
 call per row on every firing, growing with the queue forever — and a reply to a two-month-old
@@ -1044,23 +1117,28 @@ everything that can touch a mailbox:
 The first two are pure and covered by the same harness as everything else, which still sends
 nothing when it runs.
 
-> **What is wired.** `planReferralAsks`, `draftReferralAsks` and `sendReferralAsks` are runnable —
-> by hand from the editor, or from a trigger — and `sendReferralAsks` really sends.
-> **`runOutreachCycle` does not call any of them**: the ten steps in
-> [One firing does the whole round](#one-firing-does-the-whole-round) are still the whole round, so
-> until that changes nothing happens on this path unless somebody starts it.
+> **What is wired.** All of it. `referralScan`, `referralReplanned`, `referralPlanned`,
+> `referralSent` and `referralDrafted` are steps 5–9 of
+> [One firing does the whole round](#one-firing-does-the-whole-round). Nothing on this path needs
+> starting by hand.
 
-### It starts from a posting, not from an application
+### It starts from an application, not from a posting
 
-The cold queue reads `App`: something was applied to, so the company, the role and the date are
-already settled and the only open question is who to write to. The referral queue reads `Jobs`,
-one step earlier, and **does not require that the posting has been applied to at all.**
+Both queues read `App`, and the referral path did not always. It used to read `Jobs`, one step
+earlier, on the reasoning that a referral submitted *before* the application is the version of the
+favour that helps — the referrer's name goes on the file as it is created rather than being
+attached to a record already in the ATS.
 
-That ordering is the point rather than a shortcut. A referral submitted before the application is
-the version of the favour that helps — the referrer's name goes on the file as it is created,
-rather than being attached to a record already sitting in the ATS. It is also the only ordering
-this tracker can offer: a row reaches the `App` tab the moment you tick `Applied`, and by then the
-referral is late.
+That reasoning is sound and the tab was wrong for it. `Jobs` holds every posting the crawler
+found: hundreds of rows nobody had chosen, of which a handful were at companies this project has
+engineers for. **Having applied is a far stronger statement about which intake matters than a
+word in a job board's title** — of 327 rows on the live `App` tab only 81 said "summer", so
+filtering `Jobs` on the season word threw away three quarters of the real applications.
+
+The cost is admitted rather than hidden: the ask now arrives after the application, so the
+referrer's name is attached to a record already filed. `REFERRAL_REQUIRE_SEASON` is `false` for
+the same reason — every row on `App` is a deliberate act, and second-guessing it by title is how
+the earlier version lost most of its material.
 
 Three things have to be true, each its own function so a row nobody expected can be argued with one
 rule at a time:
@@ -1181,34 +1259,245 @@ shortener recognised the first heading and not the second. The newer application
 moving and the one whose posting is likeliest still open. The title is now only the tie break, for
 two applications made on the same day.
 
-**Weekdays only, 06:00 to 21:00.** The follow-up sends at weekends because it is a nudge on a
+**Weekdays only, 06:00 to 19:00.** The follow-up sends at weekends because it is a nudge on a
 thread the recipient already has, and a nudge on a Sunday costs nobody anything. A referral ask is a
 first message to a stranger asking them to spend their own credibility, and one that turns up on a
 Saturday morning says the sender either did not notice or did not mind — it is the same message on
-Monday and it reads better. The window is wider than the cold path's nine to five because that one
-is shaped around when a recruiter is at their desk reading applications, and this one is not: it
-lands in a working engineer's mailbox and is read whenever they next look, which includes the one somebody does before bed.
+Monday and it reads better. The window is wider than the cold path's nine to five at the early end
+only, because that one is shaped around when a recruiter is at their desk reading applications and
+this one is not: it lands in a working engineer's mailbox, and 06:00 is the top of that mailbox when
+they open it at eight. It is *not* wider at the late end — see
+[the hours](#fourteen-a-day-weekdays-only-one-to-an-hour) for why the evening was the wrong place to
+buy the extra room.
 
 `REFERRAL_PER_COMPANY` is **6**. Still far short of the twenty-three engineers this dataset holds at
 Reddit or the twenty-two at Goldman Sachs; asking all of them is not outreach, it is a mailing list
 that happens to be about one person. Six is the number that makes an employer a real attempt rather
 than a gesture — at three, two ignored messages were the whole of it.
 
-`REFERRAL_COMPANY_DAILY_CAP` is **6**, so all six may go on one day. This is a reversal of what the
-rule used to be, and the reasoning it reversed is worth stating because it was not wrong. The old
-cap was one a day, on the grounds that colleagues talk and two near-identical notes at one company
-read as a mailing shot. What that reasoning gets wrong is the remedy: six notes read as a mailing
-shot when they are *six identical notes*, and the tier, the template, the subject line and the
-bullet pair all differ per person. Spreading them over six days bought distance between messages
-nobody can see side by side anyway, and cost the thing that does matter — a company half-asked is a
-company whose remaining names go stale.
+`REFERRAL_COMPANY_DAILY_CAP` is **1**. This was one, then six, and is one again, and the argument
+for six is worth stating because it was never wrong: what makes six notes read as a mailing shot is
+six *identical* notes, and the tier, the template, the subject line and the bullet pair all differ
+per person. The calendar was buying distance between messages nobody can see side by side.
 
-The six still leave at six different hours between 08:00 and 19:00 rather than together, which is
-the part of the spreading that was doing real work.
+That argument is still correct and it is still not the reason this is one. The reason is what a day
+of sending is **for**. There are 221 employers in the dataset and six people at most of them —
+1,326 messages, which at fourteen a day is ninety-five working days whichever order they go in. The
+order is therefore the only decision available, and it decides which asks happen while the
+application is still recent:
 
-`REFERRAL_DAILY_CAP` is **12**, so a day is two employers finished rather than one. At six it would
-have been one company a day and nothing else. Twelve is also what the mailbox has room for: 25 at
-the cold path's Tuesday peak, plus 6 follow-ups, plus 12, is 43 against a budget of 45.
+| | Employers reached per day | A first ask at every employer |
+|---|---|---|
+| Six a day, company at a time | 2 | ~110 working days |
+| **One a day, round at a time** | **14** | **~16 working days** |
+
+The first ask at an employer is the one that has to land near the date applied; the sixth is a
+message about an application the reader will have to look up either way. 221 employers heard from
+once beats 37 worked to exhaustion, because the five extra notes at a company that was never going
+to answer are the cheapest thing on the tab to give up.
+
+It is also what makes a reply worth anything. Six on one day are all committed before anybody could
+have answered, so a reply cancels nothing; one a day leaves the second ask unwritten while the first
+is being read — which is what [the reply gate](#a-reply-calls-off-the-rest-of-the-ask) needs in
+order to have something to stop.
+
+> **The cap could not do this on its own.** The planner used to take one employer and book all six
+> of its people before looking at the next. Capping the day at one per company spread those six
+> across six days — but it did nothing about the order of the *companies*, so the first fourteen
+> employers filled the first six days between them and the two-hundredth waited a quarter of a year.
+> The loop is now inverted: the outer loop is the attempt number and the inner one is the companies,
+> so every employer gets its first ask before any employer gets its second. `openFirst` still orders
+> the companies inside each round, so it now decides who goes first within a round where it used to
+> decide who was finished first.
+
+Ticking `Priority` raises this cap to `REFERRAL_PRIORITY_COMPANY_CAP`, which is
+`REFERRAL_PER_COMPANY` — **the whole group in one day if the day holds it.** The natural ceiling on
+a ticked employer is simply everyone this project will ever ask there; a tick cannot conjure a
+seventh person.
+
+This was briefly **3**, on the reasoning that two ticked employers taking twelve of a day's fourteen
+slots was the clustering the breadth-first planner exists to prevent. That read the tab correctly
+and the request backwards. The clustering worth preventing is the *unasked-for* kind, where an
+employer nobody singled out quietly absorbs a day. A tick is somebody singling one out on purpose,
+and spreading it over two days made a tick mean "slightly sooner" rather than "now".
+
+Two rules make the tick mean what it says:
+
+- **Every ticked row goes before every unticked one**, not merely before the rows due at the same
+  minute. `outreachReferralReplan_` builds two lines and serves the ticked one whole.
+- **Ticked employers take turns inside that line.** `outreachInterleaveByCompany_` reorders each
+  line so the companies alternate — A, B, A, B rather than A, A, A, B, B, B. Ordinary rows get this
+  free from the per-employer daily cap, which forces turn-taking whatever order they arrive in; a
+  ticked company raises that cap, so without the interleaver its six rows took the first six hours
+  in a row. The group arrived at the front, which was right, and arrived as a block, which was not.
+
+The interleaver is [shared with the cold path](#employers-take-turns-there-too), which had the same
+bug from the other direction.
+
+The account's own daily cap is never lifted either way, because the mailbox does not care whose idea
+the day was. Ticking everything therefore does not raise the volume — it only decides who goes
+first. Breadth is
+the default because it is right most of the time; depth is a decision somebody makes about one
+employer on one day.
+
+`REFERRAL_DAILY_CAP` is **14**, so a day reaches fourteen different employers. Fourteen is also
+exactly what the mailbox has room for: 25 at the cold path's Tuesday peak, plus 6 follow-ups, plus
+14, is 45 against a budget of 45.
+
+### A reply calls off the rest of the ask
+
+The cold path has had `scanOutreachReplies` since the beginning and this path had **nothing**. A
+reply here was invisible: the engineer who answered was marked `Sent` like everybody else, and their
+five colleagues were written to on the following days as though nobody had said a word. That is the
+one failure this path cannot afford — it is asking for a favour, and asking four more people for it
+after somebody has already offered is how the favour gets withdrawn.
+
+`scanReferralReplies` runs first in the referral half of the cycle, before the re-plan, and the
+order is the whole value of it: the re-plan is what closes the rest of a group, and it can only
+close what the scan has already marked. Run the other way round, a reply landing on Monday would
+not call anything off until Tuesday — by which point Monday's colleague has been written to.
+
+No new column was needed. `sendReferralAsks` already writes the sent message's id into `Result`, so
+the thread is found again exactly the way the cold path finds its own; the id is then replaced by
+the sentence about the reply, which is safe because a row is only read here while it is still `Sent`.
+
+Three rules decide what a reply settles:
+
+- **The unit is the company *and role*,** the same key `Priority` and `Cancel` expand a tick over.
+  One engineer answering about the summer intake says nothing about a different req at that
+  employer, and everything about the five colleagues queued behind that one.
+- **Only `Replied` counts.** `Bounced` is the address failing, not the person declining, and the
+  colleague behind them is still worth asking. Which makes telling the two apart load-bearing —
+  see below.
+- **Both ends are gated.** `outreachReferralReconcile_` closes the rows that already exist and the
+  planner refuses to create the next one. With only the first, a reply would call off Monday's
+  remaining rows and the planner would book them straight back on Tuesday.
+
+`Replied` and `Bounced` also join `Sent` and `Cancelled` as states reconcile leaves alone. All four
+are history: the message went, and something came back or nothing did. Retiring a `Replied` row
+would have the gate close the very row that proves the reply.
+
+#### Stopped is not Skipped
+
+Two words in `Follow Up Status` that look alike and mean opposite things:
+
+| | |
+|---|---|
+| **`Stopped`** | A follow-up that **was booked** and has been called off — somebody at that company replied, or the row itself left `Sent`. Its `Follow Up At` is cleared with it, because a date left on a row that will never use it reads as a plan. |
+| **`Skipped`** | A follow-up that was **never booked**. The row reached the question and the answer was no, with the reason written beside it: sent over 21 days ago, no day in the window could carry it, somebody at the company had already replied. |
+
+Both are permanent. `outreachFollowUpEarns_` opens with
+`if (row.followUpStatus) return { ok: false, why: 'already decided' }`, so a row carrying either word
+is never reconsidered — which is what makes one follow-up per row a rule rather than a tendency, and
+also what made the bug below expensive.
+
+#### Counting messages is not reading them
+
+The first version of `scanReferralReplies` decided by `thread.getMessageCount() > 1`, copied from
+the cold path. That is true of a delivery failure as well as of a person, and it went wrong the
+first time it ran: a dead address at Nuro came back as a mailer-daemon message on the same thread,
+the row was marked `Replied`, and because a reply retires the whole group **the five colleagues
+behind it were cancelled** — the exact opposite of what a bounce is supposed to mean, and a direct
+contradiction of the rule two paragraphs up.
+
+**The same check was wrong on the cold path too, and worse.** The follow-up is posted onto the very
+thread the scan is reading, so five days after any cold email the count reached two on its own and
+the row came back `Replied` — the queue reading *its own second message* as the recruiter's first.
+The Google thread that exposed it held exactly two messages, both `From: Henry Nguyen`. One wrong
+cell then did two things: `Replied` is terminal, so that row's wave arithmetic thought the company
+had answered; and `outreachCompanyHasReply_` marked every colleague's booked follow-up `Stopped`,
+which as above is permanent.
+
+`outreachThreadVerdict_` decides by **who sent the messages**, not how many there are. Anything from
+`mailer-daemon` or `postmaster` is a bounce; anything else that is not ours is a reply. Four details
+carry their weight:
+
+- **Ours is decided by address, not by id.** The id finds our first message; every later message
+  from that same address is also ours. Skipping only the id is exactly what let the follow-up count
+  as an answer — and it is why this takes a thread rather than a number.
+- **Our own message is found by id, not by position.** It is usually first, but a thread the
+  recipient had already started puts it second, and counting from index one would read our own
+  email as their answer.
+- **A reply outranks a bounce** when a thread somehow holds both. One address failing does not
+  unsay what a person wrote.
+- **The verdict is a pure function over `{id, from}`,** not over Gmail messages, so the harness can
+  argue with it without a mailbox.
+
+It is used at all three scan points — `scanOutreachReplies`, `sendFollowUpReplies` and
+`scanReferralReplies` — and lives in `outreach_config.gs` beside the interleaver rather than in any
+one path's file. `repairMisreadReplies` undoes the cold-path damage: rows whose thread holds nothing
+but our own messages go `Replied` → `Sent`, and the follow-ups their company stopped are handed back
+as blank so `planFollowUpReplies` books them normally. It leaves alone any row whose thread holds a
+real reply or a real bounce, and any `Stopped` whose company still has a genuine answer.
+
+`repairMisreadReferralBounces` fixes rows already written wrong. It cannot find the thread by id —
+marking a row `Replied` overwrote `Result`, which is where the sent message id lives — so it reads
+what `mailer-daemon` has sent in the last thirty days and takes the addresses out of the bodies, the
+way the cold path finds its own bounces. Rows it corrects go `Replied` → `Bounced`; the group-mates
+it cancelled go back to `Queued` with their hours cleared, but **only** where nothing in that group
+is a genuine reply, and **only** where `Last Error` still carries the sentence this wrote. A row
+somebody called off by hand is theirs to un-cancel. Nothing is sent, and running it twice finds
+nothing the second time.
+
+### The tab in time order
+
+The `Referral` tab used to sit in the order the planner appended, which grouped an employer's six
+people together because that is how they were booked. It read as a record of decisions and not as a
+queue: the next thing due could be anywhere. Once the planner became breadth-first those clusters
+stopped even being contiguous, which is the worst of both.
+
+#### Ticking Cancel used to do nothing
+
+The symptom was "I tick `Cancel` on one row and the tab just re-clusters". The cause was not the
+sort and not the planner: **`onEdit` was never listening to this tab at all.**
+`outreachEditTouchesPriority_` filters for `TAB_QUEUE`, `outreachEditTouchesRole_` for `TAB_APP`,
+and the `Referral` tab was given neither. A tick therefore did nothing until the hourly cycle came
+round — and running `replanReferralAsks` by hand in the meantime changed the *hours* without
+changing the *order*, so the table still showed the clusters the old depth-first planner had
+appended, with the cancelled rows still sitting between live ones.
+
+`outreachEditTouchesReferral_` closes it, for `Cancel` **and** `Priority` — the latter matters now
+that a tick is the [depth switch](#a-reply-calls-off-the-rest-of-the-ask) rather than a reordering.
+`settleReferralTab_` is what the trigger runs, and it is three steps whose order is the point:
+cancelling frees hours, re-timing spends them on the rows behind, refiling puts the table in the
+order those new hours imply with the called-off rows at the bottom. **Any two of the three leaves
+the tab describing something that is no longer true**, which is exactly what was being seen.
+
+It is sheet-only, so it is quick enough to hang off a keystroke. The Gmail half — discarding the
+drafts a cancellation orphans — stays in `replanReferralAsks`. That split is safe in this direction
+only: the row goes `Cancelled` at the keystroke and its draft is binned within the hour, and a draft
+outliving its row sends nothing because `sendReferralAsks` only sends rows the tab still calls
+`Drafted`. The two paths share `outreachApplyReferralCancels_` and `outreachApplyReferralTimes_`
+rather than spelling the rules twice, because they used to disagree and a person reads the tab in
+between.
+
+#### Who owns the sort
+
+The rule is written on `outreachSortReferralByTime_` so it stays true rather than happening to be
+true: **whatever changes a sort key calls the sort before it returns.** The keys are `Scheduled At`
+and whether the row is `Cancelled`; nothing else moves a row. That gives three groups:
+
+| | |
+|---|---|
+| **Owns the sort** | `planReferralAsks`, `replanReferralAsks`, `settleReferralTab_`, `repairMisreadReferralBounces`, `sortReferralTab` — each runnable alone, each leaves a readable tab |
+| **Cannot move a row** | `draftReferralAsks`, `scanReferralReplies` — `Drafted`, `Replied` and `Bounced` are not `Cancelled`, and none of them touches `Scheduled At` |
+| **Covered by the cycle** | `sendReferralAsks`, harmless except on the branch where a deleted draft makes a row `Cancelled`; it only ever runs inside `runOutreachCycle`, whose last step refiles |
+
+The cycle's `referralSorted` step is the backstop for that third group, and it is why the group is
+allowed to exist at all. A fourth caller that writes a status or an hour outside the cycle belongs
+in the first group, not the third.
+
+`outreachSortReferralByTime_` runs last in the cycle, after every step that could change an hour,
+and files the tab the way the `Email` tab is already filed — earliest first, `Cancelled` sunk to the
+bottom. Sent rows keep their place in the timeline rather than sinking, because the past above the
+future is what makes the tab answer *what has gone, and what is next*.
+
+`Cancelled` sinks because its time is not a fact about anything: the row is not going out at that
+hour or any other, and left in line it puts a dead row between two live ones. This mirrors
+`outreachTimeOrder_` on the cold path deliberately — two tabs side by side have to be read the same
+way. Sorting the values rather than calling `Range.sort` is what makes it testable, and it is safe
+because every data row carries identical dressing: the colours are keyed off the values themselves
+and the dropdowns and formats are applied by column to every row alike.
 
 ### Calling a row off, and the line moving up
 
@@ -1258,24 +1547,47 @@ The planner runs after it, so the freed days are days it can top up into.
 > the scarce thing is different: there a contact is spent only if the message reached them, here
 > the count is of decisions already made about a company with three names in it.
 
-### Twelve a day, weekdays only, spread across the working day
+### Fourteen a day, weekdays only, one to an hour
 
-`REFERRAL_DAILY_CAP` is six, counted across every employer rather than within one. It is this
+`REFERRAL_DAILY_CAP` is **14**, counted across every employer rather than within one. It is this
 path's own cap; what the *account* may send in a day across all three paths is a second, smaller
 question, and it has [its own section](#one-budget-for-the-mailbox).
 
-Weekends are not skipped, and the hours are the follow-up's rather than the cold path's — 08:00 to
-19:00, through `outreachSpaceHours_(6, 8, 19)`, which anchors both ends and spaces the rest
-between:
+Fourteen is the window rather than a preference. The hours run 06:00 to 19:00, which is fourteen
+hours, and `outreachSpaceHours_(14, 6, 19)` puts exactly one ask in each of them:
 
 ```
-08:00   10:00   12:00   15:00   17:00   19:00
+06:00  07:00  08:00  09:00  10:00  11:00  12:00
+13:00  14:00  15:00  16:00  17:00  18:00  19:00
 ```
 
-Neither is an oversight. A cold email arrives during a recruiter's working day and is read as work;
-a referral note lands in an engineer's personal inbox and is read whenever they read their mail. The
-same arithmetic the follow-up uses applies for the same reason: six across twelve hours filled from
-the front finishes by lunchtime, and nothing here is ageing badly enough to justify that.
+Fifteen is the first number that has to double up, and two notes leaving one mailbox inside one hour
+is the shape a reader recognises as a machine even when they went to different companies. So the cap
+is not *how many can the account afford* — it is *how many fit one to an hour*, and past fourteen
+raising it is a change to the hours as well as to the budget. `every referral in a full day leaves
+in an hour of its own` in the harness is the sentence that keeps it that way.
+
+**The two ends are not symmetric, and that is the rule rather than an oversight.** The early end is
+wide because it is the best hour of the day: this lands in a working engineer's mailbox rather than
+on a recruiter's desk, and 06:00 is the top of the inbox for somebody who opens their mail at eight.
+
+The late end used to be 21:00, on the reasoning that it caught the read somebody does before bed.
+That reasoning was wrong in a way worth recording rather than quietly deleting. A message arriving
+at nine in the evening is not read before bed — it is buried by everything that arrives overnight
+and is down page two by eight the next morning. 20:00 and 21:00 were the two *worst* slots in the
+day, not the two most patient ones. There is a second reason and it is about the sender: a mailbox
+that emits a message at exactly 06:00 and again at exactly 21:00 every weekday is not a shape a
+person produces. Cutting the tail cost two sends and bought back the part of the day that was
+advertising the machine.
+
+For the same reason the cold path stays at 09:00–17:00 and the follow-up at 08:00–19:00. Only this
+path ever reached past seven in the evening, and it no longer does.
+
+Weekends **are** skipped, and this is the reversal that separates the path from the follow-up. A
+follow-up is one sentence on a thread the recipient already has, and a nudge arriving on a Sunday
+costs nobody anything. A referral ask is a first message to a stranger asking them to spend their
+own credibility, and one that turns up on a Saturday morning says the sender either did not notice
+or did not mind. It is the same message on Monday and it reads better.
 
 `outreachReferralSlot_` walks forward a day at a time from today and takes the first slot clearing
 both caps. **There is no window and no ceiling.** A follow-up has a window it can miss — past
@@ -1294,7 +1606,7 @@ point:
 
 | | |
 |---|---|
-| `planReferralAsks` | reads `Jobs`, `Referral` and the employee export, and appends the rows the planner booked. Touches no mailbox, so it is safe at any hour and from any button |
+| `planReferralAsks` | reads `App`, `Referral` and the employee export, and appends the rows the planner booked. Touches no mailbox, so it is safe at any hour and from any button |
 | `draftReferralAsks` | writes the message `DRAFT_LEAD_HOURS` before its slot — resume attached, real address in the `To` field — and leaves it in Drafts |
 | `sendReferralAsks` | sends whatever is still there when the hour arrives |
 
@@ -1769,8 +2081,9 @@ Nothing leaves the account until `OUTREACH_MODE` is cleared, whatever else is in
 
 ### Preparing the referral path
 
-None of this is a prerequisite of the eight steps above, and `runOutreachCycle` still does not call
-the referral path, so nothing below starts sending on its own.
+The referral path **is** part of `runOutreachCycle` — steps 5–9. The setup below is what has to
+exist before those steps have anything to work with; once it does, the path runs on the hourly
+trigger like the other two, and `OUTREACH_MODE` is what holds it back.
 
 1. Add an `Employees (seed)` tab to the contacts spreadsheet, headed `Company · Person Name ·
    Email · Title · Domain · Seniority · LinkedIn · Angle · Bucket · Verify`. In ColdEmail,
@@ -1799,8 +2112,9 @@ the referral path, so nothing below starts sending on its own.
 5. In the sender project, run `checkReferralService`. It reads and sends nothing and names every
    missing piece at once — no tab, no export, a resume that will not open. `previewReferralTemplates`
    logs all forty messages, which is the cheapest way to confirm the templates arrived in the push.
-6. Then `planReferralAsks` by hand, and read the `Referral` tab before letting anything near a
-   mailbox. It appends rows and touches no mailbox at all, so this step is free.
+6. Then `planReferralAsks` by hand once, and read the `Referral` tab before letting anything near
+   a mailbox. It appends rows and touches no mailbox at all, so this step is free. After that the
+   hourly cycle does it.
 
 `draftReferralAsks` and `sendReferralAsks` are the two that can reach Gmail, in that order and an
 hour apart. `OUTREACH_MODE = Draft` holds this path back exactly as it holds the cold one:

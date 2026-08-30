@@ -387,12 +387,30 @@ function scanOutreachReplies() {
     if (!id) return;
     try {
       var thread = GmailApp.getMessageById(id).getThread();
-      if (thread.getMessageCount() > 1) {
+      // Who sent them, not how many there are. This read `getMessageCount() > 1`
+      // and the follow-up is posted onto this same thread, so every row that got
+      // one came back Replied on the next scan — the queue reading its own second
+      // message as the recruiter's first, and then calling off the follow-ups of
+      // every colleague at that company. See outreachThreadVerdict_.
+      var verdict = outreachThreadVerdict_(thread.getMessages().map(function (one) {
+        return { id: one.getId(), from: one.getFrom() };
+      }), id);
+      if (verdict === STATUS_REPLIED) {
         var replied = {};
         replied[Q_STATUS] = STATUS_REPLIED;
         replied[Q_RESULT] = 'Reply on ' + thread.getLastMessageDate();
         outreachWriteRow_(queue, row.rowNumber, replied);
         tally.replied++;
+      } else if (verdict === STATUS_BOUNCED) {
+        // The bounce pass below finds these too, by reading mailer-daemon's own
+        // mail, and writes the same status. Recording it here as well costs one
+        // write and catches the failure whose notice never named the address in a
+        // form that pass could match.
+        var dead = {};
+        dead[Q_STATUS] = STATUS_BOUNCED;
+        dead[Q_ERROR] = 'Delivery failed; this contact will not be used again.';
+        outreachWriteRow_(queue, row.rowNumber, dead);
+        tally.bounced++;
       }
     } catch (error) {
       // A deleted message is not a reply, and not worth failing a whole run for.
@@ -430,6 +448,111 @@ function scanOutreachReplies() {
   Logger.log('replied ' + tally.replied + ', bounced ' + tally.bounced);
   return tally;
 }
+
+/**
+ * Run by hand: undo the replies that were never replies.
+ *
+ * `scanOutreachReplies` shipped reading `thread.getMessageCount() > 1` as an
+ * answer. The follow-up is posted onto that same thread, so five days after any
+ * cold email the count reached two on its own and the row was marked Replied —
+ * the queue reading its own second message as the recruiter's first. The Google
+ * thread that exposed it held exactly two messages, both `From: Henry Nguyen`.
+ *
+ * Two things then followed from one wrong cell, and both are undone here:
+ *
+ *   the row itself   Replied is terminal. It leaves the wave arithmetic thinking
+ *                    that company answered, and outreachFollowUpEarns_ refuses a
+ *                    row whose status is not Sent.
+ *   its colleagues   outreachCompanyHasReply_ stops every booked follow-up at that
+ *                    employer, and Stopped is permanent: `if (row.followUpStatus)
+ *                    return { ok: false, why: 'already decided' }`.
+ *
+ * The thread can be found by id here, unlike on the referral path, because the
+ * cold tab keeps the message id in a column of its own rather than sharing one
+ * with the outcome sentence.
+ *
+ * Conservative in both directions. A row is only corrected when the thread holds
+ * nothing but this account's own messages — a real reply, or a bounce, is left
+ * exactly where it is. A Stopped follow-up is only given back when its row is Sent
+ * and its company has no genuine reply left, so a nudge called off by a rejection
+ * stays called off.
+ *
+ * Nothing is sent and nothing is drafted. Safe to run twice: the second pass finds
+ * nothing to change and says so.
+ */
+function repairMisreadReplies() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+  var last = queue.getLastRow();
+  if (last < 2) return { corrected: 0, restored: 0 };
+
+  var values = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues();
+  var rows = values.map(outreachParseQueue_);
+  var messageIds = queue.getRange(2, Q_MESSAGE_ID, last - 1, 1).getValues();
+
+  var tally = { corrected: 0, restored: 0 };
+  var freed = {};
+
+  rows.forEach(function (row, index) {
+    if (row.status !== STATUS_REPLIED) return;
+    var id = String(messageIds[index][0] || '').trim();
+    if (!id) return;
+    try {
+      var thread = GmailApp.getMessageById(id).getThread();
+      var verdict = outreachThreadVerdict_(thread.getMessages().map(function (one) {
+        return { id: one.getId(), from: one.getFrom() };
+      }), id);
+      // Only the case this is here for. A real reply and a real bounce both leave
+      // the row alone.
+      if (verdict) return;
+      var updates = {};
+      updates[Q_STATUS] = STATUS_SENT;
+      updates[Q_RESULT] = row.template
+        ? 'Sent: ' + row.template
+        : 'Recorded as a reply in error and corrected.';
+      outreachWriteRow_(queue, row.rowNumber, updates);
+      row.status = STATUS_SENT;
+      freed[outreachNameKey_(row.company)] = true;
+      tally.corrected++;
+    } catch (error) {
+      // A deleted message is not evidence of anything, and not worth failing on.
+    }
+  });
+
+  if (!tally.corrected) {
+    Logger.log('No queue row was holding its own follow-up as a reply.');
+    return tally;
+  }
+
+  // Recomputed from the corrected rows, so an employer that also has a genuine
+  // reply keeps its follow-ups called off.
+  var stillAnswered = {};
+  rows.forEach(function (row) {
+    if (row.status === STATUS_REPLIED) stillAnswered[outreachNameKey_(row.company)] = true;
+  });
+
+  rows.forEach(function (row) {
+    if (row.followUpStatus !== FOLLOWUP_STOPPED) return;
+    if (row.status !== STATUS_SENT) return;
+    var key = outreachNameKey_(row.company);
+    if (!freed[key] || stillAnswered[key]) return;
+    // Blank rather than Queued: blank is what outreachFollowUpEarns_ reads as "not
+    // decided yet", and planFollowUpReplies books it in the ordinary way on the
+    // next cycle rather than this function inventing a day for it.
+    var updates = {};
+    updates[Q_FOLLOWUP_STATUS] = '';
+    updates[Q_FOLLOWUP_AT] = '';
+    outreachWriteRow_(queue, row.rowNumber, updates);
+    tally.restored++;
+  });
+
+  Logger.log('Corrected ' + tally.corrected + ' row(s) from Replied back to Sent, and '
+           + 'gave back ' + tally.restored + ' stopped follow-up(s). '
+           + 'planFollowUpReplies will book them on the next cycle.');
+  return tally;
+}
+
 
 /**
  * Run by hand: draft the next few emails **to yourself**, to read before anyone
@@ -593,6 +716,12 @@ function runOutreachCycle() {
   // behind them; the planner then tops the queue up against days that already
   // reflect all of that. Run the other way round, a cancelled row's hour would be
   // filled by a new person and the row behind it would still be waiting a week.
+  // Before the replan, and the order is the whole value of it. The replan is what
+  // closes the rest of a group somebody has answered, and it can only close what
+  // this step has already marked; run the other way round, a reply landing on
+  // Monday would not call anything off until Tuesday, by which point Monday's
+  // colleague has been written to.
+  step('referralScan', function () { return scanReferralReplies().replied; });
   step('referralReplanned', function () { return replanReferralAsks().moved; });
   step('referralPlanned', function () { return planReferralAsks().booked; });
   step('referralSent', sendReferralAsks);
@@ -633,6 +762,14 @@ function runOutreachCycle() {
   // first would file the table by the previous hour's answer.
   step('sorted', function () {
     return outreachSortQueueByTime_(tracker.getSheetByName(TAB_QUEUE));
+  });
+  // The Referral tab gets the same treatment and for the same reason, after every
+  // step that could have changed an hour on it. The tab used to sit in the order
+  // the planner appended, which grouped an employer's people together; once the
+  // planner became breadth-first those groups stopped being contiguous anyway, and
+  // what the tab is opened to answer is what has gone and what is next.
+  step('referralSorted', function () {
+    return outreachSortReferralByTime_(tracker.getSheetByName(TAB_REFERRAL));
   });
 
   summary.failedSteps = failures;
@@ -683,7 +820,8 @@ function onOutreachQueueEdit(e) {
   // in the spreadsheet, which is nearly all of them.
   var priority = outreachEditTouchesPriority_(name, e.range);
   var role = outreachEditTouchesRole_(name, e.range);
-  if (!priority && !role) return;
+  var referral = outreachEditTouchesReferral_(name, e.range);
+  if (!priority && !role && !referral) return;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return;
@@ -694,6 +832,17 @@ function onOutreachQueueEdit(e) {
       // table is filed by those times — so it has to be refiled in the same breath
       // or it is left describing an order that no longer exists.
       outreachSortQueueByTime_(sheet);
+      return;
+    }
+
+    // A Cancel or a Priority tick on the Referral tab, which used to be answered
+    // by nothing at all until the hourly cycle came round. The same three things
+    // the Email tab gets above, in the same breath and for the same reason: the
+    // tick frees or reorders hours, the re-plan spends them, and the table is filed
+    // by those hours. See settleReferralTab_.
+    if (referral) {
+      settleReferralTab_(SpreadsheetApp.openById(
+        outreachProperty_(PROP_TRACKER_ID, true)));
       return;
     }
 
@@ -725,8 +874,12 @@ function installOutreachTriggers() {
   // One hourly trigger rather than four on separate clocks. Four would drift
   // apart and leave the table describing four different moments.
   ScriptApp.newTrigger('runOutreachCycle').timeBased().everyHours(1).create();
-  // And one that answers a tick straight away. It sends nothing and drafts
-  // nothing; all it can do is rewrite the two projected columns.
+  // And one that answers a tick straight away, on either tab. It sends nothing and
+  // drafts nothing: on Email it rewrites the two projected columns, and on Referral
+  // it settles a Cancel or a Priority tick and refiles the table. No mailbox is
+  // opened on either path, which is what makes it safe to hang off a keystroke.
+  //
+  // Extending this handler needs no re-install — the trigger binds to the name.
   ScriptApp.newTrigger('onOutreachQueueEdit')
            .forSpreadsheet(outreachProperty_(PROP_TRACKER_ID, true))
            .onEdit()

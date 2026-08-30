@@ -1187,7 +1187,8 @@ function outreachPrioritised_(row, groups) {
 }
 
 /**
- * The order rows are worked in: asked for first, then oldest application.
+ * The order rows are worked in: asked for first, then employers taking turns,
+ * oldest application leading.
  *
  * A tick reorders and does nothing else. It does not make a row eligible before
  * its two-day wait, does not raise the day's cap, and does not lift the weekly cap
@@ -1195,6 +1196,25 @@ function outreachPrioritised_(row, groups) {
  * flag that could also grant slots would be a way to send forty emails on a Friday
  * by ticking forty boxes, which is the failure this whole cap table exists to
  * prevent.
+ *
+ * Two lines, ticked first, and the ticked one is served whole before the other is
+ * looked at. A tick that only lifted a row above the rows applied for on the same
+ * day would mean "slightly sooner"; ahead of everything unticked is what it means.
+ *
+ * Each line is then interleaved so employers take turns. Sorting by Date Applied
+ * alone kept a company's rows adjacent — a wave of three shares one application
+ * and therefore one date — so three near-identical notes went into one office back
+ * to back while other employers waited a day. COMPANY_WEEKLY_CAP bounds a week and
+ * had nothing to say about an afternoon. The referral path reached the same
+ * arrangement from the other direction and outreachInterleaveByCompany_ is shared
+ * between them.
+ *
+ * This orders and does not schedule, so the wave is not broken up: the same three
+ * rows are still queued together and still spend the same three attempts. What
+ * changes is which hours they land on, and — where a day fills — which day.
+ *
+ * Already-sent rows never reach here. Both callers hand over rows that are still
+ * Queued: the projection filters on status, and the sender on what is due.
  *
  * Decorated before sorting rather than tokenising inside the comparator: a
  * comparator runs O(n log n) times and would re-tokenise the same company name on
@@ -1205,14 +1225,17 @@ function outreachPrioritised_(row, groups) {
  */
 function outreachOrderForSending_(rows, all) {
   var groups = outreachPriorityGroups_(all);
-  return rows.map(function (row) {
-    return { row: row, first: outreachPrioritised_(row, groups) ? 0 : 1 };
-  }).sort(function (a, b) {
-    if (a.first !== b.first) return a.first - b.first;
-    var left = a.row.dateApplied ? a.row.dateApplied.getTime() : Infinity;
-    var right = b.row.dateApplied ? b.row.dateApplied.getTime() : Infinity;
-    return left === right ? a.row.rowNumber - b.row.rowNumber : left - right;
-  }).map(function (entry) { return entry.row; });
+  var byAge = function (a, b) {
+    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
+    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
+    return left === right ? a.rowNumber - b.rowNumber : left - right;
+  };
+  var ticked = [], plain = [];
+  rows.forEach(function (row) {
+    (outreachPrioritised_(row, groups) ? ticked : plain).push(row);
+  });
+  return outreachInterleaveByCompany_(ticked.sort(byAge))
+    .concat(outreachInterleaveByCompany_(plain.sort(byAge)));
 }
 
 /**
@@ -1519,6 +1542,26 @@ function outreachSortQueueByTime_(queue) {
  * A range rather than a cell, because paste and fill-down hand over a block. The
  * test is overlap, not equality: a paste across the whole row includes Priority.
  */
+/**
+ * Whether an edit is one the Referral tab has to answer at once.
+ *
+ * Two columns, and both change what the tab says is happening next. `Cancel` calls
+ * off an ask and frees its hours; `Priority` lifts the per-employer cap so a whole
+ * group can go in one day. Left to the hourly cycle, both read as nothing having
+ * happened — which is the thing outreachEditTouchesPriority_ was written to stop
+ * on the Email tab, and this tab was simply never given the same treatment.
+ *
+ * A range rather than a cell, because paste, fill-down and undo hand over a block,
+ * and a paste across the whole row includes both columns. Overlap, not equality.
+ */
+function outreachEditTouchesReferral_(tabName, range) {
+  if (tabName !== TAB_REFERRAL) return false;
+  var first = range.getColumn(), last = range.getLastColumn();
+  var covers = function (column) { return first <= column && last >= column; };
+  if (!covers(R_CANCEL) && !covers(R_PRIORITY)) return false;
+  return range.getLastRow() >= 2;
+}
+
 function outreachEditTouchesPriority_(tabName, range) {
   if (tabName !== TAB_QUEUE) return false;
   if (range.getColumn() > Q_PRIORITY || range.getLastColumn() < Q_PRIORITY) return false;

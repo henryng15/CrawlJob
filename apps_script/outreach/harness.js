@@ -1230,6 +1230,62 @@ console.log('the Priority tick — asked for by hand goes first');
     assert.strictEqual(
       S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber).join(','), '3,4,5,2');
   });
+  // COMPANY_WEEKLY_CAP bounds a week and had nothing to say about an afternoon, so
+  // a wave of three — one application, therefore one Date Applied, therefore three
+  // adjacent rows — went into one office back to back while other employers waited.
+  run('a wave of three does not go out back to back', () => {
+    const rows = [
+      queued(2, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Acme', 'SWE Intern', day(2026, 6, 1)),
+      queued(5, 'Bolt', 'SWE Intern', day(2026, 6, 2)),
+      queued(6, 'Bolt', 'SWE Intern', day(2026, 6, 2))
+    ];
+    const order = S.outreachDueNow_(rows, friday3pm).map((r) => r.company);
+    assert.strictEqual(order.join(','), 'Acme,Bolt,Acme,Bolt,Acme', order.join(','));
+  });
+
+  // The older application still leads its own line; interleaving decides who comes
+  // between its rows, not which employer goes first.
+  run('the oldest application still leads after interleaving', () => {
+    const rows = [
+      queued(2, 'Newer', 'SWE Intern', day(2026, 8, 20)),
+      queued(3, 'Older', 'SWE Intern', day(2026, 6, 1))
+    ];
+    assert.strictEqual(
+      S.outreachDueNow_(rows, friday3pm).map((r) => r.company).join(','), 'Older,Newer');
+  });
+
+  // Ahead of everything unticked, not merely ahead of what was applied for on the
+  // same day — and taking turns among themselves once there.
+  run('ticked employers interleave at the front, unticked follow', () => {
+    const rows = [
+      queued(2, 'Quiet', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Quiet', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Urgent A', 'SWE Intern', day(2026, 8, 20), { priority: true }),
+      queued(5, 'Urgent A', 'SWE Intern', day(2026, 8, 20)),
+      queued(6, 'Urgent B', 'SWE Intern', day(2026, 8, 21), { priority: true }),
+      queued(7, 'Urgent B', 'SWE Intern', day(2026, 8, 21))
+    ];
+    // The ordering itself, not outreachDueNow_, because the day's cap truncates the
+    // list and this is a question about order rather than about how many fit.
+    const order = S.outreachOrderForSending_(rows, rows).map((r) => r.company);
+    assert.strictEqual(order.join(','),
+      'Urgent A,Urgent B,Urgent A,Urgent B,Quiet,Quiet', order.join(','));
+  });
+
+  // The legal form has to come off, or the interleaver treats one employer as two
+  // and sends into that office twice as fast as it thinks it is.
+  run('an employer written two ways takes one turn, not two', () => {
+    const rows = [
+      queued(2, 'Stripe', 'SWE Intern', day(2026, 6, 1)),
+      queued(3, 'Stripe Inc.', 'SWE Intern', day(2026, 6, 1)),
+      queued(4, 'Bolt', 'SWE Intern', day(2026, 6, 2))
+    ];
+    const order = S.outreachDueNow_(rows, friday3pm).map((r) => r.rowNumber);
+    assert.strictEqual(order.join(','), '2,4,3', order.join(','));
+  });
+
   run('a tick does not reach an abbreviation the role matcher has never folded', () => {
     // "SWE Intern" and "Software Engineer Intern" share only the word intern, which
     // is a quarter of their words against a ROLE_MATCH of 0.6. This is not new here:
@@ -3303,17 +3359,70 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(plan.booked.length, 6);
   });
 
-  // All six may land on one day, which is the reverse of what this used to check.
-  // What makes six notes read as one mailing shot is six identical notes, and the
-  // next test is the one that has to hold for this to be safe.
-  run('a company is finished in a day rather than spread over six', () => {
+  // One a day, spread over six, which is a reversal back to what this once
+  // checked. Six on one day are all committed before anybody could have answered,
+  // so a reply cancels nothing; one a day leaves the second ask unwritten while
+  // the first is being read, which is what the reply gate needs to have something
+  // to stop. The breadth test below is the other half of the same argument.
+  run('a company is spread over six days rather than finished in one', () => {
     const days = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY)
       .booked.map((one) => one.scheduled.toDateString());
-    assert.strictEqual(new Set(days).size, 1, days.join(' | '));
-    // Different hours within it, so six do not leave the mailbox together.
-    const hours = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY)
-      .booked.map((one) => one.scheduled.getHours());
-    assert.strictEqual(new Set(hours).size, 6, hours.join(','));
+    assert.strictEqual(days.length, 6);
+    assert.strictEqual(new Set(days).size, 6, days.join(' | '));
+  });
+
+  // The change the per-company cap could not make on its own. Booking a company
+  // at a time put the first fourteen employers across the first six days and left
+  // the fifteenth waiting behind all of them; booking a round at a time gives
+  // every employer its first ask before any employer gets its second.
+  run('every employer is asked once before any employer is asked twice', () => {
+    const companies = ['Stripe', 'Figma', 'Notion', 'Linear', 'Vercel'];
+    const jobs = companies.map((name, i) =>
+      jobRow(name, 'Software Engineer Intern, Summer 2027', GH + i));
+    // The shared `person` helper is hard-wired to Stripe, and this is the one
+    // test that needs more than one employer.
+    const at = (company, letter) => ({
+      company: company, tokens: S.outreachCompanyTokens_(company),
+      name: letter.toUpperCase() + company,
+      email: letter + '@' + company.toLowerCase() + '.com',
+      title: 'Software Engineer', domain: company.toLowerCase() + '.com',
+      seniority: '', angle: '', bucket: 'fintech'
+    });
+    const people = [];
+    companies.forEach((name) => {
+      ['a', 'b', 'c'].forEach((letter) => people.push(at(name, letter)));
+    });
+    const booked = S.outreachReferralPlan_(jobs, [], people, TODAY).booked;
+    assert.strictEqual(booked.length, companies.length * 3);
+
+    // The first round is one ask at each employer, and no employer twice.
+    const firstDay = booked
+      .filter((one) => one.scheduled.toDateString()
+                    === booked[0].scheduled.toDateString())
+      .map((one) => one.company);
+    assert.strictEqual(firstDay.length, companies.length, firstDay.join(','));
+    assert.strictEqual(new Set(firstDay).size, companies.length, firstDay.join(','));
+
+    // And nobody reaches their second ask before everybody has had their first.
+    const seen = {};
+    let secondAt = booked.length;
+    booked.forEach((one, i) => {
+      if (seen[one.company] && i < secondAt) secondAt = i;
+      seen[one.company] = true;
+    });
+    assert.ok(secondAt >= companies.length,
+              'a second ask at index ' + secondAt + ' with ' + companies.length
+              + ' employers waiting');
+  });
+
+  // The other half of the reply gate. Reconcile closes the rows that exist; this
+  // refuses to create the next one. Without both, a reply would call off Monday's
+  // remaining rows and the planner would book them straight back on Tuesday.
+  run('a reply stops the planner booking anybody else there', () => {
+    const answered = refRow('Stripe', 'a@stripe.com', TODAY, 'Replied');
+    answered.role = 'Software Engineer Intern, Summer 2027';
+    const plan = S.outreachReferralPlan_(summerJob, [answered], sixPeople(), TODAY);
+    assert.strictEqual(plan.booked.length, 0);
   });
 
   // Six colleagues can compare notes over lunch. Every part of the message that
@@ -4054,6 +4163,20 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     }
   });
 
+  // The referral cap is the window rather than a preference, and this is the
+  // sentence that keeps it that way. 06:00 to 21:00 is sixteen hours and the cap
+  // is sixteen, so every ask leaves in an hour of its own; the first number that
+  // has to double up is seventeen, and two notes out of one mailbox inside one
+  // hour is the shape a reader recognises as a machine. Raise the cap without
+  // widening the hours and this is what says so.
+  run('every referral in a full day leaves in an hour of its own', () => {
+    const hours = S.outreachSpaceHours_(S.REFERRAL_DAILY_CAP,
+                                        S.REFERRAL_HOUR_FIRST, S.REFERRAL_HOUR_LAST);
+    assert.strictEqual(hours.length, S.REFERRAL_DAILY_CAP);
+    assert.strictEqual(new Set(hours).size, hours.length,
+                       'two asks share an hour: ' + hours.join(','));
+  });
+
   run('the order is referral, then cold, then follow up', () => {
     assert.strictEqual(S.EMAIL_PATH_ORDER.join(','), 'referral,cold,followup');
     assert.strictEqual(S.DAILY_EMAIL_BUDGET, 45);
@@ -4490,6 +4613,78 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), S.REFERRAL_HOUR_FIRST);
   });
 
+  // A tick means now, not slightly sooner. The group is finished in a day if the
+  // day holds it — REFERRAL_PRIORITY_COMPANY_CAP is REFERRAL_PER_COMPANY, because
+  // a tick cannot conjure a seventh person and nothing smaller is worth having.
+  run('a ticked ask is finished in one day if the day holds it', () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((n) =>
+      ROW(n + 1, 'A', 'SWE Intern, Summer 2027', 'Queued',
+          { scheduled: at(31, 5 + n), priority: true }));
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const days = moved.map((m) => m.scheduled.toDateString());
+    assert.strictEqual(days.length, 6);
+    assert.strictEqual(new Set(days).size, 1, days.join(' | '));
+    // Different hours inside that day, so six do not leave the mailbox together.
+    const hours = moved.map((m) => m.scheduled.getHours());
+    assert.strictEqual(new Set(hours).size, 6, hours.join(','));
+  });
+
+  // The ask this was reworked for: ticked employers all at the front, and taking
+  // turns rather than one finishing before the next begins.
+  run('several ticked employers interleave at the front', () => {
+    const rows = [];
+    let index = 2;
+    ['A', 'B'].forEach((company) => {
+      for (let n = 0; n < 3; n++) {
+        rows.push(ROW(index, company, 'SWE Intern, Summer 2027', 'Queued',
+                      { scheduled: at(31, 6 + n), priority: true }));
+        index++;
+      }
+    });
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const order = moved
+      .sort((a, b) => a.scheduled - b.scheduled)
+      .map((m) => rows.find((r) => r.index === m.index).company);
+    assert.strictEqual(order.join(''), 'ABABAB', order.join(''));
+  });
+
+  // Ahead of everything unticked, not merely ahead of what is due at the same
+  // minute. Otherwise a tick means "slightly sooner" rather than "now".
+  run('every ticked row goes before every unticked one', () => {
+    const rows = [
+      ROW(2, 'Quiet', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 6) }),
+      ROW(3, 'Quiet', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7) }),
+      ROW(4, 'Urgent', 'SWE Intern, Summer 2027', 'Queued',
+          { scheduled: at(31, 8), priority: true }),
+      ROW(5, 'Urgent', 'SWE Intern, Summer 2027', 'Queued',
+          { scheduled: at(31, 9), priority: true })
+    ];
+    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const order = moved
+      .sort((a, b) => a.scheduled - b.scheduled)
+      .map((m) => rows.find((r) => r.index === m.index).company);
+    assert.strictEqual(order.join(','), 'Urgent,Urgent,Quiet,Quiet', order.join(','));
+  });
+
+  // The interleaver on its own, because the ordering is the whole decision and it
+  // is worth being able to argue with it directly.
+  run('interleaving takes one row per employer per pass', () => {
+    const rows = [
+      { index: 2, company: 'A' }, { index: 3, company: 'A' }, { index: 4, company: 'A' },
+      { index: 5, company: 'B' }, { index: 6, company: 'C' }, { index: 7, company: 'C' }
+    ];
+    assert.strictEqual(
+      S.outreachInterleaveByCompany_(rows).map((r) => r.company).join(''), 'ABCACA');
+  });
+
+  run('interleaving keeps each employer\'s own rows in order', () => {
+    const rows = [
+      { index: 9, company: 'A' }, { index: 2, company: 'A' }, { index: 5, company: 'B' }
+    ];
+    assert.strictEqual(
+      S.outreachInterleaveByCompany_(rows).map((r) => r.index).join(','), '9,5,2');
+  });
+
   // Six people at one company are one decision. Lifting one above the other five
   // would send the ask twice over, days apart, to colleagues who see each other.
   run('priority lifts the whole ask, not one row of it', () => {
@@ -4671,6 +4866,53 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachReferralReconcile_(rows, applications).retire.length, 1);
   });
 
+  // The failure this path could least afford: the engineer who answered was marked
+  // Sent like everybody else, and their colleagues were written to on the days
+  // after as though nobody had said a word. Asking four more people for a favour
+  // somebody has already offered is how the favour gets withdrawn.
+  run('a reply closes the rest of the ask at that company and role', () => {
+    const applications = [appRow('Intuit', 'SWE Intern, Summer 2027', GH + '1', at(18, 9))];
+    const rows = [
+      REF(2, 'Intuit', 'SWE Intern, Summer 2027', 'Replied'),
+      REF(3, 'Intuit', 'SWE Intern, Summer 2027', 'Queued'),
+      REF(4, 'Intuit', 'SWE Intern, Summer 2027', 'Drafted', { draftId: 'draft-9' })
+    ];
+    const seen = S.outreachReferralReconcile_(rows, applications);
+    assert.strictEqual(seen.retire.length, 2, 'the two unsent rows');
+    assert.strictEqual(seen.retire.map((one) => one.index).sort().join(','), '3,4');
+    // And the orphaned draft goes with it, or the message is still sendable by
+    // hand from a mailbox the tab says is finished with this company.
+    assert.strictEqual(seen.retire.filter((one) => one.draftId === 'draft-9').length, 1);
+  });
+
+  // A reply settles one req, not an employer. The unit is the group Priority and
+  // Cancel already expand a tick over, because six people at one company and one
+  // role are one decision and a different posting is a different one.
+  run('a reply about one role leaves a different role at that company alone', () => {
+    const applications = [
+      appRow('Intuit', 'SWE Intern, Summer 2027', GH + '1', at(18, 9)),
+      appRow('Intuit', 'Data Intern, Summer 2027', GH + '2', at(18, 9))
+    ];
+    const rows = [
+      REF(2, 'Intuit', 'SWE Intern, Summer 2027', 'Replied'),
+      REF(3, 'Intuit', 'Data Intern, Summer 2027', 'Queued', { jobLink: GH + '2' })
+    ];
+    const retire = S.outreachReferralReconcile_(rows, applications).retire;
+    assert.strictEqual(retire.filter((one) => one.index === 3).length, 0);
+  });
+
+  // Bounced is the address failing, not the person declining. The colleague behind
+  // them is still worth asking, and this is the line that says so.
+  run('a bounce does not call off the rest of the ask the way a reply does', () => {
+    const applications = [appRow('Intuit', 'SWE Intern, Summer 2027', GH + '1', at(18, 9))];
+    const rows = [
+      REF(2, 'Intuit', 'SWE Intern, Summer 2027', 'Bounced'),
+      REF(3, 'Intuit', 'SWE Intern, Summer 2027', 'Queued')
+    ];
+    assert.strictEqual(
+      S.outreachReferralReconcile_(rows, applications).retire.length, 0);
+  });
+
   // A sent message named a role and a link. Closing the row afterwards would leave
   // the tab describing something that was never written.
   run('a sent row is never retired, whatever happened to the application', () => {
@@ -4770,6 +5012,247 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   });
 }
 
+
+
+{
+  console.log('\nreferral: telling a bounce from a reply');
+
+  const OURS = 'msg-ours';
+  const us = { id: OURS, from: 'Henry Nguyen <hoanng15.work@gmail.com>' };
+  const daemon = { id: 'm2', from: 'Mail Delivery Subsystem <mailer-daemon@googlemail.com>' };
+  const human = { id: 'm3', from: 'Dana Ito <dana@nuro.ai>' };
+
+  // The Nuro row. A thread of two messages was read as an answer, and because a
+  // reply retires the whole company-and-role group, five colleagues were cancelled
+  // over an address that never existed.
+  run('a delivery failure is a bounce, not a reply', () => {
+    assert.strictEqual(S.outreachThreadVerdict_([us, daemon], OURS), S.STATUS_BOUNCED);
+  });
+
+  run('some servers answer as postmaster, and that is a bounce too', () => {
+    const pm = { id: 'm2', from: 'postmaster@nuro.ai' };
+    assert.strictEqual(S.outreachThreadVerdict_([us, pm], OURS), S.STATUS_BOUNCED);
+  });
+
+  run('a person answering is a reply', () => {
+    assert.strictEqual(S.outreachThreadVerdict_([us, human], OURS), S.STATUS_REPLIED);
+  });
+
+  // The bug the Google thread exposed, and the quieter of the two. The follow-up is
+  // posted onto this same thread, so five days after any cold email the count
+  // reaches two on its own — both messages From: us — and the row came back
+  // Replied, which then stopped the follow-ups of every colleague at that company.
+  run('our own follow-up on the thread is not a reply', () => {
+    const followUp = { id: 'm-followup', from: 'Henry Nguyen <hoanng15.work@gmail.com>' };
+    assert.strictEqual(S.outreachThreadVerdict_([us, followUp], OURS), '');
+  });
+
+  // Ours is decided by address, not by id: the id finds the first message, and
+  // every later message from that same address is also ours.
+  run('a third message from us is still not a reply', () => {
+    const second = { id: 'm-2', from: 'hoanng15.work@gmail.com' };
+    const third = { id: 'm-3', from: 'Henry Nguyen <HOANNG15.WORK@gmail.com>' };
+    assert.strictEqual(S.outreachThreadVerdict_([us, second, third], OURS), '');
+  });
+
+  // And the recruiter answering after our follow-up is still a reply.
+  run('a reply after our follow-up is still a reply', () => {
+    const followUp = { id: 'm-followup', from: 'Henry Nguyen <hoanng15.work@gmail.com>' };
+    assert.strictEqual(
+      S.outreachThreadVerdict_([us, followUp, human], OURS), S.STATUS_REPLIED);
+  });
+
+  // A bounce arriving after our follow-up is still a bounce.
+  run('a bounce after our follow-up is still a bounce', () => {
+    const followUp = { id: 'm-followup', from: 'Henry Nguyen <hoanng15.work@gmail.com>' };
+    assert.strictEqual(
+      S.outreachThreadVerdict_([us, followUp, daemon], OURS), S.STATUS_BOUNCED);
+  });
+
+  run('the bare address is read out of a From header', () => {
+    assert.strictEqual(
+      S.outreachFromAddress_('Henry Nguyen <hoanng15.work@gmail.com>'),
+      'hoanng15.work@gmail.com');
+    assert.strictEqual(S.outreachFromAddress_('ctim@google.com'), 'ctim@google.com');
+    assert.strictEqual(S.outreachFromAddress_(''), '');
+  });
+
+  run('a thread holding only our own message says nothing yet', () => {
+    assert.strictEqual(S.outreachThreadVerdict_([us], OURS), '');
+  });
+
+  // One address failing does not unsay what a person wrote.
+  run('a reply outranks a bounce on the same thread', () => {
+    assert.strictEqual(S.outreachThreadVerdict_([us, daemon, human], OURS),
+                       S.STATUS_REPLIED);
+  });
+
+  // Usually ours is first, and "usually" is not a rule: a thread the recipient had
+  // already started puts it second, and counting from index one would read our own
+  // email as their answer.
+  run('our own message is skipped by id, not by position', () => {
+    assert.strictEqual(S.outreachThreadVerdict_([human, us], OURS), S.STATUS_REPLIED);
+    assert.strictEqual(S.outreachThreadVerdict_([daemon, us], OURS), S.STATUS_BOUNCED);
+    assert.strictEqual(S.outreachThreadVerdict_([us, us], OURS), '');
+  });
+}
+
+
+{
+  console.log('\nreferral: the edits the tab has to answer at once');
+
+  const range = (row, first, last) => ({
+    getColumn: () => first,
+    getLastColumn: () => (last === undefined ? first : last),
+    getLastRow: () => row
+  });
+
+  // The gap that made a Cancel tick look like it had done nothing: onEdit filtered
+  // for the Email tab's Priority column, and this tab was never given the same
+  // treatment, so the tick waited an hour for the cycle to notice it.
+  run('a Cancel tick on Referral is answered', () => {
+    assert.ok(S.outreachEditTouchesReferral_(S.TAB_REFERRAL, range(5, S.R_CANCEL)));
+  });
+
+  run('a Priority tick on Referral is answered too', () => {
+    assert.ok(S.outreachEditTouchesReferral_(S.TAB_REFERRAL, range(5, S.R_PRIORITY)));
+  });
+
+  // Paste, fill-down and undo hand over a block, and a paste across the whole row
+  // includes both columns. Overlap, not equality.
+  run('a paste across the row covers both columns', () => {
+    assert.ok(S.outreachEditTouchesReferral_(S.TAB_REFERRAL, range(5, 1, S.R_WIDTH)));
+  });
+
+  run('a cell that is neither column is left alone', () => {
+    assert.strictEqual(
+      S.outreachEditTouchesReferral_(S.TAB_REFERRAL, range(5, S.R_COMPANY)), false);
+  });
+
+  // The header is not a data row, and nearly every edit in the spreadsheet is on
+  // some other tab entirely.
+  run('the header row and other tabs are thrown out', () => {
+    assert.strictEqual(
+      S.outreachEditTouchesReferral_(S.TAB_REFERRAL, range(1, S.R_CANCEL)), false);
+    assert.strictEqual(
+      S.outreachEditTouchesReferral_(S.TAB_QUEUE, range(5, S.R_CANCEL)), false);
+    assert.strictEqual(
+      S.outreachEditTouchesReferral_(S.TAB_APP, range(5, S.R_CANCEL)), false);
+  });
+
+  // The two filters must not both claim one edit, or a Priority tick on Email
+  // would run the referral settle as well.
+  run('the Email tab\'s Priority filter and this one do not overlap', () => {
+    assert.strictEqual(
+      S.outreachEditTouchesPriority_(S.TAB_REFERRAL, range(5, S.R_PRIORITY)), false);
+    assert.strictEqual(
+      S.outreachEditTouchesReferral_(S.TAB_QUEUE, range(5, S.Q_PRIORITY)), false);
+  });
+}
+
+{
+  console.log('\nreferral: auditing what the tab actually says');
+
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  const R = (company, hour, extra) => Object.assign({
+    index: 2, company: company, tokens: S.outreachCompanyTokens_(company),
+    role: 'SWE Intern', status: 'Queued', cancel: false, priority: false,
+    scheduled: at(31, hour)
+  }, extra || {});
+
+  // Written because three conversations about "why is it still clustered" were
+  // argued from screenshots. A screenshot shows an arrangement; it does not say
+  // whether the arrangement is one the caps allow.
+  run('a day inside its caps reports no offenders', () => {
+    const report = S.outreachReferralAudit_([R('A', 6), R('B', 7), R('C', 8)]);
+    assert.strictEqual(report.length, 1);
+    assert.strictEqual(report[0].total, 3);
+    assert.strictEqual(report[0].companies, 3);
+    assert.strictEqual(report[0].over.length, 0, report[0].over.join(','));
+  });
+
+  run('an employer over the daily cap is named with its count', () => {
+    const report = S.outreachReferralAudit_([R('A', 6), R('A', 7), R('B', 8)]);
+    assert.strictEqual(report[0].over.join(','), 'a 2/1');
+  });
+
+  // A ticked employer is measured against its own, larger cap, so the audit does
+  // not report the thing Priority is for as a fault.
+  run('a ticked employer is measured against the priority cap', () => {
+    const ticked = [1, 2, 3].map((h) => R('A', 5 + h, { priority: true }));
+    assert.strictEqual(S.outreachReferralAudit_(ticked)[0].over.length, 0);
+    const over = [];
+    for (let h = 0; h < S.REFERRAL_PRIORITY_COMPANY_CAP + 1; h++) {
+      over.push(R('A', 6 + h, { priority: true }));
+    }
+    assert.strictEqual(S.outreachReferralAudit_(over)[0].over.length, 1);
+  });
+
+  run('cancelled rows and rows with no hour are not counted', () => {
+    const rows = [R('A', 6), R('B', 7, { status: 'Cancelled' }), R('C', 0, { scheduled: null })];
+    assert.strictEqual(S.outreachReferralAudit_(rows)[0].total, 1);
+  });
+
+  // outreachDayKey_ is a timestamp and Array#sort compares as text by default.
+  run('days come back in date order, not text order', () => {
+    const rows = [R('A', 6, { scheduled: at(31, 6) }), R('B', 6, { scheduled: at(29, 6) })];
+    const report = S.outreachReferralAudit_(rows);
+    assert.ok(report[0].at < report[1].at, 'days out of order');
+  });
+}
+
+{
+  console.log('\nreferral: the tab in time order');
+
+  const at = (d, h) => new Date(2026, 7, d, h, 0, 0);
+  const ROW = (scheduled, status, sentAt) => {
+    const row = new Array(S.R_WIDTH).fill('');
+    row[S.R_SCHEDULED - 1] = scheduled || '';
+    row[S.R_STATUS - 1] = status || 'Queued';
+    row[S.R_SENT_AT - 1] = sentAt || '';
+    return row;
+  };
+
+  // What the tab is opened to answer: what has gone, and what is next. Appended
+  // order grouped an employer's people together, and after the planner became
+  // breadth-first those groups stopped even being contiguous.
+  run('earliest first, whatever order the rows were appended in', () => {
+    const rows = [ROW(at(31, 12)), ROW(at(29, 8)), ROW(at(30, 15))];
+    const hours = S.outreachReferralTimeOrder_(rows)
+      .map((row) => row[S.R_SCHEDULED - 1].getDate());
+    assert.strictEqual(hours.join(','), '29,30,31');
+  });
+
+  // Its time is not a fact about anything — the row is not going out at that hour
+  // or any other, and in line it puts a dead row between two live ones.
+  run('a cancelled row sinks below everything still live', () => {
+    const rows = [ROW(at(29, 8), 'Cancelled'), ROW(at(31, 12)), ROW(at(30, 15))];
+    const order = S.outreachReferralTimeOrder_(rows).map((row) => row[S.R_STATUS - 1]);
+    assert.strictEqual(order[order.length - 1], 'Cancelled');
+  });
+
+  // The past above the future, the same shape the Email tab has.
+  run('a sent row keeps its place in the timeline rather than sinking', () => {
+    const rows = [ROW(at(31, 12), 'Queued'), ROW(at(29, 8), 'Sent', at(29, 8))];
+    const order = S.outreachReferralTimeOrder_(rows).map((row) => row[S.R_STATUS - 1]);
+    assert.strictEqual(order.join(','), 'Sent,Queued');
+  });
+
+  run('a row with no time at all waits at the bottom, above the cancelled', () => {
+    const rows = [ROW(''), ROW(at(29, 8)), ROW(at(28, 8), 'Cancelled')];
+    const seen = S.outreachReferralTimeOrder_(rows);
+    assert.ok(seen[0][S.R_SCHEDULED - 1], 'the dated row leads');
+    assert.strictEqual(seen[1][S.R_SCHEDULED - 1], '');
+    assert.strictEqual(seen[2][S.R_STATUS - 1], 'Cancelled');
+  });
+
+  // Equal hours keep the order they were already in, so a sort is not a reshuffle.
+  run('rows sharing an hour keep the order they arrived in', () => {
+    const rows = [ROW(at(29, 8), 'Queued'), ROW(at(29, 8), 'Drafted')];
+    const order = S.outreachReferralTimeOrder_(rows).map((row) => row[S.R_STATUS - 1]);
+    assert.strictEqual(order.join(','), 'Queued,Drafted');
+  });
+}
 
 console.log('');
 if (failures.length) {

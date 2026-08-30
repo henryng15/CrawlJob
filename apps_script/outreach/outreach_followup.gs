@@ -809,11 +809,22 @@ function sendFollowUpReplies() {
         var thread = message.getThread();
         // Answered since the last scan. Recording it costs one write and saves a
         // reply to somebody who is mid-conversation with us.
-        if (thread.getMessageCount() > 1) {
+        //
+        // By sender, not by message count. This is the thread the follow-up is
+        // about to be posted onto, so on any row that has already had one the
+        // count is two and neither message is theirs. See outreachThreadVerdict_.
+        var verdict = outreachThreadVerdict_(thread.getMessages().map(function (one) {
+          return { id: one.getId(), from: one.getFrom() };
+        }), row.messageId);
+        if (verdict) {
           var answered = {};
-          answered[Q_STATUS] = STATUS_REPLIED;
-          answered[Q_RESULT] = 'Reply on ' + thread.getLastMessageDate();
+          answered[Q_STATUS] = verdict;
+          answered[Q_RESULT] = verdict === STATUS_REPLIED
+            ? 'Reply on ' + thread.getLastMessageDate()
+            : 'Delivery failed; this contact will not be used again.';
           answered[Q_FOLLOWUP_AT] = '';
+          // Stopped either way. A dead address cannot be nudged any more usefully
+          // than a person who has already answered can.
           answered[Q_FOLLOWUP_STATUS] = FOLLOWUP_STOPPED;
           outreachWriteRow_(queue, row.rowNumber, answered);
           tally.stopped++;

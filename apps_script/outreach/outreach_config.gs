@@ -216,6 +216,26 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 // Forty five is a limit on the account, not on any path. What gets a sending
 // address penalised is the volume leaving one mailbox in a day, and the mailbox
 // does not know or care which of three features asked.
+//
+// The referral cap went from twelve to fourteen and this number did not move,
+// which is the outcome worth having: the extra asks came out of hours the day
+// already had rather than out of the account's allowance. It was briefly fifty,
+// for a referral cap of sixteen that reached into the evening; the window came
+// back and so did this.
+//
+// It now binds exactly — twenty five at the cold path's Tuesday peak, plus six
+// follow-ups, plus fourteen, is forty five on the nose. So the next raise to any
+// of the three caps is a raise to this number too, and that is a decision about
+// the account rather than about a path.
+//
+// Two ceilings sit above this one and neither binds. Apps Script allows a consumer
+// gmail.com account 100 recipients a day, so this is under half of what the
+// platform permits. The real ceiling is reputation: this is cold mail from a free
+// Gmail address with no domain and no dedicated IP, and what penalises such an
+// account is bounce rate and complaint rate rather than volume. Bounces are dealt
+// with upstream — every address on the employees tab passed an anymail "valid"
+// check in export_referrals.py before it was exported, and the recruiter tab drops
+// UNSENDABLE_VERIFY on the way in.
 var DAILY_EMAIL_BUDGET = 45;
 
 // Who gets the budget when it runs short, most important first.
@@ -244,17 +264,49 @@ var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
 // rather than a gesture: at three, two ignored messages were the whole of it.
 var REFERRAL_PER_COMPANY = 6;
 
-// And all six may go on one day, which is a reversal of what this used to say.
+// One a day, and the reversal back to it is the whole shape of this path.
 //
-// The old rule was one a day, on the reasoning that colleagues talk and two
-// near-identical notes at one company read as a mailing shot. The reasoning still
-// holds and the fix for it is not the calendar: what makes six notes read as one
-// mailing shot is six identical notes, and the tier, the template, the subject and
-// the bullet pair are all different per person. Spreading them over six days
-// bought distance between messages nobody can see side by side anyway, and cost
-// the thing that does matter, which is that a company half asked is a company
-// where the remaining names go stale.
-var REFERRAL_COMPANY_DAILY_CAP = 6;
+// This was one, then six, and is one again. The argument for six was that what
+// makes six notes read as a mailing shot is six *identical* notes, and the tier,
+// the template, the subject and the bullet pair all differ per person — so the
+// calendar was buying distance between messages nobody can see side by side.
+// That argument is still correct and it is still not the reason this is one.
+//
+// The reason is what a day of sending is *for*. There are 221 employers in the
+// dataset and six people at most of them: 1,326 messages, which at fourteen a day
+// is ninety five working days whichever order they go in. The order is therefore
+// the only decision available, and it decides which asks happen while the
+// application is still recent. Six a day spends a day on two employers; one a day
+// spends it on fourteen. The first ask at an employer is the one that has to land
+// near the date applied — the sixth is a message about an application the reader
+// will have to look up either way.
+//
+// It is also what makes a reply worth anything. Six on one day are all committed
+// before anybody could have answered, so a reply cancels nothing; one a day means
+// the second ask at a company is still unwritten when the first is read, which is
+// what outreachReferralRepliedGroups_ needs in order to have something to stop.
+//
+// Ticking Priority lifts this cap for that one company and role — see
+// outreachReferralSlot_. Breadth is the default because it is right most of the
+// time; depth is a decision somebody makes about one employer on one day.
+var REFERRAL_COMPANY_DAILY_CAP = 1;
+
+// And what a ticked ask gets instead: the whole group in one day if the day holds
+// it. REFERRAL_PER_COMPANY rather than a number of its own, because the natural
+// ceiling on a ticked employer is simply everyone this project will ever ask
+// there — a tick cannot conjure a seventh person.
+//
+// This was briefly three, on the reasoning that two ticked employers taking
+// twelve of a day's fourteen slots was the clustering the breadth-first planner
+// exists to prevent. That read the tab correctly and the request backwards. The
+// clustering worth preventing is the *unasked-for* kind, where an employer nobody
+// singled out quietly absorbs a day. A tick is somebody singling one out on
+// purpose, and spreading it over two days then made a tick mean "slightly sooner"
+// rather than "now" — which is not what it was asked to mean.
+//
+// The account's daily cap still binds, so ticking everything does not raise the
+// volume; it only decides who goes first.
+var REFERRAL_PRIORITY_COMPANY_CAP = REFERRAL_PER_COMPANY;
 
 // The word a posting's title had to carry while this path read the crawler's Jobs
 // tab, where hundreds of postings nobody had chosen sat side by side and "summer"
@@ -302,22 +354,48 @@ var REFERRAL_SEASON_EXCLUDES = ['2026', 'winter', 'spring', 'fall', 'autumn'];
 // notice or did not mind. It is the same message on Monday and it reads better.
 var REFERRAL_WEEKENDS = false;
 
-// Six in the morning to nine at night. Wider than the cold path's nine to five,
-// because that window is shaped around when a recruiter is at their desk reading
-// applications, and this one is not: it lands in a working engineer's mailbox and
-// is read whenever they next look. Six is the top of the inbox for somebody who
-// opens their mail at eight, and nine at night still catches the read somebody
-// does before bed.
-var REFERRAL_HOUR_FIRST = 6;
-var REFERRAL_HOUR_LAST  = 21;
-// Twelve, so a day is two companies finished rather than one. With six allowed at
-// one employer, a cap of six would mean one company a day and nothing else, and
-// the queue would move at the speed of its slowest possible arrangement.
+// Six in the morning to seven at night. Wider than the cold path's nine to five
+// at one end only, and the asymmetry is the rule rather than an oversight.
 //
-// Twelve is also what the mailbox has room for: twenty five at the cold path's
-// Tuesday peak, plus six follow-ups, plus twelve, is forty three against a budget
-// of forty five. Raising it further is a change to DAILY_EMAIL_BUDGET first.
-var REFERRAL_DAILY_CAP  = 12;
+// The early end is wide because it is the best hour of the day. This lands in a
+// working engineer's mailbox rather than on a recruiter's desk, and six in the
+// morning is the top of the inbox for somebody who opens their mail at eight.
+//
+// The late end used to be nine at night, on the reasoning that it caught the read
+// somebody does before bed. That reasoning was wrong in a way worth writing down
+// rather than quietly deleting: a message arriving at nine in the evening is not
+// read before bed, it is buried by everything that arrives overnight and is down
+// page two by eight the next morning. Twenty and twenty-one hundred were the two
+// worst slots in the day, not the two most patient ones.
+//
+// There is a second reason, and it is about the sender rather than the reader. A
+// mailbox that emits a message at exactly 06:00 and again at exactly 21:00 every
+// weekday is not a shape a person produces. Cutting the tail costs two sends and
+// buys back the part of the day that was advertising the machine.
+var REFERRAL_HOUR_FIRST = 6;
+var REFERRAL_HOUR_LAST  = 19;
+// Fourteen, and the number is the window rather than a preference.
+//
+// REFERRAL_HOUR_FIRST to REFERRAL_HOUR_LAST is 06:00 to 19:00, which is fourteen
+// hours, and outreachSpaceHours_(14, 6, 19) puts exactly one ask in each of them.
+// Fifteen is the first number that has to double up, and two notes leaving one
+// mailbox inside one hour is the shape a reader recognises as a machine even when
+// they went to different companies. So this is not "how many can the account
+// afford" — it is "how many fit one to an hour", and the window answers fourteen.
+//
+// It was twelve, which finished two employers a day with nothing to spare against
+// a third, and a company half asked is a company whose remaining names go stale.
+//
+// It was briefly sixteen, against a window that ran to nine at night. The two
+// evening hours that bought turned out to be the worst slots in the day — see
+// REFERRAL_HOUR_LAST — so the cap came back down with the window rather than
+// staying put and doubling up inside a shorter one.
+//
+// The mailbox has room for it without moving anything else: twenty five at the
+// cold path's Tuesday peak, plus six follow-ups, plus fourteen, is forty five
+// against a budget of forty five. Raising this further is a change to
+// DAILY_EMAIL_BUDGET first, and to the hours before that.
+var REFERRAL_DAILY_CAP  = 14;
 
 
 // People written to in one go, and how long the silence has to last before the
@@ -809,6 +887,108 @@ function outreachDraftHoursForDay_(count, firstHour) {
  * 12, 15, 17, 19. A count above the span produces repeats, which is the honest
  * answer — that many in a day is more than one an hour.
  */
+// Who a delivery failure comes from. Gmail sends these as mailer-daemon and some
+// servers answer as postmaster; neither is a person.
+var OUTREACH_BOUNCE_SENDER = /(mailer-daemon|postmaster)@/i;
+
+/** The bare address out of a From header, which is usually "Name <a@b.com>". */
+function outreachFromAddress_(from) {
+  var match = String(from == null ? '' : from).toLowerCase()
+    .match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  return match ? match[0] : '';
+}
+
+/**
+ * What came back on a thread: a reply, a delivery failure, or nothing yet.
+ *
+ * A thread holding more than one message is not a reply, and reading it as one has
+ * now gone wrong twice in different ways. A bounce at Nuro was recorded as an
+ * answer, which called off the five colleagues behind it. Worse and quieter: the
+ * follow-up is *posted onto this very thread*, so every row that got one was
+ * marked Replied on the next scan — the queue reading its own second message as
+ * the recruiter's first. Counting messages cannot tell any of that apart; reading
+ * who sent them can.
+ *
+ * **Ours is decided by address, not by id.** The id finds our first message; every
+ * later message from that same address is also ours. Skipping only the id was what
+ * let the follow-up count as an answer, and it is the whole reason this function
+ * takes a thread rather than a number.
+ *
+ * Our own message is found by id rather than by position. It is usually first, but
+ * a thread the recipient had already started puts it second, and counting from
+ * index one would read our own email as their answer.
+ *
+ * A reply wins over a bounce when a thread somehow holds both. One address failing
+ * does not unsay what a person wrote.
+ *
+ * Pure, and takes {id, from} rather than Gmail messages, so the harness can argue
+ * with it without a mailbox.
+ */
+function outreachThreadVerdict_(messages, ourId) {
+  var list = messages || [];
+  var mine = '';
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].id === ourId) { mine = outreachFromAddress_(list[i].from); break; }
+  }
+
+  var bounced = false;
+  for (var j = 0; j < list.length; j++) {
+    var one = list[j] || {};
+    if (ourId && one.id === ourId) continue;
+    var from = String(one.from == null ? '' : one.from).toLowerCase();
+    if (!from) continue;
+    // The follow-up, and anything else this account has put on the thread.
+    if (mine && outreachFromAddress_(one.from) === mine) continue;
+    if (OUTREACH_BOUNCE_SENDER.test(from)) { bounced = true; continue; }
+    return STATUS_REPLIED;
+  }
+  return bounced ? STATUS_BOUNCED : '';
+}
+
+/**
+ * Rows reordered so that employers take turns, one each per pass.
+ *
+ * The queue is a line, and which employer stands where in it is the only decision
+ * either planner really makes. Handed a block of rows this hands back the same
+ * rows with the companies interleaved: A, B, C, A, B, C rather than A, A, B, B.
+ *
+ * Shared by both paths because both had the same shape of bug. The referral path
+ * gets turn-taking free from its per-employer daily cap, except on ticked rows
+ * where that cap is raised — six ticked rows then took the first six hours in a
+ * row. The cold path never had a daily per-employer cap at all: COMPANY_WEEKLY_CAP
+ * bounds a week, so a wave of three at one company sorted adjacent by Date Applied
+ * and went out back to back, three near-identical notes into one office inside a
+ * morning.
+ *
+ * Order inside one company is preserved, so a re-plan tightens the line rather
+ * than reshuffling who is next at any given employer.
+ *
+ * It orders; it does not schedule. Which rows a day can hold is still the caps'
+ * decision, and this only changes which rows are offered to them first.
+ */
+function outreachInterleaveByCompany_(rows) {
+  var byCompany = {}, order = [];
+  (rows || []).forEach(function (row) {
+    // Tokens, not outreachNameKey_. The legal form has to come off or "Stripe" and
+    // "Stripe Inc." are two employers taking two turns each, and the tab would show
+    // the interleaver spreading rows it thinks belong to different companies into
+    // one office twice as fast. Every other rule here already reads an employer
+    // through outreachCompanyTokens_.
+    var key = outreachCompanyTokens_(row.company).join(' ');
+    if (!byCompany[key]) { byCompany[key] = []; order.push(key); }
+    byCompany[key].push(row);
+  });
+  var out = [];
+  for (var round = 0, added = true; added; round++) {
+    added = false;
+    for (var i = 0; i < order.length; i++) {
+      var list = byCompany[order[i]];
+      if (round < list.length) { out.push(list[round]); added = true; }
+    }
+  }
+  return out;
+}
+
 function outreachSpaceHours_(count, firstHour, lastHour) {
   if (count <= 0) return [];
   if (count === 1) return [firstHour];

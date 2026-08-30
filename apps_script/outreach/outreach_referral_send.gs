@@ -201,6 +201,11 @@ function planReferralAsks() {
     if (plan.booked.length) {
       var values = plan.booked.map(outreachReferralRowValues_);
       referral.getRange(referralLast + 1, 1, values.length, R_WIDTH).setValues(values);
+      // Appended rows land at the bottom whatever hour they hold, so the table is
+      // out of order the moment this writes. Refiling here rather than waiting for
+      // the end of the cycle is what lets this function be run on its own and
+      // leave a tab somebody can read.
+      outreachSortReferralByTime_(referral);
     }
 
     Logger.log('referral asks booked ' + plan.booked.length + ', already written to '
@@ -537,6 +542,319 @@ function sendReferralAsks() {
   return tally;
 }
 
+/**
+ * Mark the referral asks that have been answered.
+ *
+ * The cold path has had scanOutreachReplies since the beginning and this path had
+ * nothing, which meant a reply here was invisible: the engineer who answered was
+ * marked Sent like everybody else, and their five colleagues were written to on
+ * the following days as though nobody had said a word. That is the one failure
+ * this whole path cannot afford — it is asking for a favour, and asking four more
+ * people for it after somebody has already offered is how the favour gets
+ * withdrawn.
+ *
+ * No new column was needed. sendReferralAsks already writes the sent message's id
+ * into Result, so the thread can be found again the same way the cold path finds
+ * its own; the id is replaced by the sentence about the reply, which is safe
+ * because a row only gets read here while it is still Sent.
+ *
+ * Recording is all this does. Acting on it belongs to outreachReferralReconcile_,
+ * which closes the rest of the group, and to the planner, which stops booking
+ * more — for the same reason the cold path splits the two: a scanner that also
+ * cancelled would have to be right about the whole queue, and a scanner only has
+ * to be right about one thread.
+ */
+function scanReferralReplies() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) {
+    Logger.log(outreachReferralNotSetUp_());
+    return { replied: 0, bounced: 0 };
+  }
+  var last = referral.getLastRow();
+  if (last < 2) return { replied: 0, bounced: 0 };
+
+  var now = new Date();
+  var rows = referral.getRange(2, 1, last - 1, R_WIDTH).getValues()
+    .map(function (row, index) { return outreachParseReferral_(row, index + 2); });
+
+  var tally = { replied: 0, bounced: 0 };
+  rows.forEach(function (row) {
+    // The same bound the cold path uses, and for the same reason: every sent row
+    // would mean one Gmail call per row on every firing, growing with the tab
+    // forever, and a reply to a two-month-old referral ask is not a thing that
+    // happens.
+    if (row.status !== STATUS_SENT || !row.sentAt) return;
+    if (outreachDaysBetween_(row.sentAt, now) > REPLY_WINDOW_DAYS) return;
+    var id = String(row.result == null ? '' : row.result).trim();
+    if (!id) return;
+    try {
+      var thread = GmailApp.getMessageById(id).getThread();
+      // Who sent them, not how many there are. A thread of two messages where the
+      // second is mailer-daemon is a dead address, and recording that as a reply
+      // called off the five colleagues behind it — which is the exact opposite of
+      // what a bounce means. See outreachThreadVerdict_.
+      var verdict = outreachThreadVerdict_(thread.getMessages().map(function (one) {
+        return { id: one.getId(), from: one.getFrom() };
+      }), id);
+      if (!verdict) return;
+
+      var updates = {};
+      updates[R_STATUS] = verdict;
+      if (verdict === STATUS_REPLIED) {
+        updates[R_RESULT] = 'Reply on ' + thread.getLastMessageDate();
+        tally.replied++;
+      } else {
+        updates[R_RESULT] = 'Delivery failed; this address will not be used again.';
+        tally.bounced++;
+      }
+      outreachWriteRow_(referral, row.index, updates);
+    } catch (error) {
+      // A deleted message is not a reply, and not worth failing a whole run for.
+    }
+  });
+
+  Logger.log('referral replies found ' + tally.replied
+           + ', bounces ' + tally.bounced + '.');
+  return tally;
+}
+
+
+/**
+ * Settle every Cancel tick on the tab, expanded to whole asks.
+ *
+ * Shared by replanReferralAsks and by the edit trigger, because the two used to
+ * disagree about what a tick means and the tab is read by a person in between.
+ *
+ * Two kinds of cancellation, and both end in the same place. A ticked box is a
+ * decision that has not been carried out yet; a row somebody set to Cancelled with
+ * the Status dropdown is one that was carried out only half way, leaving the tab
+ * saying Cancelled in one column and 09:00 in the next. The hour is already free
+ * as far as the planner is concerned — this is the cell catching up.
+ *
+ * Expanded to the whole ask, because six rows sharing a company and a posting are
+ * one decision rather than six.
+ *
+ * Sheet-only. No Gmail: discarding the drafts these orphan needs a mailbox and
+ * belongs to the hourly cycle, which is the half that can afford to be slow.
+ */
+function outreachApplyReferralCancels_(referral, rows) {
+  var settled = 0;
+  outreachReferralToCancel_(rows).forEach(function (row) {
+    var updates = {};
+    updates[R_STATUS] = STATUS_CANCELLED;
+    updates[R_CANCEL] = true;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    row.status = STATUS_CANCELLED;
+    row.cancel = true;
+    row.scheduled = null;
+    row.draftedAt = null;
+    settled++;
+  });
+
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_CANCELLED) return;
+    if (!row.scheduled && !row.draftedAt) return;
+    var updates = {};
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    row.scheduled = null;
+    row.draftedAt = null;
+  });
+
+  return settled;
+}
+
+
+/**
+ * Re-time everything still queued, against what the whole mailbox has left.
+ *
+ * The Email tab is read for the budget rather than assumed empty. Re-timing
+ * without it books rows into days the cold path has already filled, which the next
+ * hourly run then undoes — the tab moving twice for one decision, which reads as
+ * the queue being unstable rather than as two systems disagreeing.
+ */
+function outreachApplyReferralTimes_(tracker, referral, rows) {
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var queueRows = [];
+  if (queue && queue.getLastRow() > 1) {
+    queueRows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
+  }
+
+  var moved = outreachReferralReplan_(rows, new Date(),
+                                      outreachReferralRoomOn_(queueRows, rows));
+  moved.forEach(function (change) {
+    var updates = {};
+    updates[R_SCHEDULED] = change.scheduled;
+    updates[R_DRAFTED_AT] = outreachReferralDraftHour_(change.scheduled);
+    outreachWriteRow_(referral, change.index, updates);
+    var live = rows.filter(function (one) { return one.index === change.index; })[0];
+    if (live) live.scheduled = change.scheduled;
+  });
+  return moved.length;
+}
+
+
+/**
+ * Everything a tick on the Referral tab means, done at once.
+ *
+ * Called from the edit trigger, and it is the whole answer to "I ticked Cancel and
+ * the tab re-clustered". Ticking used to do nothing at all until the hourly cycle:
+ * onEdit filtered for the Email tab's Priority column and this tab was never given
+ * the same treatment, so a person ticked a box, ran the re-plan by hand, and got a
+ * table whose hours had changed but whose rows had not moved — cancelled rows still
+ * sitting between live ones, in the order the old planner had appended them.
+ *
+ * Three steps, and the order is the point. Cancelling frees hours; re-timing
+ * spends them on the rows behind; refiling puts the table in the order those new
+ * hours imply, with the called-off rows at the bottom. Any two of the three leaves
+ * the tab describing something that is no longer true.
+ *
+ * Sheet-only, so it is quick enough to hang off a keystroke. The Gmail half —
+ * discarding the drafts these cancellations orphan — stays in replanReferralAsks,
+ * which the hourly cycle runs. That split is deliberate and it is safe in this
+ * direction: a row is Cancelled here first and its draft binned within the hour,
+ * and a draft outliving its row by an hour sends nothing, because sendReferralAsks
+ * only ever sends rows the tab still says are Drafted.
+ */
+function settleReferralTab_(tracker) {
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) return { cancelled: 0, moved: 0, sorted: 0 };
+  var rows = outreachReadReferralRows_(referral);
+  if (!rows.length) return { cancelled: 0, moved: 0, sorted: 0 };
+
+  var cancelled = outreachApplyReferralCancels_(referral, rows);
+  var moved = outreachApplyReferralTimes_(tracker, referral, rows);
+  var sorted = outreachSortReferralByTime_(referral);
+  return { cancelled: cancelled, moved: moved, sorted: sorted };
+}
+
+
+/**
+ * Run by hand: file the Referral tab in time order.
+ *
+ * The cycle does this last on every firing. This exists because the sort itself
+ * takes a sheet and so cannot be picked from the editor's Run menu, and the tab is
+ * worth re-reading after a repair or a re-plan without waiting an hour for the
+ * trigger to come round.
+ *
+ * Touches no mailbox and creates nothing. It rearranges rows that already exist,
+ * and reports how many actually moved.
+ */
+function sortReferralTab() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) { Logger.log(outreachReferralNotSetUp_()); return 0; }
+  var moved = outreachSortReferralByTime_(referral);
+  Logger.log(moved ? moved + ' row(s) moved into time order.'
+                   : 'The tab was already in time order.');
+  return moved;
+}
+
+
+/**
+ * Run by hand: undo a bounce that was recorded as a reply.
+ *
+ * scanReferralReplies shipped reading `thread.getMessageCount() > 1` as an answer,
+ * which is true of a delivery failure as well as of a person. A dead address at
+ * Nuro was therefore marked Replied, and because a reply retires the whole
+ * company-and-role group, the five colleagues behind it were cancelled — the exact
+ * opposite of what a bounce is supposed to mean. outreachThreadVerdict_ fixes the
+ * reading; this fixes the rows that were already written.
+ *
+ * The thread cannot be found by id here, because marking a row Replied overwrote
+ * Result — where the sent message id lives — with the sentence about the reply. So
+ * the failures are found the way the cold path finds its own: read what
+ * mailer-daemon has sent lately and take the addresses out of the bodies.
+ *
+ * Restores rather than re-queues. A cancelled row goes back to Queued with its
+ * hours cleared, and the planner books it into the next free slot on the next
+ * cycle; nothing is sent by this function and nothing new is created.
+ *
+ * Safe to run twice. The second pass finds nothing to change and says so.
+ */
+function repairMisreadReferralBounces() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
+  var last = referral.getLastRow();
+  if (last < 2) return { corrected: 0, restored: 0, sorted: 0 };
+
+  var rows = referral.getRange(2, 1, last - 1, R_WIDTH).getValues()
+    .map(function (row, index) { return outreachParseReferral_(row, index + 2); });
+
+  // Every address a delivery failure has named lately. Thirty days rather than the
+  // cold path's fourteen, because this is catching up on rows already written
+  // rather than watching for new ones.
+  var dead = {};
+  GmailApp.search('from:mailer-daemon newer_than:30d', 0, 50).forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      var body = message.getPlainBody() || '';
+      (body.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).forEach(function (address) {
+        dead[address.toLowerCase()] = true;
+      });
+    });
+  });
+
+  var tally = { corrected: 0, restored: 0, sorted: 0 };
+  var freed = {};
+
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_REPLIED || !row.email || !dead[row.email]) return;
+    var updates = {};
+    updates[R_STATUS] = STATUS_BOUNCED;
+    updates[R_RESULT] = 'Delivery failed; this address will not be used again. '
+                      + 'Recorded as a reply in error and corrected.';
+    outreachWriteRow_(referral, row.index, updates);
+    row.status = STATUS_BOUNCED;
+    freed[outreachReferralGroupKey_(row.company, row.role, row.index)] = true;
+    tally.corrected++;
+  });
+
+  if (!tally.corrected) {
+    Logger.log('No referral row was holding a bounce as a reply.');
+    return tally;
+  }
+
+  // A group is only given back if nothing in it is a genuine reply. One real
+  // answer alongside one dead address still closes the company, and re-opening it
+  // would write to colleagues of somebody already talking to us.
+  var stillAnswered = outreachReferralRepliedGroups_(rows);
+
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_CANCELLED) return;
+    var key = outreachReferralGroupKey_(row.company, row.role, row.index);
+    if (!freed[key] || stillAnswered[key]) return;
+    // Only the ones this cancelled, identified by the sentence it wrote. A row
+    // somebody called off by hand carries a different reason, or none, and is
+    // theirs to un-cancel rather than this function's.
+    if (String(row.lastError || '').indexOf('replied about this role') === -1) return;
+    var updates = {};
+    updates[R_STATUS] = STATUS_QUEUED;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    updates[R_ERROR] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    tally.restored++;
+  });
+
+  // Rows have come back from Cancelled with their hours cleared, which changes both
+  // where they belong in the table and whether they belong at the bottom of it.
+  // Refiled here for the same reason every other operation on this tab refiles:
+  // the function that changed the order owns putting it back.
+  tally.sorted = outreachSortReferralByTime_(referral);
+
+  Logger.log('Corrected ' + tally.corrected + ' row(s) from Replied to Bounced, and '
+           + 'gave back ' + tally.restored + ' cancelled row(s); ' + tally.sorted
+           + ' refiled. Run replanReferralAsks to book them into hours.');
+  return tally;
+}
+
+
 // --------------------------------------------------------------------- probing
 
 /**
@@ -638,44 +956,10 @@ function replanReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
 
-  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, retired: 0, ready: true };
+  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, retired: 0,
+                sorted: 0, ready: true };
 
-  // A tick that the bound script's onEdit never saw — the box was filled by a
-  // paste, a fill-down, or an undo, none of which fire a simple trigger. The tab
-  // is the record either way, so the state is settled here rather than trusted to
-  // have been settled there.
-  //
-  // Expanded to the whole ask, because six rows sharing a company and a posting
-  // are one decision rather than six. onEdit does the same expansion for the
-  // instant feedback; this is the half that is authoritative.
-  outreachReferralToCancel_(rows).forEach(function (row) {
-    var updates = {};
-    updates[R_STATUS] = STATUS_CANCELLED;
-    updates[R_CANCEL] = true;
-    updates[R_SCHEDULED] = '';
-    updates[R_DRAFTED_AT] = '';
-    outreachWriteRow_(referral, row.index, updates);
-    row.status = STATUS_CANCELLED;
-    row.cancel = true;
-    row.scheduled = null;
-    tally.cancelled++;
-  });
-
-  // A row somebody dropped by hand, using the Status dropdown rather than the
-  // checkbox. Nothing ran when they did it, so the row still shows the hour it was
-  // going to leave at: a tab saying Cancelled in one column and 09:00 in the next.
-  // The hour is already free as far as the planner is concerned — this is the cell
-  // catching up with the decision.
-  rows.forEach(function (row) {
-    if (row.status !== STATUS_CANCELLED) return;
-    if (!row.scheduled && !row.draftedAt) return;
-    var updates = {};
-    updates[R_SCHEDULED] = '';
-    updates[R_DRAFTED_AT] = '';
-    outreachWriteRow_(referral, row.index, updates);
-    row.scheduled = null;
-    row.draftedAt = null;
-  });
+  tally.cancelled = outreachApplyReferralCancels_(referral, rows);
 
   outreachReferralAbandoned_(rows).forEach(function (row) {
     var updates = {};
@@ -745,27 +1029,18 @@ function replanReferralAsks() {
     });
   }
 
-  var queue = tracker.getSheetByName(TAB_QUEUE);
-  var queueRows = [];
-  if (queue && queue.getLastRow() > 1) {
-    queueRows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
-      .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
-  }
-
-  var moved = outreachReferralReplan_(rows, new Date(),
-                                      outreachReferralRoomOn_(queueRows, rows));
-  moved.forEach(function (change) {
-    var updates = {};
-    updates[R_SCHEDULED] = change.scheduled;
-    updates[R_DRAFTED_AT] = outreachReferralDraftHour_(change.scheduled);
-    outreachWriteRow_(referral, change.index, updates);
-  });
-  tally.moved = moved.length;
+  tally.moved = outreachApplyReferralTimes_(tracker, referral, rows);
+  // The hours on this tab have just changed, and the tab is filed by those hours.
+  // Refiling here rather than only at the end of the cycle is what makes this
+  // function complete on its own: run by hand it used to leave the table in the
+  // order it was appended, cancelled rows still sitting between live ones.
+  tally.sorted = outreachSortReferralByTime_(referral);
 
   Logger.log('Referral replan: ' + tally.cancelled + ' newly cancelled, '
            + tally.discarded + ' draft(s) discarded, ' + tally.repointed
            + ' row(s) moved to a newer application, ' + tally.retired
-           + ' closed for want of a qualifying application, ' + tally.moved + ' re-timed.');
+           + ' closed for want of a qualifying application, ' + tally.moved
+           + ' re-timed, ' + tally.sorted + ' refiled.');
   return tally;
 }
 
