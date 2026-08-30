@@ -3398,7 +3398,7 @@ console.log('onEdit on Referral — dropping exactly one person by hand');
   });
 }
 
-console.log('orderReferralCancelledRows_ — the rows of one ask');
+console.log('orderReferralCancelledRows_ — the live rows are left as the sender filed them');
 {
   const s = load();
   const rows = [
@@ -3411,23 +3411,20 @@ console.log('orderReferralCancelledRows_ — the rows of one ask');
   ];
   const out = s.orderReferralCancelledRows_(rows);
 
-  run('the live rows come out grouped, each ask where its first row was', () => {
-    assert.deepStrictEqual(people(out), ['Ana', 'Cy', 'Fi', 'Bo', 'Ed', 'Di']);
+  // Three Stripe rows sitting apart is what the sender's interleaving is for, and
+  // this used to gather them back into one block on the hour.
+  run('an employer stays scattered, exactly as the rows arrived', () => {
+    assert.deepStrictEqual(people(out), ['Ana', 'Bo', 'Cy', 'Ed', 'Fi', 'Di']);
   });
-  run('the members are the same row objects, not rebuilt copies', () => {
-    // Identity, so a sort that rebuilt the group from a comparator fails here even
-    // if it happened to produce equal-looking rows.
+  run('the rows are the same objects, not rebuilt copies', () => {
+    // Identity, so an implementation that rebuilt the list from a comparator fails
+    // here even if it happened to produce equal-looking rows.
     assert.strictEqual(out[0], rows[0]);
-    assert.strictEqual(out[1], rows[2]);
-    assert.strictEqual(out[2], rows[5]);
+    assert.strictEqual(out[1], rows[1]);
+    assert.strictEqual(out[2], rows[2]);
   });
-  run('an ask never moves above an ask that was already above it', () => {
-    // Anchoring each ask at its first row is the whole of the stability rule: the
-    // queue you were working down is the queue you come back to.
-    assert.ok(people(out).indexOf('Ana') < people(out).indexOf('Bo'));
-  });
-  run('within an ask the rows keep the order they arrived in', () => {
-    assert.deepStrictEqual(people(out).slice(0, 3), ['Ana', 'Cy', 'Fi']);
+  run('the cancelled row is the only one that moved', () => {
+    assert.strictEqual(out[5], rows[3]);
   });
   run('nothing is dropped and nothing is duplicated', () => {
     assert.strictEqual(out.length, rows.length);
@@ -3437,18 +3434,16 @@ console.log('orderReferralCancelledRows_ — the rows of one ask');
   run('running it on its own output changes nothing', () => {
     assert.deepStrictEqual(rowsOf(s.orderReferralCancelledRows_(out)), rowsOf(out));
   });
-  run('a row with no Role is an ask of one, never folded into the ask above it', () => {
+  run('a row with no Role is left where it stands like any other', () => {
     const gapped = [
       askRow('Stripe', 'SWE Intern', 'Ana', 'Queued'),
       askRow('Stripe', '', 'Nia', 'Queued'),
       askRow('Stripe', 'SWE Intern', 'Cy', 'Queued'),
     ];
     assert.deepStrictEqual(people(s.orderReferralCancelledRows_(gapped)),
-                           ['Ana', 'Cy', 'Nia']);
+                           ['Ana', 'Nia', 'Cy']);
   });
-  run('and two rows with no Role are not herded together either', () => {
-    // They share the empty key, and an implementation that bucketed on it would
-    // pull every unfinished row on the tab into one block.
+  run('and rows sharing an empty Role are not herded together either', () => {
     const blanks = [
       askRow('Stripe', '', 'Ana', 'Queued'),
       askRow('Notion', '', 'Bo', 'Queued'),
@@ -3468,7 +3463,7 @@ console.log('orderReferralCancelledRows_ — the rows of one ask');
     assert.deepStrictEqual(people(s.orderReferralCancelledRows_(history)),
                            ['Ana', 'Bo', 'Cy']);
   });
-  run('the blank tail is still pinned below a grouped live block', () => {
+  run('the blank tail is still pinned below the live rows', () => {
     const tailed = [
       askRow('Stripe', 'SWE Intern', 'Ana', 'Queued'),
       askRow('Notion', 'SWE Intern', 'Bo', 'Queued'),
@@ -3476,11 +3471,11 @@ console.log('orderReferralCancelledRows_ — the rows of one ask');
       blankReferralRow(),
     ];
     assert.deepStrictEqual(people(s.orderReferralCancelledRows_(tailed)),
-                           ['Ana', 'Cy', 'Bo', '']);
+                           ['Ana', 'Bo', 'Cy', '']);
   });
 }
 
-console.log('sortReferralCancelledToBottom — the rows of one ask stay together');
+console.log('sortReferralCancelledToBottom — only the cancelled rows move');
 {
   jobs = freshJobs();
   app = freshApp();
@@ -3496,13 +3491,13 @@ console.log('sortReferralCancelledToBottom — the rows of one ask stay together
   const wroteBefore = wrote.length;
   s.sortReferralCancelledToBottom();
 
-  run('the asks come out contiguous and the cancelled row still sinks', () => {
+  run('the live rows keep their order and the cancelled row still sinks', () => {
     assert.deepStrictEqual(people(referral.grid.slice(1, 7)),
-      ['Ana', 'Cy', 'Fi', 'Bo', 'Ed', 'Di']);
+      ['Ana', 'Bo', 'Cy', 'Ed', 'Fi', 'Di']);
   });
   run('the rows arrive whole — every cell travelled with its own person', () => {
-    assert.strictEqual(referral.grid[2][2], 'Cy');
-    assert.strictEqual(referral.grid[2][3], 'cy@stripe.example');
+    assert.strictEqual(referral.grid[3][2], 'Cy');
+    assert.strictEqual(referral.grid[3][3], 'cy@stripe.example');
     assert.strictEqual(referral.grid[6][2], 'Di');
     assert.strictEqual(referral.grid[6][12], true);
   });
@@ -3517,7 +3512,7 @@ console.log('sortReferralCancelledToBottom — the rows of one ask stay together
     s.sortReferralCancelledToBottom();
     assert.strictEqual(wrote.length, before);
     assert.deepStrictEqual(people(referral.grid.slice(1, 7)),
-      ['Ana', 'Cy', 'Fi', 'Bo', 'Ed', 'Di']);
+      ['Ana', 'Bo', 'Cy', 'Ed', 'Fi', 'Di']);
     assert.match(toasts[toasts.length - 1], /already in order/);
   });
   run('a tick and then a sort leaves the ask whole at the bottom', () => {
@@ -3762,77 +3757,38 @@ console.log('onEdit on the Referral Priority column');
     assert.strictEqual(priorityOf(3), false);
   });
 
-  // The whole ask goes to the top, the sent member included: splitting it so that
-  // one row leads the tab and the rest sit in the middle is the mess the grouping
-  // exists to prevent.
-  run('the prioritised ask leads the tab straight away', () => {
+  // The tick used to sort the tab on the spot, lifting the ask and redealing the
+  // hours behind it. That was this file choosing sending slots: it regrouped the
+  // rows by employer and undid the interleaving the sender had just written, every
+  // time somebody ticked a box. Where a ticked ask goes is the sender's answer.
+  run('the tick moves no row and touches no hour', () => {
+    const before = referral.grid.map((r) => r.slice());
     tick(2, true);
-    const order = referral.grid.slice(1, 5).map((r) => String(r[s.REFERRAL_COMPANY - 1]));
-    assert.strictEqual(order.join(','), 'Acme,Acme,Acme,Beta');
+    assert.strictEqual(referral.grid.length, before.length);
+    for (let i = 0; i < before.length; i++) {
+      assert.strictEqual(referral.grid[i][s.REFERRAL_COMPANY - 1],
+                         before[i][s.REFERRAL_COMPANY - 1], 'row ' + i + ' moved');
+      assert.strictEqual(referral.grid[i][s.REFERRAL_SCHEDULED_AT - 1],
+                         before[i][s.REFERRAL_SCHEDULED_AT - 1], 'row ' + i + ' re-timed');
+      assert.strictEqual(referral.grid[i][s.REFERRAL_DRAFTED_AT - 1],
+                         before[i][s.REFERRAL_DRAFTED_AT - 1], 'row ' + i + ' re-drafted');
+      assert.strictEqual(referral.grid[i][s.REFERRAL_STATUS - 1],
+                         before[i][s.REFERRAL_STATUS - 1], 'row ' + i + ' restatused');
+    }
   });
 
-  // Hours are redealt, never invented: choosing new ones here would be a second
-  // thing picking sending slots with no idea what the sender's caps allow.
-  run('and it holds an hour the tab already had, with its status untouched', () => {
-    const first = referral.grid[1];
-    assert.strictEqual(first[s.REFERRAL_STATUS - 1], 'Queued');
-    assert.strictEqual(first[s.REFERRAL_SCHEDULED_AT - 1], 'Aug 20, 2026 10:00 AM');
-  });
-}
-
-
-console.log('reflowReferralTimes_ — the two hours travel as a pair');
-{
-  const s = load();
-  const row = (status, drafted, scheduled) => {
-    const r = new Array(20).fill('');
-    r[s.REFERRAL_COMPANY - 1] = 'Acme';
-    r[s.REFERRAL_ROLE - 1] = 'SWE Intern';
-    r[s.REFERRAL_DRAFTED_AT - 1] = drafted;
-    r[s.REFERRAL_SCHEDULED_AT - 1] = scheduled;
-    r[s.REFERRAL_STATUS - 1] = status;
-    return r;
-  };
-  // Two queued rows out of order, a drafted one and a cancelled one.
-  const rows = [
-    row('Queued', 'Aug 31, 2026 1:00 PM', 'Aug 31, 2026 2:00 PM'),
-    row('Queued', 'Aug 31, 2026 9:00 AM', 'Aug 31, 2026 10:00 AM'),
-    row('Drafted', 'Aug 31, 2026 5:00 AM', 'Aug 31, 2026 6:00 AM'),
-    row('Cancelled', 'Aug 31, 2026 7:00 AM', 'Aug 31, 2026 8:00 AM'),
-  ];
-  s.reflowReferralTimes_(rows);
-  const D = s.REFERRAL_DRAFTED_AT - 1, S_ = s.REFERRAL_SCHEDULED_AT - 1;
-
-  // Dealing the send times out while leaving the draft times where they were would
-  // put every row's draft against somebody else's send.
-  run('the first queued row takes the earliest pair, both halves of it', () => {
-    assert.strictEqual(rows[0][S_], 'Aug 31, 2026 10:00 AM');
-    assert.strictEqual(rows[0][D], 'Aug 31, 2026 9:00 AM');
-  });
-  run('and the second takes the later pair', () => {
-    assert.strictEqual(rows[1][S_], 'Aug 31, 2026 2:00 PM');
-    assert.strictEqual(rows[1][D], 'Aug 31, 2026 1:00 PM');
-  });
-
-  // A drafted row has a message in Gmail written against a particular hour.
-  run('a drafted row is not in the deal and keeps both its hours', () => {
-    assert.strictEqual(rows[2][S_], 'Aug 31, 2026 6:00 AM');
-    assert.strictEqual(rows[2][D], 'Aug 31, 2026 5:00 AM');
-  });
-
-  run('a cancelled row keeps neither, because it is not going', () => {
-    assert.strictEqual(rows[3][S_], '');
-    assert.strictEqual(rows[3][D], '');
-  });
-
-  run('and no hour is invented: the same times come back, redealt', () => {
-    const sent = [rows[0][S_], rows[1][S_]].sort();
-    assert.deepStrictEqual(sent, ['Aug 31, 2026 10:00 AM', 'Aug 31, 2026 2:00 PM'].sort());
+  // The boxes are the whole of what a tick writes, and they are written across the
+  // ask so the tab shows one decision rather than one row of it.
+  run('and the Priority boxes of the ask are all it wrote', () => {
+    assert.strictEqual(priorityOf(2), true);
+    assert.strictEqual(priorityOf(3), true);
+    assert.strictEqual(priorityOf(4), false);
+    assert.strictEqual(priorityOf(5), false);
   });
 }
 
 
-console.log('orderReferralCancelledRows_ — several asks prioritised at once');
+console.log('orderReferralCancelledRows_ — a Priority tick moves nothing');
 {
   const s = load();
   const row = (company, status, priority) => {
@@ -3846,27 +3802,30 @@ console.log('orderReferralCancelledRows_ — several asks prioritised at once');
   };
   const names = (rows) => rows.map((r) => String(r[s.REFERRAL_COMPANY - 1]));
 
-  // Two employers ticked, not one. Lifting only the first would leave the second
-  // marked urgent and sitting where it was, which is the dead control again.
-  run('every prioritised ask leads, in the order they already stood', () => {
+  // The tick used to lift the ask to the top here, and reflowReferralTimes_ then
+  // handed it the earliest hours the tab had. Both are gone: what a tick means for
+  // which message goes out first is the sender's answer, and it is the only end
+  // that knows the per-employer caps the answer has to satisfy.
+  run('a ticked ask stays exactly where it stood', () => {
     const out = s.orderReferralCancelledRows_([
       row('Acme', 'Queued'),
       row('Beta', 'Queued', true),
       row('Cyan', 'Queued'),
       row('Delta', 'Queued', true),
     ]);
-    assert.strictEqual(names(out).join(','), 'Beta,Delta,Acme,Cyan');
+    assert.strictEqual(names(out).join(','), 'Acme,Beta,Cyan,Delta');
   });
 
-  run('and their own members stay together behind them', () => {
+  // The sender interleaves employers on purpose, so two rows at one company are
+  // meant to be apart. Pulling them back together is what this file stopped doing.
+  run('and an employer whose rows are apart is left apart', () => {
     const out = s.orderReferralCancelledRows_([
       row('Acme', 'Queued'),
       row('Beta', 'Queued', true),
       row('Acme', 'Queued'),
       row('Beta', 'Queued'),
     ]);
-    // One tick lifts the ask, so both Beta rows lead and both Acme rows follow.
-    assert.strictEqual(names(out).join(','), 'Beta,Beta,Acme,Acme');
+    assert.strictEqual(names(out).join(','), 'Acme,Beta,Acme,Beta');
   });
 
   // A cancelled row sinks whatever its box says: the tick is a note about work
@@ -3880,50 +3839,3 @@ console.log('orderReferralCancelledRows_ — several asks prioritised at once');
   });
 }
 
-console.log('reflowReferralTimes_ — a pair whose draft half was never written');
-{
-  const s = load();
-  const row = (status, drafted, scheduled) => {
-    const r = new Array(20).fill('');
-    r[s.REFERRAL_COMPANY - 1] = 'Acme';
-    r[s.REFERRAL_ROLE - 1] = 'SWE Intern';
-    r[s.REFERRAL_DRAFTED_AT - 1] = drafted;
-    r[s.REFERRAL_SCHEDULED_AT - 1] = scheduled;
-    r[s.REFERRAL_STATUS - 1] = status;
-    return r;
-  };
-
-  // A column full on some rows and blank on others reads as a fault rather than
-  // as a queue partway through being filled in.
-  run('a queued row missing its draft hour is given one', () => {
-    const rows = [row('Queued', '', new Date(2026, 7, 31, 9, 0, 0))];
-    s.reflowReferralTimes_(rows);
-    const drafted = rows[0][s.REFERRAL_DRAFTED_AT - 1];
-    // Duck typed, not instanceof: a Date built inside the vm carries that realm's
-    // prototype and fails instanceof against this one, exactly as the code it is
-    // testing had to stop doing.
-    assert.strictEqual(typeof drafted.getTime, 'function', 'expected a Date: ' + drafted);
-    assert.strictEqual(drafted.getHours(), 9 - s.REFERRAL_DRAFT_LEAD_HOURS);
-  });
-
-  // The sender wrote it and the sender is the authority on when it drafts.
-  run('and one that already has it keeps exactly what the sender wrote', () => {
-    const mine = new Date(2026, 7, 31, 7, 30, 0);
-    const rows = [row('Queued', mine, new Date(2026, 7, 31, 9, 0, 0))];
-    s.reflowReferralTimes_(rows);
-    assert.strictEqual(rows[0][s.REFERRAL_DRAFTED_AT - 1].getTime(), mine.getTime());
-  });
-
-  run('a cancelled row is still given neither', () => {
-    const rows = [row('Cancelled', '', new Date(2026, 7, 31, 9, 0, 0))];
-    s.reflowReferralTimes_(rows);
-    assert.strictEqual(rows[0][s.REFERRAL_DRAFTED_AT - 1], '');
-    assert.strictEqual(rows[0][s.REFERRAL_SCHEDULED_AT - 1], '');
-  });
-
-  // The two projects cannot share a file, so this agrees by hand — and a drift
-  // would put every draft hour an hour away from where the sender expects it.
-  run('the lead matches the sender constant it has to agree with', () => {
-    assert.strictEqual(s.REFERRAL_DRAFT_LEAD_HOURS, 1);
-  });
-}

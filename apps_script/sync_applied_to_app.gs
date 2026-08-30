@@ -251,17 +251,10 @@ var REFERRAL_SENT_AT = 16;
 // rules from drifting apart from the list they have to match.
 var REFERRAL_CANCELLED = 'Cancelled', REFERRAL_SENT = 'Sent';
 // The state a row is in while it still has an hour to be given and no message
-// written against it. It is the only state reflowReferralTimes_ may re-time.
+// written against it. It is the state the sender gives hours to; nothing in this
+// file writes that column.
 var REFERRAL_QUEUED = 'Queued';
 
-// How far ahead of sending a message is written, in hours. The same number as
-// DRAFT_LEAD_HOURS in the sender's outreach_config.gs, and it has to stay the
-// same: two Apps Script projects cannot share a file, so this agrees by hand,
-// exactly as OUTREACH_STATUS and the follow-up statuses already do.
-//
-// Used only to fill a draft hour that is missing. A row that has one keeps it,
-// because the sender wrote it and the sender is the authority on when it drafts.
-var REFERRAL_DRAFT_LEAD_HOURS = 1;
 // Four rungs, and the reason they are a dropdown rather than free text is that a
 // tier typed by hand drifts — "Senior", "sr", "Sr." — and then no filter finds
 // the seniors. peer is somebody who interned there last summer; staff is somebody
@@ -1554,27 +1547,6 @@ function referralCancelled_(status) {
 }
 
 
-/**
- * Whether this row has been marked as the one to get to first.
- *
- * A ticked checkbox reads back as the boolean true, and that is the case this is
- * really for. The string is taken as well, for the same reason referralCancelled_
- * takes a lower-case "cancelled": a row somebody filled in before the column was a
- * checkbox holds the text TRUE, which renders on the tab exactly like a ticked
- * box. A sort that recognised only the boolean would leave that row sitting in the
- * middle of the queue looking, to the person who typed it, as though the tick had
- * been ignored — and the fix they would reach for is typing it again.
- *
- * Nothing else counts. A number, a date, a leftover Status word from an unstripped
- * insert: none of those is somebody saying "this one first", and treating any of
- * them as a tick would lift a whole ask to the top of the tab for no reason
- * anybody could see.
- */
-function referralPrioritised_(value) {
-  if (value === true) return true;
-  return String(value == null ? '' : value).trim().toLowerCase() === 'true';
-}
-
 
 /**
  * The ordering decision on its own — rows in, reordered rows out, no sheet — so
@@ -1582,57 +1554,32 @@ function referralPrioritised_(value) {
  * The same split appOfficialNeedsLink_ gets, for the same reason: the interesting
  * half of a sort is which row goes where, and that half should be testable.
  *
- * Four groups, in this order: the live asks somebody ticked Priority on, the rest
- * of the live asks, the cancelled rows, then the empty tail. Each group keeps the
- * order it arrived in.
+ * Three groups, in this order: the live rows in the order they already stood, the
+ * cancelled rows, then the empty tail. Each group keeps the order it arrived in.
  *
- * Priority leads for the reason the column sits where it does: it is the answer to
- * "which of these am I doing next", and an answer you have to scroll to find is one
- * you stop trusting. It lifts the whole ask and not the ticked row — every row
- * sharing that Company and Role travels with it — because one tick means one job
- * is urgent, not one colleague; splitting the ask would leave one member at the
- * top of the tab and five in the middle, which is exactly the mess the grouping
- * rule exists to prevent. A cancelled row is never lifted, whatever its box says:
- * it is finished work, and finished work at the top of a queue is what makes
- * people stop reading the queue.
+ * This file no longer decides which live row leads, and that is the fix for a bug
+ * that survived a long run of attempts at the other end. It used to bucket the live
+ * rows by Company and Role and lift the ticked asks to the top, which put an
+ * employer's six people in six consecutive rows — and reflowReferralTimes_ then
+ * dealt the tab's own hours back out in that new row order, handing one company
+ * six consecutive sending slots. The sender project spreads those same six apart on
+ * purpose: outreachInterleaveByCompany_ makes employers take turns, and anything
+ * not ticked is capped at one ask per employer per day. So the two projects undid
+ * each other on the hour, every hour — the sender re-timed all ninety-seven rows,
+ * runHourlyHousekeeping regrouped them here, and the tab a person opened showed
+ * whichever had run last. The Referral tab's order and its hours belong to the
+ * sender, which is the only end that knows the caps they have to satisfy.
  *
- * Inside both live groups the rows of one ask are held together, each ask sitting
- * where its own first row already sat. Six people at one company about one job are
- * one decision, and a tab that scatters them across forty rows is a tab where you
- * act on four of the six and never see the other two — the same failure the Cancel
- * box now avoids by cancelling the whole ask from one tick. It is also what makes
- * merging those six Cancel cells into one impossible: a merge does not travel with
- * the rows setValues moves, so on a scattered tab it would end up spanning six rows
- * that are not the ask at all.
+ * What is left is the one thing this end is still the right place for: getting the
+ * dead rows out of the way. Sinking rather than deleting, and that is the whole
+ * design. A cancelled ask is the record that you decided not to write to this
+ * person, which is exactly what stops you asking them again in six weeks having
+ * forgotten — so it has to stay on the tab. But it is finished work, and finished
+ * work at the top of a queue is what makes people stop reading the queue.
  *
- * Anchoring each ask at its first row is what keeps this stable. No ask ever moves
- * above an ask that was already above it, so the queue you were working down is the
- * queue you come back to, and a second run finds nothing left to do — the rows are
- * already contiguous and already in that order.
- *
- * A row missing Company or Role is an ask of one and stays exactly where it is;
- * see referralGroupKey_ for why the blanks must not be allowed to match each other.
- *
- * The cancelled group is deliberately NOT regrouped. It is a history, read as "what
- * did I stop doing last week", and that question is answered in the order things
- * were stopped. Pulling an ask called off in July up beside one called off in
- * September because they share a company would spend the only ordering that block
- * of rows has.
- *
- * Sinking rather than deleting, and that is the whole design. A cancelled ask is
- * the record that you decided not to write to this person, which is exactly what
- * stops you asking them again in six weeks having forgotten — so it has to stay on
- * the tab. But it is finished work, and finished work at the top of a queue is
- * what makes people stop reading the queue.
- *
- * Stable because the tab is something a person works down. Rebuilding the live
- * group in some other order would mean the ask you were half way through
- * preparing has jumped three rows up, and the address you paste next lands on a
- * different person from the one you were reading. The order the rows are already
- * in is information somebody put there, and a sort asked only to sink the dead
- * rows has no business spending it. The cancelled group is held in its old order
- * for the same reason: it is a history, and a history reordered is a history you
- * cannot scan for "what did I stop doing last week".
+ * The cancelled group keeps its old order too. It is a history, read as "what did I
+ * stop doing last week", and that question is answered in the order things were
+ * stopped; a history reordered is a history you cannot scan.
  *
  * The empty tail is held back rather than left to fall into the live group. An
  * empty row is not cancelled, so a plain two-way split would leave the blanks
@@ -1649,60 +1596,15 @@ function orderReferralCancelledRows_(rows) {
   var end = rows.length;
   while (end > 0 && appRowIsEmpty_(rows[end - 1])) end--;
 
-  // One bucket per ask, in the order the asks were first met, so an ask's position
-  // is decided by its first row and by nothing else. Object.create(null) rather
-  // than {}: a bare object carries inherited names, and a lookup that found one
-  // would pour an unrelated set of rows into a bucket that was never an ask.
-  //
-  // The bucket carries a flag as well as its rows, because Priority is a property
-  // of the ask and not of the row that happens to hold the tick — see the loop
-  // below for why.
-  var asks = [];
-  var byKey = Object.create(null);
+  var live = [];
   var cancelled = [];
   for (var i = 0; i < end; i++) {
-    if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) {
-      cancelled.push(rows[i]);
-      // Deliberately checked before Priority and not after it: a cancelled row
-      // sinks whatever its box says. The tick is a note about work still to do,
-      // and a called-off row is not work — lifting it would put finished rows back
-      // at the top of the queue, which is the whole thing the sink exists to stop.
-      continue;
-    }
-    var key = referralGroupKey_(rows[i][REFERRAL_COMPANY - 1], rows[i][REFERRAL_ROLE - 1]);
-    var ask;
-    // No key means no group, so this row gets a bucket of its own at the position
-    // it already had. Sharing one bucket between every keyless row would herd the
-    // half-typed rows together, which is a reshuffle nobody asked for on rows
-    // somebody is in the middle of typing.
-    if (!key) asks.push(ask = { rows: [], priority: false });
-    else if (byKey[key]) ask = byKey[key];
-    else asks.push(byKey[key] = ask = { rows: [], priority: false });
-    ask.rows.push(rows[i]);
-    // One tick anywhere in the ask lifts the whole ask, for the same reason one
-    // tick in Cancel calls the whole ask off: six people at one company about one
-    // job are one decision. Lifting only the ticked row would put one member at
-    // the top of the tab and leave five in the middle, which is the split ask the
-    // grouping rule exists to prevent — you act on the one you can see and never
-    // learn the other five were the same favour. It is ticked once per job rather
-    // than once per attempt, so which row carries the tick is an accident of which
-    // row the cursor was on.
-    if (referralPrioritised_(rows[i][REFERRAL_PRIORITY - 1])) ask.priority = true;
-  }
-
-  // Two passes over the same list rather than a sort, which is what keeps this
-  // stable: the asks come out in the order they were met, first the prioritised
-  // ones and then the rest, and no ask ever crosses another inside its own group.
-  // A comparator would have been shorter and would have reordered equal rows on a
-  // whim, so the queue you were working down would not be the queue you came back
-  // to. A second run finds the same two groups in the same order and writes
-  // nothing, which is what makes the hourly sweep a no-op on a tab nobody touched.
-  var live = [];
-  for (var pass = 0; pass < 2; pass++) {
-    for (var a = 0; a < asks.length; a++) {
-      if (asks[a].priority !== (pass === 0)) continue;
-      for (var m = 0; m < asks[a].rows.length; m++) live.push(asks[a].rows[m]);
-    }
+    // Status alone decides. Priority used to be read here as well, to lift the
+    // ticked asks; what a tick means for which message goes out first is the
+    // sender's decision, and reading it here was this file taking that decision a
+    // second time with none of the information it needs to take it.
+    if (referralCancelled_(rows[i][REFERRAL_STATUS - 1])) cancelled.push(rows[i]);
+    else live.push(rows[i]);
   }
   return live.concat(cancelled, rows.slice(end));
 }
@@ -1729,75 +1631,6 @@ function orderReferralCancelledRows_(rows) {
  * recomputes itself wherever the row lands; App's yellow is a background this file
  * paints by hand, which is why that sort has to repaint and this one must not.
  */
-/**
- * The queue's own hours dealt out again in the order the rows now sit in.
- *
- * Lifting an ask to the top is half an answer. The row that moved still carries
- * the hour it was given when it was tenth in the line, so the tab shows it first
- * and sending shows it last, and the person who ticked the box is told two
- * different things by one screen.
- *
- * The hours are redealt rather than recomputed, and that distinction is the whole
- * safety of doing this from a keystroke. Choosing new hours here would be a second
- * thing picking sending slots with no idea what the sender's caps, budget and
- * per-employer limits allow. Permuting the ones already on the tab cannot break
- * any of them at the level they are counted: the same set of times, the same
- * number on each day, only a different row against each.
- *
- * Only Queued rows join the deal. A Drafted row has a message written and sitting
- * in Gmail against a particular hour, and handing it an earlier one would send it
- * before the hour it was meant to be readable in — the one guarantee drafting
- * exists to give. A Cancelled row loses both its times, because it is not going.
- */
-function reflowReferralTimes_(rows) {
-  var DRAFTED = REFERRAL_DRAFTED_AT - 1, SCHEDULED = REFERRAL_SCHEDULED_AT - 1;
-  var STATUS = REFERRAL_STATUS - 1;
-
-  // The two hours travel as a pair. A row's Drafted At is one lead ahead of its
-  // Scheduled At, and dealing the send times out while leaving the draft times
-  // where they were would put every row's draft against somebody else's send —
-  // a tab saying the message is written at nine and goes at two.
-  //
-  // Kept as a pair rather than recomputed by subtracting an hour, because the lead
-  // is the sender's constant and this file does not hold it. Moving what is there
-  // cannot disagree with it; arithmetic here could.
-  var slots = [];
-  for (var i = 0; i < rows.length; i++) {
-    if (referralCancelled_(rows[i][STATUS])) continue;
-    if (String(rows[i][STATUS] || '').trim() !== REFERRAL_QUEUED) continue;
-    if (rows[i][SCHEDULED] === '' || rows[i][SCHEDULED] == null) continue;
-    slots.push({ scheduled: rows[i][SCHEDULED], drafted: rows[i][DRAFTED] });
-  }
-  // Ascending, because the order rows sit in is the order they should go out in,
-  // and the tab's own times are the only supply of hours this may draw on.
-  slots.sort(function (left, right) {
-    return new Date(left.scheduled).getTime() - new Date(right.scheduled).getTime();
-  });
-
-  var next = 0;
-  for (var j = 0; j < rows.length; j++) {
-    var state = String(rows[j][STATUS] || '').trim();
-    if (referralCancelled_(rows[j][STATUS])) {
-      rows[j][SCHEDULED] = '';
-      rows[j][DRAFTED] = '';
-      continue;
-    }
-    if (state !== REFERRAL_QUEUED) continue;
-    if (next < slots.length) {
-      rows[j][SCHEDULED] = slots[next].scheduled;
-      // A pair whose draft half was never written gets one here rather than
-      // travelling empty for another hour. Rows booked before that column existed
-      // sit at exactly the hour the planner would give them, so the sender's own
-      // backfill reaches them on its next run and not before — and a column that
-      // is full on some rows and blank on others reads as a fault rather than as a
-      // queue partway through being filled in.
-      rows[j][DRAFTED] = slots[next].drafted || draftHourFor_(slots[next].scheduled);
-      next++;
-    }
-  }
-  return rows;
-}
-
 function sortReferralCancelledBlock_(queue) {
   // To the real last row and no further, NOT out to LAST_ROW. LAST_ROW is where
   // setupReferralQueue stops laying formatting; the data stops at getLastRow, and
@@ -1823,7 +1656,6 @@ function sortReferralCancelledBlock_(queue) {
   var width = Math.max(queue.getLastColumn(), REFERRAL_HEADERS.length);
   var rows = queue.getRange(FIRST_ROW, 1, count, width).getValues();
   var ordered = orderReferralCancelledRows_(rows);
-  reflowReferralTimes_(ordered);
 
   // Nothing moved, so nothing is written. This is what makes a second run a
   // genuine no-op rather than a run that happens to write back the same bytes —
@@ -1841,12 +1673,13 @@ function sortReferralCancelledBlock_(queue) {
 
 
 /**
- * Reorder the Referral data rows so the asks still to do sit at the top and the
- * ones called off sink to the bottom.
+ * Move the Referral rows that were called off to the bottom, and leave every live
+ * row exactly where it was.
  *
- * It is also what acts on Priority. Ticking that box does nothing where it stands
- * — see onReferralEdit for why a trigger must not reorder the tab under the hand
- * that is clicking — so the lift happens here, on the hour, along with the sink.
+ * It used to act on Priority as well, lifting the ticked asks and redealing the
+ * tab's hours behind them. That is gone: it fought the sender's own ordering every
+ * hour — see orderReferralCancelledRows_ for the whole account. Which live row
+ * leads, and which hour it holds, are the sender's decision.
  *
  * Ticking Cancel turns a row grey where it stands, and on a short tab that is
  * enough. It stops being enough as the tab grows: the tab only ever gets longer,
@@ -1865,8 +1698,7 @@ function sortReferralCancelledToBottom() {
   var moved = sortReferralCancelledBlock_(queue);
   ss.toast(
     moved
-      ? 'Referral rows reordered: the asks you starred are at the top and the '
-        + 'cancelled ones are at the bottom.'
+      ? 'Referral rows reordered: the cancelled ones are at the bottom.'
       : 'The Referral rows are already in order. Nothing moved.',
     'Referral',
     5
@@ -2163,10 +1995,10 @@ function onReferralEdit(e) {
   // the intended behaviour: the box is allowed to be ticked and nothing else
   // happens. Lifting the row here would drag it out from under the hand that just
   // ticked it — and it lifts a whole ask, so five more rows would move with it and
-  // the next box clicked would belong to a stranger. That is why the ordering
-  // waits for the hourly runHourlyHousekeeping sweep. What the tick means for
+  // the next box clicked would belong to a stranger. What the tick means for
   // which message goes out first is the sender project's decision, not this
-  // file's; nothing here reschedules, restatuses or redrafts a prioritised row,
+  // file's, and it lands on the tab when the sender next re-plans; nothing here
+  // reschedules, restatuses, reorders or redrafts a prioritised row,
   // because two things picking sending slots with no idea the other exists is the
   // one failure the scheduling was built to avoid.
   // Priority first, and it is a different job from Cancel: it ticks the rest of the
@@ -2334,8 +2166,8 @@ function onReferralEdit(e) {
   // how the wrong box gets ticked anyway.
   //
   // The block write is one round trip, which is what makes this affordable inside
-  // a simple trigger's thirty seconds, and reflowReferralTimes_ hands the freed
-  // hours to the rows still going rather than inventing new ones.
+  // a simple trigger's thirty seconds. Only the cancelled rows move; the hours the
+  // sink frees are the sender's to hand on, on its next cycle.
   sortReferralCancelledBlock_(queue);
   e.source.toast(referralCancelReport(cancelled, refused), 'Referral', 6);
 }
@@ -2776,10 +2608,12 @@ function runHourlyHousekeeping() {
  * send the ask twice over, days apart, to colleagues who see each other's mail.
  *
  * It writes nothing but the boxes. No status, no hours, no reordering — the row
- * keeps its place until runHourlyHousekeeping sorts, and keeps its hour until the
- * sender re-plans. That restraint is the point: moving rows from a keystroke pulls
- * the row out from under the hand that just clicked, and picking hours here would
- * be a second thing choosing sending slots with no idea the first exists.
+ * keeps its place and its hour until the sender re-plans. That restraint is the
+ * point, and it is now the whole of it: this used to sort the tab on the spot so
+ * the tick had something visible to show for itself, which meant a keystroke
+ * re-ordering rows and redealing hours the sender had just chosen. Picking or
+ * permuting sending slots here is a second thing choosing them with no idea the
+ * first exists.
  *
  * An untick clears the ask the same way, because a person who changes their mind
  * about one row means the ask, exactly as they meant the tick.
@@ -2839,42 +2673,12 @@ function onReferralPriorityEdit(e, queue) {
   for (var k = 0; k < count; k++) column.push([block[k][PRIORITY]]);
   queue.getRange(FIRST_ROW, REFERRAL_PRIORITY, count, 1).setValues(column);
 
-  // Straight away, not on the hourly sweep. An earlier version left the ordering
-  // to the clock on the reasoning that moving rows under the hand that just
-  // clicked is hostile — which is true, and is not the trade the owner wants. A
-  // tick that changes nothing you can see for an hour is a control you stop
-  // believing, and believing it is what the column is for.
-  sortReferralCancelledBlock_(queue);
+  // No sort here. Ticking the siblings is the feedback, and it is immediate: the
+  // boxes fill in under the cursor and the ask is visibly one decision. Reordering
+  // the tab as well is what put this file in the business of choosing sending
+  // slots, and the tick is answered properly by the sender, which knows the caps.
   e.source.toast(
-    'Priority set across the ask. It is at the top of the queue now and holds the '
-    + 'earliest hours the tab had.', 'Referral', 6);
+    'Priority set across the ask. The sender moves it up the queue on its next '
+    + 'run, within the per-employer limits.', 'Referral', 6);
 }
 
-
-/**
- * A send hour turned into the hour its message is written, one lead earlier.
- *
- * Only ever called for a row whose draft hour is missing. Anything already there
- * is the sender's, and the sender is the authority on when it drafts; this is the
- * gap-filler, not a second opinion.
- *
- * Takes whatever the cell held — a Date from the sheet, a string from a test — and
- * gives back the same kind of thing the column already holds, so the caller can
- * write it straight back without knowing which it was.
- */
-function draftHourFor_(scheduled) {
-  if (!scheduled) return '';
-  // Duck typed rather than `instanceof Date`. A Date made outside this script's
-  // own realm — by the test harness, or by any other context sharing the sheet —
-  // fails instanceof while behaving in every way like a Date, and the fallback it
-  // fell into produced a string in a column that holds dates.
-  var when = (typeof scheduled.getTime === 'function')
-    ? new Date(scheduled.getTime())
-    : new Date(scheduled);
-  if (isNaN(when.getTime())) return '';
-  when.setHours(when.getHours() - REFERRAL_DRAFT_LEAD_HOURS);
-  // Always a Date. The column carries a timestamp format, so a Date is what it
-  // wants; handing back a string would leave one cell in the column holding text
-  // that sorts and reads differently from every other.
-  return when;
-}
