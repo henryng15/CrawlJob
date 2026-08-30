@@ -29,7 +29,7 @@ and the hourly housekeeping. Script id `1WrD8HUZ...`; `clasp` profile `default` 
 | `onJobsEdit(e)` | Ticking **Applied** on `Jobs` copies the row into `App`. |
 | `onAppEdit(e)` | Changing **Process** in column F appends one `"<Stage>: <date>"` line to `Update`. |
 | `onReferralEdit(e)` | Ticking **Cancel** in column M calls that ask off immediately. |
-| `onReferralPriorityEdit(e)` | A Priority tick spread across the whole ask it belongs to. |
+| `onReferralPriorityEdit(e)` | A Priority tick spread across the whole ask it belongs to. Writes the boxes and nothing else — no reorder, no re-time. |
 | `stageLabel(v)`, `hasStage(...)`, `stamp(...)` | The canonical stage name (or `''`), and the date written into the cell. |
 | `lastEntry(...)` | Two things read in one pass over the `Property` column. |
 
@@ -68,10 +68,16 @@ so those rows are painted and floated to the top.
 | Function | Does |
 |---|---|
 | `referralGroupKey_(row)` | Which ask a row belongs to: one employer, one job. |
-| `referralCancelled_(row)`, `referralPrioritised_(row)` | Tick state, compared case-insensitively on purpose. |
-| `orderReferralCancelledRows_(rows)` | Pure ordering: live asks up, called-off ones down. |
-| `reflowReferralTimes_(rows)` | The queue's own hours dealt out again in the order the rows now sit in. |
+| `referralCancelled_(row)` | Tick state, compared case-insensitively on purpose. |
+| `orderReferralCancelledRows_(rows)` | Pure ordering, and the only one this file makes: called-off rows sink, live rows keep the order the sender filed them in. |
 | `sortReferralCancelledBlock_`, `sortReferralCancelledToBottom` | Apply it to the sheet. |
+
+**This file does not schedule.** The Referral tab's row order and its two hour columns
+belong to the sender (`outreach_referral_queue.gs`), which is the only end that knows the
+per-employer caps. Until 2026-08-30 `orderReferralCancelledRows_` also grouped live rows by
+employer and lifted ticked asks, and a deleted `reflowReferralTimes_` then dealt the tab's
+hours back out in that row order — so an employer got six consecutive sending slots and the
+two projects undid each other every hour. See `outreach-referral-queue.md`.
 
 ## The clock
 
@@ -80,7 +86,6 @@ so those rows are painted and floated to the top.
 | `installAppOfficialTrigger` | Put the hourly housekeeping on the clock. |
 | `removeAppOfficialTrigger` | The kill switch, and still the only one. |
 | `runHourlyHousekeeping` | Float the `App` worklist to the top, then sink the called-off `Referral` rows. |
-| `draftHourFor_(sendHour)` | A send hour turned into the hour its message is written, one lead earlier. |
 
 ## Backfill and reports
 

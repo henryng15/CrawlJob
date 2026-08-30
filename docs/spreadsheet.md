@@ -379,6 +379,12 @@ colleagues who can see each other's mail. Ticking it re-books the whole group in
 slots — not merely first among whatever is already due at the same minute, or a row marked urgent on
 Monday and booked for Friday would still go on Friday.
 
+The tick itself only fills the boxes across the ask. The re-booking lands on the **next hourly
+sender run**, which is where you check that a tick did what you expected. The bound script used to
+reorder the tab on the keystroke instead, which meant a tick regrouped the rows by employer and
+redealt the tab's hours behind them — undoing the sender's interleaving until the next cycle undid
+that. Only the sender times this tab.
+
 `Cancel` calls off an **ask**, not a row. The planner picks one representative application per
 employer and asks up to six people about it, so six rows routinely carry the identical Company and
 Role — they are one decision, not six, and ticking any one of them cancels all of them and ticks

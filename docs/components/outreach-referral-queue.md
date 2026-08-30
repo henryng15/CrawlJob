@@ -85,3 +85,20 @@ retire. The tab grew from 173 real rows to 500, heading for the 1000-row ceiling
 
 Fixed by filtering on `row.company || row.email` **after** the map, so `index` stays the true
 sheet row. `repairReferralBlankRows` clears what the bug already wrote.
+
+## Gotcha — the tab had a second scheduler
+
+The bound tracker script (`sync_applied_to_app.gs`) used to write these same two hour columns.
+`orderReferralCancelledRows_` regrouped live rows into company+role blocks with the ticked asks
+lifted to the top, and `reflowReferralTimes_` then dealt the tab's own hours back out **in row
+order** — so one employer took six consecutive sending slots, and non-priority companies got well
+past `REFERRAL_COMPANY_DAILY_CAP`. It ran on every Priority or Cancel tick and hourly from
+`runHourlyHousekeeping`.
+
+Nothing was wrong with the code in this file; the two projects simply undid each other on the hour.
+On 2026-08-30 the live tab held Nuro with four asks on one day — arithmetic `outreachReferralSlot_`
+cannot produce — while Cloud Logging showed the replan re-timing 97 rows that same hour.
+
+Fixed at the other end: `reflowReferralTimes_` is deleted and `orderReferralCancelledRows_` now only
+sinks called-off rows. **This file owns the Referral tab's order and its hours.** See
+`tracker-sync.md`.
