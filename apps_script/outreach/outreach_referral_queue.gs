@@ -1187,3 +1187,49 @@ function outreachReferralReconcile_(referralRows, applications) {
   });
   return { repoint: repoint, retire: retire };
 }
+
+/**
+ * The wreckage left by reading blank rows as asks, cleared off the tab.
+ *
+ * outreachReadReferralRows_ used to hand every row between row 2 and getLastRow to
+ * the reconciler, blank ones included. A blank row has no company, so no
+ * application could match it, so it was retired: Cancelled written into its Status
+ * and a sentence into its Last Error. That raised getLastRow by one, and the next
+ * firing found one more blank row to retire. The tab grew from 173 rows to 500 that
+ * way, and every one of them was read, sorted and written back every hour.
+ *
+ * The reader now filters those rows out, so this is a one-off — kept as a function
+ * rather than done by hand because the same wreckage is worth being able to clear
+ * again without anybody having to work out which rows are safe to touch.
+ *
+ * Only rows strictly below the last real ask are cleared, which is what makes this
+ * safe to run at any time. A blank row sitting between two real ones is left alone:
+ * the reader already ignores it, and closing the gap would renumber every row below
+ * it, while a Gmail draft is pinned to the row number it was written against.
+ */
+function repairReferralBlankRows() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) { Logger.log(outreachReferralNotSetUp_()); return { cleared: 0 }; }
+
+  var last = referral.getLastRow();
+  if (last < 2) return { cleared: 0 };
+  var values = referral.getRange(2, 1, last - 1, R_WIDTH).getValues();
+
+  var lastReal = 1;
+  values.forEach(function (row, i) {
+    if (String(row[R_COMPANY - 1] || '').trim() || String(row[R_EMAIL - 1] || '').trim()) {
+      lastReal = i + 2;
+    }
+  });
+
+  if (lastReal >= last) {
+    Logger.log('Referral tab: nothing below the last real ask at row ' + lastReal + '.');
+    return { cleared: 0, lastRealRow: lastReal, lastRow: last };
+  }
+
+  var count = last - lastReal;
+  referral.getRange(lastReal + 1, 1, count, R_WIDTH).clearContent();
+  Logger.log('Referral tab: cleared ' + count + ' empty row(s) below row ' + lastReal + '.');
+  return { cleared: count, lastRealRow: lastReal, wasLastRow: last };
+}

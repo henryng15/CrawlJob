@@ -91,7 +91,18 @@ function outreachReadReferralRows_(sheet) {
   var last = sheet.getLastRow();
   if (last < 2) return [];
   return sheet.getRange(2, 1, last - 1, R_WIDTH).getValues()
-    .map(function (row, index) { return outreachParseReferral_(row, index + 2); });
+    .map(function (row, index) { return outreachParseReferral_(row, index + 2); })
+    // An empty spreadsheet row is not an ask, and letting one through was a bug
+    // that fed itself. A blank row parses to a row with no company and no status,
+    // which outreachReferralReconcile_ reads as an open ask whose employer has
+    // stopped qualifying — so it wrote Cancelled and a sentence into the blank
+    // row. That raised getLastRow, which handed the next run more blank rows to
+    // retire, and the tab grew from 173 rows to 500 on its way to the 1000-row
+    // ceiling, every one of them read, sorted and written back every hour.
+    //
+    // Filtering after the map, never inside it: `index` is the real sheet row and
+    // every caller writes by it, so the numbering has to survive the filter.
+    .filter(function (row) { return row.company || row.email; });
 }
 
 /**

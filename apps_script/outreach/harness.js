@@ -5254,6 +5254,53 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   });
 }
 
+// A blank spreadsheet row is not an ask. Reading one as an ask is what let
+// outreachReferralReconcile_ retire it, writing Cancelled into the blank row,
+// which raised getLastRow and handed the next run more blanks to retire.
+{
+  console.log('');
+  console.log('referral: blank rows are not asks');
+
+  const sheetOf = (rows) => ({
+    getLastRow: () => rows.length + 1,
+    getRange: () => ({ getValues: () => rows })
+  });
+  const blank = () => new Array(S.R_WIDTH).fill('');
+  const real = (company, email) => {
+    const row = blank();
+    row[S.R_COMPANY - 1] = company;
+    row[S.R_EMAIL - 1] = email;
+    row[S.R_STATUS - 1] = 'Queued';
+    return row;
+  };
+
+  run('an empty row is dropped rather than read as an ask', () => {
+    const rows = S.outreachReadReferralRows_(sheetOf([real('Nuro', 'a@nuro.ai'), blank(), blank()]));
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].company, 'Nuro');
+  });
+
+  run('surviving rows keep their real sheet row number', () => {
+    const rows = S.outreachReadReferralRows_(
+      sheetOf([blank(), blank(), real('Figma', 'b@figma.com')]));
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].index, 4, 'the third data row is sheet row 4');
+  });
+
+  run('reconcile no longer retires the blank rows', () => {
+    const rows = S.outreachReadReferralRows_(sheetOf([blank(), blank(), blank()]));
+    const seen = S.outreachReferralReconcile_(rows, []);
+    assert.strictEqual(seen.retire.length, 0);
+    assert.strictEqual(seen.repoint.length, 0);
+  });
+
+  run('a row with an email but no company is still an ask', () => {
+    const row = blank();
+    row[S.R_EMAIL - 1] = 'c@somewhere.com';
+    assert.strictEqual(S.outreachReadReferralRows_(sheetOf([row])).length, 1);
+  });
+}
+
 console.log('');
 if (failures.length) {
   console.log(passed + ' ok, ' + failures.length + ' FAILED');
