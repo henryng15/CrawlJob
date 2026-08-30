@@ -1,9 +1,10 @@
-# Five tabs, and who writes where
+# The tabs, and who writes where
 
 The spreadsheet is the interface to the whole system. Understanding who owns which column is
 most of understanding it. `Jobs` and `App` are the tracker itself; `Alphabet_Order` is `App`
-read a second way; `Email` and `Referral` are the two outreach queues, and a sixth tab of people
-lives in a different spreadsheet entirely, at the bottom of this page.
+read a second way; `Email` and `Referral` are the two outreach queues; `Season` and
+`Cycle Health` are reports the sender rewrites. A further tab of people lives in a different
+spreadsheet entirely, at the bottom of this page.
 
 ## Tab `Jobs` — still to be applied to
 
@@ -257,31 +258,31 @@ down a table meant for reading is noise; every other column passes through untou
 
 ## Tab `Email` — the outreach queue
 
-Run `setupOutreachQueue` in Apps Script to create this tab. At this stage it is only an empty,
-human-visible queue: it does **not** read the `App` tab, add an application, contact a recruiter,
-or connect to Gmail.
+`setupOutreachQueue` in the bound script creates the tab. It is **live**: `runOutreachCycle` in
+the sender project appends rows from `App`, drafts them, sends them and records what came back.
 
-The tab is intentionally separate from `App`. `App` remains the source of truth for an
-application; the queue will later record one controlled outreach attempt without putting a
-recruiter's name, email address, or drafted message into this spreadsheet.
+The tab is deliberately separate from `App`. `App` remains the source of truth for an application;
+the queue records one controlled outreach attempt without putting a recruiter's name, email address
+or drafted message into this spreadsheet.
 
-| Column | Meaning |
-|---|---|
-| Queue ID | stable ID for one outreach attempt |
-| App Property | the `Property` value of the related App row |
-| Company / Role / Date Applied | snapshots of the application when queued |
-| Recruiters | how many contacts exist at that company, refreshed hourly |
-| Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
-| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
-| Priority | tick to move this posting to the front of the queue; a checkbox, and the only column here a person writes to |
-| Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
-| Follow Up / Follow Up Template / Follow Up Status | the day the one chasing reply is booked for, which of the twenty sentences it uses, and where it has got to |
-| Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
-| Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
-| Result / Last Error / Version | delivery outcome, diagnostic, and concurrency guard |
+Twenty-three columns, in this order:
 
-All rows start empty. The future queue worker will be the only automation allowed to create or
-move them; until then this tab is safe to inspect and format manually.
+| # | Column | Meaning |
+|---|---|---|
+| A–C | Company / Role / Date Applied | snapshots of the application when queued |
+| D | Property | the `Property` value of the related `App` row |
+| E | Recruiters | how many contacts exist at that company, refreshed hourly |
+| F–G | Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
+| H–I | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
+| J | Priority | tick to move this posting to the front of the queue; a checkbox, and one of the few columns here a person writes to |
+| K–L | Status / Mode | queue lifecycle and `Draft` versus `Send`; both dropdowns |
+| M–O | Follow Up / Follow Up Template / Follow Up Status | the day the one chasing reply is booked for, which of the twenty sentences it uses, and where it has got to |
+| P | Contact Fingerprint | non-reversible fingerprint, so the same address is never written to twice |
+| Q–S | Gmail Draft ID / Gmail Message ID / Sent At | audit references |
+| T–W | Result / Last Error / Queue ID / Version | delivery outcome, diagnostic, `P<property>-A<attempt>`, and the concurrency guard |
+
+`Queue ID` sits at the far right rather than first: it identifies a row for a machine, and the
+columns a person opens the tab to read belong on the left.
 
 `Priority` leads `Status` because the two read as one answer: whether this row was asked for, and
 where it has got to. The three `Follow Up` columns sit immediately after `Mode` for the same
@@ -318,8 +319,9 @@ cannot raise the day's cap or the weekly cap on one company, and it cannot send 
 it decides who gets the slots that already existed. The new order shows up in `Scheduled At` on the
 next hourly run, which is where you check that a tick did what you expected.
 
-The design the worker will follow — what enters the queue, in what order, how many go out a
-day, and where the sender lives — is [outreach.md](outreach.md).
+What enters the queue, in what order, how many go out a day, and where the sender lives:
+[outreach.md](outreach.md), and [components/outreach-queue.md](components/outreach-queue.md) for
+the functions themselves.
 
 ### Filling in Role lets the tool tick more
 
@@ -331,14 +333,17 @@ Run [`--audit-app`](operations.md#auditing-the-app-tab) to see exactly which row
 
 ## Tab `Referral` — who has been asked
 
-Run `setupReferralQueue` in Apps Script to create this tab. Like `setupOutreachQueue` before it,
-this only builds the table: it does **not** read `Jobs`, choose who to ask, compose anything or
-touch Gmail. Rows arrive from `planReferralAsks` in the sender project, which is not part of the
-hourly cycle — until somebody runs it, or wires it to a trigger, this tab stays empty.
+`setupReferralQueue` in the bound script creates the tab. It is **live**: `planReferralAsks`,
+`draftReferralAsks`, `sendReferralAsks`, `scanReferralReplies` and `replanReferralAsks` are all
+steps of the hourly `runOutreachCycle`, and nothing here needs running by hand.
 
 The `Email` tab records one controlled email to a recruiter about an application you have already
-made. This one records one email to an engineer at a company, asking them to refer you, about a
-posting you may not have applied to yet. Two tabs and not more columns on one, because those are
+made. This one records one email to an engineer at that company, asking them to refer you. **Both
+paths start from `App`** — every row is an application deliberately made. The referral path used
+to read `Jobs` instead, which offered hundreds of postings nobody had chosen; having applied is a
+far stronger statement about which intake matters than a word in a job board's title.
+
+Two tabs and not more columns on one, because those are
 two questions a person asks separately — and mixed into one table neither could be scanned, since
 the recruiter rows outnumber the referral rows and both halves would carry the other's columns as
 blanks.
@@ -403,7 +408,7 @@ life. An earlier layout had no column for it and let the draft's id ride in `Res
 replaced it with the sent message's id — two different kinds of Gmail id in one cell, tellable
 apart only by also reading `Status`, in the column whose whole job is to say how it went.
 
-Two of the eighteen behave differently from their namesakes on the `Email` tab, and each
+Two of the twenty behave differently from their namesakes on the `Email` tab, and each
 difference is deliberate:
 
 - **`Queue ID` is `R-` and the address.** This path asks one person once and never again, so the id
@@ -430,6 +435,32 @@ The rules the rows will be created under — which posting, which six people, wh
 person is asked once and never again — are in
 [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
 
+## Tab `Season` — employers that look like they run two intakes
+
+Rewritten from `App` by `refreshSeasonTab` on every cycle, never by hand. It lists each employer's
+off-cycle and summer rows so a company running both can be seen at a glance. Rebuilt every firing
+rather than stamped once, for the same reason the `Recruiter` column is: a list of two-intake
+employers from three weeks ago is worse than none, because it looks current.
+
+## Tab `Cycle Health` — did the run finish?
+
+Written by `runOutreachCycle`, newest row first, trimmed to the last 240 runs.
+
+| Column | Meaning |
+|---|---|
+| Run ID | a UUID, so the closing write finds the row it opened |
+| Started At | stamped **before** the schema migration, which is the one fatal step |
+| Finished At | stamped after the last step |
+| Status | `running`, `ok` or `failed` |
+| Failed Steps | which of the eighteen steps threw |
+| Summary | what each step returned, truncated |
+
+**A row that says it started and never says it finished is the point of this tab.** A run that
+dies part way — a timeout, a step that throws outside the isolation — writes no summary and leaves
+nothing in any log a person reads. Before this tab existed, the referral path silently stopped
+being re-timed for weeks while its tests went on passing. If the top row is stuck on `running`,
+that is the symptom.
+
 ## The contacts spreadsheet — tab `Employees (seed)`
 
 Not this file. The contacts spreadsheet is a second, separate spreadsheet **owned by the sending
@@ -443,7 +474,7 @@ here is erased by the next export.
 
 | Column | Meaning |
 |---|---|
-| Company | matched to a `Jobs` row by the same company rule the recruiter path uses |
+| Company | matched to an `App` row by the same company rule the recruiter path uses |
 | Person Name | the greeting |
 | Email | the address; also the key that says this person has been asked already |
 | Title | what decides the tier, ahead of `Seniority` |

@@ -1,118 +1,112 @@
 # `outreach/` — the sender
 
-These eleven files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
-standalone project in the Apps Script editor of `hoanng15.work@gmail.com`.
+These files are **not** part of the Apps Script bound to the spreadsheet. They belong to a
+standalone project owned by `hoanng15.work@gmail.com`.
 
 That separation is the reason the project exists. A bound script runs as whoever owns the
 spreadsheet, so `GmailApp.sendEmail` there would send from the account that owns the tracker —
-which is a different address, and the one that must never appear as the sender.
+a different address, and the one that must never appear as the sender.
+
+Per-function detail for every file below is in
+[../../docs/components/](../../docs/components/README.md).
 
 | File | |
 |---|---|
-| `outreach_config.gs` | IDs, column numbers, caps, and the two date helpers everything else counts with |
-| `outreach_contacts.gs` | reads both contact tabs, decides what one employer is, and counts per company |
-| `outreach_compose.gs` | the ten message variations and the HTML builder |
-| `outreach_queue.gs` | what earns a queue row, in what order, how many go out this hour, and the `Season` report |
-| `outreach_send.gs` | drafting, sending, reply and bounce detection, and the hourly trigger |
-| `outreach_rejections.gs` | recognising a rejection in the mailbox and closing the application it belongs to |
-| `outreach_followup.gs` | the twenty short replies, which rows earn one, what day it lands on, and posting it onto the thread |
-| `outreach_referral.gs` | the forty referral messages in four seniority tiers, the tier resolver, and the composer |
-| `outreach_referral_queue.gs` | which link a referral may be submitted against, which posting per company, who is asked and on what day |
-| `outreach_referral_send.gs` | the three referral entry points: booking rows, drafting them an hour early, sending them |
-| `outreach_budget.gs` | one daily ceiling across all three paths, and who gives way when it binds |
-| `appsscript.json` | the manifest: timezone, the five scopes spelled out, and the one advanced service |
-| `.claspignore` / `.clasp.json.example` | so the project is deployed with `clasp push` rather than pasted |
+| `outreach_config.gs` | ids, column numbers, caps, statuses, date helpers, and the shared company interleaver |
+| `outreach_contacts.gs` | both contact tabs, and what counts as one employer |
+| `outreach_compose.gs` | the cold email's ten variations, in HTML and plain text |
+| `outreach_queue.gs` | what earns a queue row, in what order, how many go this hour, the `Season` report |
+| `outreach_send.gs` | drafting, sending, replies, bounces, `runOutreachCycle`, the `Cycle Health` tab |
+| `outreach_rejections.gs` | recognising a rejection and closing the application it belongs to |
+| `outreach_followup.gs` | the twenty short replies, which rows earn one, and posting it onto the thread |
+| `outreach_referral.gs` | forty referral messages in four seniority tiers, the tier resolver, the composer |
+| `outreach_referral_queue.gs` | which link may be used, which posting per company, who is asked and on what day |
+| `outreach_referral_send.gs` | the referral path's sheet and Gmail work |
+| `outreach_budget.gs` | one daily ceiling across all three paths, and who gives way |
+| `outreach_diag.gs` | **temporary** read-only probes against the live script |
+| `appsscript.json` | timezone, the five scopes, one advanced service, `executionApi` |
 
-The scopes are declared rather than inferred. Apps Script works out what to ask for by scanning
-the code at the moment you press Allow, so a project authorised before `outreach_send.gs` was
-pasted in never asked for Drive — and then failed with `Access denied: DriveApp` the first time
-it went to attach the resume. Spelling them out makes the grant match the code whatever order
-the files arrived in.
+## The manifest
+
+Scopes are **declared rather than inferred**. Apps Script works out what to ask for by scanning
+the code at the moment you press Allow, so a project authorised before `outreach_send.gs` existed
+never asked for Drive — and failed with `Access denied: DriveApp` the first time it went to attach
+the resume.
 
 | Scope | For |
 |---|---|
 | `spreadsheets` | the tracker and the contacts book |
 | `drive.readonly` | reading the resume to attach it — nothing is written to Drive |
-| `mail.google.com` | drafting, sending, reading a thread to see if it was answered, and labelling rejections |
+| `mail.google.com` | drafting, sending, reading a thread, labelling rejections |
 | `script.scriptapp` | installing the hourly trigger |
 | `userinfo.email` | knowing whose account this is, so a preview can be addressed to you |
 
-One **advanced service** is declared alongside them: `Gmail`, v1. It exists for a single call.
-`GmailMessage.reply` and `GmailThread.reply` both answer the *sender* of the message, and on a
-thread this account started that sender is this account — so a follow-up sent through `GmailApp`
-would have gone to Henry. Neither method takes a `to`. `Gmail.Users.Messages.send` with the
-thread's id and the original `Message-ID` in `In-Reply-To` is what makes the nudge a real reply
-rather than a new conversation wearing `Re:`. It asks for no scope `https://mail.google.com/` does
-not already cover, but the first run after it arrives will ask to be re-authorised.
+One **advanced service**, `Gmail` v1, for a single call. `GmailMessage.reply` and
+`GmailThread.reply` both answer the *sender*, which on a thread this account started is this
+account — so a follow-up sent through `GmailApp` would go to the wrong person, and neither method
+takes a `to`. `Gmail.Users.Messages.send` with the thread id and the original `Message-ID` in
+`In-Reply-To` is what makes the nudge a real reply rather than a new conversation wearing `Re:`.
 
-Everything that *decides* is pure — it takes rows, a message and a date, and returns rows.
-Only `outreach_send.gs` and the bottom of `outreach_rejections.gs` touch Gmail. That is what lets the rules be argued with without a Google account:
+`"executionApi": { "access": "MYSELF" }` is what lets `clasp run` execute a function at all.
+Without it every call returns a `NOT_FOUND` storage error naming neither the manifest nor the API.
+See [../../docs/components/outreach-diagnostics.md](../../docs/components/outreach-diagnostics.md).
 
-```
-node apps_script/outreach/harness.js     # every rule, on a laptop, sending nothing
-```
+## Three paths, one mailbox
 
-## The three referral files
+`runOutreachCycle` runs hourly and drives all three. `EMAIL_PATH_ORDER` is
+`referral → cold → followup`: referral leads because it is scarcest (six people per employer, no
+second attempt ever), follow-up trails because it is the only path that loses nothing by slipping
+a day.
 
-They are the second path: asking an engineer at a company for a referral, rather than asking a
-recruiter to look at an application. The split between them is the one `outreach_queue.gs` and
-`outreach_send.gs` already make — every rule that chooses a person can be argued with on a laptop,
-and only `outreach_referral_send.gs` can put anything in a mailbox.
+The referral steps **are** part of the cycle — `referralScan`, `referralReplanned`,
+`referralPlanned`, `referralSent`, `referralDrafted`. Nothing here needs running by hand.
 
-**`runOutreachCycle` does not call them.** Its ten steps are unchanged, so pushing these files
-changes nothing that runs on the hourly trigger; the three entry points below are run by hand until
-that changes.
+The referral path reads the **`App`** tab: every row is an application somebody deliberately made.
+It used to read `Jobs`, which offered hundreds of postings nobody had chosen.
+
+## Run by hand
 
 | | |
 |---|---|
-| `checkReferralService` | says whether the path could work. Reads and sends nothing, and reports every missing piece at once |
-| `previewReferralTemplates` | logs all forty messages. Forty is past what anybody holds in their head, and what is worth checking is that the ask really does shrink down the tiers |
-| `planReferralAsks` | appends the booked rows to the `Referral` tab. Touches no mailbox |
-| `draftReferralAsks` | writes each message an hour before its slot, into Drafts |
-| `sendReferralAsks` | sends what is still there when the hour comes. **This one sends.** |
+| `checkReferralService` | whether the path could work. Reads and sends nothing; reports every missing piece at once |
+| `previewReferralTemplates` | logs all forty messages. What is worth checking is that the ask really does shrink down the tiers |
+| `previewOutreachEmail` | drafts the next few cold emails **to yourself** |
+| `auditReferralTab` | what the `Referral` tab says day by day, and whether it obeys its own caps |
+| `setupOutreachProperties` | which script properties are still unset |
+| `repairReferralBlankRows` | clear blank rows a past bug wrote `Cancelled` into |
 
-Two things this path needs that the recruiter path does not: an `Employees (seed)` tab on the
-contacts spreadsheet, exported by `src/export_referrals.py` in ColdEmail; and the `Jobs` tab of the
-tracker, which this project reads here for the first time — the cold path starts from an
-application, and this one starts from a posting that may never have been applied to. Both are
-already covered by the `spreadsheets` scope, and no new scope or advanced service is needed.
+## Testing
 
-The rules behind every one of these are in
-[../../docs/outreach.md](../../docs/outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
-
-## Deploying — do not paste by hand
-
-Pasting is how the project silently fell a version behind: the rejection matcher
-was rebuilt from 52 real messages, the new file was never pasted in, and the old rules
-went on closing the wrong applications for a day. Nothing in the editor says which
-version it is holding.
-
-[`clasp`](https://github.com/google/clasp) makes the repository the source of truth:
+Everything that *decides* is pure — rows and a date in, rows out. Only `outreach_send.gs`, the
+bottom of `outreach_rejections.gs` and `outreach_referral_send.gs` touch Gmail. That is what lets
+the rules be argued with without a Google account:
 
 ```bash
-npm install -g @google/clasp
-clasp login                                   # sign in as hoanng15.work@gmail.com
-cd apps_script/outreach                       # from the repo root — clasp reads
-cp .clasp.json.example .clasp.json            #   .clasp.json in the folder you are in
-$EDITOR .clasp.json                           # paste the script id
-clasp status                                  # what would be pushed, what is ignored
-clasp push                                    # ships every .gs plus appsscript.json
+node apps_script/outreach/harness.js     # 570 assertions, sends nothing
 ```
 
-**Do not run `clasp pull` to "check first".** It overwrites the local files with
-whatever is in the editor, which is the older copy — the exact direction that caused
-the problem this setup exists to prevent. The repository is the source of truth; push
-from it. `clasp status` answers the same question without touching anything.
+A passing harness says the rules are right. It says **nothing** about whether they ran against the
+sheet — that is what the `Cycle Health` tab and `outreach_diag.gs` are for.
 
-The script id is in the Apps Script editor under Project Settings, or in its URL
-between `/projects/` and `/edit`. `clasp login` needs the Apps Script API switched
-on once, at [script.google.com/home/usersettings](https://script.google.com/home/usersettings).
+## Deploying
 
-`.claspignore` keeps `harness.js` out of the push — it is Node, and the editor would
-refuse it. `.clasp.json` holds the real id and is gitignored; the example file is what
-is tracked.
+```bash
+cd apps_script/outreach
+cp .clasp.json.example .clasp.json   # then paste the script id
+clasp status                         # what would be pushed
+clasp push
+```
 
-After that, deploying is `clasp push` and nothing else. `clasp pull` brings back
-anything edited in the browser, so the two can never quietly disagree.
+Before pushing, check for editor-side edits that never reached git: copy `.clasp.json` into a
+scratch directory, `clasp pull` **there**, and diff the pulled `.js` against the repo's `.gs`.
+Pulling into the repo itself overwrites local work — that direction is the one to avoid, not the
+pull itself.
 
-Install steps, and the design each rule comes from: [../../docs/outreach.md](../../docs/outreach.md).
+`.claspignore` keeps `harness.js` out of the push; it is Node, and the editor would refuse it.
+`.clasp.json` holds the real id and is gitignored.
+
+To execute a function on the live project, see
+[../../docs/components/outreach-diagnostics.md](../../docs/components/outreach-diagnostics.md) —
+`clasp run` needs a GCP project, a user-provided OAuth client, and `executionApi` in the manifest.
+
+The design each rule comes from: [../../docs/outreach.md](../../docs/outreach.md).

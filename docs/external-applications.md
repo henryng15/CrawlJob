@@ -12,11 +12,10 @@ any server other than your Google Apps Script project.
 
 ## Install once
 
-1. In the target spreadsheet, open **Extensions → Apps Script**. Add a new script file
-   named `external_application_api` and paste in
-   [`apps_script/external_application_api.gs`](../apps_script/external_application_api.gs).
-   It must be in the **same Apps Script project** as `sync_applied_to_app.gs`, because it
-   reuses the tab layout and duplicate-link check.
+1. Push [`apps_script/`](../apps_script/) with `clasp` — the whole folder, so
+   `external_application_api.gs` lands in the **same Apps Script project** as
+   `sync_applied_to_app.gs`, which it needs because it reuses the tab layout and the
+   duplicate-link check. Do not paste it in by hand.
 2. Save, choose `configureExternalApplicationApi` in the function dropdown, and click
    **Run**. Approve Google's permission prompt. In **Execution log**, copy the extension
    key printed after `Chrome extension key (keep private):`; store it somewhere private for
