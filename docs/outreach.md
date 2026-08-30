@@ -39,11 +39,10 @@ avoid. The sender has to be a separate project owned by the sending account, wit
 spreadsheet shared to it as Editor.
 
 > **Why not a GitHub Actions worker.** It was the first plan and the minutes do not exist.
-> The repository is private, so Actions gives 2,000 minutes a month; [`sync.yml`](../.github/workflows/sync.yml)
-> already spends about 1,080 of them and `boards.yml` a little more. Spreading 25 emails a day
-> needs roughly nine runs, and Actions bills wall-clock time — so the pauses between sends are
-> billed for sitting still. That lands at about 28 minutes a day against a 30-minute remainder,
-> with nothing left for a retry.
+> [`sync.yml`](../.github/workflows/sync.yml) already spends about 1,530 minutes a month and
+> `boards.yml` a little more, against the 3,000 it names. Spreading the day's emails needs many
+> runs, and Actions bills wall-clock time — so the pauses between sends are billed for sitting
+> still, leaving nothing for a retry.
 >
 > A time-driven Apps Script trigger costs no minutes at all, needs no OAuth refresh token in a
 > secret, and cannot hit the expiry that catches an OAuth app left in Testing status. It also
