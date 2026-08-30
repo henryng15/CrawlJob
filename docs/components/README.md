@@ -47,13 +47,18 @@ ATS boards + Markdown trackers
 | `Jobs` | job_sync | tracker script (tick → App) |
 | `App` | tracker script | outreach script (both paths), job_sync (`_already_applied`) |
 | `Email` | outreach cold path | outreach budget, referral budget |
-| `Referral` | outreach referral path | outreach budget |
+| `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
 | `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export, by hand | outreach compose + planners |
 
 The contacts and employees tabs live in a **separate spreadsheet** owned by the sending
 account, never in the tracker. See [outreach-contacts.md](outreach-contacts.md).
+
+**One owner per column.** Two projects writing one column is the failure this system is most
+prone to: they cannot see each other, and neither looks wrong on its own. The Referral tab spent
+months with two schedulers for exactly that reason — see the gotcha in
+[outreach-referral-queue.md](outreach-referral-queue.md).
 
 ## Index
 
