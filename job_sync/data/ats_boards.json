@@ -1,14 +1,14 @@
 {
-  "generated": "2026-08-23",
+  "generated": "2026-08-30",
   "attribution": [
     "Board slugs: Feashliaa/job-board-aggregator (Common Crawl index of public ATS URLs), data licensed CC BY-NC 4.0 \u2014 https://github.com/Feashliaa/job-board-aggregator",
     "Y Combinator slugs: yc-oss/api, built from YC's own Algolia index \u2014 https://github.com/yc-oss/api"
   ],
-  "probed": 19913,
-  "answered": 9858,
-  "interning": 1019,
-  "with_target_roles": 185,
-  "target_roles": 303,
+  "probed": 19898,
+  "answered": 9822,
+  "interning": 1036,
+  "with_target_roles": 199,
+  "target_roles": 339,
   "daily": [
     [
       "ashby",
@@ -20,7 +20,7 @@
     ],
     [
       "ashby",
-      "abridge"
+      "NorthwoodSpace"
     ],
     [
       "ashby",
@@ -64,7 +64,7 @@
     ],
     [
       "ashby",
-      "almedia"
+      "alpacahealth"
     ],
     [
       "ashby",
@@ -140,11 +140,11 @@
     ],
     [
       "ashby",
-      "bliro"
+      "bland"
     ],
     [
       "ashby",
-      "blockhouse"
+      "bliro"
     ],
     [
       "ashby",
@@ -161,10 +161,6 @@
     [
       "ashby",
       "bree"
-    ],
-    [
-      "ashby",
-      "browserbase"
     ],
     [
       "ashby",
@@ -189,10 +185,6 @@
     [
       "ashby",
       "cargo-one"
-    ],
-    [
-      "ashby",
-      "carwow"
     ],
     [
       "ashby",
@@ -292,10 +284,6 @@
     ],
     [
       "ashby",
-      "deepgram"
-    ],
-    [
-      "ashby",
       "deepjudge"
     ],
     [
@@ -309,10 +297,6 @@
     [
       "ashby",
       "delphi"
-    ],
-    [
-      "ashby",
-      "dexmate"
     ],
     [
       "ashby",
@@ -341,6 +325,10 @@
     [
       "ashby",
       "enter-ai"
+    ],
+    [
+      "ashby",
+      "equal-ventures"
     ],
     [
       "ashby",
@@ -388,6 +376,10 @@
     ],
     [
       "ashby",
+      "fourth-power"
+    ],
+    [
+      "ashby",
       "frontcareers"
     ],
     [
@@ -416,6 +408,10 @@
     ],
     [
       "ashby",
+      "graymatter-robotics"
+    ],
+    [
+      "ashby",
       "gritt"
     ],
     [
@@ -429,6 +425,10 @@
     [
       "ashby",
       "haladir"
+    ],
+    [
+      "ashby",
+      "harmattan-ai"
     ],
     [
       "ashby",
@@ -480,6 +480,10 @@
     ],
     [
       "ashby",
+      "jellyfishcareers"
+    ],
+    [
+      "ashby",
       "joko"
     ],
     [
@@ -516,6 +520,10 @@
     ],
     [
       "ashby",
+      "klue"
+    ],
+    [
+      "ashby",
       "known"
     ],
     [
@@ -540,10 +548,6 @@
     ],
     [
       "ashby",
-      "ledger"
-    ],
-    [
-      "ashby",
       "legora"
     ],
     [
@@ -553,6 +557,10 @@
     [
       "ashby",
       "lemon-markets"
+    ],
+    [
+      "ashby",
+      "lendable"
     ],
     [
       "ashby",
@@ -592,7 +600,15 @@
     ],
     [
       "ashby",
+      "marloo"
+    ],
+    [
+      "ashby",
       "maxima"
+    ],
+    [
+      "ashby",
+      "maximor"
     ],
     [
       "ashby",
@@ -604,7 +620,7 @@
     ],
     [
       "ashby",
-      "melotech"
+      "mercura"
     ],
     [
       "ashby",
@@ -633,6 +649,10 @@
     [
       "ashby",
       "moss"
+    ],
+    [
+      "ashby",
+      "mubi"
     ],
     [
       "ashby",
@@ -676,7 +696,7 @@
     ],
     [
       "ashby",
-      "nory-co"
+      "northwoodspace"
     ],
     [
       "ashby",
@@ -685,6 +705,10 @@
     [
       "ashby",
       "notion"
+    ],
+    [
+      "ashby",
+      "novo"
     ],
     [
       "ashby",
@@ -701,10 +725,6 @@
     [
       "ashby",
       "odysseyml"
-    ],
-    [
-      "ashby",
-      "olix"
     ],
     [
       "ashby",
@@ -788,6 +808,10 @@
     ],
     [
       "ashby",
+      "prophet-security"
+    ],
+    [
+      "ashby",
       "proxima-fusion"
     ],
     [
@@ -808,7 +832,15 @@
     ],
     [
       "ashby",
+      "qualified-health-pbc"
+    ],
+    [
+      "ashby",
       "ramp"
+    ],
+    [
+      "ashby",
+      "realmalliance"
     ],
     [
       "ashby",
@@ -817,10 +849,6 @@
     [
       "ashby",
       "reedsy"
-    ],
-    [
-      "ashby",
-      "reflect-orbital"
     ],
     [
       "ashby",
@@ -844,10 +872,6 @@
     ],
     [
       "ashby",
-      "replit"
-    ],
-    [
-      "ashby",
       "rho"
     ],
     [
@@ -857,6 +881,10 @@
     [
       "ashby",
       "riveron"
+    ],
+    [
+      "ashby",
+      "rivet"
     ],
     [
       "ashby",
@@ -940,10 +968,6 @@
     ],
     [
       "ashby",
-      "taktile"
-    ],
-    [
-      "ashby",
       "telli"
     ],
     [
@@ -976,10 +1000,6 @@
     ],
     [
       "ashby",
-      "toms"
-    ],
-    [
-      "ashby",
       "trading212"
     ],
     [
@@ -992,10 +1012,6 @@
     ],
     [
       "ashby",
-      "uipath"
-    ],
-    [
-      "ashby",
       "uncountable"
     ],
     [
@@ -1004,11 +1020,11 @@
     ],
     [
       "ashby",
-      "union-tech"
+      "united-talent-agency"
     ],
     [
       "ashby",
-      "united-talent-agency"
+      "upchurch"
     ],
     [
       "ashby",
@@ -1024,10 +1040,6 @@
     ],
     [
       "ashby",
-      "verticalsemi"
-    ],
-    [
-      "ashby",
       "viggle"
     ],
     [
@@ -1037,6 +1049,10 @@
     [
       "ashby",
       "voize"
+    ],
+    [
+      "ashby",
+      "voleon"
     ],
     [
       "ashby",
@@ -1076,11 +1092,19 @@
     ],
     [
       "ashby",
+      "zeal-network"
+    ],
+    [
+      "ashby",
       "zello"
     ],
     [
       "ashby",
       "zettabyte-space"
+    ],
+    [
+      "ashby",
+      "zip"
     ],
     [
       "greenhouse",
@@ -1133,10 +1157,6 @@
     [
       "greenhouse",
       "acommerce"
-    ],
-    [
-      "greenhouse",
-      "activate"
     ],
     [
       "greenhouse",
@@ -1212,10 +1232,6 @@
     ],
     [
       "greenhouse",
-      "allworthfinancial"
-    ],
-    [
-      "greenhouse",
       "alphasense"
     ],
     [
@@ -1229,6 +1245,10 @@
     [
       "greenhouse",
       "alpineeagle"
+    ],
+    [
+      "greenhouse",
+      "alu"
     ],
     [
       "greenhouse",
@@ -1260,14 +1280,6 @@
     ],
     [
       "greenhouse",
-      "apexcompanies"
-    ],
-    [
-      "greenhouse",
-      "appdirect"
-    ],
-    [
-      "greenhouse",
       "appian"
     ],
     [
@@ -1277,6 +1289,10 @@
     [
       "greenhouse",
       "appliedengineering"
+    ],
+    [
+      "greenhouse",
+      "applovin"
     ],
     [
       "greenhouse",
@@ -1328,6 +1344,10 @@
     ],
     [
       "greenhouse",
+      "audaxgroup"
+    ],
+    [
+      "greenhouse",
       "autoproff"
     ],
     [
@@ -1344,7 +1364,19 @@
     ],
     [
       "greenhouse",
+      "awin"
+    ],
+    [
+      "greenhouse",
       "axicom"
+    ],
+    [
+      "greenhouse",
+      "axogen"
+    ],
+    [
+      "greenhouse",
+      "axon"
     ],
     [
       "greenhouse",
@@ -1404,10 +1436,6 @@
     ],
     [
       "greenhouse",
-      "braze"
-    ],
-    [
-      "greenhouse",
       "bridgewater89"
     ],
     [
@@ -1417,6 +1445,14 @@
     [
       "greenhouse",
       "brunswickgroup"
+    ],
+    [
+      "greenhouse",
+      "bseglobal"
+    ],
+    [
+      "greenhouse",
+      "bti36021"
     ],
     [
       "greenhouse",
@@ -1432,6 +1468,10 @@
     ],
     [
       "greenhouse",
+      "c3integratedsolutions"
+    ],
+    [
+      "greenhouse",
       "cabify"
     ],
     [
@@ -1441,6 +1481,10 @@
     [
       "greenhouse",
       "cannondesign"
+    ],
+    [
+      "greenhouse",
+      "capco"
     ],
     [
       "greenhouse",
@@ -1504,6 +1548,10 @@
     ],
     [
       "greenhouse",
+      "christfellowship"
+    ],
+    [
+      "greenhouse",
       "cialfo"
     ],
     [
@@ -1544,10 +1592,6 @@
     ],
     [
       "greenhouse",
-      "concentric"
-    ],
-    [
-      "greenhouse",
       "connectwise"
     ],
     [
@@ -1557,6 +1601,10 @@
     [
       "greenhouse",
       "cottinghambutlerinsuranceservicesinc"
+    ],
+    [
+      "greenhouse",
+      "cotullaeducation"
     ],
     [
       "greenhouse",
@@ -1592,10 +1640,6 @@
     ],
     [
       "greenhouse",
-      "dataiku"
-    ],
-    [
-      "greenhouse",
       "davidzwirnergallery"
     ],
     [
@@ -1625,10 +1669,6 @@
     [
       "greenhouse",
       "dept"
-    ],
-    [
-      "greenhouse",
-      "detroitlions"
     ],
     [
       "greenhouse",
@@ -1676,10 +1716,6 @@
     ],
     [
       "greenhouse",
-      "ebury"
-    ],
-    [
-      "greenhouse",
       "eccintegrator"
     ],
     [
@@ -1693,6 +1729,10 @@
     [
       "greenhouse",
       "eliotcommunityhumanservices"
+    ],
+    [
+      "greenhouse",
+      "elitedentalpartnersllc"
     ],
     [
       "greenhouse",
@@ -1740,6 +1780,10 @@
     ],
     [
       "greenhouse",
+      "esri"
+    ],
+    [
+      "greenhouse",
       "eudia"
     ],
     [
@@ -1764,7 +1808,7 @@
     ],
     [
       "greenhouse",
-      "faire"
+      "familyofkidz"
     ],
     [
       "greenhouse",
@@ -1812,14 +1856,6 @@
     ],
     [
       "greenhouse",
-      "financialtimes33"
-    ],
-    [
-      "greenhouse",
-      "firstglobalmanagementservicesinc"
-    ],
-    [
-      "greenhouse",
       "firstmind"
     ],
     [
@@ -1844,10 +1880,6 @@
     ],
     [
       "greenhouse",
-      "folxhealth"
-    ],
-    [
-      "greenhouse",
       "formlabs"
     ],
     [
@@ -1869,6 +1901,14 @@
     [
       "greenhouse",
       "fwdus"
+    ],
+    [
+      "greenhouse",
+      "g2vp"
+    ],
+    [
+      "greenhouse",
+      "galaxydigitalservices"
     ],
     [
       "greenhouse",
@@ -1920,15 +1960,15 @@
     ],
     [
       "greenhouse",
+      "glossgenius"
+    ],
+    [
+      "greenhouse",
       "goalhonduras"
     ],
     [
       "greenhouse",
       "goldenhippo"
-    ],
-    [
-      "greenhouse",
-      "goldenpetbrands"
     ],
     [
       "greenhouse",
@@ -1952,7 +1992,7 @@
     ],
     [
       "greenhouse",
-      "gympass"
+      "guidepointsecurity"
     ],
     [
       "greenhouse",
@@ -1965,6 +2005,10 @@
     [
       "greenhouse",
       "harborglobal"
+    ],
+    [
+      "greenhouse",
+      "headoutcareers"
     ],
     [
       "greenhouse",
@@ -2028,10 +2072,6 @@
     ],
     [
       "greenhouse",
-      "humanrightswatch"
-    ],
-    [
-      "greenhouse",
       "hyannisportresearch"
     ],
     [
@@ -2040,19 +2080,7 @@
     ],
     [
       "greenhouse",
-      "hyliion"
-    ],
-    [
-      "greenhouse",
-      "hyphenconnect"
-    ],
-    [
-      "greenhouse",
       "ibanfirst"
-    ],
-    [
-      "greenhouse",
-      "imafinancialgroup"
     ],
     [
       "greenhouse",
@@ -2116,6 +2144,10 @@
     ],
     [
       "greenhouse",
+      "internrecruiting"
+    ],
+    [
+      "greenhouse",
       "intersystems"
     ],
     [
@@ -2140,19 +2172,11 @@
     ],
     [
       "greenhouse",
-      "ivalua"
-    ],
-    [
-      "greenhouse",
       "jdsports"
     ],
     [
       "greenhouse",
       "jensenhughes"
-    ],
-    [
-      "greenhouse",
-      "jobsmckinneycom"
     ],
     [
       "greenhouse",
@@ -2188,6 +2212,10 @@
     ],
     [
       "greenhouse",
+      "kao"
+    ],
+    [
+      "greenhouse",
       "kateschwartzphysicaltherapyjobs"
     ],
     [
@@ -2200,15 +2228,15 @@
     ],
     [
       "greenhouse",
-      "kensingtontours"
-    ],
-    [
-      "greenhouse",
       "khaite"
     ],
     [
       "greenhouse",
       "kinexus"
+    ],
+    [
+      "greenhouse",
+      "kodiak"
     ],
     [
       "greenhouse",
@@ -2296,10 +2324,6 @@
     ],
     [
       "greenhouse",
-      "majorleaguebaseball"
-    ],
-    [
-      "greenhouse",
       "map"
     ],
     [
@@ -2352,10 +2376,6 @@
     ],
     [
       "greenhouse",
-      "mishimoto"
-    ],
-    [
-      "greenhouse",
       "moloco"
     ],
     [
@@ -2372,11 +2392,15 @@
     ],
     [
       "greenhouse",
+      "morsecorpcoop"
+    ],
+    [
+      "greenhouse",
       "motional"
     ],
     [
       "greenhouse",
-      "mozilla"
+      "msfcareers"
     ],
     [
       "greenhouse",
@@ -2396,7 +2420,7 @@
     ],
     [
       "greenhouse",
-      "navvis"
+      "neteasegames"
     ],
     [
       "greenhouse",
@@ -2424,11 +2448,11 @@
     ],
     [
       "greenhouse",
-      "nielenschuman"
+      "nisc"
     ],
     [
       "greenhouse",
-      "nightingalecollege"
+      "northmarq"
     ],
     [
       "greenhouse",
@@ -2449,10 +2473,6 @@
     [
       "greenhouse",
       "ogilvymena"
-    ],
-    [
-      "greenhouse",
-      "ohdela"
     ],
     [
       "greenhouse",
@@ -2496,10 +2516,6 @@
     ],
     [
       "greenhouse",
-      "orchestra"
-    ],
-    [
-      "greenhouse",
       "orderly"
     ],
     [
@@ -2528,7 +2544,15 @@
     ],
     [
       "greenhouse",
+      "pantheonpublic"
+    ],
+    [
+      "greenhouse",
       "parloa"
+    ],
+    [
+      "greenhouse",
+      "payit"
     ],
     [
       "greenhouse",
@@ -2553,10 +2577,6 @@
     [
       "greenhouse",
       "phoenixcontact"
-    ],
-    [
-      "greenhouse",
-      "phynetdermatology"
     ],
     [
       "greenhouse",
@@ -2668,18 +2688,6 @@
     ],
     [
       "greenhouse",
-      "redstoneresidential"
-    ],
-    [
-      "greenhouse",
-      "redventures"
-    ],
-    [
-      "greenhouse",
-      "redwoodmaterials"
-    ],
-    [
-      "greenhouse",
       "reflex"
     ],
     [
@@ -2693,10 +2701,6 @@
     [
       "greenhouse",
       "remesh"
-    ],
-    [
-      "greenhouse",
-      "rendezvousrobotics"
     ],
     [
       "greenhouse",
@@ -2716,11 +2720,19 @@
     ],
     [
       "greenhouse",
+      "rivaltechnologies"
+    ],
+    [
+      "greenhouse",
       "robinhood"
     ],
     [
       "greenhouse",
       "roblox"
+    ],
+    [
+      "greenhouse",
+      "roboforce"
     ],
     [
       "greenhouse",
@@ -2736,6 +2748,10 @@
     ],
     [
       "greenhouse",
+      "rothesaylife"
+    ],
+    [
+      "greenhouse",
       "route06"
     ],
     [
@@ -2745,6 +2761,10 @@
     [
       "greenhouse",
       "rushstreetinteractive"
+    ],
+    [
+      "greenhouse",
+      "sage49"
     ],
     [
       "greenhouse",
@@ -2772,14 +2792,6 @@
     ],
     [
       "greenhouse",
-      "scaleai"
-    ],
-    [
-      "greenhouse",
-      "scandit"
-    ],
-    [
-      "greenhouse",
       "schonfeld"
     ],
     [
@@ -2800,6 +2812,10 @@
     ],
     [
       "greenhouse",
+      "scout24"
+    ],
+    [
+      "greenhouse",
       "scoutai"
     ],
     [
@@ -2813,6 +2829,10 @@
     [
       "greenhouse",
       "secretariatadvisorsllc"
+    ],
+    [
+      "greenhouse",
+      "securly13"
     ],
     [
       "greenhouse",
@@ -2852,6 +2872,10 @@
     ],
     [
       "greenhouse",
+      "shein"
+    ],
+    [
+      "greenhouse",
       "shifttechnology"
     ],
     [
@@ -2868,11 +2892,11 @@
     ],
     [
       "greenhouse",
-      "simplifynext"
+      "silananotechnologies"
     ],
     [
       "greenhouse",
-      "simtrabps"
+      "simplifynext"
     ],
     [
       "greenhouse",
@@ -2921,6 +2945,10 @@
     [
       "greenhouse",
       "sphereentertainment"
+    ],
+    [
+      "greenhouse",
+      "spin"
     ],
     [
       "greenhouse",
@@ -3000,6 +3028,10 @@
     ],
     [
       "greenhouse",
+      "tempo"
+    ],
+    [
+      "greenhouse",
       "tenberke"
     ],
     [
@@ -3012,7 +3044,15 @@
     ],
     [
       "greenhouse",
+      "tenstreet"
+    ],
+    [
+      "greenhouse",
       "testendouble"
+    ],
+    [
+      "greenhouse",
+      "texasairsystems"
     ],
     [
       "greenhouse",
@@ -3036,6 +3076,10 @@
     ],
     [
       "greenhouse",
+      "themjcos"
+    ],
+    [
+      "greenhouse",
       "thenuclearcompany"
     ],
     [
@@ -3053,6 +3097,10 @@
     [
       "greenhouse",
       "thetradedesk"
+    ],
+    [
+      "greenhouse",
+      "theweathercompany"
     ],
     [
       "greenhouse",
@@ -3076,6 +3124,10 @@
     ],
     [
       "greenhouse",
+      "toogoodtogo"
+    ],
+    [
+      "greenhouse",
       "toropark"
     ],
     [
@@ -3089,10 +3141,6 @@
     [
       "greenhouse",
       "townsquaremedia"
-    ],
-    [
-      "greenhouse",
-      "tpgcareers"
     ],
     [
       "greenhouse",
@@ -3116,6 +3164,10 @@
     ],
     [
       "greenhouse",
+      "trinityparktalent"
+    ],
+    [
+      "greenhouse",
       "tripadvisor"
     ],
     [
@@ -3132,6 +3184,10 @@
     ],
     [
       "greenhouse",
+      "trustpilot"
+    ],
+    [
+      "greenhouse",
       "truveta"
     ],
     [
@@ -3141,10 +3197,6 @@
     [
       "greenhouse",
       "twochairs"
-    ],
-    [
-      "greenhouse",
-      "twosixtechnologies"
     ],
     [
       "greenhouse",
@@ -3173,10 +3225,6 @@
     [
       "greenhouse",
       "vardaspace"
-    ],
-    [
-      "greenhouse",
-      "vast"
     ],
     [
       "greenhouse",
@@ -3224,10 +3272,6 @@
     ],
     [
       "greenhouse",
-      "vitta"
-    ],
-    [
-      "greenhouse",
       "voloridgeinvestmentmanagement"
     ],
     [
@@ -3261,6 +3305,10 @@
     [
       "greenhouse",
       "welearn"
+    ],
+    [
+      "greenhouse",
+      "whitewatermidstream"
     ],
     [
       "greenhouse",
@@ -3308,11 +3356,11 @@
     ],
     [
       "greenhouse",
-      "wunderflats"
+      "wundermanthompson"
     ],
     [
       "greenhouse",
-      "wundermanthompson"
+      "xairatherapeutics"
     ],
     [
       "greenhouse",
@@ -3336,7 +3384,7 @@
     ],
     [
       "lever",
-      "90seconds"
+      "Nomagic"
     ],
     [
       "lever",
@@ -3364,7 +3412,7 @@
     ],
     [
       "lever",
-      "agile-defense"
+      "aipconnect"
     ],
     [
       "lever",
@@ -3376,11 +3424,19 @@
     ],
     [
       "lever",
+      "amanotes"
+    ],
+    [
+      "lever",
       "ambergroup"
     ],
     [
       "lever",
       "ambirobotics"
+    ],
+    [
+      "lever",
+      "anavationllc"
     ],
     [
       "lever",
@@ -3397,10 +3453,6 @@
     [
       "lever",
       "arsiem"
-    ],
-    [
-      "lever",
-      "ashoka"
     ],
     [
       "lever",
@@ -3424,11 +3476,11 @@
     ],
     [
       "lever",
-      "bhvr"
+      "bigblue"
     ],
     [
       "lever",
-      "bigblue"
+      "bisnow"
     ],
     [
       "lever",
@@ -3448,6 +3500,10 @@
     ],
     [
       "lever",
+      "brooksrunning"
+    ],
+    [
+      "lever",
       "buckmason"
     ],
     [
@@ -3457,6 +3513,10 @@
     [
       "lever",
       "campusworksinc"
+    ],
+    [
+      "lever",
+      "careernowbrands"
     ],
     [
       "lever",
@@ -3488,10 +3548,6 @@
     ],
     [
       "lever",
-      "communityactionhouse"
-    ],
-    [
-      "lever",
       "creatordeck"
     ],
     [
@@ -3505,6 +3561,10 @@
     [
       "lever",
       "cti-md"
+    ],
+    [
+      "lever",
+      "dadavidson"
     ],
     [
       "lever",
@@ -3529,6 +3589,10 @@
     [
       "lever",
       "dnb"
+    ],
+    [
+      "lever",
+      "dnllc"
     ],
     [
       "lever",
@@ -3608,11 +3672,11 @@
     ],
     [
       "lever",
-      "fanatee"
+      "fampay"
     ],
     [
       "lever",
-      "field-ai"
+      "fanatee"
     ],
     [
       "lever",
@@ -3641,6 +3705,10 @@
     [
       "lever",
       "getwingapp"
+    ],
+    [
+      "lever",
+      "gravisrobotics"
     ],
     [
       "lever",
@@ -3680,6 +3748,10 @@
     ],
     [
       "lever",
+      "influur"
+    ],
+    [
+      "lever",
       "ircagroup"
     ],
     [
@@ -3697,6 +3769,10 @@
     [
       "lever",
       "lalamove"
+    ],
+    [
+      "lever",
+      "lansingschools"
     ],
     [
       "lever",
@@ -3720,23 +3796,11 @@
     ],
     [
       "lever",
-      "magnetforensics"
-    ],
-    [
-      "lever",
       "make-rain"
     ],
     [
       "lever",
-      "malt"
-    ],
-    [
-      "lever",
       "masterborn-2"
-    ],
-    [
-      "lever",
-      "matchgroup"
     ],
     [
       "lever",
@@ -3749,10 +3813,6 @@
     [
       "lever",
       "merklescience"
-    ],
-    [
-      "lever",
-      "metergysolutions"
     ],
     [
       "lever",
@@ -3792,6 +3852,10 @@
     ],
     [
       "lever",
+      "noblereach"
+    ],
+    [
+      "lever",
       "nolapublicschools"
     ],
     [
@@ -3828,6 +3892,10 @@
     ],
     [
       "lever",
+      "payjoy"
+    ],
+    [
+      "lever",
       "paytm"
     ],
     [
@@ -3860,14 +3928,6 @@
     ],
     [
       "lever",
-      "plus-2"
-    ],
-    [
-      "lever",
-      "pmaconsultants"
-    ],
-    [
-      "lever",
       "portcast"
     ],
     [
@@ -3880,11 +3940,27 @@
     ],
     [
       "lever",
+      "qonto"
+    ],
+    [
+      "lever",
       "quantco-"
     ],
     [
       "lever",
       "rai"
+    ],
+    [
+      "lever",
+      "raine"
+    ],
+    [
+      "lever",
+      "reply"
+    ],
+    [
+      "lever",
+      "resilinc"
     ],
     [
       "lever",
@@ -3904,10 +3980,6 @@
     ],
     [
       "lever",
-      "schmidt-entities"
-    ],
-    [
-      "lever",
       "sfmoma"
     ],
     [
@@ -3921,10 +3993,6 @@
     [
       "lever",
       "shyftlabs"
-    ],
-    [
-      "lever",
-      "sierraclub"
     ],
     [
       "lever",
@@ -3956,7 +4024,11 @@
     ],
     [
       "lever",
-      "swapcard"
+      "suger"
+    ],
+    [
+      "lever",
+      "texas-original"
     ],
     [
       "lever",
@@ -3988,6 +4060,10 @@
     ],
     [
       "lever",
+      "tryjeeves"
+    ],
+    [
+      "lever",
       "tryriot"
     ],
     [
@@ -4012,10 +4088,6 @@
     ],
     [
       "lever",
-      "vivenu"
-    ],
-    [
-      "lever",
       "voltus"
     ],
     [
@@ -4033,10 +4105,6 @@
     [
       "lever",
       "wattpad"
-    ],
-    [
-      "lever",
-      "wearedream"
     ],
     [
       "lever",
@@ -4060,7 +4128,11 @@
     ],
     [
       "lever",
-      "wingtra-2"
+      "wisdomtree-2"
+    ],
+    [
+      "lever",
+      "wr"
     ],
     [
       "lever",
@@ -4073,10 +4145,6 @@
     [
       "lever",
       "yuno"
-    ],
-    [
-      "lever",
-      "zocks"
     ],
     [
       "lever",
