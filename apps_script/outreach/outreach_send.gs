@@ -653,6 +653,57 @@ function previewOutreachEmail() {
  * draft that was about to go to that company, and stops step 3 opening a fresh
  * attempt underneath it.
  */
+/**
+ * A run stamps the tab before it does anything, and again when it is done.
+ *
+ * Two stamps rather than one, and that is the whole design. A summary written only
+ * at the end says nothing about the failure that actually happened here: the cycle
+ * stopped part way through — before the referral steps and before the sort — so
+ * the end never ran, no summary was written, and the tab quietly went on describing
+ * an arrangement no step had touched for days. A row that says it started and never
+ * says it finished is the only record that failure leaves behind.
+ *
+ * Every call is wrapped by its caller, because a cycle must never fail on account
+ * of its own bookkeeping.
+ */
+function outreachHealthStart_(tracker, runId) {
+  var sheet = tracker.getSheetByName(TAB_HEALTH) || tracker.insertSheet(TAB_HEALTH);
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 6)
+         .setValues([['Run ID', 'Started At', 'Finished At', 'Status',
+                      'Failed Steps', 'Summary']])
+         .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  // Newest first, so the tab answers "what happened last" without scrolling.
+  sheet.insertRowBefore(2);
+  sheet.getRange(2, 1, 1, 6).setValues([[runId, new Date(), '', 'running', '', '']]);
+
+  // A log nobody trims becomes a second thing to clean up. Ten days of hourly runs
+  // is enough to see a pattern and short enough to stay readable.
+  var last = sheet.getLastRow();
+  if (last > 241) sheet.deleteRows(242, last - 241);
+  return sheet;
+}
+
+/** The second stamp: what the run did, written onto the row it opened. */
+function outreachHealthFinish_(sheet, runId, summary, failures) {
+  if (!sheet) return;
+  var depth = Math.min(sheet.getLastRow() - 1, 5);
+  if (depth < 1) return;
+  var ids = sheet.getRange(2, 1, depth, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) !== runId) continue;
+    sheet.getRange(i + 2, 3, 1, 4).setValues([[
+      new Date(),
+      failures.length ? 'failed' : 'ok',
+      failures.join(', '),
+      JSON.stringify(summary).slice(0, 400)
+    ]]);
+    return;
+  }
+}
+
 function runOutreachCycle() {
   var summary = {};
   var failures = [];
@@ -664,6 +715,15 @@ function runOutreachCycle() {
   // writes a second cold email to people already written to. A failure here must
   // stop the run, not be collected and worked around.
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+
+  // Stamped before the schema migration below, which is fatal by design — a run
+  // that dies there is precisely the kind that has to leave a record. Its own try,
+  // because a cycle must never fail on account of its own bookkeeping.
+  var runId = Utilities.getUuid();
+  var health = null;
+  try { health = outreachHealthStart_(tracker, runId); }
+  catch (error) { Logger.log('Health stamp failed: ' + String(error.message || error)); }
+
   var opened = [];
   if (outreachEnsurePriorityColumn_(tracker)) opened.push('Priority');
   // Second, and after Priority rather than beside it, because the two migrations
@@ -773,6 +833,8 @@ function runOutreachCycle() {
   });
 
   summary.failedSteps = failures;
+  try { outreachHealthFinish_(health, runId, summary, failures); }
+  catch (error) { Logger.log('Health finish failed: ' + String(error.message || error)); }
   Logger.log(JSON.stringify(summary));
   // Thrown after everything else has had its turn, so the run still shows up red
   // in Executions rather than being quietly swallowed for the rest of the year.

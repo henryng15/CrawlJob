@@ -68,6 +68,11 @@ var TAB_ALPHABET       = 'Alphabet_Order';
 // Mixed into one table neither can be scanned: the recruiter rows outnumber the
 // referral rows and both would have to carry the other's columns as blanks.
 var TAB_REFERRAL       = 'Referral';
+// Where a run says it started and, if it got that far, that it finished. Its own
+// tab rather than Logger, because a step that has been failing for days is only
+// worth anything if it is visible where somebody actually looks. See
+// outreachHealthStart_.
+var TAB_HEALTH         = 'Cycle Health';
 // Employees, exported by ColdEmail beside Contacts (seed). A separate tab rather
 // than more rows on that one, because the two lists are different people asked
 // for different things, and an export of one must never be able to erase the other.
