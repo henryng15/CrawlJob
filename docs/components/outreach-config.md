@@ -32,9 +32,12 @@ here. Nothing in this file touches a sheet or Gmail.
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. There is no second attempt. |
 | `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. This is what spreads the queue across employers. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a ticked employer gets instead — the whole group in one day. Raises the cap, never removes it. |
-| `REFERRAL_RECENT_APPLICATION_DAYS` | 7 | New Referral asks may be created for an application made in the last seven calendar days. An application made today is automatically marked `Priority`. |
+| `REFERRAL_RECENT_APPLICATION_DAYS` | 7 | New Referral asks may be created for an application made in the last seven calendar days. |
+| `REFERRAL_PRIORITY_APPLICATION_DAYS` | 1 | Applications made today or yesterday are automatically marked `Priority`. |
+| `REFERRAL_PRIORITY_WINDOW_MINUTES` | 120 | A Priority ask uses the fast lane and is scheduled within two hours when that lane has room. |
+| `REFERRAL_PRIORITY_GAP_MINUTES_MIN` / `MAX` | 10 / 20 | Deterministic jitter between fast-lane sends. It looks varied but remains stable across replans. |
 | `REFERRAL_TOP_COMPANY_PROPERTY_MAX` | 70 | A non-quant employer with `App!Property` at or below this existing priority rank remains eligible after seven days. |
-| `REFERRAL_QUANT_COMPANIES` | named firms | Quant firms excluded from the Referral campaign, even for a same-day application. Matching uses the shared employer normaliser. |
+| `REFERRAL_QUANT_COMPANIES` | named firms | Quant firms excluded from the Referral campaign, even for a today/yesterday application. Matching uses the shared employer normaliser. |
 | `FOLLOWUP_DAILY_CAP` | 6 | Follow-ups a day. |
 | `WAVE_SIZE` / `WAVE_GAP_DAYS` | 3 / 14 | Cold contacts per wave, and the gap before the next. |
 

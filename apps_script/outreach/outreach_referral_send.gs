@@ -71,9 +71,9 @@ function outreachReferralRowValues_(item) {
   // read it first — needed both hours to be visible at once. Status is what says
   // whether the draft exists yet; this says when it is due.
   row[R_DRAFTED_AT - 1] = outreachReferralDraftHour_(item.scheduled);
-  // A same-day application is urgent by definition. Persisting the Priority
-  // tick makes that reason visible and lets the normal replan keep this ask
-  // ahead of ordinary queued rows.
+  // An application made today or yesterday is urgent by definition. Persisting
+  // the Priority tick makes that reason visible and lets the replan put this ask
+  // into the two-hour fast lane ahead of ordinary queued rows.
   row[R_PRIORITY - 1] = item.priority === true;
   row[R_STATUS - 1] = STATUS_QUEUED;
   row[R_ID - 1] = 'R-' + item.person.email;
@@ -218,13 +218,21 @@ function planReferralAsks() {
       var values = plan.booked.map(outreachReferralRowValues_);
       referral.getRange(referralLast + 1, 1, values.length, R_WIDTH).setValues(values);
       // A script write does not invoke the installable onEdit handler. Reproject
-      // here when a just-applied role was automatically marked Priority, or it
+      // here when a today/yesterday role was automatically marked Priority, or it
       // would visibly carry the tick but wait for the next hourly cycle before
       // it could displace ordinary Queued rows. Drafted and Sent rows remain
       // fixed; only undrafted queue bookings can give up a slot.
       if (plan.booked.some(function (item) { return item.priority; })) {
+        var freshPriority = {};
+        plan.booked.forEach(function (item) {
+          if (item.priority) freshPriority[item.person.email.toLowerCase()] = true;
+        });
+        var fastPriorityIndexes = {};
+        outreachReadReferralRows_(referral).forEach(function (row) {
+          if (freshPriority[String(row.email || '').toLowerCase()]) fastPriorityIndexes[row.index] = true;
+        });
         reprioritized = outreachApplyReferralTimes_(
-          tracker, referral, outreachReadReferralRows_(referral));
+          tracker, referral, outreachReadReferralRows_(referral), fastPriorityIndexes);
       }
       // Appended rows land at the bottom whatever hour they hold, so the table is
       // out of order the moment this writes. Refiling here rather than waiting for
@@ -750,7 +758,7 @@ function outreachApplyReferralCancels_(referral, rows) {
  * hourly run then undoes — the tab moving twice for one decision, which reads as
  * the queue being unstable rather than as two systems disagreeing.
  */
-function outreachApplyReferralTimes_(tracker, referral, rows) {
+function outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes) {
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var queueRows = [];
   if (queue && queue.getLastRow() > 1) {
@@ -759,7 +767,7 @@ function outreachApplyReferralTimes_(tracker, referral, rows) {
   }
 
   var moved = outreachReferralReplan_(rows, new Date(),
-                                      outreachReferralRoomOn_(queueRows, rows));
+                                      outreachReferralRoomOn_(queueRows, rows), fastPriorityIndexes);
   moved.forEach(function (change) {
     var updates = {};
     updates[R_SCHEDULED] = change.scheduled;
@@ -1029,7 +1037,7 @@ function replanReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
 
-  var tally = { discarded: 0, moved: 0, cancelled: 0, repointed: 0, retired: 0,
+  var tally = { discarded: 0, moved: 0, cancelled: 0, promoted: 0, repointed: 0, retired: 0,
                 sorted: 0, ready: true };
 
   tally.cancelled = outreachApplyReferralCancels_(referral, rows);
@@ -1065,6 +1073,19 @@ function replanReferralAsks() {
       .map(function (row, index) {
         return outreachParseApplication_(row, index + 2, domainFor);
       });
+    // A queued ask that predates a same-day/yesterday application must not miss
+    // the fast lane merely because no new row needs appending. Drafted and Sent
+    // rows remain fixed inside outreachReferralAutomaticPriorities_.
+    var fastPriorityIndexes = {};
+    outreachReferralAutomaticPriorities_(rows, applications, new Date()).forEach(function (index) {
+      var updates = {};
+      updates[R_PRIORITY] = true;
+      outreachWriteRow_(referral, index, updates);
+      var promoted = rows.filter(function (row) { return row.index === index; })[0];
+      if (promoted) promoted.priority = true;
+      fastPriorityIndexes[index] = true;
+      tally.promoted++;
+    });
     var seen = outreachReferralReconcile_(rows, applications);
 
     seen.repoint.forEach(function (change) {
@@ -1102,7 +1123,7 @@ function replanReferralAsks() {
     });
   }
 
-  tally.moved = outreachApplyReferralTimes_(tracker, referral, rows);
+  tally.moved = outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes);
   // The hours on this tab have just changed, and the tab is filed by those hours.
   // Refiling here rather than only at the end of the cycle is what makes this
   // function complete on its own: run by hand it used to leave the table in the
@@ -1110,7 +1131,8 @@ function replanReferralAsks() {
   tally.sorted = outreachSortReferralByTime_(referral);
 
   Logger.log('Referral replan: ' + tally.cancelled + ' newly cancelled, '
-           + tally.discarded + ' draft(s) discarded, ' + tally.repointed
+           + tally.discarded + ' draft(s) discarded, ' + tally.promoted
+           + ' queued row(s) promoted, ' + tally.repointed
            + ' row(s) moved to a newer application, ' + tally.retired
            + ' closed for want of a qualifying application, ' + tally.moved
            + ' re-timed, ' + tally.sorted + ' refiled.');

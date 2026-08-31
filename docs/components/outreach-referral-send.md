@@ -16,10 +16,10 @@ appending rows, writing drafts, sending, scanning replies, applying ticks.
 | Function | Does |
 |---|---|
 | `outreachReadReferralRows_(sheet)` | The tab, parsed, each row knowing its sheet row. **Filters out blank rows** — see the gotcha in [outreach-referral-queue.md](outreach-referral-queue.md). |
-| `outreachReferralRowValues_(booking)` | One booked ask as the cells to append. Persists `Priority` for an automatic same-day application so the reason it is urgent is visible and later replans retain the lift. |
+| `outreachReferralRowValues_(booking)` | One booked ask as the cells to append. Persists `Priority` for an automatic today/yesterday application so the reason it is urgent is visible and later replans retain the fast-lane lift. |
 | `outreachReferralDomainFor_(employees)` | A company's domain out of the employee export, remembered per company. `jobs.apple.com` is the best link an ask can carry and no allowlist will contain it. |
 | `outreachReferralAppKey_(...)`, `outreachReferralAppliedOn_(...)`, `outreachReferralAttemptFor_(...)`, `outreachReferralPersonFor_(...)` | The joins between `App`, the export and the tab. |
-| `planReferralAsks()` | Read `App`, `Referral` and the export; append what the planner booked. If a just-applied role was auto-marked `Priority`, immediately reprojects only movable `Queued` rows so it receives the front slots; existing `Drafted` and `Sent` rows stay fixed. |
+| `planReferralAsks()` | Read `App`, `Referral` and the export; append what the planner booked. If a today/yesterday role was auto-marked `Priority`, immediately reprojects only movable `Queued` rows into the fast lane; existing `Drafted` and `Sent` rows stay fixed. |
 
 ## Drafting and sending
 
@@ -42,9 +42,9 @@ could have been read always exists.
 | Function | Does |
 |---|---|
 | `outreachApplyReferralCancels_(sheet, rows)` | Settle every `Cancel` tick, expanded to whole asks. |
-| `outreachApplyReferralTimes_(tracker, sheet, rows)` | **Re-time everything still queued** against what the whole mailbox has left. Calls `outreachReferralReplan_`, then writes each move with `outreachWriteRow_`. |
+| `outreachApplyReferralTimes_(tracker, sheet, rows, fastPriorityIndexes)` | **Re-time everything still queued** against what the whole mailbox has left. Passes the one-run newly-promoted Priority map to `outreachReferralReplan_`, then writes each move with `outreachWriteRow_`. |
 | `settleReferralTab_(tracker)` | Everything a tick means, done at once: cancel → re-time → refile. Sheet-only, so it is quick enough to hang off a keystroke. |
-| `replanReferralAsks()` | The hourly version: cancels, discards orphaned drafts, repoints rows onto newer applications, retires rows nothing qualifies for, re-times, refiles. |
+| `replanReferralAsks()` | The hourly version: cancels, discards orphaned drafts, promotes eligible existing `Queued` rows for today/yesterday applications, repoints rows onto newer applications, retires rows nothing qualifies for, re-times, refiles. |
 | `sortReferralTab()` | Run by hand: file the tab in time order. |
 | `checkReferralService()` | Run by hand: whether this path could work, without doing any of it. |
 | `outreachReferralNotSetUp_()`, `outreachReferralIdle_()` | The one place the three entry points share their "tab is missing" wording. |

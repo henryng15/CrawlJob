@@ -3513,7 +3513,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     row[S.APP_COMPANY - 1] = company;
     row[S.APP_ROLE - 1] = role;
     row[S.APP_LINK - 1] = link;
-    row[S.APP_DATE_APPLIED - 1] = new Date(2026, 7, 27, 7, 0, 0);
+    row[S.APP_DATE_APPLIED - 1] = new Date(2026, 7, 26, 7, 0, 0);
     row[S.APP_PROCESS - 1] = 'Applied';
     return S.outreachParseApplication_(row, 2, () => 'stripe.com');
   };
@@ -3533,6 +3533,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const hot = S.outreachReferralAdmission_(
       Object.assign({}, base, { property: 71, dateApplied: TODAY }), TODAY);
     assert.ok(hot.eligible && hot.priority);
+    const yesterday = S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 71, dateApplied: new Date(2026, 7, 27, 7, 0, 0) }), TODAY);
+    assert.ok(yesterday.eligible && yesterday.priority);
+    const twoDaysAgo = S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 71, dateApplied: new Date(2026, 7, 26, 7, 0, 0) }), TODAY);
+    assert.ok(twoDaysAgo.eligible && !twoDaysAgo.priority);
   });
 
   run('quant firms are excluded even when an application was made today', () => {
@@ -3546,13 +3552,42 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   const sixPeople = () => ['a', 'b', 'c', 'd', 'e', 'f', 'g']
     .map((letter) => person(letter.toUpperCase(), letter + '@stripe.com'));
 
-  run('a same-day application persists its automatic Priority tick', () => {
+  run('a today-or-yesterday application persists its automatic Priority tick', () => {
     const hot = Object.assign({}, summerJob[0], { property: 101, dateApplied: TODAY });
     const booked = S.outreachReferralPlan_([hot], [], sixPeople(), TODAY).booked;
     assert.ok(booked.length > 0);
     assert.ok(booked.every((one) => one.priority));
     const row = S.outreachReferralRowValues_(booked[0]);
     assert.strictEqual(row[S.R_PRIORITY - 1], true);
+  });
+
+  run('a queued existing ask is promoted when its company has a today/yesterday application', () => {
+    const hot = Object.assign({}, summerJob[0], { dateApplied: TODAY, property: 101 });
+    const yesterday = Object.assign({}, summerJob[0], {
+      company: 'Yesterday Co', dateApplied: new Date(2026, 7, 27, 7, 0, 0), property: 101
+    });
+    const rows = [
+      { index: 2, company: 'Stripe', status: S.STATUS_QUEUED, cancel: false, priority: false },
+      { index: 3, company: 'Yesterday Co', status: S.STATUS_QUEUED, cancel: false, priority: false },
+      { index: 4, company: 'Stripe', status: S.STATUS_DRAFTED, cancel: false, priority: false },
+      { index: 5, company: 'Stripe', status: S.STATUS_QUEUED, cancel: false, priority: true }
+    ];
+    assert.strictEqual(S.outreachReferralAutomaticPriorities_(rows, [hot, yesterday], TODAY).join(','), '2,3');
+  });
+
+  run('a Priority group is paced inside two hours at ten to twenty minute gaps', () => {
+    const now = new Date(2026, 7, 28, 10, 0, 0);
+    const load = {}, slots = [];
+    for (let i = 0; i < S.REFERRAL_PER_COMPANY; i++) {
+      const slot = S.outreachReferralSlot_('Priority Co', now, load, null, true, true);
+      assert.ok(slot > now && slot <= new Date(now.getTime() + 120 * 60000), slot);
+      slots.push(slot);
+      S.outreachReferralLoadAdd_(load, slot, 'Priority Co', true);
+    }
+    for (let i = 1; i < slots.length; i++) {
+      const gap = (slots[i] - slots[i - 1]) / 60000;
+      assert.ok(gap >= 10 && gap <= 20, gap + ' minutes');
+    }
   });
 
   run('six people at one employer, and never a seventh', () => {
@@ -4900,8 +4935,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       ROW(3, 'B', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7) }),
       ROW(4, 'C', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 8), priority: true })
     ];
-    const moved = S.outreachReferralReplan_(rows, NOW, null);
-    assert.strictEqual(moved.find((m) => m.index === 4).scheduled.getHours(), S.REFERRAL_HOUR_FIRST);
+    const moved = S.outreachReferralReplan_(rows, NOW, null, { 4: true });
+    const urgent = moved.find((m) => m.index === 4).scheduled;
+    assert.ok(urgent > NOW && urgent <= new Date(NOW.getTime() + 120 * 60000), urgent);
   });
 
   // A tick means now, not slightly sooner. The group is finished in a day if the
@@ -4911,17 +4947,31 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const rows = [1, 2, 3, 4, 5, 6].map((n) =>
       ROW(n + 1, 'A', 'SWE Intern, Summer 2027', 'Queued',
           { scheduled: at(31, 5 + n), priority: true }));
-    const moved = S.outreachReferralReplan_(rows, NOW, null);
+    const moved = S.outreachReferralReplan_(rows, NOW, null,
+                                             { 2: true, 3: true, 4: true, 5: true, 6: true, 7: true });
     const days = moved.map((m) => m.scheduled.toDateString());
     assert.strictEqual(days.length, 6);
     assert.strictEqual(new Set(days).size, 1, days.join(' | '));
-    // No hour can take more than two asks, so the group remains visibly spaced.
-    const hours = moved.map((m) => m.scheduled.getHours());
-    const byHour = {};
-    hours.forEach((hour) => { byHour[hour] = (byHour[hour] || 0) + 1; });
-    Object.keys(byHour).forEach((hour) => {
-      assert.ok(byHour[hour] <= 2, hour + ': ' + byHour[hour]);
+    const slots = moved.map((m) => m.scheduled).sort((a, b) => a - b);
+    assert.ok(slots[slots.length - 1] <= new Date(NOW.getTime() + 120 * 60000));
+    for (let i = 1; i < slots.length; i++) {
+      const gap = (slots[i] - slots[i - 1]) / 60000;
+      assert.ok(gap >= 10 && gap <= 20, gap + ' minutes');
+    }
+  });
+
+  run('the fast lane is applied once, then the Priority timetable stays stable', () => {
+    const rows = [
+      ROW(2, 'A', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 6), priority: true }),
+      ROW(3, 'B', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7), priority: true })
+    ];
+    const first = S.outreachReferralReplan_(rows, NOW, null, { 2: true, 3: true });
+    first.forEach((move) => {
+      const row = rows.find((one) => one.index === move.index);
+      row.scheduled = move.scheduled;
+      row.draftedAt = new Date(move.scheduled.getTime() - 3600000);
     });
+    assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);
   });
 
   // The ask this was reworked for: ticked employers all at the front, and taking
@@ -4988,12 +5038,13 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       ROW(3, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 7), priority: true }),
       ROW(4, 'Acme', 'SWE Intern, Summer 2027', 'Queued', { scheduled: at(31, 8) })
     ];
-    const moved = S.outreachReferralReplan_(rows, NOW, null);
-    const hours = {};
-    moved.forEach((m) => { hours[m.index] = m.scheduled.getHours(); });
-    assert.ok(hours[3] < hours[2] || hours[4] < hours[2],
-              'the Acme ask should be lifted above Other: ' + JSON.stringify(hours));
-    assert.ok(Math.abs(hours[3] - hours[4]) === 1, 'and stay together');
+    const moved = S.outreachReferralReplan_(rows, NOW, null, { 3: true, 4: true });
+    const when = {};
+    moved.forEach((m) => { when[m.index] = m.scheduled; });
+    assert.ok(when[3] < when[2] && when[4] < when[2],
+              'the Acme ask should be lifted above Other: ' + JSON.stringify(when));
+    const gap = Math.abs(when[3] - when[4]) / 60000;
+    assert.ok(gap >= 10 && gap <= 20, 'the lifted rows remain paced: ' + gap);
   });
 
   run('among rows already due, priority goes first', () => {

@@ -366,13 +366,37 @@ function outreachReferralAdmission_(application, today) {
   var days = applied ? outreachDaysBetween_(outreachMidnight_(applied),
                                             outreachMidnight_(today)) : Infinity;
   if (days >= 0 && days <= REFERRAL_RECENT_APPLICATION_DAYS) {
-    return { eligible: true, priority: days === 0, reason: 'recent', days: days };
+    return { eligible: true, priority: days <= REFERRAL_PRIORITY_APPLICATION_DAYS,
+             reason: 'recent', days: days };
   }
   if (application.property > 0
       && application.property <= REFERRAL_TOP_COMPANY_PROPERTY_MAX) {
     return { eligible: true, priority: false, reason: 'top-company', days: days };
   }
   return { eligible: false, priority: false, reason: 'stale-or-outside-top', days: days };
+}
+
+/**
+ * Existing queued asks inherit the fast lane when their employer has a fresh
+ * application. New rows receive the same tick during planning, but without this
+ * pass a row already waiting in Referral would miss the policy merely because it
+ * had been created before the application date was corrected or replaced.
+ *
+ * Drafted and Sent rows are deliberately untouched: changing an addressed draft
+ * to urgency after it exists breaks the review promise. The result is just the
+ * row indexes; the sender owns the actual sheet writes.
+ */
+function outreachReferralAutomaticPriorities_(referralRows, applications, today) {
+  var hot = {};
+  applications.forEach(function (application) {
+    if (application.company && outreachReferralAdmission_(application, today).priority) {
+      hot[outreachNameKey_(application.company)] = true;
+    }
+  });
+  return referralRows.filter(function (row) {
+    return row.status === STATUS_QUEUED && !row.cancel && !row.priority
+      && hot[outreachNameKey_(row.company)];
+  }).map(function (row) { return row.index; });
 }
 
 /**
@@ -537,28 +561,78 @@ function outreachReferralSpent_(referralRows, company) {
  * second outreachDayKey_ would not be a local convenience, it would replace the
  * follow-up's and change how its own daily cap counts.
  */
-function outreachReferralLoadAdd_(load, when, company) {
+function outreachReferralLoadAdd_(load, when, company, priority) {
   if (!when) return;
   var key = outreachDayKey_(when);
-  if (!load[key]) load[key] = { total: 0, companies: {}, hours: {} };
+  if (!load[key]) load[key] = { total: 0, companies: {}, hours: {}, times: [], priorityTimes: [] };
   load[key].total++;
   var name = outreachNameKey_(company);
   load[key].companies[name] = (load[key].companies[name] || 0) + 1;
   var hour = when.getHours();
   load[key].hours[hour] = (load[key].hours[hour] || 0) + 1;
+  load[key].times.push(when.getTime());
+  if (priority) load[key].priorityTimes.push(when.getTime());
 }
 
 function outreachReferralLoad_(referralRows, booked) {
   var load = {};
   referralRows.forEach(function (row) {
     if (row.status !== STATUS_CANCELLED) {
-      outreachReferralLoadAdd_(load, row.scheduled, row.company);
+      outreachReferralLoadAdd_(load, row.scheduled, row.company, row.priority);
     }
   });
   (booked || []).forEach(function (item) {
-    outreachReferralLoadAdd_(load, item.scheduled, item.company);
+    outreachReferralLoadAdd_(load, item.scheduled, item.company, item.priority);
   });
   return load;
+}
+
+/**
+ * A stable 10–20 minute jitter for the Priority fast lane.
+ *
+ * Math.random is wrong here: re-planning must reproduce an already visible
+ * timetable unless the queue itself changed. This small string hash looks varied
+ * to recipients while remaining reproducible for the same company and position.
+ */
+function outreachReferralPriorityGapMinutes_(company, position) {
+  var text = outreachNameKey_(company) + '|' + position;
+  var hash = 0;
+  for (var i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) % 2147483647;
+  var width = REFERRAL_PRIORITY_GAP_MINUTES_MAX - REFERRAL_PRIORITY_GAP_MINUTES_MIN + 1;
+  return REFERRAL_PRIORITY_GAP_MINUTES_MIN + (hash % width);
+}
+
+/**
+ * The short, deliberately human-paced lane for a role applied to today or yesterday.
+ *
+ * The daily and mailbox caps are checked by outreachReferralSlot_ before this
+ * runs. Here the only extra rule is spacing: every new Priority ask is 10–20
+ * minutes from its neighbours, including an ordinary Referral already booked in
+ * the next two hours. A company can therefore get all six asks out inside two
+ * hours without a burst that looks like a mail merge.
+ */
+function outreachReferralPrioritySlot_(company, today, used) {
+  var deadline = new Date(today.getTime() + REFERRAL_PRIORITY_WINDOW_MINUTES * 60000);
+  var priorityTimes = (used.priorityTimes || []).filter(function (time) {
+    return time >= today.getTime() && time <= deadline.getTime();
+  }).sort(function (left, right) { return left - right; });
+  var position = priorityTimes.length;
+  var anchor = priorityTimes.length ? priorityTimes[priorityTimes.length - 1] : today.getTime();
+  var candidate = new Date(anchor
+    + outreachReferralPriorityGapMinutes_(company, position) * 60000);
+  candidate.setSeconds(0, 0);
+  var times = used.times || [];
+
+  for (var attempt = 0; attempt < 20 && candidate <= deadline; attempt++) {
+    var clear = times.every(function (time) {
+      return Math.abs(time - candidate.getTime())
+        >= REFERRAL_PRIORITY_GAP_MINUTES_MIN * 60000;
+    });
+    if (clear) return candidate;
+    candidate = new Date(candidate.getTime()
+      + outreachReferralPriorityGapMinutes_(company, position + attempt + 1) * 60000);
+  }
+  return null;
 }
 
 
@@ -587,7 +661,7 @@ function outreachReferralLoad_(referralRows, booked) {
  * both. There is no ceiling: unlike a follow up, a referral ask has no window it
  * can miss, so a backlog is spread rather than dropped.
  */
-function outreachReferralSlot_(company, today, load, roomOn, priority) {
+function outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority) {
   var hours = outreachSpaceHours_(REFERRAL_DAILY_CAP, REFERRAL_HOUR_FIRST, REFERRAL_HOUR_LAST);
   var name = outreachNameKey_(company);
   for (var ahead = 0; ahead < 180; ahead++) {
@@ -596,8 +670,9 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
     // Saturday and Sunday are skipped whole. A first message to a stranger asking
     // for a favour, arriving on a Saturday morning, says the sender either did not
     // notice or did not mind; it is the same message on Monday and reads better.
-    if (!REFERRAL_WEEKENDS && (day.getDay() === 0 || day.getDay() === 6)) continue;
-    var used = load[key] || { total: 0, companies: {}, hours: {} };
+    var fastLane = fastPriority && ahead === 0;
+    if (!fastLane && !REFERRAL_WEEKENDS && (day.getDay() === 0 || day.getDay() === 6)) continue;
+    var used = load[key] || { total: 0, companies: {}, hours: {}, times: [], priorityTimes: [] };
     // Three limits, and the third is the one that knows about the rest of the
     // system. roomOn asks what the whole mailbox has left on that day once the
     // cold path and the follow-ups have taken their share, so a day this queue
@@ -608,6 +683,16 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
     if (used.total >= cap) continue;
     var perCompany = priority ? REFERRAL_PRIORITY_COMPANY_CAP : REFERRAL_COMPANY_DAILY_CAP;
     if ((used.companies[name] || 0) >= perCompany) continue;
+    // Today-only, including after the ordinary 19:00 cutoff or on a weekend:
+    // Priority means the fresh application is acted on while the application is
+    // still at the top of its recipient's queue. If a congested two-hour lane has
+    // no valid gap, keep the row Priority and let the normal capped queue find its
+    // next safe time rather than dropping an ask.
+    if (fastLane) {
+      var rapid = outreachReferralPrioritySlot_(company, today, used);
+      if (rapid) return rapid;
+    }
+    if (!REFERRAL_WEEKENDS && (day.getDay() === 0 || day.getDay() === 6)) continue;
     // Where in the day's list to start. Nought on any day still ahead; on today it
     // is the first hour that has not already gone, because a slot in the past
     // would be sent by the next firing whatever hour it claims.
@@ -666,9 +751,9 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
  *
  * New rows have a short admission window instead of an unbounded backlog: an
  * application stays eligible for seven days, unless its non-quant employer is
- * in the existing top-70 Property ranks. A same-day application is Priority,
- * because the file is closest to the top of somebody's queue then. The gate is
- * new-row-only; it does not withdraw an ask already in the pipeline.
+ * in the existing top-70 Property ranks. An application made today or yesterday
+ * is Priority, because the file is still near the top of somebody's queue. The
+ * gate is new-row-only; it does not withdraw an ask already in the pipeline.
  */
 function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) {
   var asked = outreachReferralAsked_(referralRows);
@@ -740,10 +825,10 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
                  property: job.property, order: plans.length });
   });
 
-  // An application submitted today is automatically the same class of urgent
-  // ask as a person ticking Priority on the Referral tab. Everything else keeps
-  // its established open-first/App-tab order, rather than a policy addition
-  // silently reshuffling a long-standing pipeline.
+  // An application submitted today or yesterday is automatically the same class
+  // of urgent ask as a person ticking Priority on the Referral tab. Everything
+  // else keeps its established open-first/App-tab order, rather than a policy
+  // addition silently reshuffling a long-standing pipeline.
   plans.sort(function (left, right) {
     var lifted = (right.priority ? 1 : 0) - (left.priority ? 1 : 0);
     if (lifted) return lifted;
@@ -792,7 +877,8 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
       if (plan.at >= plan.people.length) { plan.room = 0; return; }
       var person = plan.people[plan.at];
 
-      var slot = outreachReferralSlot_(plan.job.company, today, load, roomOn, plan.priority);
+      var slot = outreachReferralSlot_(plan.job.company, today, load, roomOn,
+                                       plan.priority, plan.priority);
       if (!slot) return;
 
       var attempt = plan.spent + plan.taken + 1;
@@ -891,7 +977,8 @@ function outreachReferralRoomOn_(queueRows, referralRows) {
  * Order is preserved: rows are re-placed in the order they were already going out,
  * so a re-plan tightens the queue without reshuffling who is next.
  */
-function outreachReferralReplan_(referralRows, today, roomOn) {
+function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexes) {
+  fastPriorityIndexes = fastPriorityIndexes || {};
   var fixed = {};
   // A row whose drafting window has opened is no longer merely a booking to move
   // around. The draft step later in this same cycle must get to act on it first.
@@ -900,15 +987,15 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
   // retry. That turns one failed dependency into a queue that slips by an hour
   // forever and never reaches Gmail.
   var draftDueBy = new Date(today.getTime() + DRAFT_LEAD_HOURS * 3600000);
-  var add = function (when, company) {
-    outreachReferralLoadAdd_(fixed, when, company);
+  var add = function (when, company, priority) {
+    outreachReferralLoadAdd_(fixed, when, company, priority);
   };
 
   var movable = [];
   referralRows.forEach(function (row) {
     if (row.status === STATUS_QUEUED && !row.cancel) {
       if (row.scheduled && row.scheduled <= draftDueBy) {
-        add(row.scheduled, row.company);
+        add(row.scheduled, row.company, row.priority);
       } else {
         movable.push(row);
       }
@@ -916,7 +1003,7 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
     }
     // Cancelled rows hold nothing. That is the point of cancelling one.
     if (row.status === STATUS_CANCELLED || row.cancel) return;
-    add(row.scheduled, row.company);
+    add(row.scheduled, row.company, row.priority);
   });
 
   // Priority first, then the order they were already going out in. Ticking the box
@@ -958,14 +1045,14 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
   var moved = [];
   movable.forEach(function (row) {
     var slot = outreachReferralSlot_(row.company, today, fixed, roomOn,
-                                     urgent[row.index]);
+                                     urgent[row.index], fastPriorityIndexes[row.index] === true);
     // A row with nowhere to go keeps the hour it already had, so the hour has to
     // go on being counted. Returning without it let the next row be placed on top
     // of an hour the tab still shows as taken — the day's arithmetic quietly
     // diverging from the day's rows, which is the one thing this function exists
     // to keep in step.
-    if (!slot) { add(row.scheduled, row.company); return; }
-    add(slot, row.company);
+    if (!slot) { add(row.scheduled, row.company, urgent[row.index]); return; }
+    add(slot, row.company, urgent[row.index]);
     // Only a real change is reported. A re-plan that rewrites every row to the
     // value it already held would touch the whole tab every hour, and the version
     // history would stop being a record of anything.

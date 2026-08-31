@@ -290,6 +290,16 @@ var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
 // seventy are strategic enough to remain eligible after that seven-day window.
 var REFERRAL_RECENT_APPLICATION_DAYS = 7;
 var REFERRAL_TOP_COMPANY_PROPERTY_MAX = 70;
+// An application is hottest on the day it was submitted and the following
+// calendar day. Those rows use the Priority fast lane; older applications remain
+// eligible for seven days but take the ordinary Referral schedule.
+var REFERRAL_PRIORITY_APPLICATION_DAYS = 1;
+// Priority asks leave within this window after the planner sees them. Their gaps
+// are deterministic jitter rather than Math.random, so an hourly replan cannot
+// keep moving an already-visible schedule just by drawing a new number.
+var REFERRAL_PRIORITY_WINDOW_MINUTES = 120;
+var REFERRAL_PRIORITY_GAP_MINUTES_MIN = 10;
+var REFERRAL_PRIORITY_GAP_MINUTES_MAX = 20;
 
 // Quant firms are deliberately outside this referral campaign, including when a
 // recent application would otherwise qualify. The names use the shared company
