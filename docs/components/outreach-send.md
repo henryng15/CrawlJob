@@ -21,7 +21,7 @@ layout → scan → rejections → stale
 referralScan → referralReplanned → referralPlanned → referralSent → referralDrafted
 queued → sent → written
 followUpPlanned → followUpSent
-projected → season → sorted → referralSorted
+projected → season → sorted → referralSorted → appWorklist
 health stamp: finished
 throw if any step failed
 ```

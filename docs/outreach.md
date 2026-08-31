@@ -130,9 +130,16 @@ Fixed beats random on two counts: there is nothing to debug when the number look
 the shape is more human than randomness is. Tuesday and Wednesday are high because that is when
 a recruiter reads carefully; Friday is low because Friday afternoon email dies.
 
-The trigger fires hourly from 09:00 to 17:00 ET on weekdays — nine firings. Each one sends
+The trigger fires hourly on weekdays: **drafting runs 08:00–16:00 and sending 09:00–17:00** —
+nine firings either way, offset by the hour a draft waits. Each one writes
 `ceil(remaining ÷ firings left)`, which spreads the day evenly without any `sleep`, and
 self-corrects if a firing is missed.
+
+The drafting window used to start at 09:00, which meant the first message of the day could not
+leave until 10:00 — the writer spent the best hour of a recruiter's morning composing in it.
+Opening at 08:00 costs nothing (`everyHours(1)` was already firing then) and buys back 09:00 as a
+sending hour. That ninth writing hour is also where the two extra rows a weekday in `DAILY_CAP`
+went.
 
 Gmail allows a consumer account 100 recipients a day through Apps Script. The busiest day here
 asks for a quarter of that.
@@ -177,18 +184,23 @@ interleaver thinks it is.
 
 Three features now send from one address: the cold email, the follow-up that chases it, and the
 [referral ask](#the-referral--asking-an-engineer-instead-of-a-recruiter). Each was given a daily cap
-in isolation and each is defensible on its own — 25 at the cold path's Tuesday peak, 6, and 6. None
+in isolation and each is defensible on its own — 27 at the cold path's Tuesday peak, 6, and 6. None
 of them could see the other two, so the only thing bounding a day's total was arithmetic nobody had
 done.
 
-`DAILY_EMAIL_BUDGET` is **45**, and it is a limit on the account rather than on any path: what gets
+`DAILY_EMAIL_BUDGET` is **47**, and it is a limit on the account rather than on any path: what gets
 a sending address penalised is the volume leaving one mailbox in a day, and the mailbox neither
 knows nor cares which of three features asked.
 
-**It now binds exactly.** 25 at the cold path's Tuesday peak, plus 6 follow-ups, plus 14 referrals,
-is 45 on the nose. There is no slack left, so the next raise to any one cap is a raise to this
+**It binds exactly.** 27 at the cold path's Tuesday peak, plus 6 follow-ups, plus 14 referrals,
+is 47 on the nose. There is no slack left, so the next raise to any one cap is a raise to this
 number whether or not whoever makes it has read this section — which is the first time the guard
 rail has been load-bearing rather than decorative.
+
+It was 45, and the guard rail did its job the first time it was tested. Opening the drafting window
+at 08:00 gave the cold path a ninth writing hour, `DAILY_CAP` took two rows a weekday for it, and
+there was no slack to take them out of — so a decision about one path had to be made as a decision
+about the account.
 
 `REFERRAL_DAILY_CAP` went from twelve to fourteen and this number did not move, which is the outcome
 worth having: the extra asks came out of hours the day already had rather than out of the account's
@@ -618,7 +630,7 @@ So the day's six hours are handed out when the day is booked. The row then goes 
 exactly as a cold email goes at its `Scheduled At`: `followUpAt <= now` on the whole timestamp, so
 a row set for 15:00 is not a row the 08:20 firing may send.
 
-The window is **08:00 to 19:00**, against the cold path's 10:00 to 17:00, and it is wider at both
+The window is **08:00 to 19:00**, against the cold path's 09:00 to 17:00, and it is wider at both
 ends for the same reason: nothing here waits an hour in Drafts. The cold path cannot send in its
 first hour because that is the hour it *writes* in, and cannot write in its last because there
 would be no hour left to wait; a follow-up is composed and posted in one step, so the first and
@@ -732,7 +744,7 @@ them is the sending machinery, and everything after `Sent At` is an audit refere
 at until something has gone wrong. `Status` is column K and `Sent At` is column S.
 
 `Drafted At` and `Scheduled At` sit next to each other, in that order, because they are one fact
-read left to right: **written at 09:07, goes at 10:00.** While a row is `Queued` both are the
+read left to right: **written at 08:07, goes at 09:00.** While a row is `Queued` both are the
 projection; once it is written both are what happened. That pair is the column to check when you
 want to intervene, because the gap between them is the hour in which deleting the draft still
 calls the send off.
@@ -788,10 +800,11 @@ health stamp: started
 16 season            the Season tab, rebuilt from App
 17 sorted            the Email tab filed in time order
 18 referralSorted    the Referral tab filed the same way
+19 appWorklist       App rows waiting on a link painted and lifted; the rest back in Property order
 health stamp: finished
 ```
 
-Four orderings are load-bearing:
+Five orderings are load-bearing:
 
 - **Send before write** — 11 before 12, and 8 before 9. Drafting first would let a message be
   written and sent inside a single firing, and the hour in which it could have been read would
@@ -802,6 +815,12 @@ Four orderings are load-bearing:
   somebody answered, and it can only close what the scan has marked; the other way round, a reply
   landing on Monday would not call anything off until Tuesday, by which point Monday's colleague
   has been written to.
+- **`appWorklist` last** — 19 after everything. It is the only step that moves rows on `App`, and
+  half the steps above hold `App` row numbers taken before it ran: `scanRejectionEmails` writes
+  `Process` and `Update` back **by row number**, and `cancelStaleOutreachRows` and both referral
+  planners read the tab the same way. Sorting `App` while any of them still held an index would
+  file a rejection against a different application. Nothing reads `App` after this step, so nothing
+  can.
 - **Follow-ups after the cold path** — 13 and 14 after 11 and 12. A follow-up is the cheaper of the
   two messages and the cold email is the one with a deadline attached: an application ages while it
   waits and a nudge does not, so on the firing where something has to give, the nudge is what
@@ -832,9 +851,9 @@ When one is recognised and can be pinned to a single open application, two thing
 | `App` | `Process` → `Rejected`, and `Update` gains a `Rejected: Aug 19, 2026` line **dated the day the email was sent** |
 | `Email` | every `Queued` **and `Drafted`** row for that application → `Cancelled` |
 
-The `Drafted` half is the reason this is worth building. A draft written at 09:00 is addressed,
-complete and an hour from leaving; a rejection arriving at 09:30 would otherwise be followed at
-10:00 by a cold email to the company that just said no. The draft is deleted from Gmail, not
+The `Drafted` half is the reason this is worth building. A draft written at 08:00 is addressed,
+complete and an hour from leaving; a rejection arriving at 08:30 would otherwise be followed at
+09:00 by a cold email to the company that just said no. The draft is deleted from Gmail, not
 merely marked.
 
 The date on that line is the message's own, not the hour the scan ran. A rejection that sat unread
@@ -970,9 +989,9 @@ half-finished edit as a deletion.
 
 ### Every email waits an hour in Drafts, and deleting it is how you call it off
 
-Nothing is composed and sent in the same breath. A row picked at 09:00 becomes a **real Gmail
+Nothing is composed and sent in the same breath. A row picked at 08:00 becomes a **real Gmail
 draft** — the real recruiter in the `To` field, the real subject, the resume attached — and the
-firing at 10:00 is what sends it. So there is always an hour in which the finished message
+firing at 09:00 is what sends it. So there is always an hour in which the finished message
 exists and can be read.
 
 The hour is also re-checked, not just waited out. Before a draft is sent, `App` is read again
@@ -989,10 +1008,12 @@ system runs, read them and there is always a window to stop one.
 It costs nothing on the free tier. The same hourly firing, the same Gmail send quota — a draft
 is not a send until it is sent — and at most two or three drafts standing at any moment.
 
-One consequence: the day's **writing** stops one firing before its **sending** does. Drafts are
-made 09:00–16:00 and go out 10:00–17:00, because a message written at 17:00 would have no hour
-left to wait in. `DRAFT_HOUR_LAST` is `SEND_HOUR_LAST - DRAFT_LEAD_HOURS`, and the same eight
-firings the projection divides the day's cap across.
+One consequence: the writing window is the sending window shifted an hour earlier at **both** ends.
+Drafts are made 08:00–16:00 and go out 09:00–17:00 — a message written at 17:00 would have no hour
+left to wait in, and one written no earlier than 09:00 could not leave until 10:00, which spent the
+best hour of the morning composing. `DRAFT_HOUR_FIRST` and `DRAFT_HOUR_LAST` are both
+`SEND_HOUR_* ∓ DRAFT_LEAD_HOURS`, and they are the nine firings the projection divides the day's cap
+across.
 
 | Question | Where it is answered |
 |---|---|
@@ -1083,7 +1104,7 @@ And three filter views, which are a built-in Sheets feature and do not disturb t
 eligible today still have a fortnight of weekday caps ahead of them, and the question worth
 asking of a queue is which day each row actually lands on.
 
-Both columns carry **an hour, not just a day** — `Aug 24, 9:00 AM` and `Aug 24, 10:00 AM`. A
+Both columns carry **an hour, not just a day** — `Aug 24, 8:00 AM` and `Aug 24, 9:00 AM`. A
 column of fifteen rows all reading `Aug 24` looks like fifteen emails at once, which is the one
 thing this is built not to do. The hours come from the same arithmetic the writer runs, so they
 are the real times rather than an estimate of them.
@@ -1169,10 +1190,37 @@ had heard of passes silently and a referral ask goes out pointing at a redirect 
 opens it, finds no req, and the ask is spent. Under this one, the same unknown host turns a row
 yellow and asks a person to look at it. Being wrong in the second direction costs a minute.
 
-`REFERRAL_AGGREGATOR_DOMAINS` exists alongside it and **nothing is gated on it**. A second list
-that could also refuse would be a second place to be wrong. Its only job is to say which kind of
-wrong a link is, because *that is a Jobright redirect, paste the real one* and *I do not recognise
-this host* ask a person to do two different things.
+#### The third way in: the company's own name
+
+Two rows on the live tab were refused for the wrong reason —
+`blackrock.tal.net` and `amazon.jobs`. Both are the employer's own application system. TalentLink
+is on no allowlist worth keeping, and Amazon takes applications on a domain that is not the one its
+staff read mail at, so neither the ATS list nor the ColdEmail domain could see it. What does see it
+is the thing a person uses at a glance: the company's name, sitting at the front of the host.
+
+Added 2026-08-31 as `outreachReferralNameMatchesHost_`, and it is tried **last**, after everything
+decidable from a list:
+
+- **The first label and no other.** `blackrock` in `blackrock.tal.net` is a name TalentLink assigned
+  to a customer. The same word further right is a domain somebody else registered, so
+  `jobs.amazon.evil.com` is refused.
+- **Matched whole, never as a substring** — the lesson `outreachSameEmployer_` already carries.
+  `dicerna` is not Dice, `notamazon` is not Amazon. The label is split on hyphens first, so
+  `campus-amd` is AMD, and compared undivided as well, so `general-motors` is General Motors.
+- **A multi-word company is recognised only by its whole name.** Matching one token would hand
+  every host beginning `general` to General Motors. A single-word name survives the legal form
+  around it, so `acme.somewhere.net` is Acme Technologies, Inc.
+- **Word order is kept.** `outreachCompanyTokens_` sorts, so a key joined from it would be a word
+  the company has never been called — Old Mission Capital would become `capitalmissionold`.
+
+`REFERRAL_AGGREGATOR_DOMAINS` **used to gate nothing**, and the reasoning held while it did: a
+second list that could also refuse would have been a second place to be wrong, so its only job was
+to say which kind of wrong a link is.
+
+The name rule changed that. It is the only rule that can accept a host on no list at all, so it
+refuses anything on that list outright — without it, the day a job board starts handing out
+`stripe.thatboard.com` is the day referral asks point at redirects again. **Adding a host to
+`REFERRAL_AGGREGATOR_DOMAINS` now changes a decision, not just a message.**
 
 Three details the tests pin down:
 
@@ -1187,8 +1235,9 @@ Three details the tests pin down:
 
 ### Yellow on the App tab, and the link pasted into `Official`
 
-A refused row is not dropped. `outreachReferralNeedsLink_` returns it with a reason, and the bound
-script paints the row yellow on the **`App`** tab. Yellow means exactly one thing: *this is an
+A refused row is not dropped. `outreachReferralNeedsLink_` returns it with a reason, and
+`syncAppOfficialWorklist` — the last step of every cycle — paints the row yellow on the **`App`**
+tab and lifts it to the top. Yellow means exactly one thing: *this is an
 application worth asking somebody about and there is no way in yet.* A row nobody would ask about
 is never painted — not a rejected application, not a company with nobody in the dataset — because a
 colour that appears on rows requiring no action is a colour people stop seeing.
@@ -1204,9 +1253,20 @@ Clearing the colour is half the job, not a tidy-up, and it happens on the same k
 link pasted into `Official` stops the row shouting while you are still looking at it. It
 deliberately does **not** re-sort: moving the row somebody is currently pasting into pulls it out
 from under the cursor, and the row that slides into its place is a different application, so the
-next paste lands on the wrong one. `paintAppOfficialRows` does the whole tab in one read and one
-write when the rule itself changes, and `sortAppOfficialRowsToTop` lifts the waiting rows to the
-top so the worklist does not decay as applications are added beneath it.
+next paste lands on the wrong one. The hourly `syncAppOfficialWorklist` does the whole tab in one
+read and one write, lifts the waiting rows to the top so the worklist does not decay as
+applications are added beneath it, and puts every other row back into `Property` order — so a row
+lifted for a missing link goes home to its own number the moment the link arrives.
+
+The `onEdit` repaint is **optimistic** and the sweep is the authority. The bound script cannot
+answer the full rule — it cannot open `Employees (seed)` — so it clears the colour on anything
+starting with `http`. Paste a Jobright link and the row goes white under your cursor, then yellow
+again within the hour. That is the right way round: being briefly too optimistic costs a colour for
+a few minutes, being pessimistic would mean the tab arguing with you while you type.
+
+Until 2026-08-30 the bound script owned this sweep and ran it on the looser rule alone, which meant
+a row carrying an aggregator link was never painted at all — see
+[components/outreach-app-worklist.md](components/outreach-app-worklist.md).
 
 > **This tab reads applications, not postings, and that is the whole design.** The referral path
 > read the crawler's `Jobs` tab first, on the reasoning that a referral attached before an
@@ -1340,8 +1400,8 @@ the default because it is right most of the time; depth is a decision somebody m
 employer on one day.
 
 `REFERRAL_DAILY_CAP` is **14**, so a day reaches fourteen different employers. Fourteen is also
-exactly what the mailbox has room for: 25 at the cold path's Tuesday peak, plus 6 follow-ups, plus
-14, is 45 against a budget of 45.
+exactly what the mailbox has room for: 27 at the cold path's Tuesday peak, plus 6 follow-ups, plus
+14, is 47 against a budget of 47.
 
 ### A reply calls off the rest of the ask
 
@@ -1579,7 +1639,8 @@ that emits a message at exactly 06:00 and again at exactly 21:00 every weekday i
 person produces. Cutting the tail cost two sends and bought back the part of the day that was
 advertising the machine.
 
-For the same reason the cold path stays at 09:00–17:00 and the follow-up at 08:00–19:00. Only this
+For the same reason the cold path stays at 09:00–17:00 for sending and the follow-up at
+08:00–19:00. Only this
 path ever reached past seven in the evening, and it no longer does.
 
 Weekends **are** skipped, and this is the reversal that separates the path from the follow-up. A
@@ -1729,11 +1790,35 @@ refuses any template that does. Inside the ask it earns its place twice over, be
 is a lot to ask of somebody never met is the reason the request is tentative at all.
 
 What follows is one paragraph of the admission and the company sentence together, one line of who is
-writing and what they are applying for, a clause introducing two resume bullets, the bolded ask with
-the easier favour beside it, the close, and the posting link on a line of its own at the foot.
-Around a hundred and thirty words — longer than the recruiter email's, because the ask is bigger and
-earns a little more room to be honest in, and nowhere near double, because seven beats at two
-sentences each is a page and a page to a working engineer is an archive.
+writing and what they have **already applied to**, a clause introducing two resume bullets, the
+bolded ask with the easier favour beside it, the close, and the posting link on a line of its own at
+the foot. Around a hundred and fifty words — longer than the recruiter email's, because the ask is
+bigger and earns a little more room to be honest in, and nowhere near double, because seven beats at
+two sentences each is a page and a page to a working engineer is an archive.
+
+### The application is already in, and the email says so
+
+The sentence naming the role reads *"I have already applied for the X role at Y"*, and then one
+short line saying why the note followed it anyway. Both halves are new; the line used to read *"I
+am … applying for the X role at Y"* and stopped there.
+
+**The tense was left over from the `Jobs` tab.** While this path read postings rather than
+applications there was often nothing applied to yet, and the present tense was the honest wording.
+Every row now comes from an application actually made, so the same words are the same falsehood
+pointing the other way — which is the argument `outreach_referral_send.gs` already made in a comment
+when it started looking the applied date up, three changes before the sentence itself was fixed.
+
+**Implied is worse than said.** Left unstated, the reader supplies the version that costs the most:
+that they are being asked to attach their name to somebody who has not bothered to apply. Two
+thousand engineers filling that gap themselves is worse than seventeen words spending it.
+
+**Ten reasons, indexed with the template.** `REFERRAL_APPLIED_LINES` holds ten one-line answers to
+the question the admission raises — *the form is in, so what are you asking me for* — and the same
+company-seeded index that picks the body picks one of these, so the six people at one employer do
+not read an identical sentence on one morning. Each is under twenty words, dash-free and ASCII like
+everything else here, and none of them asks to skip any part of the process: the honest version of
+the ask is that a submitted application is one of a few thousand read in the order they arrived, and
+a referral is the only part of that the sender cannot do alone.
 
 ### The posting link at the foot, and no date
 
@@ -2095,10 +2180,13 @@ trigger like the other two, and `OUTREACH_MODE` is what holds it back.
    `Alumni`, `Recruiter` and `Update` one to the right, carrying their values, validation and
    colour rules with them. Safe to run twice, and it refuses a layout it does not recognise rather
    than inserting blind.
-4. Run `installAppOfficialTrigger` once. It puts `paintAppOfficialRows` — which colours the rows
-   needing a link and lifts them to the top of `App` — on an hourly trigger. It is on a clock
-   rather than run by hand because `App` only ever grows and `onEdit` deliberately does not move
-   rows, so the worklist at the top decays with every application added under it.
+4. Run `installAppOfficialTrigger` once. It puts `runHourlyHousekeeping` — which sinks called-off
+   `Referral` rows — on an hourly trigger. It is on a clock rather than run by hand because an
+   edit trigger is not guaranteed and a tick deliberately does not move its row.
+
+   It no longer touches `App`. Colouring the rows needing a link and lifting them to the top is
+   `syncAppOfficialWorklist`, the last step of the sender's own hourly `runOutreachCycle`, and it
+   needs nothing installed beyond the cycle's existing trigger.
 
 > **Redeploy the Python half before running the migration.** `job_sync/highlight.py` writes the
 > `Alumni` and `Recruiter` checkboxes, and it now finds those columns by reading the header row

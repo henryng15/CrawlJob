@@ -30,7 +30,7 @@ flowchart TB
     end
 
     subgraph bound["Bound Apps Script — runs as the sheet owner"]
-        S["onEdit: tick moves the row<br/>runHourlyHousekeeping"]
+        S["onEdit: tick moves the row, repaints Official<br/>runHourlyHousekeeping: sinks cancelled Referral rows"]
     end
 
     subgraph sender["Standalone Apps Script — runs as hoanng15.work@gmail.com"]
@@ -96,7 +96,7 @@ layout · scan · rejections · stale
 referralScan · referralReplanned · referralPlanned · referralSent · referralDrafted
 queued · sent · written
 followUpPlanned · followUpSent
-projected · season · sorted · referralSorted
+projected · season · sorted · referralSorted · appWorklist
 health stamp: finished
 ```
 
@@ -122,10 +122,10 @@ path reserves against everything below it and subtracts everything above it.
 |---|---|---|---|
 | Asks | a recruiter to look at an application | an engineer for a referral | the same recruiter again, on the same thread |
 | Starts from | an `App` row | an `App` row | a sent cold email |
-| Per day | `[0,15,25,22,18,10,0]` Sun→Sat | 14 | 6 |
+| Per day | `[0,17,27,24,20,12,0]` Sun→Sat | 14 | 6 |
 | Per company | 5 per rolling 7 days | **1 per day**, 6 ever | — |
 | Per application | 3 at once, one day apart; 14 days of silence opens the next 3 | — | one |
-| Hours | 09:00–17:00, nine firings | 06:00–19:00, weekdays only | 08:00–19:00 |
+| Hours | drafts 08:00–16:00, sends 09:00–17:00 | 06:00–19:00, weekdays only | 08:00–19:00 |
 | Order | ticked first, then employers take turns, oldest application first | ticked first, then employers take turns | by window |
 
 Referral leads because it is the scarcest: six people per employer and **no second attempt ever**,
@@ -177,7 +177,7 @@ are for, and the gap between the two cost weeks once already.
 | a rejection was missed after the rules improved | bump `REJECTION_RULES_VERSION`; the next firing reopens the last 45 days |
 | an application closed that should not have | the `Tracker/Rejected` label in Gmail; every closure is one thread in it |
 | nothing is sending | weekend? `DAILY_CAP` is 0 Sat/Sun and the referral path skips weekends. Then: is the trigger installed? |
-| everything queued, nothing drafted | drafting runs 09:00–16:00 ET; 17:00 only sends |
+| everything queued, nothing drafted | drafting runs 08:00–16:00 ET; 17:00 only sends |
 | referral rows clustered by company | the replan is not reaching the sheet — see [components/outreach-diagnostics.md](components/outreach-diagnostics.md) |
 | `Access denied: DriveApp` | scopes are inferred at Allow-time — re-authorise; `appsscript.json` lists them |
 | a row has no `Scheduled At` | its `Date Applied` is probably in the future; the year is a typo |

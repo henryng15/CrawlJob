@@ -187,7 +187,9 @@ The sender is a **separate** standalone project — see
 Running each setup function once is enough. `onEdit` is a **simple** trigger — Google calls it
 itself and nothing has to be installed. `runHourlyHousekeeping` is an **installed** clock
 trigger, which is what `installAppOfficialTrigger` puts in place; it exists because an edit
-trigger is not guaranteed, and a paste, a fill-down or an undo fires nothing at all. The first
+trigger is not guaranteed, and a paste, a fill-down or an undo fires nothing at all. It sinks
+called-off `Referral` rows and nothing else — the `App` worklist moved to the sender's hourly
+cycle on 2026-08-30, so stopping this trigger no longer stops `App` being reordered. The first
 time, Google asks for permission: Review permissions → pick the account → Advanced → Go to
 (project) → Allow.
 
