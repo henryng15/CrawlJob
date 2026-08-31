@@ -36,7 +36,7 @@ Two rules shape it:
 | Function | Does |
 |---|---|
 | `runOutreachCycle()` | The above. Returns `summary`; throws at the end if any step failed, so the run shows red in Executions. |
-| `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts. It does not plan, scan or draft, so its frequency cannot inflate the hourly quotas. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
+| `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts, then creates any Referral draft now inside its lead window. The latter closes the gap after a Priority/cancellation replan late in an hour; send still comes first, so a draft cannot be created and sent in one tick. It does not plan or scan. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
 | `outreachHealthStart_(tracker, runId)` | Stamps `Cycle Health` **before** the fatal schema step, newest row first, trimmed to 240 rows. |
 | `outreachHealthFinish_(sheet, runId, summary, failures)` | Closes that row with `ok`/`failed`, the failed step names, and the summary. |
 | `installOutreachTriggers()` | Hourly `runOutreachCycle`, one-minute `runOutreachSendTick`, plus the `onEdit` trigger. Clears existing ones first. |

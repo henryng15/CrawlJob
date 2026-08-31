@@ -862,10 +862,13 @@ function runOutreachCycle() {
 /**
  * Send only what is already due, every minute.
  *
- * Planning, scanning and drafting deliberately remain hourly: their quota and
- * fair-share arithmetic assume one pass per hour. Sending is different — it only
- * advances rows whose hour has arrived — so running it each minute turns the old
- * trigger's :21 delay into at most the next minute tick without changing volume.
+ * Planning and scanning deliberately remain hourly: their quota and fair-share
+ * arithmetic assume one pass per hour. Sending runs first every minute. Referral
+ * drafting follows it because a Priority edit or a cancellation replan can put a
+ * previously unprepared row in the very next hour after the hourly drafting pass;
+ * without this retry, that row waits for the next hourly cycle and misses its
+ * promised hour. Sending first preserves the reading hour: a newly created draft
+ * is seen by the following tick, never sent in the same one.
  */
 function runOutreachSendTick() {
   var summary = {}, failures = [];
@@ -879,6 +882,7 @@ function runOutreachSendTick() {
   step('referral', sendReferralAsks);
   step('cold', sendPreparedDrafts);
   step('followUp', sendFollowUpReplies);
+  step('referralDrafted', draftReferralAsks);
   Logger.log('send tick ' + JSON.stringify(summary));
   if (failures.length) throw new Error('Outreach send tick failed: ' + failures.join(', '));
   return summary;
@@ -979,9 +983,10 @@ function installOutreachTriggers() {
   // apart and leave the table describing four different moments.
   ScriptApp.newTrigger('runOutreachCycle').timeBased().everyHours(1).create();
   // The full cycle may be pinned to any minute in its hour by Apps Script. A
-  // separate one-minute tick sends only already-prepared drafts, so a message
-  // scheduled for 14:00 is noticed at the first firing after 14:00 instead of
-  // waiting for the full cycle's old :21 minute.
+  // separate one-minute tick sends already-prepared drafts and fills a Referral
+  // draft newly brought inside its lead window, so a message scheduled for 14:00
+  // is noticed at the first firing after 14:00 instead of waiting for the full
+  // cycle's old :21 minute.
   ScriptApp.newTrigger('runOutreachSendTick').timeBased().everyMinutes(1).create();
   // And one that answers a tick straight away, on either tab. It sends nothing and
   // drafts nothing: on Email it rewrites the two projected columns, and on Referral

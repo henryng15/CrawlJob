@@ -63,20 +63,24 @@ const day = (y, m, d) => new Date(y, m - 1, d, 12, 0, 0);
 
 console.log('the delivery tick — frequent sending without frequent planning');
 {
-  run('runs each delivery path and returns their separate outcomes', () => {
-    const original = [S.sendReferralAsks, S.sendPreparedDrafts, S.sendFollowUpReplies];
+  run('sends each path before preparing a newly due referral draft', () => {
+    const original = [S.sendReferralAsks, S.sendPreparedDrafts, S.sendFollowUpReplies,
+                      S.draftReferralAsks];
     S.sendReferralAsks = () => ({ sent: 1 });
     S.sendPreparedDrafts = () => ({ sent: 2 });
     S.sendFollowUpReplies = () => ({ sent: 3 });
+    S.draftReferralAsks = () => ({ drafted: 1 });
     try {
       const out = S.runOutreachSendTick();
       assert.strictEqual(out.referral.sent, 1);
       assert.strictEqual(out.cold.sent, 2);
       assert.strictEqual(out.followUp.sent, 3);
+      assert.strictEqual(out.referralDrafted.drafted, 1);
     } finally {
       S.sendReferralAsks = original[0];
       S.sendPreparedDrafts = original[1];
       S.sendFollowUpReplies = original[2];
+      S.draftReferralAsks = original[3];
     }
   });
 }
