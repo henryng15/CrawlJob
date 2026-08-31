@@ -237,28 +237,25 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 //
 // The three paths were each given a cap and never measured against one another,
 // which meant the only thing bounding a day's total was arithmetic nobody had
-// done. The caps happen to sum under this number today. That is exactly why the
-// number is worth writing down: the sum is a coincidence of three constants that
-// were chosen separately, and the next person to raise one of them will not be
-// thinking about the other two.
+// done. The path caps deliberately need not sum under this number: the shared
+// budget and EMAIL_PATH_ORDER decide which lower-priority work yields when a
+// high-priority path needs more of the same mailbox day.
 //
 // Forty five is a limit on the account, not on any path. What gets a sending
 // address penalised is the volume leaving one mailbox in a day, and the mailbox
 // does not know or care which of three features asked.
 //
-// The referral cap went from twelve to fourteen and this number did not move,
-// which is the outcome worth having: the extra asks came out of hours the day
-// already had rather than out of the account's allowance. It was briefly fifty,
-// for a referral cap of sixteen that reached into the evening; the window came
-// back and so did this.
+// The Referral cap has risen within the same account allowance. That is safe only
+// because the shared budget, rather than accidental arithmetic among path caps,
+// decides the day's total.
 //
 // Forty seven, not forty five, and the two came from the same edit. The cold
 // path's drafting window now opens at 08:00, which adds a ninth writing hour, and
 // DAILY_CAP took two rows a day for it. There was no slack to take them out of —
 // this number bound exactly at forty five — so a decision about the path was also
 // a decision about the account, which is what the paragraph above was written to
-// force. It binds exactly again: twenty seven at the cold path's Tuesday peak,
-// plus six follow-ups, plus fourteen, is forty seven on the nose.
+// force. The budget remains the hard reputation limit even when the individual
+// caps overbook it; referral reserves first, so cold and then follow-up yield.
 //
 // Two ceilings sit above this one and neither binds. Apps Script allows a consumer
 // gmail.com account 100 recipients a day, so this is under half of what the
@@ -324,11 +321,11 @@ var REFERRAL_PER_COMPANY = 6;
 // That argument is still correct and it is still not the reason this is one.
 //
 // The reason is what a day of sending is *for*. There are 221 employers in the
-// dataset and six people at most of them: 1,326 messages, which at fourteen a day
-// is ninety five working days whichever order they go in. The order is therefore
+// dataset and six people at most of them: 1,326 messages, which at twenty a day
+// is about sixty seven working days whichever order they go in. The order is therefore
 // the only decision available, and it decides which asks happen while the
 // application is still recent. Six a day spends a day on two employers; one a day
-// spends it on fourteen. The first ask at an employer is the one that has to land
+// spends it on twenty. The first ask at an employer is the one that has to land
 // near the date applied — the sixth is a message about an application the reader
 // will have to look up either way.
 //
@@ -348,7 +345,7 @@ var REFERRAL_COMPANY_DAILY_CAP = 1;
 // there — a tick cannot conjure a seventh person.
 //
 // This was briefly three, on the reasoning that two ticked employers taking
-// twelve of a day's fourteen slots was the clustering the breadth-first planner
+// twelve of a then-fourteen-slot day was the clustering the breadth-first planner
 // exists to prevent. That read the tab correctly and the request backwards. The
 // clustering worth preventing is the *unasked-for* kind, where an employer nobody
 // singled out quietly absorbs a day. A tick is somebody singling one out on
@@ -426,28 +423,15 @@ var REFERRAL_WEEKENDS = false;
 // buys back the part of the day that was advertising the machine.
 var REFERRAL_HOUR_FIRST = 6;
 var REFERRAL_HOUR_LAST  = 19;
-// Fourteen, and the number is the window rather than a preference.
+// Twenty. The 06:00–19:00 window holds fourteen actual hours, so the evenly
+// spaced schedule gives six of them two asks and the rest one. The scheduler
+// treats those as capacity slots (not one occupied-hour boolean), so twenty can
+// really be booked; no hour ever carries more than two Referral sends.
 //
-// REFERRAL_HOUR_FIRST to REFERRAL_HOUR_LAST is 06:00 to 19:00, which is fourteen
-// hours, and outreachSpaceHours_(14, 6, 19) puts exactly one ask in each of them.
-// Fifteen is the first number that has to double up, and two notes leaving one
-// mailbox inside one hour is the shape a reader recognises as a machine even when
-// they went to different companies. So this is not "how many can the account
-// afford" — it is "how many fit one to an hour", and the window answers fourteen.
-//
-// It was twelve, which finished two employers a day with nothing to spare against
-// a third, and a company half asked is a company whose remaining names go stale.
-//
-// It was briefly sixteen, against a window that ran to nine at night. The two
-// evening hours that bought turned out to be the worst slots in the day — see
-// REFERRAL_HOUR_LAST — so the cap came back down with the window rather than
-// staying put and doubling up inside a shorter one.
-//
-// The mailbox has room for it without moving anything else: twenty seven at the
-// cold path's Tuesday peak, plus six follow-ups, plus fourteen, is forty seven
-// against a budget of forty seven. Raising this further is a change to
-// DAILY_EMAIL_BUDGET first, and to the hours before that.
-var REFERRAL_DAILY_CAP  = 14;
+// The total mailbox budget stays forty seven. Referral has first claim on it, so
+// a day with all twenty Referral asks may defer cold mail or follow-ups rather
+// than raising total daily sending volume.
+var REFERRAL_DAILY_CAP  = 20;
 
 
 // People written to in one go, and how long the silence has to last before the

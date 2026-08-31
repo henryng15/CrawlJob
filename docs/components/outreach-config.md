@@ -28,7 +28,7 @@ here. Nothing in this file touches a sheet or Gmail.
 | `EMAIL_PATH_ORDER` | `referral, cold, followup` | Who reserves first. Referral leads because it is scarcest; follow-up is last because it loses least by slipping a day. |
 | `DAILY_CAP` | `[0,17,27,24,20,12,0]` | Cold path, by weekday. Sunday and Saturday are zero. |
 | `COMPANY_WEEKLY_CAP` | 5 | Cold emails per company per rolling 7 days. |
-| `REFERRAL_DAILY_CAP` | 14 | Referral asks a day. |
+| `REFERRAL_DAILY_CAP` | 20 | Referral asks a day. The 06:00–19:00 window has fourteen hours, so six hours may carry two asks; total mailbox volume remains capped at 47 and lower-priority paths yield as necessary. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. There is no second attempt. |
 | `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. This is what spreads the queue across employers. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a ticked employer gets instead — the whole group in one day. Raises the cap, never removes it. |

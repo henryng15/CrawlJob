@@ -22,6 +22,10 @@ below it and **subtracts** everything above it.
   weeks. Without a reservation it would take the whole budget every morning and the ordering
   would be a comment rather than a rule.
 
+Individual path caps intentionally may sum to more than `DAILY_EMAIL_BUDGET`: a Tuesday can be
+27 cold + 20 Referral + 6 follow-up = 53 against the hard 47-message budget. Referral reserves
+first, so cold and then follow-up defer rather than the mailbox exceeding 47.
+
 ## Functions
 
 | Function | Does |

@@ -3574,8 +3574,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   });
 
   // The change the per-company cap could not make on its own. Booking a company
-  // at a time put the first fourteen employers across the first six days and left
-  // the fifteenth waiting behind all of them; booking a round at a time gives
+  // at a time put the first employers across the first several days and left the
+  // rest waiting behind all of them; booking a round at a time gives
   // every employer its first ask before any employer gets its second.
   run('every employer is asked once before any employer is asked twice', () => {
     const companies = ['Stripe', 'Figma', 'Notion', 'Linear', 'Vercel'];
@@ -3726,6 +3726,31 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     });
     Object.keys(byDay).forEach((key) => {
       assert.ok(byDay[key] <= S.REFERRAL_DAILY_CAP, key + ' had ' + byDay[key]);
+    });
+  });
+
+  run('twenty referral asks fit in one day with no hour above two', () => {
+    const early = new Date(2026, 7, 28, 5, 0, 0);
+    const jobs = [], people = [];
+    for (let i = 0; i < S.REFERRAL_DAILY_CAP; i++) {
+      const company = 'Capacity' + i;
+      jobs.push(jobRow(company, 'Software Engineer Intern, Summer 2027', GH + i));
+      people.push({
+        company: company, tokens: S.outreachCompanyTokens_(company),
+        name: 'P' + i, email: 'p' + i + '@x.com', title: 'Software Engineer',
+        domain: 'x.com', seniority: '', angle: '', bucket: ''
+      });
+    }
+    const booked = S.outreachReferralPlan_(jobs, [], people, early).booked;
+    assert.strictEqual(booked.length, S.REFERRAL_DAILY_CAP);
+    assert.ok(booked.every((one) => one.scheduled.toDateString() === early.toDateString()));
+    const byHour = {};
+    booked.forEach((one) => {
+      const hour = one.scheduled.getHours();
+      byHour[hour] = (byHour[hour] || 0) + 1;
+    });
+    Object.keys(byHour).forEach((hour) => {
+      assert.ok(byHour[hour] <= 2, hour + ': ' + byHour[hour]);
     });
   });
 
@@ -4326,10 +4351,10 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachDaySpend_([], [{ status: 'Queued', scheduled: TUE }], TUE).referral, 0);
   });
 
-  run('an untouched day gives every path its own cap', () => {
+  run('an untouched day reserves the budget in path order', () => {
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'referral'), S.REFERRAL_DAILY_CAP);
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'cold'), 27);
-    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), S.FOLLOWUP_DAILY_CAP);
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), 0);
   });
 
   // The whole point of the reservation. Without it the priority order would be
@@ -4339,12 +4364,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const saved = S.DAILY_CAP[2];
     S.DAILY_CAP[2] = 40;
     try {
-      // Cold has sent 30 of a raised cap of 40, so its own cap says ten more. The
-      // twelve held back for referral say three.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 30), [], TUE, 'cold'),
-                         S.DAILY_EMAIL_BUDGET - 30 - S.REFERRAL_DAILY_CAP);
+      // Cold has sent 20 of a raised cap of 40, so its own cap says twenty more.
+      // The twenty held back for Referral leave seven.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'cold'),
+                         S.DAILY_EMAIL_BUDGET - 20 - S.REFERRAL_DAILY_CAP);
       // And the referral path finds its whole share waiting for it.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 30), [], TUE, 'referral'),
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'referral'),
                          S.REFERRAL_DAILY_CAP);
     } finally {
       S.DAILY_CAP[2] = saved;
@@ -4378,30 +4403,28 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachBudgetRoom_([], referral, TUE, 'referral'), 0);
   });
 
-  // Saying so is the point rather than an admission: this is a guard rail, and a
-  // guard rail you are leaning on was installed too late.
-  run('the three caps sum under the budget on every day of the week', () => {
-    for (let d = 23; d <= 29; d++) {
-      const date = day(2026, 8, d);
-      const total = S.outreachPathCap_('cold', date)
-                  + S.outreachPathCap_('referral', date)
-                  + S.outreachPathCap_('followup', date);
-      assert.ok(total <= S.DAILY_EMAIL_BUDGET, date.toDateString() + ' reaches ' + total);
-    }
+  run('the shared budget remains binding when the path caps overbook it', () => {
+    const total = S.outreachPathCap_('cold', TUE)
+                + S.outreachPathCap_('referral', TUE)
+                + S.outreachPathCap_('followup', TUE);
+    assert.ok(total > S.DAILY_EMAIL_BUDGET, 'Tuesday reaches ' + total);
+    const referral = referralSent(TUE, S.REFERRAL_DAILY_CAP);
+    const coldRoom = S.outreachBudgetRoom_([], referral, TUE, 'cold');
+    assert.strictEqual(coldRoom, S.DAILY_EMAIL_BUDGET - S.REFERRAL_DAILY_CAP);
+    const cold = coldSent(TUE, coldRoom);
+    assert.strictEqual(S.outreachBudgetRoom_(cold, referral, TUE, 'followup'), 0);
   });
 
-  // The referral cap is the window rather than a preference, and this is the
-  // sentence that keeps it that way. 06:00 to 21:00 is sixteen hours and the cap
-  // is sixteen, so every ask leaves in an hour of its own; the first number that
-  // has to double up is seventeen, and two notes out of one mailbox inside one
-  // hour is the shape a reader recognises as a machine. Raise the cap without
-  // widening the hours and this is what says so.
-  run('every referral in a full day leaves in an hour of its own', () => {
+  run('a full referral day uses no more than two asks in an actual hour', () => {
     const hours = S.outreachSpaceHours_(S.REFERRAL_DAILY_CAP,
                                         S.REFERRAL_HOUR_FIRST, S.REFERRAL_HOUR_LAST);
     assert.strictEqual(hours.length, S.REFERRAL_DAILY_CAP);
-    assert.strictEqual(new Set(hours).size, hours.length,
-                       'two asks share an hour: ' + hours.join(','));
+    const count = {};
+    hours.forEach((hour) => { count[hour] = (count[hour] || 0) + 1; });
+    Object.keys(count).forEach((hour) => {
+      assert.ok(count[hour] <= 2, hour + ': ' + count[hour]);
+    });
+    assert.strictEqual(Object.values(count).filter((n) => n === 2).length, 6);
   });
 
   run('the order is referral, then cold, then follow up', () => {
@@ -4701,16 +4724,19 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(slot > midMorning);
   });
 
-  // Indexing by the day's booking count alone kept handing back the first hour
-  // still in the future, so every row on a half-gone day landed on one hour.
-  run('and two rows booked on a half-gone day take different hours', () => {
+  // A repeated hour is a deliberate second capacity slot, not the former bug
+  // where every row was accidentally given the same time. Once both slots are
+  // used, the next person must advance to the next actual hour.
+  run('a half-gone day uses both capacity slots before advancing an hour', () => {
     const midMorning = new Date(2026, 7, 28, 10, 8, 0);
     const load = {};
     const first = S.outreachReferralSlot_('A', midMorning, load, null);
-    load[S.outreachDayKey_(first)] = { total: 1, companies: {} };
+    S.outreachReferralLoadAdd_(load, first, 'A');
     const second = S.outreachReferralSlot_('B', midMorning, load, null);
-    assert.notStrictEqual(first.getHours(), second.getHours());
-    assert.ok(second > first);
+    S.outreachReferralLoadAdd_(load, second, 'B');
+    const third = S.outreachReferralSlot_('C', midMorning, load, null);
+    assert.strictEqual(first.getHours(), second.getHours());
+    assert.ok(third > second);
   });
 
   run('a past booking leaves a later free hour available today', () => {
@@ -4889,9 +4915,13 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const days = moved.map((m) => m.scheduled.toDateString());
     assert.strictEqual(days.length, 6);
     assert.strictEqual(new Set(days).size, 1, days.join(' | '));
-    // Different hours inside that day, so six do not leave the mailbox together.
+    // No hour can take more than two asks, so the group remains visibly spaced.
     const hours = moved.map((m) => m.scheduled.getHours());
-    assert.strictEqual(new Set(hours).size, 6, hours.join(','));
+    const byHour = {};
+    hours.forEach((hour) => { byHour[hour] = (byHour[hour] || 0) + 1; });
+    Object.keys(byHour).forEach((hour) => {
+      assert.ok(byHour[hour] <= 2, hour + ': ' + byHour[hour]);
+    });
   });
 
   // The ask this was reworked for: ticked employers all at the front, and taking

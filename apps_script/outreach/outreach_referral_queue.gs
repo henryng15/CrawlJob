@@ -566,9 +566,9 @@ function outreachReferralLoad_(referralRows, booked) {
  * The first slot this person can have.
  *
  * Two caps, and they are different kinds of limit. The daily one is about the
- * sending account: fourteen referral notes a day out of one mailbox, on top of
+ * sending account: twenty referral notes a day out of one mailbox, on top of
  * the cold path's own volume. The per-employer one is about how the queue is
- * spent — one person per company per day, so a day of sending reaches fourteen
+ * spent — one person per company per day, so a day of sending reaches twenty
  * employers rather than two, and the second ask at a company is still unwritten
  * when the first one is read.
  *
@@ -576,8 +576,8 @@ function outreachReferralLoad_(referralRows, booked) {
  * raises is the word: it used to remove it. A ticked box is somebody saying they
  * want this company worked today rather than a fortnight from now, and holding the
  * group to one a day would make the tick nothing but a reordering — but removing
- * the cap let two ticked employers take twelve of a day's fourteen slots and leave
- * eight other companies sharing two, which is the clustering the breadth-first
+ * the cap let two ticked employers take twelve of a day's twenty slots and leave
+ * eight other companies sharing eight, which is the clustering the breadth-first
  * planner exists to prevent, reintroduced through a side door.
  *
  * The account's own cap is never lifted either way, because the mailbox does not
@@ -628,11 +628,17 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
     // protected draft later in the day): at 14:21, a sent 14:00 ask and a 15:00
     // draft made the next ask 16:00 under the old arithmetic, and repeated
     // replans could strand every remaining usable hour. Live loads retain their
-    // occupied hours, so take the first actual gap. The count-only fallback keeps
-    // this helper compatible with callers holding the old minimal load shape.
+    // occupied hours, so take the first actual capacity slot. At a cap of twenty
+    // the fourteen-hour window intentionally repeats six hours; their quota is
+    // two, while every other hour remains one. The count-only fallback keeps this
+    // helper compatible with callers holding the old minimal load shape.
     if (used.hours) {
+      var hourCapacity = {};
+      hours.forEach(function (hour) {
+        hourCapacity[hour] = (hourCapacity[hour] || 0) + 1;
+      });
       for (var candidate = first; candidate < hours.length; candidate++) {
-        if (!used.hours[hours[candidate]]) {
+        if ((used.hours[hours[candidate]] || 0) < hourCapacity[hours[candidate]]) {
           return new Date(day.getFullYear(), day.getMonth(), day.getDate(),
                           hours[candidate], 0, 0);
         }
@@ -750,7 +756,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
   // The loop used to take one employer and book all six of its people before
   // looking at the next. Capping the day at one person per company spread those
   // six across six days, which is what the cap is for — but it did nothing about
-  // the order of the companies, so the first fourteen employers filled the first
+  // the order of the companies, so the first twenty employers filled the first
   // six days between them and the two hundredth waited a quarter of a year to hear
   // anything at all. The cap spread the six; it did not spread the 221.
   //

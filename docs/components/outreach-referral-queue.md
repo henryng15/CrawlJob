@@ -18,9 +18,9 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 
 | Cap | Value | Why |
 |---|---|---|
-| `REFERRAL_DAILY_CAP` | 14 | What the mailbox will carry. |
+| `REFERRAL_DAILY_CAP` | 20 | What the mailbox will carry. Six of the fourteen 06:00–19:00 hours have capacity for two asks; no hour receives more than two. The shared 47-message mailbox cap remains authoritative. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. No second attempt, ever. |
-| `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. A day of sending reaches fourteen employers rather than two, and the second ask at a company is still unwritten when the first is read — which is what gives a reply something to stop. |
+| `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. A full day reaches up to twenty employers rather than repeatedly concentrating on two, and the second ask at a company is still unwritten when the first is read — which is what gives a reply something to stop. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a **ticked** employer gets: the whole group in one day if the day holds it. Raises the per-employer cap; the mailbox's own cap is never lifted, so ticking everything changes who goes first, not how many go. |
 
 ## Which link, which posting
@@ -56,8 +56,8 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 | Function | Does |
 |---|---|
 | `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total, per employer, and by occupied hour. |
-| `outreachReferralSlot_(company, today, load, roomOn, priority)` | **The first slot this person can have.** Walks forward a day at a time, skipping weekends, checking three limits: the day's mailbox room, the day's referral cap, and the per-employer cap. It chooses the first unoccupied actual hour, rather than offsetting by a day's booking count — otherwise a past send could make a replan skip still-free hours today. No ceiling — a referral ask has no window it can miss, so a backlog is spread rather than dropped. |
-| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, puts same-day applications first, then runs round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first fourteen employers fill six days while the two-hundredth waited a quarter of a year. |
+| `outreachReferralSlot_(company, today, load, roomOn, priority)` | **The first slot this person can have.** Walks forward a day at a time, skipping weekends, checking three limits: the day's mailbox room, the day's referral cap, and the per-employer cap. It chooses the first actual capacity slot, rather than offsetting by a day's booking count — otherwise a past send could make a replan skip still-free capacity today. At 20/day six hours may take two asks; no hour takes more than two. No ceiling — a referral ask has no window it can miss, so a backlog is spread rather than dropped. |
+| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, puts same-day applications first, then runs round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first employers fill multiple days while the two-hundredth waited a quarter of a year. |
 | `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. |
 | `outreachReferralReplan_(rows, today, roomOn)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Ticked rows first, then the rest; each half interleaved by company. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
 | `outreachReferralDueNow_(rows, now, queueRows)` | Rows whose hour has come, `Drafted` and due, priority ahead of the clock. |

@@ -19,12 +19,12 @@
  * time is not lost: every path here already treats a day it could not absorb as a
  * day to catch up on, because they all had to survive a weekend of downtime.
  *
- * A note on what today's numbers actually do. The three caps are 25 at the cold
- * path's Tuesday peak, 6 for the follow-up and 14 for the referral — forty five,
- * against a budget of forty five. It fits exactly, which is the first time this
- * file has been load-bearing rather than decorative: there is no slack left, so
- * the next raise to any one cap is a raise to DAILY_EMAIL_BUDGET whether or not
- * the person making it has read this. That is what the guard rail was for.
+ * A note on what today's numbers actually do. The individual caps may add to
+ * more than the budget: 27 at the cold path's Tuesday peak, 6 for follow-up and
+ * 20 for Referral add to fifty three against a budget of forty seven. That is
+ * intentional. The budget is the load-bearing guard rail, and EMAIL_PATH_ORDER
+ * makes Referral reserve first; cold and then follow-up defer rather than the
+ * mailbox exceeding forty seven messages.
  */
 
 /**
@@ -89,8 +89,8 @@ function outreachPathCap_(path, day) {
  * priority would be decided by which planner happened to run first, and the cold
  * path runs on an hourly trigger that has been firing for weeks — it would take
  * the whole budget every morning and the ordering would be a comment rather than
- * a rule. Holding back the referral path's fourteen until that path has had
- * its chance is the difference.
+ * a rule. Holding back Referral's twenty until that path has had its chance is
+ * the difference.
  */
 function outreachBudgetRoom_(queueRows, referralRows, day, path) {
   var spend = outreachDaySpend_(queueRows, referralRows, day);
