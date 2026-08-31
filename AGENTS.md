@@ -5,11 +5,46 @@
 - Act autonomously. Only ask the user to perform an action when it genuinely requires manual intervention or no available tool, protocol, or MCP integration can do it.
 - Before an unusually dangerous, irreversible, or broad-impact action, explain the risk and ask for confirmation.
 
+## Git commits
+
+- Make small, coherent commits: one independently reviewable change per commit. Do not fold
+  unrelated working-tree changes into a commit merely because they are present.
+- Use Conventional Commit subjects in the form `<type>(<scope>): <imperative summary>`.
+  Use `feat` for new behaviour, `fix` for corrected behaviour, `docs` for documentation-only
+  changes, `test` for tests, `refactor` for non-functional restructuring, and `chore` for
+  tooling, configuration, or maintenance. Use `feat` rather than a vague `add` type.
+- Keep the subject concise and lower-case after the colon; describe any material operational
+  consequence in the commit body when the subject alone is not enough.
+
 ## Access notes
 
-- **clasp has two profiles.** `default` = hoanng15.work pushes and pulls both script projects.
-  Deploying needs `clasp --user kenyon` — cross-domain deploy is refused, because the bound
-  script is owned by nguyen15@kenyon.edu.
+- **clasp has two profiles, and each one runs the script its account owns.** `default` =
+  hoanng15.work pushes and pulls both script projects, and runs the **standalone sender**
+  (GCP project `gmail-extractor-471605`). `kenyon` = nguyen15@kenyon.edu, and it is the one
+  that deploys and `clasp run`s the **bound tracker** (GCP project `update-job-504720`,
+  number `816618883729`). Cross-domain deploy is refused, because the bound script is owned
+  by the Kenyon account.
+- **The two scripts cannot share one GCP project, and this is structural.** Setting the bound
+  script's GCP project to `gmail-extractor-471605` is refused with *"You cannot switch to a
+  Cloud Platform project outside the script owner's Cloud Organization"*: the bound script is
+  owned by a kenyon.edu account, so its GCP project has to live in the kenyon.edu Cloud
+  Organization, and a personal-Gmail project lives in no organization at all. Hence two
+  projects and two Desktop OAuth clients. Its consent screen is **Internal**, which is the one
+  advantage of being forced into the org — no verification warning and no 7-day token expiry.
+- **`executionApi.access` must be `MYSELF` on the bound script. `ANYONE` silently breaks
+  `clasp run`.** With `ANYONE`, the kenyon.edu organisation policy drops the EXECUTION_API
+  entry point and every call answers *"Script function not found. Please make sure script is
+  deployed as API executable"* — the identical message for a function that exists, one that
+  does not, and one whose project is misconfigured, so it tells you nothing. Verified on
+  2026-08-30: `ANYONE` failed for `setupCompanyTab`, for a real no-op function and for a
+  deliberately invented name alike; changing the one word to `MYSELF` and pushing made the
+  same call return its result. `MYSELF` costs nothing, because each account already runs only
+  the script it owns.
+- **No extra deployment is needed for `clasp run`.** The auto `@HEAD` deployment is enough, and
+  `clasp run` is in devMode unless you pass `--nondev`. Creating an API-executable deployment
+  was tried while chasing the error above and then deleted after `MYSELF` proved to be the
+  whole fix — on a manifest carrying a `webapp` entry, `clasp deploy` would also mint a second
+  ANYONE_ANONYMOUS web app URL nobody asked for.
 - **`clasp run` needs the script's own OAuth client.** A plain `clasp login` falls back to
   Google's built-in client, and then every `scripts.run` call answers *"Unable to run script
   function"* or *"Authorization is required to perform that action"* — the same message for a
