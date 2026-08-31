@@ -78,11 +78,14 @@ var TAB_HEALTH         = 'Cycle Health';
 // for different things, and an export of one must never be able to erase the other.
 var TAB_EMPLOYEES_SEED = 'Employees (seed)';
 
-// App tab, 1-based. Read only with one exception: a rejection found in the
-// mailbox writes Process and appends a line to Update, because an application
-// that has been turned down must stop being worked within the hour. Nothing else
-// here writes to App — the tab is already dense, and one more machine-written
-// column would be one more thing to read past.
+// App tab, 1-based. Read only with two exceptions, and neither one adds a column:
+// a rejection found in the mailbox writes Process and appends a line to Update,
+// because an application that has been turned down must stop being worked within
+// the hour; and outreach_app_worklist.gs owns the tab's row order and the yellow
+// across A..Update, because "this application is waiting on a link" is a question
+// only this project can answer — see the header of that file. No new column for
+// either, because the tab is already dense and one more machine-written column
+// would be one more thing to read past.
 var APP_PROPERTY = 1, APP_COMPANY = 2, APP_LINK = 3, APP_DATE_APPLIED = 4;
 var APP_PROCESS = 6, APP_ROLE = 7;
 // Official, at column 9, is the one column on this tab a human fills in for this
@@ -103,7 +106,7 @@ var UPDATE_DATE_FORMAT = 'MMM d, yyyy';
 // The Email tab, 1-based. The three columns copied from App lead it.
 //
 // Drafted At and Scheduled At sit together and in that order because they are one
-// fact read left to right: written at 09:07, goes at 10:00. While a row is Queued
+// fact read left to right: written at 08:07, goes at 09:00. While a row is Queued
 // both are the projection; once it is written both are what happened.
 var Q_COMPANY = 1, Q_ROLE = 2, Q_DATE_APPLIED = 3, Q_PROPERTY = 4, Q_RECRUITERS = 5;
 var Q_ATTEMPT = 6, Q_TEMPLATE = 7, Q_DRAFTED_AT = 8, Q_SCHEDULED = 9;
@@ -185,10 +188,16 @@ var QUEUE_DATE_FORMAT = 'mmmm d, yyyy';
 // when the number looks wrong, and a fixed shape reads as more human than
 // randomness does. Tue/Wed are high because that is when a recruiter reads
 // carefully; Friday is low because Friday afternoon email dies.
-var DAILY_CAP = [0, 15, 25, 22, 18, 10, 0];
+//
+// Every weekday went up by two when the drafting window gained its ninth hour.
+// The extra hour is what pays for them: 08:00 was already a firing the trigger
+// made and the writer declined to use, so the two extra recruiters a day come out
+// of an hour the account was not spending rather than out of a tighter spacing.
+// It was [0, 15, 25, 22, 18, 10, 0].
+var DAILY_CAP = [0, 17, 27, 24, 20, 12, 0];
 
 var SEND_HOUR_FIRST = 9;    // inclusive, in the project's timezone
-var SEND_HOUR_LAST  = 17;   // inclusive: nine firings a day
+var SEND_HOUR_LAST  = 17;   // inclusive: nine sending hours a day
 
 // How long a finished message sits in Drafts before it goes.
 //
@@ -199,10 +208,21 @@ var SEND_HOUR_LAST  = 17;   // inclusive: nine firings a day
 // than a mode you have to remember to be in.
 var DRAFT_LEAD_HOURS = 1;
 
-// The last firing that writes anything. Writing at 17:00 would produce a message
-// with no hour left to wait in, so the day's writing stops one firing before the
-// day's sending does: drafts are made 09:00-16:00 and go out 10:00-17:00.
-var DRAFT_HOUR_LAST = SEND_HOUR_LAST - DRAFT_LEAD_HOURS;
+// The first and last firings that write anything. A draft waits DRAFT_LEAD_HOURS,
+// so the writing window is the sending window shifted one hour earlier at both
+// ends: drafts are made 08:00-16:00 and go out 09:00-17:00.
+//
+// The first hour is derived rather than typed, because the two ends answer the
+// same question from opposite sides. Writing at 17:00 would produce a message
+// with no hour left to wait in; writing no earlier than 09:00 means the first
+// email of the day cannot leave until 10:00, and 09:00 is the hour a recruiter
+// actually opens their mail. The window used to start at SEND_HOUR_FIRST, which
+// spent the best slot of the day waiting.
+//
+// This also gives the day a ninth drafting hour, which is where the two extra
+// rows in DAILY_CAP go.
+var DRAFT_HOUR_FIRST = SEND_HOUR_FIRST - DRAFT_LEAD_HOURS;
+var DRAFT_HOUR_LAST  = SEND_HOUR_LAST - DRAFT_LEAD_HOURS;
 
 var ELIGIBLE_AFTER_DAYS = 2;   // after Date Applied, before anything may go
 var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
@@ -228,10 +248,13 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 // for a referral cap of sixteen that reached into the evening; the window came
 // back and so did this.
 //
-// It now binds exactly — twenty five at the cold path's Tuesday peak, plus six
-// follow-ups, plus fourteen, is forty five on the nose. So the next raise to any
-// of the three caps is a raise to this number too, and that is a decision about
-// the account rather than about a path.
+// Forty seven, not forty five, and the two came from the same edit. The cold
+// path's drafting window now opens at 08:00, which adds a ninth writing hour, and
+// DAILY_CAP took two rows a day for it. There was no slack to take them out of —
+// this number bound exactly at forty five — so a decision about the path was also
+// a decision about the account, which is what the paragraph above was written to
+// force. It binds exactly again: twenty seven at the cold path's Tuesday peak,
+// plus six follow-ups, plus fourteen, is forty seven on the nose.
 //
 // Two ceilings sit above this one and neither binds. Apps Script allows a consumer
 // gmail.com account 100 recipients a day, so this is under half of what the
@@ -241,7 +264,7 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 // with upstream — every address on the employees tab passed an anymail "valid"
 // check in export_referrals.py before it was exported, and the recruiter tab drops
 // UNSENDABLE_VERIFY on the way in.
-var DAILY_EMAIL_BUDGET = 45;
+var DAILY_EMAIL_BUDGET = 47;
 
 // Who gets the budget when it runs short, most important first.
 //
@@ -361,6 +384,7 @@ var REFERRAL_WEEKENDS = false;
 
 // Six in the morning to seven at night. Wider than the cold path's nine to five
 // at one end only, and the asymmetry is the rule rather than an oversight.
+// (Nine to five is when the cold path *sends*; it writes from eight.)
 //
 // The early end is wide because it is the best hour of the day. This lands in a
 // working engineer's mailbox rather than on a recruiter's desk, and six in the
@@ -396,9 +420,9 @@ var REFERRAL_HOUR_LAST  = 19;
 // REFERRAL_HOUR_LAST — so the cap came back down with the window rather than
 // staying put and doubling up inside a shorter one.
 //
-// The mailbox has room for it without moving anything else: twenty five at the
-// cold path's Tuesday peak, plus six follow-ups, plus fourteen, is forty five
-// against a budget of forty five. Raising this further is a change to
+// The mailbox has room for it without moving anything else: twenty seven at the
+// cold path's Tuesday peak, plus six follow-ups, plus fourteen, is forty seven
+// against a budget of forty seven. Raising this further is a change to
 // DAILY_EMAIL_BUDGET first, and to the hours before that.
 var REFERRAL_DAILY_CAP  = 14;
 
@@ -843,14 +867,14 @@ function outreachDailyCap_(date) {
  *
  * `firstHour` is the earliest hour still available. It defaults to the start of
  * the day, which is right for every day but today: an hour that has already gone
- * cannot be the hour a row is written in, and numbering today's rows from 09:00
+ * cannot be the hour a row is written in, and numbering today's rows from 08:00
  * at half past ten stamped them with a time in the past. A queued row then sorted
  * above the rows drafted an hour ago, which read as the queue running backwards —
  * Datadog sat at 09:00 above an Anduril row really written at 10:21.
  */
 function outreachDraftHoursForDay_(count, firstHour) {
-  var first = firstHour === undefined ? SEND_HOUR_FIRST
-                                      : Math.max(SEND_HOUR_FIRST, firstHour);
+  var first = firstHour === undefined ? DRAFT_HOUR_FIRST
+                                      : Math.max(DRAFT_HOUR_FIRST, firstHour);
   return outreachSpreadHours_(count, first, DRAFT_HOUR_LAST);
 }
 

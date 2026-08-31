@@ -1255,9 +1255,12 @@ function outreachDueNow_(queueRows, now, referralRows) {
   var cap = outreachDailyCap_(now);
   if (!cap) return [];
   var hour = now.getHours();
-  // DRAFT_HOUR_LAST, not SEND_HOUR_LAST: what this picks is written now and goes
-  // an hour later, so the last firing of the day has nothing left to pick for.
-  if (hour < SEND_HOUR_FIRST || hour > DRAFT_HOUR_LAST) return [];
+  // Both bounds are the drafting ones, not the sending ones: what this picks is
+  // written now and goes an hour later. So the day opens an hour before the first
+  // send, which is the point of 08:00 — it is what makes 09:00 a sending hour
+  // rather than the hour the first message is still being written in — and closes
+  // an hour before the last, because 17:00 has nothing left to pick for.
+  if (hour < DRAFT_HOUR_FIRST || hour > DRAFT_HOUR_LAST) return [];
 
   // A draft counts against the day as much as a send does. It has no Sent At, so
   // without the second half of this the cap never fills while Mode is Draft, and
@@ -1327,7 +1330,7 @@ function outreachProjectSchedule_(queueRows, from) {
     // projection does — it is step 6 against step 7 of the same round — so a row
     // still Queued at this point missed its chance for this hour and the earliest
     // it can be written is the next one.
-    var firstHour = today_ ? from.getHours() + 1 : SEND_HOUR_FIRST;
+    var firstHour = today_ ? from.getHours() + 1 : DRAFT_HOUR_FIRST;
     var room = outreachDailyCap_(day) - (today_ ? sentToday : 0);
     // Past the last drafting hour there is no room left today whatever the cap
     // says, and these rows belong to tomorrow.

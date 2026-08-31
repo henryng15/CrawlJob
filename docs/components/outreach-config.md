@@ -24,9 +24,9 @@ here. Nothing in this file touches a sheet or Gmail.
 
 | Constant | Value | Means |
 |---|---|---|
-| `DAILY_EMAIL_BUDGET` | 45 | Everything the mailbox may send in a day, across all three paths. |
+| `DAILY_EMAIL_BUDGET` | 47 | Everything the mailbox may send in a day, across all three paths. |
 | `EMAIL_PATH_ORDER` | `referral, cold, followup` | Who reserves first. Referral leads because it is scarcest; follow-up is last because it loses least by slipping a day. |
-| `DAILY_CAP` | `[0,15,25,22,18,10,0]` | Cold path, by weekday. Sunday and Saturday are zero. |
+| `DAILY_CAP` | `[0,17,27,24,20,12,0]` | Cold path, by weekday. Sunday and Saturday are zero. |
 | `COMPANY_WEEKLY_CAP` | 5 | Cold emails per company per rolling 7 days. |
 | `REFERRAL_DAILY_CAP` | 14 | Referral asks a day. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. There is no second attempt. |
@@ -39,7 +39,8 @@ here. Nothing in this file touches a sheet or Gmail.
 
 | Constant | Value |
 |---|---|
-| `SEND_HOUR_FIRST` / `SEND_HOUR_LAST` | 9 / 17 — nine firings a day |
+| `SEND_HOUR_FIRST` / `SEND_HOUR_LAST` | 9 / 17 — nine sending hours a day |
+| `DRAFT_HOUR_FIRST` / `DRAFT_HOUR_LAST` | 8 / 16 — the same window shifted back by `DRAFT_LEAD_HOURS`, derived not typed |
 | `REFERRAL_HOUR_FIRST` / `REFERRAL_HOUR_LAST` | 6 / 19 |
 | `FOLLOWUP_HOUR_FIRST` / `FOLLOWUP_HOUR_LAST` | 8 / 19 |
 | `DRAFT_LEAD_HOURS` | 1 — a message is written one hour before it goes, so the hour it could have been read always exists |
