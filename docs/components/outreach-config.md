@@ -68,6 +68,7 @@ becomes — it must still count as ticked.
 | `outreachModeFor_(...)` | Draft or send, for one row. |
 | `outreachProperty_(name, required)` | One script property, throwing if a required one is unset. |
 | `setupOutreachProperties()` | Run by hand: report which properties are still missing. |
+| `diagnoseOutreachResume()` | Read the Drive resume configured for attachment and return its name, MIME type, size, update time and SHA-256 checksum, without returning the Drive id. Used to prove that the sender's attachment matches the local PDF. |
 | `outreachTicked_(value)` | Whether a hand-ticked cell counts as ticked — `true`, `"yes"`, `"x"`, `"1"`, `"Done"`. Reading only `=== true` would ignore what people actually type. |
 | `outreachMidnight_`, `outreachDaysBetween_`, `outreachAddDays_`, `outreachDayKey_` | Date arithmetic that never trips over clock time. |
 | `outreachFingerprint_(email)` | A non-reversible name for an address, so the tracker can say "this person has been written to" without holding the address. |

@@ -792,6 +792,28 @@ function setupOutreachProperties() {
 }
 
 /**
+ * Identify the exact resume bytes the sender will attach, without exposing its
+ * Drive id.  The local PDF can be checked against `sha256` before a send; a
+ * title or a Drive modified time alone is not evidence that its contents match.
+ */
+function diagnoseOutreachResume() {
+  var file = DriveApp.getFileById(outreachProperty_(PROP_RESUME_ID, true));
+  var blob = file.getBlob();
+  var bytes = blob.getBytes();
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes);
+  var sha256 = digest.map(function (byte) {
+    return ('0' + (byte & 0xff).toString(16)).slice(-2);
+  }).join('');
+  return {
+    name: file.getName(),
+    mimeType: blob.getContentType(),
+    sizeBytes: bytes.length,
+    lastUpdated: file.getLastUpdated().toISOString(),
+    sha256: sha256
+  };
+}
+
+/**
  * Whether a hand-ticked cell counts as ticked.
  *
  * A checkbox hands back a real boolean, but the column is editable by a person in
