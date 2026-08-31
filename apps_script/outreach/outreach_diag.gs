@@ -80,6 +80,20 @@ function diagnoseReferralReplan() {
     return row.status === STATUS_QUEUED && !row.cancel;
   }).length;
 
+  // Counts only live work, by the date the tab says it will send. This makes the
+  // distinction between a capacity spill and a scheduler defect visible without
+  // returning any recipient or message data.
+  var openByScheduledDay = {};
+  rows.forEach(function (row) {
+    if ((row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED)
+        || row.cancel || !row.scheduled) return;
+    var key = Utilities.formatDate(row.scheduled, Session.getScriptTimeZone(),
+                                   'yyyy-MM-dd');
+    if (!openByScheduledDay[key]) openByScheduledDay[key] = { queued: 0, drafted: 0 };
+    if (row.status === STATUS_QUEUED) openByScheduledDay[key].queued++;
+    else openByScheduledDay[key].drafted++;
+  });
+
   var moved = outreachReferralReplan_(rows, now, roomOn);
 
   return {
@@ -87,6 +101,7 @@ function diagnoseReferralReplan() {
     queueRows: queueRows.length,
     movable: movable,
     wouldMove: moved.length,
+    openByScheduledDay: openByScheduledDay,
     roomOnNext7Days: room,
     firstMoves: moved.slice(0, 6).map(function (move) {
       return move.index + ' -> '

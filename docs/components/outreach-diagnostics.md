@@ -17,7 +17,7 @@ right now.*
 |---|---|
 | `pingOutreach()` | `'pong'`. If this fails, the failure is not in the code — it is the API or the manifest. |
 | `diagnoseOutreachAccess()` | The account the script runs as, both spreadsheet ids, whether each opens, the installed triggers, and the three effective send/draft switches. |
-| `diagnoseReferralReplan()` | What `replanReferralAsks` **would** do — budget per day, movable rows, rows it would move, first moves — computed without writing a cell. |
+| `diagnoseReferralReplan()` | What `replanReferralAsks` **would** do — budget per day, live queued/drafted rows grouped by their scheduled day, movable rows, rows it would move, first moves — computed without writing a cell. |
 | `diagnoseReferralTab()` | `maxRows`, `lastRow`, rows with a company, blank rows still holding something, which columns keep them alive, and read/parse timings. |
 | `diagnosePhantomRows()` | The statuses and error text on rows with no company, with samples. |
 

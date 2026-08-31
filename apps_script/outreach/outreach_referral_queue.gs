@@ -503,20 +503,27 @@ function outreachReferralSpent_(referralRows, company) {
  * second outreachDayKey_ would not be a local convenience, it would replace the
  * follow-up's and change how its own daily cap counts.
  */
+function outreachReferralLoadAdd_(load, when, company) {
+  if (!when) return;
+  var key = outreachDayKey_(when);
+  if (!load[key]) load[key] = { total: 0, companies: {}, hours: {} };
+  load[key].total++;
+  var name = outreachNameKey_(company);
+  load[key].companies[name] = (load[key].companies[name] || 0) + 1;
+  var hour = when.getHours();
+  load[key].hours[hour] = (load[key].hours[hour] || 0) + 1;
+}
+
 function outreachReferralLoad_(referralRows, booked) {
   var load = {};
-  var add = function (when, company) {
-    if (!when) return;
-    var key = outreachDayKey_(when);
-    if (!load[key]) load[key] = { total: 0, companies: {} };
-    load[key].total++;
-    var name = outreachNameKey_(company);
-    load[key].companies[name] = (load[key].companies[name] || 0) + 1;
-  };
   referralRows.forEach(function (row) {
-    if (row.status !== STATUS_CANCELLED) add(row.scheduled, row.company);
+    if (row.status !== STATUS_CANCELLED) {
+      outreachReferralLoadAdd_(load, row.scheduled, row.company);
+    }
   });
-  (booked || []).forEach(function (item) { add(item.scheduled, item.company); });
+  (booked || []).forEach(function (item) {
+    outreachReferralLoadAdd_(load, item.scheduled, item.company);
+  });
   return load;
 }
 
@@ -556,7 +563,7 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
     // for a favour, arriving on a Saturday morning, says the sender either did not
     // notice or did not mind; it is the same message on Monday and reads better.
     if (!REFERRAL_WEEKENDS && (day.getDay() === 0 || day.getDay() === 6)) continue;
-    var used = load[key] || { total: 0, companies: {} };
+    var used = load[key] || { total: 0, companies: {}, hours: {} };
     // Three limits, and the third is the one that knows about the rest of the
     // system. roomOn asks what the whole mailbox has left on that day once the
     // cold path and the follow-ups have taken their share, so a day this queue
@@ -582,10 +589,22 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
         first++;
       }
     }
-    // The day's own bookings then push past that. Adding them to the offset rather
-    // than indexing by them alone is what stops two rows landing on one hour: on a
-    // day already half gone, indexing by the count alone kept returning the first
-    // hour still in the future for every row in turn.
+    // A booking is a particular hour, not just a number. `first + total` skips a
+    // free hour whenever one of the day's bookings was in the past (or there is a
+    // protected draft later in the day): at 14:21, a sent 14:00 ask and a 15:00
+    // draft made the next ask 16:00 under the old arithmetic, and repeated
+    // replans could strand every remaining usable hour. Live loads retain their
+    // occupied hours, so take the first actual gap. The count-only fallback keeps
+    // this helper compatible with callers holding the old minimal load shape.
+    if (used.hours) {
+      for (var candidate = first; candidate < hours.length; candidate++) {
+        if (!used.hours[hours[candidate]]) {
+          return new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+                          hours[candidate], 0, 0);
+        }
+      }
+      continue;
+    }
     var index = first + used.total;
     if (index >= hours.length) continue;
     return new Date(day.getFullYear(), day.getMonth(), day.getDate(),
@@ -732,11 +751,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
       plan.room--;
       placed++;
 
-      var dayKey = outreachDayKey_(slot);
-      if (!load[dayKey]) load[dayKey] = { total: 0, companies: {} };
-      load[dayKey].total++;
-      var name = outreachNameKey_(plan.job.company);
-      load[dayKey].companies[name] = (load[dayKey].companies[name] || 0) + 1;
+      outreachReferralLoadAdd_(load, slot, plan.job.company);
     });
     // Nothing placed anywhere means no later round will place anything either:
     // every company is either finished or out of people, and the days ahead are
@@ -824,12 +839,7 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
   // forever and never reaches Gmail.
   var draftDueBy = new Date(today.getTime() + DRAFT_LEAD_HOURS * 3600000);
   var add = function (when, company) {
-    if (!when) return;
-    var key = outreachDayKey_(when);
-    if (!fixed[key]) fixed[key] = { total: 0, companies: {} };
-    fixed[key].total++;
-    var name = outreachNameKey_(company);
-    fixed[key].companies[name] = (fixed[key].companies[name] || 0) + 1;
+    outreachReferralLoadAdd_(fixed, when, company);
   };
 
   var movable = [];

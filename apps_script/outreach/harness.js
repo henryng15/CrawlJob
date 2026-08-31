@@ -4651,6 +4651,30 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(second > first);
   });
 
+  run('a past booking leaves a later free hour available today', () => {
+    const midAfternoon = new Date(2026, 7, 28, 14, 21, 0);
+    const day = S.outreachDayKey_(midAfternoon);
+    const load = {};
+    S.outreachReferralLoadAdd_(load, new Date(2026, 7, 28, 14), 'Sent Co');
+    S.outreachReferralLoadAdd_(load, new Date(2026, 7, 28, 16), 'Draft Co');
+    const slot = S.outreachReferralSlot_('Next Co', midAfternoon, load, null);
+    assert.strictEqual(slot.getDate(), 28);
+    assert.strictEqual(slot.getHours(), 15,
+                       'the free 15:00 slot must not be skipped because 14:00 exists');
+  });
+
+  run('replan fills real gaps after a sent row and protected draft', () => {
+    const now = new Date(2026, 7, 28, 14, 21, 0);
+    const rows = [
+      REF(2, 'Sent Co', 'sent@x.com', at(28, 14), 'Sent', { sentAt: at(28, 14) }),
+      REF(3, 'Draft Co', 'draft@x.com', at(28, 15), 'Queued'),
+      REF(4, 'Next Co', 'next@x.com', at(29, 6), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, now, null);
+    assert.strictEqual(moved.find((move) => move.index === 4).scheduled.getHours(), 16);
+    assert.strictEqual(moved.find((move) => move.index === 4).scheduled.getDate(), 28);
+  });
+
   // A first message to a stranger asking a favour, arriving on a Saturday, says
   // the sender either did not notice or did not mind.
   run('an evening past the last hour skips the weekend to Monday', () => {

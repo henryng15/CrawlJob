@@ -50,8 +50,8 @@ hour, and in what order. Almost all pure — the sheet work lives in
 
 | Function | Does |
 |---|---|
-| `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total and per employer. |
-| `outreachReferralSlot_(company, today, load, roomOn, priority)` | **The first slot this person can have.** Walks forward a day at a time, skipping weekends, checking three limits: the day's mailbox room, the day's referral cap, and the per-employer cap. No ceiling — a referral ask has no window it can miss, so a backlog is spread rather than dropped. |
+| `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total, per employer, and by occupied hour. |
+| `outreachReferralSlot_(company, today, load, roomOn, priority)` | **The first slot this person can have.** Walks forward a day at a time, skipping weekends, checking three limits: the day's mailbox room, the day's referral cap, and the per-employer cap. It chooses the first unoccupied actual hour, rather than offsetting by a day's booking count — otherwise a past send could make a replan skip still-free hours today. No ceiling — a referral ask has no window it can miss, so a backlog is spread rather than dropped. |
 | `outreachReferralPlan_(...)` | **Which rows to add.** Round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first fourteen employers fill six days while the two-hundredth waited a quarter of a year. |
 | `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. |
 | `outreachReferralReplan_(rows, today, roomOn)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Ticked rows first, then the rest; each half interleaved by company. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
