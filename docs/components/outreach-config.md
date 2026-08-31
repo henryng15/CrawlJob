@@ -16,7 +16,7 @@ here. Nothing in this file touches a sheet or Gmail.
 |---|---|
 | `TRACKER_SHEET_ID` | The tracker spreadsheet. Despite the comment saying "Track App", it points at **Job and Update - SWE Intern**. |
 | `CONTACTS_SHEET_ID` | The contacts spreadsheet, owned by the sending account. |
-| `RESUME_FILE_ID` | The resume PDF in Drive. |
+| `RESUME_FILE_ID` | The resume PDF in Drive. It must point to `OFFICIAL_RESUME_FILE_ID`, the stable Drive file that the Resume repository's GitHub workflow overwrites on every `main` push changing `official/henryng_swe.pdf`. |
 | `FINGERPRINT_SALT` | Salts the contact fingerprint. Changing it re-opens every past contact. |
 | `OUTREACH_MODE`, `FOLLOWUP_MODE`, `REFERRAL_MODE` | `Draft` holds messages in Drafts; blank sends them. |
 
@@ -69,6 +69,7 @@ becomes — it must still count as ticked.
 | `outreachProperty_(name, required)` | One script property, throwing if a required one is unset. |
 | `setupOutreachProperties()` | Run by hand: report which properties are still missing. |
 | `diagnoseOutreachResume()` | Read the Drive resume configured for attachment and return its name, MIME type, size, update time and SHA-256 checksum, without returning the Drive id. Used to prove that the sender's attachment matches the local PDF. |
+| `useOfficialResumeAttachment()` | Validate the stable, GitHub-synchronised official Drive PDF and set `RESUME_FILE_ID` to it. Run once to repair a stale sender pointer; subsequent official-resume pushes update the same Drive file automatically. |
 | `outreachTicked_(value)` | Whether a hand-ticked cell counts as ticked — `true`, `"yes"`, `"x"`, `"1"`, `"Done"`. Reading only `=== true` would ignore what people actually type. |
 | `outreachMidnight_`, `outreachDaysBetween_`, `outreachAddDays_`, `outreachDayKey_` | Date arithmetic that never trips over clock time. |
 | `outreachFingerprint_(email)` | A non-reversible name for an address, so the tracker can say "this person has been written to" without holding the address. |

@@ -22,6 +22,10 @@ var PROP_TRACKER_ID  = 'TRACKER_SHEET_ID';   // the Track App spreadsheet
 var PROP_CONTACTS_ID = 'CONTACTS_SHEET_ID';  // the contacts spreadsheet, owned here
 var PROP_RESUME_ID   = 'RESUME_FILE_ID';     // Henry_Nguyen_Resume.pdf in Drive
 var PROP_SALT        = 'FINGERPRINT_SALT';   // salts the contact fingerprint
+// This is the stable Drive file that Resume's GitHub workflow overwrites after
+// each push of official/henryng_swe.pdf.  Its id never changes, which is what
+// makes automatic resume updates compatible with a sender property.
+var OFFICIAL_RESUME_FILE_ID = '1xTFdQdoVtLDwcXAnET1sWVfR8Bbw7HYy';
 // Set to 'Draft' to force every row to a draft whatever its own Mode says. This
 // is the rollout switch: for the first weeks nothing should leave unattended,
 // and one property is easier to be sure about than a column of them.
@@ -811,6 +815,22 @@ function diagnoseOutreachResume() {
     lastUpdated: file.getLastUpdated().toISOString(),
     sha256: sha256
   };
+}
+
+/**
+ * Point the sender at Resume's stable, automatically synchronised Drive file.
+ * Open and validate the PDF first: a typo in this id must not leave future
+ * emails attaching an arbitrary Drive file.
+ */
+function useOfficialResumeAttachment() {
+  var file = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID);
+  var blob = file.getBlob();
+  if (blob.getContentType() !== 'application/pdf') {
+    throw new Error('The official resume attachment is not a PDF.');
+  }
+  PropertiesService.getScriptProperties()
+    .setProperty(PROP_RESUME_ID, OFFICIAL_RESUME_FILE_ID);
+  return diagnoseOutreachResume();
 }
 
 /**
