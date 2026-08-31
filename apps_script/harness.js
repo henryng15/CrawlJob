@@ -1387,222 +1387,16 @@ const YELLOW = '#FFF2CC';
 const names = (rows) => Array.from(rows, (r) => r[1]);
 const rowsOf = (rows) => Array.from(rows);
 
-console.log('paintAppOfficialRows');
-{
-  jobs = freshJobs();
-  app = makeSheet('App', [
-    APP_FULL_HEADER,
-    // No link either side: this is the row the colour exists for. Already at the
-    // top, so the sort that follows the paint has nothing to do and the write
-    // count is the paint's alone.
-    appNeedsLink('Stripe'),
-    // Application Link already goes somewhere.
-    appHasLink('IBM'),
-    // An aggregator link, but the employer's own has been found by hand.
-    appHasOfficial('Notion'),
-    // The stray row App really carries: a link and no company.
-    ['', '', 'https://bambusdev.example/job/1', '', '', '', '', '', '', false, false, ''],
-  ]);
-  const s = load();
-  s.paintAppOfficialRows();
-
-  run('the whole block is painted in one write, not one call per row', () => {
-    assert.strictEqual(painted.length, 1);
-    assert.deepStrictEqual(painted[0], [2, 1, 4, 12]);
-  });
-  run('the application with no employer link goes yellow across A..L', () => {
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
-  });
-  run('the three rows that do not need one are cleared, not painted white', () => {
-    // White is a colour, and it would paint over whatever banding or manual
-    // highlight the row already had.
-    [2, 3, 4].forEach((i) => assert.deepStrictEqual(app.colours[i], new Array(12).fill(null)));
-  });
-  run('the header row is never touched', () => {
-    assert.deepStrictEqual(app.colours[0], []);
-  });
-  run('the paint stops at Update, where the tool stops owning the row', () => {
-    assert.strictEqual(app.colours[1].length, 12);
-  });
-  run('a tab with no rows yet says so instead of throwing', () => {
-    app = makeSheet('App', [APP_FULL_HEADER]);
-    const s2 = load();
-    assert.doesNotThrow(() => s2.paintAppOfficialRows());
-    assert.match(toasts[toasts.length - 1], /has no rows yet/);
-  });
-}
-
-console.log('orderAppOfficialRows_ — the ordering on its own, no sheet');
+console.log('appRowIsEmpty_');
 {
   const s = load();
-  const rows = [appNeedsLink('A'), appHasLink('X'), appNeedsLink('B'),
-                appHasOfficial('Y'), appNeedsLink('C')];
-  const out = s.orderAppOfficialRows_(rows);
-
-  run('the rows needing a link come first and the rest follow', () => {
-    assert.deepStrictEqual(names(out), ['A', 'B', 'C', 'X', 'Y']);
-  });
-  run('the yellow group keeps the order it was already in', () => {
-    // Identity, not equality: the point is that these are the same row objects in
-    // the same sequence, so a sort that rebuilt the group from a comparator would
-    // fail here even if it happened to produce equal-looking rows.
-    assert.strictEqual(out[0], rows[0]);
-    assert.strictEqual(out[1], rows[2]);
-    assert.strictEqual(out[2], rows[4]);
-  });
-  run('the rest keeps the order it was already in', () => {
-    assert.strictEqual(out[3], rows[1]);
-    assert.strictEqual(out[4], rows[3]);
-  });
-  run('nothing is dropped and nothing is duplicated', () => {
-    assert.strictEqual(out.length, rows.length);
-    assert.deepStrictEqual(names(out).sort(), ['A', 'B', 'C', 'X', 'Y']);
-  });
-}
-
-console.log('orderAppOfficialRows_ — yellow rows scattered through the middle');
-{
-  const s = load();
-  const rows = [
-    appHasLink('P'), appHasLink('Q'), appNeedsLink('A'), appHasLink('R'),
-    appNeedsLink('B'), appHasLink('S'), appHasLink('T'), appNeedsLink('C'), appHasLink('U'),
-  ];
-  const out = s.orderAppOfficialRows_(rows);
-  run('three rows pulled out of the middle arrive at the top in their old order', () => {
-    assert.deepStrictEqual(names(out), ['A', 'B', 'C', 'P', 'Q', 'R', 'S', 'T', 'U']);
-  });
-  run('and the six left behind close up without changing places', () => {
-    assert.deepStrictEqual(names(out).slice(3), ['P', 'Q', 'R', 'S', 'T', 'U']);
-  });
-}
-
-console.log('orderAppOfficialRows_ — the empty tail');
-{
-  const s = load();
-  const rows = [
-    appHasLink('P'), appNeedsLink('A'), appHasLink('Q'), appNeedsLink('B'),
-    blankAppRow(), blankAppRow(), blankAppRow(),
-  ];
-  const out = s.orderAppOfficialRows_(rows);
-
-  run('the blank rows stay at the bottom instead of sorting in with the rest', () => {
-    assert.deepStrictEqual(names(out), ['A', 'B', 'P', 'Q', '', '', '']);
-  });
-  run('a row that is only two unticked checkboxes still counts as blank', () => {
+  run('a row that is only two unticked checkboxes counts as blank', () => {
     // The trap this guards: false is a value, and the Python half writes FALSE
     // down both columns across every row it covers. Reading that as content would
-    // make an empty row look occupied, so it would never be pinned to the bottom
-    // and would sort in among the applications as though it were one.
+    // make an empty row look occupied, so the Referral sort would never pin it to
+    // the bottom and would sort it in among the asks as though it were one.
     assert.strictEqual(s.appRowIsEmpty_(blankAppRow()), true);
     assert.strictEqual(s.appRowIsEmpty_(appHasLink('P')), false);
-  });
-  run('a blank row with real rows still under it keeps its place', () => {
-    // Only the trailing blanks are pinned. A gap in the middle is something
-    // somebody left there, and sinking it would be exactly the reshuffle the
-    // stability rule exists to prevent.
-    const gapped = [appHasLink('P'), blankAppRow(), appHasLink('Q'), appNeedsLink('A')];
-    assert.deepStrictEqual(names(s.orderAppOfficialRows_(gapped)), ['A', 'P', '', 'Q']);
-  });
-  run('a tab that is nothing but blank rows is left completely alone', () => {
-    const empty = [blankAppRow(), blankAppRow(), blankAppRow()];
-    assert.deepStrictEqual(rowsOf(s.orderAppOfficialRows_(empty)), empty);
-  });
-  run('running the ordering on its own output changes nothing', () => {
-    assert.deepStrictEqual(rowsOf(s.orderAppOfficialRows_(out)), rowsOf(out));
-  });
-}
-
-console.log('sortAppOfficialRowsToTop');
-{
-  jobs = freshJobs();
-  app = makeSheet('App', [
-    APP_FULL_HEADER,
-    appHasLink('IBM'),
-    // Two applications needing a link, sitting where they are easiest to miss:
-    // buried in the middle with ordinary rows above and below them.
-    appNeedsLink('Stripe'),
-    appHasOfficial('Neuralink'),
-    appNeedsLink('Ramp'),
-    appHasLink('Notion'),
-    blankAppRow(),
-    blankAppRow(),
-  ]);
-  const s = load();
-  s.sortAppOfficialRowsToTop();
-
-  run('the two rows needing a link are now the first two rows of the tab', () => {
-    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'Ramp']);
-  });
-  run('the three that do not need one keep their order underneath', () => {
-    assert.deepStrictEqual(app.grid.slice(3, 6).map((r) => r[1]),
-      ['IBM', 'Neuralink', 'Notion']);
-  });
-  run('the header row is not part of the sort', () => {
-    assert.deepStrictEqual(app.grid[0], APP_FULL_HEADER);
-  });
-  run('the whole block moves in one write, not one move per row', () => {
-    // A sort that dies halfway leaves applications duplicated above and missing
-    // below, and App is the source of truth for what has been applied to.
-    assert.strictEqual(wrote.length, 1);
-    assert.deepStrictEqual(wrote[0], [2, 1, 7, 12]);
-  });
-  run('the block stops at the last row, so nothing is written below the data', () => {
-    // Out to LAST_ROW the way the Jobs sweep went, this would leave hundreds of
-    // written-and-emptied rows and onEdit would append the next application
-    // underneath all of them.
-    assert.strictEqual(app.grid.length, 8);
-  });
-  run('the yellow lands on the rows that moved, not on the lines they left', () => {
-    // The failure this catches is the one worth having the test for: sort the
-    // values and leave the colours behind and the tab paints IBM and Neuralink
-    // yellow while Stripe and Ramp sit at the top looking finished.
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
-    assert.deepStrictEqual(app.colours[2], new Array(12).fill(YELLOW));
-    [3, 4, 5].forEach((i) =>
-      assert.deepStrictEqual(app.colours[i], new Array(12).fill(null)));
-  });
-  run('the blank rows are still blank and still at the bottom', () => {
-    assert.strictEqual(s.appRowIsEmpty_(app.grid[6]), true);
-    assert.strictEqual(s.appRowIsEmpty_(app.grid[7]), true);
-  });
-  run('a second run writes nothing and paints nothing', () => {
-    const wroteBefore = wrote.length;
-    const paintedBefore = painted.length;
-    const before = app.grid.map((r) => r.slice());
-    s.sortAppOfficialRowsToTop();
-    assert.strictEqual(wrote.length, wroteBefore);
-    assert.strictEqual(painted.length, paintedBefore);
-    assert.deepStrictEqual(app.grid, before);
-  });
-}
-
-console.log('sortAppOfficialRowsToTop — a column the tool does not own');
-{
-  jobs = freshJobs();
-  app = makeSheet('App', [
-    APP_FULL_HEADER.concat(['Follow up']),
-    appHasLink('IBM').concat(['asked Dana in July']),
-    appNeedsLink('Stripe').concat(['nobody found yet']),
-  ]);
-  const s = load();
-  s.sortAppOfficialRowsToTop();
-
-  run('the block widens to the real last column rather than stopping at Update', () => {
-    assert.deepStrictEqual(wrote[0], [2, 1, 2, 13]);
-  });
-  run("an operator's note in column M travels with its own row", () => {
-    // Left behind, Stripe would arrive at the top wearing IBM's note — one
-    // application's notes silently reattached to another, which is worse than
-    // losing them, because nothing about the tab looks wrong afterwards.
-    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => [r[1], r[12]]),
-      [['Stripe', 'nobody found yet'], ['IBM', 'asked Dana in July']]);
-  });
-  run('the history in Update travels with its row too', () => {
-    assert.strictEqual(app.grid[1][11], 'Applied: July 21, 2026');
-  });
-  run('the paint still stops at Update, where the tool stops owning the row', () => {
-    assert.strictEqual(app.colours[1].length, 12);
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
   });
 }
 
@@ -1615,7 +1409,7 @@ console.log('onEdit — pasting an official link into column I clears the colour
     appNeedsLink('Ramp'),
   ]);
   const s = load();
-  s.paintAppOfficialRows();
+  s.paintAppOfficialBlock_(app, 2, 3);
   app.grid[1][8] = 'https://stripe.example/careers/1';
   s.onEdit({ source: ss, range: app.getRange(2, 9, 1, 1) });
 
@@ -1662,7 +1456,7 @@ console.log('onEdit — pasting an official link into column I clears the colour
   });
 }
 
-console.log('paintAppOfficialRows sorts, onEdit does not');
+console.log('onEdit paints but never sorts');
 {
   jobs = freshJobs();
   app = makeSheet('App', [
@@ -1671,54 +1465,35 @@ console.log('paintAppOfficialRows sorts, onEdit does not');
     appNeedsLink('Stripe'),
   ]);
   const s = load();
-  s.paintAppOfficialRows();
 
-  run('the full repaint brings the row needing a link to the top', () => {
-    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
-  });
-  run('and repaints once the rows have moved, so the colour follows them', () => {
-    assert.strictEqual(painted.length, 2);
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
-    assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
-  });
   run('pasting a link into Official repaints the row but does not move it', () => {
     // Sorting inside onEdit would pull the row out from under the cursor while
     // the person is still typing in it, and the next paste would land on whatever
-    // row slid into its place. The colour has to be immediate; the position waits
-    // for the next full repaint.
+    // row slid into its place. The colour has to be immediate; the position is the
+    // sender project's business, once an hour, when nobody is looking at the tab.
     const wroteBefore = wrote.length;
-    app.grid[1][8] = 'https://stripe.example/careers/1';
-    s.onEdit({ source: ss, range: app.getRange(2, 9, 1, 1) });
+    app.grid[2][8] = 'https://stripe.example/careers/1';
+    s.onEdit({ source: ss, range: app.getRange(3, 9, 1, 1) });
     assert.strictEqual(wrote.length, wroteBefore);
-    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(null));
-  });
-  run('a row that stops needing a link keeps its place rather than being demoted', () => {
-    // Stability cuts both ways. Nothing on the tab needs a link now, so the whole
-    // block is one group and the order somebody was working in survives the
-    // repaint — a sort asked only to bring yellow to the top has no business
-    // moving a row that has merely stopped being yellow.
-    s.paintAppOfficialRows();
-    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['Stripe', 'IBM']);
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(null));
+    assert.deepStrictEqual(app.grid.slice(1, 3).map((r) => r[1]), ['IBM', 'Stripe']);
     assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
   });
   run('a new application lands at the bottom and onEdit leaves it there', () => {
-    // The whole reason the repaint is on a clock: App only ever grows, so every
-    // application sent puts a fresh row under the block somebody is working down.
+    // This script no longer has anything that would move it. App's order belongs
+    // to syncAppOfficialWorklist in the sender project.
     app.grid.push(appNeedsLink('Ramp'));
     const wroteBefore = wrote.length;
     s.onEdit({ source: ss, range: app.getRange(4, 9, 1, 1) });
     assert.strictEqual(wrote.length, wroteBefore);
     assert.deepStrictEqual(app.colours[3], new Array(12).fill(YELLOW));
-    assert.deepStrictEqual(names(app.grid.slice(1, 4)), ['Stripe', 'IBM', 'Ramp']);
+    assert.deepStrictEqual(names(app.grid.slice(1, 4)), ['IBM', 'Stripe', 'Ramp']);
   });
-  run('and the next full repaint is what brings it to the top', () => {
-    s.paintAppOfficialRows();
-    assert.deepStrictEqual(names(app.grid.slice(1, 4)), ['Ramp', 'Stripe', 'IBM']);
-    assert.deepStrictEqual(app.colours[1], new Array(12).fill(YELLOW));
-    assert.deepStrictEqual(app.colours[2], new Array(12).fill(null));
-    assert.deepStrictEqual(app.colours[3], new Array(12).fill(null));
+  run('this script exposes no full-tab App sweep at all', () => {
+    // The guard against the failure this codebase is most prone to: two projects
+    // painting one tab on two rules. If either of these ever comes back, the
+    // sender's sweep has a rival again.
+    assert.strictEqual(s.paintAppOfficialRows, undefined);
+    assert.strictEqual(s.sortAppOfficialRowsToTop, undefined);
   });
 }
 
@@ -3532,27 +3307,6 @@ console.log('runHourlyHousekeeping');
 {
   jobs = freshJobs();
   app = freshApp();
-  referral = freshReferral([askRow('Stripe', 'SWE Intern', 'Ana', 'Queued')]);
-  const s = load();
-  const order = [];
-  // Reassigned on the sandbox itself, which is the script's own global object, so
-  // the calls inside runHourlyHousekeeping resolve to these. Nothing else in this
-  // block may use the real halves afterwards.
-  s.paintAppOfficialRows = () => order.push('App');
-  s.sortReferralCancelledToBottom = () => order.push('Referral');
-  s.runHourlyHousekeeping();
-
-  run('the App repaint runs first and the Referral sort second', () => {
-    // The App half is the one whose output a person acts on next, so if the
-    // execution budget is ever hit it should be the second job that is cut short.
-    assert.deepStrictEqual(order, ['App', 'Referral']);
-  });
-}
-
-console.log('runHourlyHousekeeping — both tabs really are tidied');
-{
-  jobs = freshJobs();
-  app = freshApp();
   referral = freshReferral([
     askRow('Stripe', 'SWE Intern', 'Ana', 'Cancelled', true),
     askRow('Notion', 'SWE Intern', 'Bo', 'Queued'),
@@ -3566,82 +3320,28 @@ console.log('runHourlyHousekeeping — both tabs really are tidied');
     // not move it, and until this ran on the clock nothing ever did.
     assert.deepStrictEqual(people(referral.grid.slice(1, 4)), ['Bo', 'Cy', 'Ana']);
   });
-  run('and the App rows needing an official link were painted and lifted', () => {
-    assert.ok(painted.length > 0, 'the App half did not run');
+  run('App is not touched at all any more', () => {
+    // The App sweep moved to the sender project, which is the only one that can
+    // answer whether a row is waiting on a link. Two projects painting one tab on
+    // two rules is the failure this codebase is most prone to, and this assertion
+    // is what stops it coming back by accident.
+    assert.strictEqual(painted.length, 0);
+    assert.strictEqual(wrote.length, 1, 'something other than the Referral sort wrote');
   });
-  run('each half is still callable on its own, for somebody debugging one of them', () => {
-    // Somebody chasing a bug in the Referral sort should not have to repaint App to
-    // reproduce it, and the other way round.
+  run('the sort is still callable on its own, for somebody debugging it', () => {
     referral.grid[1][10] = 'Cancelled';   // Bo, now at the top of the tab
     referral.grid[1][12] = true;
     assert.doesNotThrow(() => s.sortReferralCancelledToBottom());
     assert.deepStrictEqual(people(referral.grid.slice(1, 4)), ['Cy', 'Bo', 'Ana']);
-    const before = painted.length;
-    assert.doesNotThrow(() => s.paintAppOfficialRows());
-    assert.ok(painted.length > before, 'the App repaint did nothing on its own');
   });
-}
-
-console.log('runHourlyHousekeeping — one half failing');
-{
-  jobs = freshJobs();
-  app = freshApp();
-  referral = freshReferral([
-    askRow('Stripe', 'SWE Intern', 'Ana', 'Cancelled', true),
-    askRow('Notion', 'SWE Intern', 'Bo', 'Queued'),
-  ]);
-  const s = load();
-  s.paintAppOfficialRows = () => { throw new Error('No tab named "App".'); };
-
-  run('a failing App repaint does not take the Referral sort down with it', () => {
-    // Without the isolation this would fail silently once an hour, on a tab where
-    // nothing looked wrong.
-    assert.throws(() => s.runHourlyHousekeeping(), /the App repaint failed/);
-    assert.deepStrictEqual(people(referral.grid.slice(1, 3)), ['Bo', 'Ana']);
-  });
-  run('and it says the other tab was tidied anyway', () => {
-    assert.throws(() => s.runHourlyHousekeeping(), /The other tab was tidied normally/);
-  });
-  run('it reports by throwing, because nobody is watching a clock trigger', () => {
+  run('a failure is reported by throwing, because nobody watches a clock trigger', () => {
     // A toast is seen only by somebody with the spreadsheet open. A throw is what
-    // makes Apps Script send its failure notification.
-    assert.throws(() => s.runHourlyHousekeeping(), /No tab named "App"/);
-  });
-}
-
-console.log('runHourlyHousekeeping — the other half failing');
-{
-  jobs = freshJobs();
-  app = freshApp();
-  referral = freshReferral([askRow('Stripe', 'SWE Intern', 'Ana', 'Queued')]);
-  const s = load();
-  s.sortReferralCancelledToBottom = () => { throw new Error('No tab named "Referral".'); };
-
-  run('a failing Referral sort does not stop the App repaint', () => {
-    const before = painted.length;
-    assert.throws(() => s.runHourlyHousekeeping(), /the Referral sort failed/);
-    assert.ok(painted.length > before, 'the App half was skipped');
-  });
-  run('and the message still names the tab that came through', () => {
-    assert.throws(() => s.runHourlyHousekeeping(), /The other tab was tidied normally/);
-  });
-}
-
-console.log('runHourlyHousekeeping — both halves failing');
-{
-  jobs = freshJobs();
-  app = freshApp();
-  referral = freshReferral([]);
-  const s = load();
-  s.paintAppOfficialRows = () => { throw new Error('App is gone.'); };
-  s.sortReferralCancelledToBottom = () => { throw new Error('Referral is gone.'); };
-
-  run('the error names both halves rather than only the first to fail', () => {
-    assert.throws(() => s.runHourlyHousekeeping(), /App is gone/);
-    assert.throws(() => s.runHourlyHousekeeping(), /Referral is gone/);
-  });
-  run('and says plainly that nothing was tidied', () => {
-    assert.throws(() => s.runHourlyHousekeeping(), /Neither tab was tidied/);
+    // makes Apps Script send its failure notification. There is nothing left to
+    // isolate the sort from, so it is no longer wrapped — swallowing the throw
+    // would only cost the notification.
+    const s2 = load();
+    s2.sortReferralCancelledToBottom = () => { throw new Error('No tab named "Referral".'); };
+    assert.throws(() => s2.runHourlyHousekeeping(), /No tab named "Referral"/);
   });
 }
 

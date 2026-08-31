@@ -51,7 +51,8 @@ function load() {
   vm.createContext(context);
   ['outreach_config.gs', 'outreach_budget.gs', 'outreach_contacts.gs', 'outreach_compose.gs', 'outreach_queue.gs',
    'outreach_send.gs', 'outreach_rejections.gs', 'outreach_followup.gs',
-   'outreach_referral.gs', 'outreach_referral_queue.gs', 'outreach_referral_send.gs']
+   'outreach_referral.gs', 'outreach_referral_queue.gs', 'outreach_referral_send.gs',
+   'outreach_app_worklist.gs']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context));
   return context;
 }
@@ -585,16 +586,17 @@ console.log('the tab says which template is coming, and at what hour');
     assert.notStrictEqual(plan.planned[0].template, plan.planned[1].template);
   });
 
-  run('a day of fifteen is spread over eight firings, not written at nine', () => {
+  run('a day of fifteen is spread over nine firings, not written at eight', () => {
     const hours = Array.from(S.outreachDraftHoursForDay_(15));
     assert.strictEqual(hours.length, 15);
-    assert.strictEqual(hours[0], 9);
+    // 08:00 is the first firing that writes, so its draft is the 09:00 send.
+    assert.strictEqual(hours[0], 8);
     // 16:00 is the last firing that writes: 17:00 has no hour left to wait in.
     assert.strictEqual(hours[hours.length - 1], 16);
-    assert.strictEqual(new Set(hours).size, 8);
+    assert.strictEqual(new Set(hours).size, 9);
   });
-  run('a small day still starts at nine and stops early', () => {
-    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '9,10,11');
+  run('a small day still starts at eight and stops early', () => {
+    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '8,9,10');
   });
   // Before the window opens, so the whole day is still ahead and these two say
   // what they were written to say. The hour the projection runs at is load-bearing
@@ -605,7 +607,7 @@ console.log('the tab says which template is coming, and at what hour');
     for (let i = 0; i < 6; i++) {
       rows.push(qrow({ rowNumber: i + 2, status: 'Queued', sentAt: null, dateApplied: day(2026, 7, 21) }));
     }
-    // Monday 24 Aug 2026 caps at 15, so all six land that day at six different hours.
+    // Monday 24 Aug 2026 caps at 17, so all six land that day at six different hours.
     const plan = S.outreachProjectSchedule_(rows, dawn(2026, 8, 24));
     const hours = plan.map((p) => p.sendAt.getHours());
     assert.strictEqual(new Set(hours).size, 6);
@@ -642,13 +644,13 @@ console.log('the day already under way — a queued row cannot be written at an 
     assert.ok(slot.draftAt.getHours() > 10);
   });
   run('before the window, the whole day is still on offer', () => {
-    assert.strictEqual(S.outreachProjectSchedule_(queued(1), at(7))[0].draftAt.getHours(), 9);
+    assert.strictEqual(S.outreachProjectSchedule_(queued(1), at(7))[0].draftAt.getHours(), 8);
   });
   run('after the last drafting hour, the rows belong to the next day', () => {
     const from = at(16);
     const slot = S.outreachProjectSchedule_(queued(1), from)[0];
     assert.ok(slot.draftAt.getDate() !== from.getDate(), 'stayed on a day with no hours left');
-    assert.strictEqual(slot.draftAt.getHours(), 9);
+    assert.strictEqual(slot.draftAt.getHours(), 8);
   });
   run('the count still survives a day that starts late', () => {
     const plan = S.outreachProjectSchedule_(queued(9), at(14));
@@ -656,7 +658,7 @@ console.log('the day already under way — a queued row cannot be written at an 
     plan.forEach((p) => assert.ok(!isNaN(p.draftAt.getTime()), 'an unset hour became Invalid Date'));
   });
   run('outreachDraftHoursForDay_ still defaults to the start of the day', () => {
-    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '9,10,11');
+    assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3)).join(','), '8,9,10');
     assert.strictEqual(Array.from(S.outreachDraftHoursForDay_(3, 14)).join(','), '14,15,16');
   });
 }
@@ -1158,6 +1160,17 @@ console.log('the sending window');
   run('nothing goes out before the window opens', () => {
     assert.strictEqual(S.outreachDueNow_([queued(2, day(2026, 7, 21))], new Date(2026, 7, 21, 7)).length, 0);
   });
+  // The hour the window was widened for. 08:00 writes so that 09:00 sends: before
+  // this the first firing that wrote anything was 09:00, and the first message of
+  // the day did not leave until 10:00 — an hour of the morning spent composing in
+  // the one slot a recruiter reads in.
+  run('the first writing firing is 08:00, and what it writes leaves at 09:00', () => {
+    const rows = [];
+    for (let i = 0; i < 30; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
+    const eight = new Date(2026, 7, 21, 8);
+    assert.ok(S.outreachDueNow_(rows, eight).length > 0, 'nothing written at 08:00');
+    assert.strictEqual(S.outreachSendHourAfter_(eight).getHours(), S.SEND_HOUR_FIRST);
+  });
   run('a row not yet eligible waits', () => {
     const later = qrow({ rowNumber: 2, status: 'Queued', eligibleAt: day(2026, 9, 1), sentAt: null });
     assert.strictEqual(S.outreachDueNow_([later], new Date(2026, 7, 21, 10)).length, 0);
@@ -1165,24 +1178,26 @@ console.log('the sending window');
   run('the day is spread across the firings left, not burned at 09:00', () => {
     const rows = [];
     for (let i = 0; i < 30; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
-    // Friday 21 Aug 2026 caps at 10, nine firings from 09:00 -> ceil(10/9) = 2
+    // Friday 21 Aug 2026 caps at 12; 09:00 leaves eight writing firings -> ceil(12/8) = 2
     assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 9)).length, 2);
   });
   run('a missed firing is absorbed by the ones after it', () => {
     const rows = [];
     for (let i = 0; i < 30; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
-    // 15:00 leaves two writing firings for the whole untouched cap of 10
-    assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 15)).length, 5);
+    // 15:00 leaves two writing firings for the whole untouched cap of 12
+    assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 15)).length, 6);
   });
   run('the last firing of the day only sends, and writes nothing new', () => {
     const rows = [];
     for (let i = 0; i < 30; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
-    assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 16)).length, 10);
+    assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 16)).length, S.DAILY_CAP[5]);
     assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 17)).length, 0);
   });
   run('what has already gone today comes off the cap', () => {
     const rows = [queued(2, day(2026, 7, 21))];
-    for (let i = 0; i < 10; i++) rows.push(qrow({ status: 'Sent', sentAt: new Date(2026, 7, 21, 9) }));
+    for (let i = 0; i < S.DAILY_CAP[5]; i++) {
+      rows.push(qrow({ status: 'Sent', sentAt: new Date(2026, 7, 21, 9) }));
+    }
     assert.strictEqual(S.outreachDueNow_(rows, new Date(2026, 7, 21, 15)).length, 0);
   });
   run('the oldest application goes first, whatever order the rows sit in', () => {
@@ -1199,7 +1214,7 @@ console.log('the Priority tick — asked for by hand goes first');
     dateApplied: applied, eligibleAt: day(2026, 8, 1), priority: false
   }, over || {}));
   const monday = day(2026, 8, 24);
-  const friday3pm = new Date(2026, 7, 21, 15);   // Friday caps at 10
+  const friday3pm = new Date(2026, 7, 21, 15);   // Friday caps at 12
 
   run('a tick moves its own row past an older application', () => {
     const rows = [
@@ -1338,8 +1353,8 @@ console.log('the Priority tick — asked for by hand goes first');
     for (let i = 0; i < 30; i++) {
       rows.push(queued(i + 2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true }));
     }
-    // Friday caps at 10, and 15:00 leaves two writing firings: five, ticked or not.
-    assert.strictEqual(S.outreachDueNow_(rows, friday3pm).length, 5);
+    // Friday caps at 12, and 15:00 leaves two writing firings: six, ticked or not.
+    assert.strictEqual(S.outreachDueNow_(rows, friday3pm).length, 6);
   });
   run('a tick cannot send at the weekend', () => {
     const row = queued(2, 'Stripe', 'SWE Intern', day(2026, 7, 21), { priority: true });
@@ -1953,16 +1968,16 @@ console.log('a draft spends the day the same as a send');
     rowNumber: n, status: 'Drafted', sentAt: null, scheduledAt: when,
     dateApplied: day(2026, 7, 21)
   });
-  const friday = new Date(2026, 7, 21, 16);   // caps at 10, the last writing firing
+  const friday = new Date(2026, 7, 21, 16);   // caps at 12, the last writing firing
 
   run('drafts made today come off the day allowance', () => {
     const rows = [queued(2)];
-    for (let i = 0; i < 10; i++) rows.push(drafted(i + 3, day(2026, 8, 21)));
+    for (let i = 0; i < S.DAILY_CAP[5]; i++) rows.push(drafted(i + 3, day(2026, 8, 21)));
     assert.strictEqual(S.outreachDueNow_(rows, friday).length, 0);
   });
   run('drafts from another day do not', () => {
     const rows = [queued(2)];
-    for (let i = 0; i < 10; i++) rows.push(drafted(i + 3, day(2026, 8, 14)));
+    for (let i = 0; i < S.DAILY_CAP[5]; i++) rows.push(drafted(i + 3, day(2026, 8, 14)));
     assert.strictEqual(S.outreachDueNow_(rows, friday).length, 1);
   });
   run('a draft with no slot recorded cannot be counted, and is not guessed at', () => {
@@ -1977,7 +1992,7 @@ console.log('when each queued row is expected to go out');
     rowNumber: n, status: 'Queued', sentAt: null,
     dateApplied: applied, eligibleAt: eligible || applied
   });
-  // Monday 24 Aug 2026. Caps run Mon 15, Tue 25, Wed 22, Thu 18, Fri 10, weekend 0.
+  // Monday 24 Aug 2026. Caps run Mon 17, Tue 27, Wed 24, Thu 20, Fri 12, weekend 0.
   const monday = day(2026, 8, 24);
 
   run('a day of rows all land on the first day that has room', () => {
@@ -1992,8 +2007,8 @@ console.log('when each queued row is expected to go out');
     for (let i = 0; i < 20; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
     const plan = S.outreachProjectSchedule_(rows, monday);
     const onMonday = plan.filter((p) => S.outreachDaysBetween_(monday, p.sendAt) === 0);
-    assert.strictEqual(onMonday.length, 15);
-    assert.strictEqual(plan.length - onMonday.length, 5);
+    assert.strictEqual(onMonday.length, S.DAILY_CAP[1]);
+    assert.strictEqual(plan.length - onMonday.length, 20 - S.DAILY_CAP[1]);
   });
   run('the weekend is skipped rather than filled', () => {
     const rows = [];
@@ -2021,7 +2036,7 @@ console.log('when each queued row is expected to go out');
   run('what has already gone today comes off the first day', () => {
     const rows = [];
     for (let i = 0; i < 20; i++) rows.push(queued(i + 2, day(2026, 7, 21)));
-    for (let i = 0; i < 15; i++) rows.push(qrow({ status: 'Sent', sentAt: monday }));
+    for (let i = 0; i < S.DAILY_CAP[1]; i++) rows.push(qrow({ status: 'Sent', sentAt: monday }));
     const plan = S.outreachProjectSchedule_(rows, monday);
     assert.strictEqual(plan.filter((p) => S.outreachDaysBetween_(monday, p.sendAt) === 0).length, 0);
   });
@@ -3120,6 +3135,45 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       });
     }));
   });
+
+  // Left implied, the reader supplies the worse version: that they are being asked
+  // to carry a resume for somebody who has not bothered to apply.
+  run('the email says the application is already in, in both renderings', () => {
+    const one = referral({});
+    assert.ok(one.plain.indexOf('I have already applied for the') !== -1, one.plain);
+    assert.ok(one.html.indexOf('I have already applied for the') !== -1);
+  });
+
+  run('the applied sentence is followed by why the note was sent anyway', () => {
+    const one = referral({});
+    const line = one.plain.split('\n').find((l) => l.indexOf('I have already applied') !== -1);
+    const why = line.split('role at Reddit. ')[1];
+    assert.ok(S.REFERRAL_APPLIED_LINES.indexOf(why) !== -1, why);
+  });
+
+  // Six people at one employer can be written to on one morning, and a sentence
+  // identical across all six is what turns six letters into one mailing.
+  run('ten reasons, all distinct, none of them a shortcut claim', () => {
+    assert.strictEqual(S.REFERRAL_APPLIED_LINES.length, 10);
+    assert.strictEqual(new Set(S.REFERRAL_APPLIED_LINES).size, 10);
+    S.REFERRAL_APPLIED_LINES.forEach((line) => {
+      assert.ok(line.split(/\s+/).length <= 20, line);
+      assert.ok(!/[\u2013\u2014-]/.test(line), line);
+      assert.ok(!/[^\x20-\x7e]/.test(line), line);
+      ['chat', 'call', 'meeting', 'coffee'].forEach((banned) => {
+        assert.ok(line.toLowerCase().indexOf(banned) === -1, line);
+      });
+    });
+  });
+
+  run('three people at one company get three different reasons', () => {
+    const seen = [1, 2, 3].map((attempt) => {
+      const line = referral({ attempt: attempt }).plain
+        .split('\n').find((l) => l.indexOf('I have already applied') !== -1);
+      return line.split('role at Reddit. ')[1];
+    });
+    assert.strictEqual(new Set(seen).size, 3, seen.join(' | '));
+  });
 }
 
 
@@ -3190,6 +3244,94 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachReferralLinkProblem_('nonsense', ''), 'not a link');
     assert.ok(/unrecognised host \(example\.com\)/.test(
       S.outreachReferralLinkProblem_('https://example.com/jobs/1', 'stripe.com')));
+  });
+
+  // The two rows that were painted yellow on the live tab for the wrong reason:
+  // both are the employer's own application system, and neither the ATS list nor
+  // the staff mail domain could see it.
+  run("the company's own name at the front of an unknown host is accepted", () => {
+    assert.ok(S.outreachReferralLinkOk_(
+      'https://blackrock.tal.net/vx/candidate/eform/4565636', 'blackrock.com', 'BlackRock'));
+    assert.ok(S.outreachReferralLinkOk_(
+      'https://amazon.jobs/en/jobs/10517567/sde-intern', 'amazon.com', 'Amazon'));
+  });
+
+  // A label is split on hyphens first, and compared undivided as well, so both
+  // shapes of "the company is named here" work.
+  run('a hyphenated label is read both ways', () => {
+    assert.ok(S.outreachReferralLinkOk_('https://campus-amd.example.net/jobs/1', '', 'AMD'));
+    assert.ok(S.outreachReferralLinkOk_(
+      'https://general-motors.example.net/jobs/1', '', 'General Motors'));
+  });
+
+  // Noise is dropped, so the one word left is the name. This is what makes
+  // "acme.somewhere.net" work for a company written down with its legal form.
+  run('a single-word name survives the legal form around it', () => {
+    assert.ok(S.outreachReferralLinkOk_(
+      'https://acme.example.net/jobs/1', '', 'Acme Technologies, Inc.'));
+    assert.deepStrictEqual(Array.from(S.outreachReferralNameKeys_('Acme Technologies, Inc.')),
+                           ['acmetechnologiesinc', 'acme']);
+  });
+
+  // The rule this one must not become. A multi-word company is recognised only by
+  // its whole name: matching any single token would hand every host beginning
+  // "general" to General Motors.
+  run('one word out of a multi-word name is not the name', () => {
+    assert.ok(!S.outreachReferralLinkOk_('https://general.example.net/jobs/1', '', 'General Motors'));
+    assert.ok(!S.outreachReferralLinkOk_('https://express.example.net/jobs/1', '', 'American Express'));
+  });
+
+  // outreachCompanyTokens_ sorts, so a key built by joining it would be a word the
+  // company has never been called.
+  run('the key keeps the order the name was written in', () => {
+    assert.ok(S.outreachReferralLinkOk_(
+      'https://oldmissioncapital.example.net/jobs/1', '', 'Old Mission Capital'));
+    assert.ok(!S.outreachReferralLinkOk_(
+      'https://capitalmissionold.example.net/jobs/1', '', 'Old Mission Capital'));
+  });
+
+  // Whole labels only, never a substring — the lesson outreachSameEmployer_
+  // already carries.
+  run('a label that merely contains the name is refused', () => {
+    assert.ok(!S.outreachReferralLinkOk_('https://dicerna.example.net/jobs/1', '', 'Dice'));
+    assert.ok(!S.outreachReferralLinkOk_('https://notamazon.example.net/jobs/1', '', 'Amazon'));
+    assert.ok(!S.outreachReferralLinkOk_('https://amazonian.example.net/jobs/1', '', 'Amazon'));
+  });
+
+  // The first label and no other. Further right is a domain somebody else owns.
+  run('the name has to be at the front, not anywhere in the host', () => {
+    assert.ok(!S.outreachReferralLinkOk_('https://jobs.amazon.evil.com/1', '', 'Amazon'));
+    assert.ok(!S.outreachReferralLinkOk_('https://boards.blackrock.example.net/1', '', 'BlackRock'));
+  });
+
+  // The guard that keeps the relaxation from reopening the hole. This rule is the
+  // only one that can accept a host on no list, so an aggregator handing out
+  // per-company subdomains is refused before the name is ever looked at.
+  run('an aggregator wearing the company name is still refused', () => {
+    assert.ok(!S.outreachReferralLinkOk_(
+      'https://stripe.jobright.ai/jobs/info/9', '', 'Stripe'));
+    assert.ok(!S.outreachReferralLinkOk_(
+      'https://amazon.simplify.jobs/p/1', 'amazon.com', 'Amazon'));
+    assert.ok(!S.outreachReferralLinkOk_(
+      'https://amazon.linkedin.com/jobs/view/1', '', 'Amazon'));
+  });
+
+  // Every caller before 2026-08-30 passed two arguments, and they still work.
+  run('with no company given the name rule never fires', () => {
+    assert.ok(!S.outreachReferralLinkOk_('https://amazon.jobs/en/jobs/1', 'amazon.com'));
+    assert.ok(!S.outreachReferralLinkOk_('https://amazon.jobs/en/jobs/1', 'amazon.com', ''));
+    assert.ok(!S.outreachReferralLinkOk_('https://amazon.jobs/en/jobs/1', 'amazon.com', null));
+  });
+
+  run('the name rule does not rescue an http link', () => {
+    assert.ok(!S.outreachReferralLinkOk_('http://amazon.jobs/en/jobs/1', '', 'Amazon'));
+  });
+
+  run('a link the name rule accepts reports no problem', () => {
+    assert.strictEqual(
+      S.outreachReferralLinkProblem_('https://amazon.jobs/en/jobs/1', 'amazon.com', 'Amazon'), '');
+    assert.ok(/unrecognised host/.test(
+      S.outreachReferralLinkProblem_('https://amazon.jobs/en/jobs/1', 'amazon.com', 'Netflix')));
   });
 
   // Back on, and stricter than it was. The word alone was never enough: a title
@@ -3949,11 +4091,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       jobLink: 'https://boards.greenhouse.io/stripe/jobs/1'
     };
     const one = S.outreachReferralCompose_(base);
-    assert.ok(one.plain.indexOf('applying for the Software Engineer Intern role at Stripe') !== -1,
+    assert.ok(one.plain.indexOf(
+      'I have already applied for the Software Engineer Intern role at Stripe') !== -1,
               one.plain);
-    // No date anywhere, whether or not one was passed.
+    // Past tense, and no date behind it. Every row on this tab comes from an
+    // application actually made, so the claim is true; the day it was made is a
+    // fact the reader will not check and does not need in order to answer.
     assert.ok(one.plain.indexOf('Aug 21') === -1);
-    assert.ok(one.plain.indexOf('I applied') === -1);
+    assert.ok(!/\bapplying for the\b/.test(one.plain), one.plain);
     // The link is the last line, and labelled.
     const lines = one.plain.trim().split('\n');
     assert.strictEqual(lines[lines.length - 1], 'The posting: ' + base.jobLink);
@@ -4040,7 +4185,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 {
   console.log('\none budget across all three paths');
 
-  const TUE = day(2026, 8, 25);          // DAILY_CAP is 25 on a Tuesday
+  const TUE = day(2026, 8, 25);          // DAILY_CAP is 27 on a Tuesday
   const SAT = day(2026, 8, 29);          // and 0 on a Saturday
   const coldSent = (when, n) => {
     const rows = [];
@@ -4059,7 +4204,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   };
 
   run('the three caps are what each path may send, before the budget is asked', () => {
-    assert.strictEqual(S.outreachPathCap_('cold', TUE), 25);
+    assert.strictEqual(S.outreachPathCap_('cold', TUE), 27);
     assert.strictEqual(S.outreachPathCap_('cold', SAT), 0);
     assert.strictEqual(S.outreachPathCap_('followup', TUE), S.FOLLOWUP_DAILY_CAP);
     assert.strictEqual(S.outreachPathCap_('referral', TUE), S.REFERRAL_DAILY_CAP);
@@ -4101,7 +4246,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('an untouched day gives every path its own cap', () => {
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'referral'), S.REFERRAL_DAILY_CAP);
-    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'cold'), 25);
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'cold'), 27);
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), S.FOLLOWUP_DAILY_CAP);
   });
 
@@ -4179,14 +4324,14 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('the order is referral, then cold, then follow up', () => {
     assert.strictEqual(S.EMAIL_PATH_ORDER.join(','), 'referral,cold,followup');
-    assert.strictEqual(S.DAILY_EMAIL_BUDGET, 45);
+    assert.strictEqual(S.DAILY_EMAIL_BUDGET, 47);
   });
 
   // Called from places that have no reason to have read the Referral tab. An
   // unknown path must count as having spent nothing, not as unlimited.
   run('a missing set of rows counts as nothing spent rather than as no limit', () => {
     assert.strictEqual(S.outreachDaySpend_(null, null, TUE).total, 0);
-    assert.strictEqual(S.outreachBudgetRoom_(undefined, undefined, TUE, 'cold'), 25);
+    assert.strictEqual(S.outreachBudgetRoom_(undefined, undefined, TUE, 'cold'), 27);
   });
 }
 
@@ -5298,6 +5443,143 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const row = blank();
     row[S.R_EMAIL - 1] = 'c@somewhere.com';
     assert.strictEqual(S.outreachReadReferralRows_(sheetOf([row])).length, 1);
+  });
+}
+
+{
+  console.log('\nthe App worklist: which rows are waiting on a link, and where they sit');
+
+  // Only the three columns the ordering reads. Property is what a fixed row goes
+  // home to; the checkboxes are what makes "blank" harder than it looks.
+  const row = (property, company) => {
+    const cells = new Array(S.APP_UPDATE).fill('');
+    cells[S.APP_PROPERTY - 1] = property === null ? '' : String(property);
+    cells[S.APP_COMPANY - 1] = company;
+    cells[S.APP_RECRUITERS - 1] = false;
+    return cells;
+  };
+  const blankRow = () => {
+    const cells = new Array(S.APP_UPDATE).fill('');
+    // The trap: the Python half writes FALSE down both checkbox columns across
+    // every row it covers, so a blank row reads back holding two values.
+    cells[S.APP_RECRUITERS - 1] = false;
+    cells[S.APP_RECRUITERS] = false;
+    return cells;
+  };
+  const entry = (property, company, needsLink) => ({
+    values: row(property, company),
+    needsLink: !!needsLink,
+    blank: false,
+    property: property === null ? null : property
+  });
+  const blankEntry = () => ({
+    values: blankRow(), needsLink: false, blank: true, property: null
+  });
+  const names = (entries) =>
+    Array.from(entries, (one) => one.values[S.APP_COMPANY - 1]);
+
+  run('rows waiting on a link go to the top, the rest go back into Property order', () => {
+    const out = S.outreachOrderAppEntries_([
+      entry(1, 'Alpha'), entry(2, 'Bravo', true), entry(3, 'Charlie'),
+      entry(4, 'Delta', true), entry(5, 'Echo')
+    ]);
+    assert.deepStrictEqual(names(out), ['Bravo', 'Delta', 'Alpha', 'Charlie', 'Echo']);
+  });
+
+  // The bug this file was written for. A stable sort is right exactly once: the
+  // first lift is correct, and from then on the row's "current" position is the
+  // top, so pasting the link drops it to the head of the second group and it never
+  // goes home. Property is the memory that fixes it.
+  run('a row that has been lifted returns to its own number once the link arrives', () => {
+    const lifted = S.outreachOrderAppEntries_([
+      entry(1, 'Alpha'), entry(2, 'Bravo'), entry(3, 'Charlie'),
+      entry(4, 'Delta', true), entry(5, 'Echo')
+    ]);
+    assert.deepStrictEqual(names(lifted), ['Delta', 'Alpha', 'Bravo', 'Charlie', 'Echo']);
+
+    // Next cycle: somebody pasted Delta's link, so it is no longer yellow. The tab
+    // is fed back in the order it now sits in, which is the order above.
+    lifted.forEach((one) => { one.needsLink = false; });
+    assert.deepStrictEqual(names(S.outreachOrderAppEntries_(lifted)),
+      ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
+  });
+
+  run('running the ordering on its own output changes nothing', () => {
+    const once = S.outreachOrderAppEntries_([
+      entry(3, 'Charlie'), entry(1, 'Alpha', true), entry(2, 'Bravo')
+    ]);
+    assert.deepStrictEqual(names(S.outreachOrderAppEntries_(once)), names(once));
+  });
+
+  run('the yellow group is itself in Property order, so it does not shuffle', () => {
+    // A worklist people read down. If the yellow block were left in arrival order
+    // it would reshuffle every time a row joined or left it, and the application
+    // somebody was half way through chasing would move under them.
+    const out = S.outreachOrderAppEntries_([
+      entry(9, 'Late', true), entry(2, 'Early', true), entry(5, 'Middle', true)
+    ]);
+    assert.deepStrictEqual(names(out), ['Early', 'Middle', 'Late']);
+  });
+
+  run('the blank tail stays at the bottom instead of sorting in by its missing Property', () => {
+    const out = S.outreachOrderAppEntries_([
+      entry(1, 'Alpha'), entry(2, 'Bravo', true), blankEntry(), blankEntry()
+    ]);
+    assert.deepStrictEqual(names(out), ['Bravo', 'Alpha', '', '']);
+    assert.ok(out[2].blank && out[3].blank);
+  });
+
+  run('a blank row with real rows still under it keeps its place in its group', () => {
+    // Only the trailing blanks are pinned. A gap in the middle is one somebody left
+    // on purpose, and it has no Property, so it sinks within its own group rather
+    // than being hoisted or dropped out of it.
+    const gap = { values: blankRow(), needsLink: false, blank: true, property: null };
+    const out = S.outreachOrderAppEntries_([entry(2, 'Bravo'), gap, entry(1, 'Alpha')]);
+    assert.deepStrictEqual(names(out), ['Alpha', 'Bravo', '']);
+  });
+
+  run('a row with no Property sinks within its group rather than jumping to the front', () => {
+    // Number('') is 0, which would sort a half-typed row above every application on
+    // the tab. Null is a third answer, not a very small one.
+    const out = S.outreachOrderAppEntries_([
+      entry(null, 'Typing'), entry(2, 'Bravo'), entry(1, 'Alpha')
+    ]);
+    assert.deepStrictEqual(names(out), ['Alpha', 'Bravo', 'Typing']);
+  });
+
+  run('two rows sharing a Property keep the order they arrived in', () => {
+    const out = S.outreachOrderAppEntries_([
+      entry(1, 'First'), entry(1, 'Second'), entry(1, 'Third')
+    ]);
+    assert.deepStrictEqual(names(out), ['First', 'Second', 'Third']);
+  });
+
+  run('Property is read as a number, not as text', () => {
+    // '10' < '9' as strings, and App passes ten of these a week.
+    const out = S.outreachOrderAppEntries_([
+      entry(10, 'Ten'), entry(9, 'Nine'), entry(100, 'Hundred')
+    ]);
+    assert.deepStrictEqual(names(out), ['Nine', 'Ten', 'Hundred']);
+    assert.strictEqual(S.outreachAppPropertyOf_(row(10, 'x')), 10);
+    assert.strictEqual(S.outreachAppPropertyOf_(row(null, 'x')), null);
+    assert.strictEqual(S.outreachAppPropertyOf_(row('not a number', 'x')), null);
+  });
+
+  run('a row that is only unticked checkboxes counts as blank', () => {
+    // false is a value. Counting it as content would make an empty row look
+    // occupied, so it would sort in among the applications as though it were one.
+    assert.strictEqual(S.outreachAppRowBlank_(blankRow()), true);
+    assert.strictEqual(S.outreachAppRowBlank_(row(1, 'Alpha')), false);
+    assert.strictEqual(S.outreachAppRowBlank_(new Array(S.APP_UPDATE).fill('')), true);
+  });
+
+  run('a tab that is nothing but blank rows is left completely alone', () => {
+    const empty = [blankEntry(), blankEntry(), blankEntry()];
+    assert.deepStrictEqual(Array.from(S.outreachOrderAppEntries_(empty)), empty);
+  });
+
+  run('an empty tab is not an error', () => {
+    assert.deepStrictEqual(Array.from(S.outreachOrderAppEntries_([])), []);
   });
 }
 
