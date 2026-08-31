@@ -31,6 +31,7 @@ could have been read always exists.
 | `outreachReferralDraftHour_(scheduled)` | The hour a row's message is due to be written. |
 | `outreachReferralToDraft_(rows, now)` | Rows whose message should exist by now. |
 | `draftReferralAsks()` | Write them into Drafts, addressed and complete. Sets `STATUS_DRAFTED`. |
+| `refreshReferralDraftsForTemplateChange()` | Run after an approved wording change: delete every unsent referral draft, return its row to `Queued`, and leave its scheduled hour intact so the next draft pass recreates it from the current template. |
 | `outreachReferralToSend_(rows, now)` | The drafted rows whose hour has arrived. |
 | `sendReferralAsks()` | Send the asks still in Drafts when their hour comes. Only sends rows the tab still calls `Drafted`. |
 | `scanReferralReplies()` | Mark the asks that have been answered. |

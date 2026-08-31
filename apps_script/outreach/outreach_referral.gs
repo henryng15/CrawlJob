@@ -368,6 +368,77 @@ var REFERRAL_TEMPLATES = {
   ]
 };
 
+// Humility here means being clear and considerate, not describing the sender as
+// a long shot or apologising for the request. These ten variants preserve the
+// per-company variety the queue needs while keeping every actual message serious.
+var REFERRAL_SERIOUS_OPENINGS = [
+  'I am reaching out respectfully about the software engineering opening at your company.',
+  'I wanted to contact you about the software engineering role currently open at your company.',
+  'I am writing about the open software engineering opportunity at your company.',
+  'I hope it is all right to contact you regarding the software engineering role now open there.',
+  'I wanted to reach out about the software engineering position currently available at your company.',
+  'I am writing to ask about the open software engineering role at your company.',
+  'I wanted to introduce myself in connection with the software engineering opening at your company.',
+  'I am contacting you about the software engineering opportunity that is currently open there.',
+  'I hope you do not mind a brief note regarding the open software engineering role at your company.',
+  'I am reaching out because I noticed the software engineering position open at your company.'
+];
+var REFERRAL_SERIOUS_LEADS = [
+  'For context, two engineering projects most relevant to the role:',
+  'For a concise view of my technical background:',
+  'Two projects that best represent my software engineering experience:',
+  'For additional context on the work I have built:',
+  'Two examples of engineering work relevant to this role:',
+  'The two technical projects I would most value your reviewing:',
+  'For a brief view of my recent engineering work:',
+  'Two projects that best show the background I would bring:',
+  'For context on my software engineering experience:',
+  'Two examples that may help you assess my technical fit:'
+];
+var REFERRAL_SERIOUS_ASKS = [
+  'If you have a moment to review my resume and feel I could be a fit, would you consider **referring me** for the role?',
+  'Would you be willing to review my resume and, if my background seems suitable, consider **referring me** for this role?',
+  'If my experience looks relevant after reviewing my resume, may I ask whether you would consider **referring me**?',
+  'I would be grateful if you could review my resume and, if you see a fit, consider **referring me** for the position.',
+  'After reviewing my resume, if you believe I could contribute to the team, would you consider **referring me**?',
+  'If you feel my background is a match after looking over my resume, would you consider **referring me** for the role?',
+  'May I ask you to review my resume and, only if you feel it is appropriate, consider **referring me**?',
+  'If you have time to review my resume and think I may be a fit, would you consider **referring me**?',
+  'Would you consider reviewing my resume and, if my experience aligns with the role, **referring me**?',
+  'If my resume gives you confidence in the fit, may I ask whether you would consider **referring me** for this opportunity?'
+];
+var REFERRAL_SERIOUS_OFFERS = [
+  'I would appreciate any opportunity to move forward in the process. My resume is attached and the posting link is below. I completely understand if a referral is not something you can offer.',
+  'I would be grateful for the chance to continue in the process. I have attached my resume and included the posting below, and I understand completely if you cannot offer a referral.',
+  'I appreciate your consideration of any next step. My resume is attached and the direct posting is below. Please feel no obligation if a referral is not appropriate.',
+  'I would value the opportunity to move forward. My resume is attached and the application link is below. I understand if you are not comfortable providing a referral.',
+  'I would appreciate the opportunity to continue in the process. The resume is attached and the posting is below. I completely understand if you prefer not to refer someone you do not know.',
+  'Any opportunity to move forward would mean a great deal to me. My resume is attached and the posting link is below. I understand if a referral is outside what you can offer.',
+  'I would be thankful for any consideration in the next stage. I have attached my resume and included the posting below. I understand completely if a referral is not possible.',
+  'I appreciate your time and any opportunity to proceed. My resume is attached and the direct link is below. Please feel no pressure to provide a referral.',
+  'I would welcome the opportunity to be considered further. The resume is attached and the posting link is below. I understand if you cannot offer a referral.',
+  'I would appreciate any chance to continue in the process. I have attached my resume and included the posting below. I completely understand if you would rather not refer me.'
+];
+var REFERRAL_SERIOUS_CLOSES = [
+  'Thank you for your time and consideration,', 'Thank you very much for considering my request,',
+  'Thank you for taking the time to review this,', 'With appreciation for your consideration,',
+  'Thank you for your time,', 'Thank you for considering my request,',
+  'With sincere thanks for your consideration,', 'Thank you for reading and considering this,',
+  'I appreciate your time and consideration,', 'Thank you again for your consideration,'
+];
+
+function outreachReferralInstallSeriousTemplates_() {
+  REFERRAL_TIERS.forEach(function (tier) {
+    REFERRAL_TEMPLATES[tier] = REFERRAL_SERIOUS_OPENINGS.map(function (open, index) {
+      return { open: open, lead: REFERRAL_SERIOUS_LEADS[index],
+               ask: REFERRAL_SERIOUS_ASKS[index], offer: REFERRAL_SERIOUS_OFFERS[index],
+               close: REFERRAL_SERIOUS_CLOSES[index] };
+    });
+  });
+}
+
+outreachReferralInstallSeriousTemplates_();
+
 
 /**
  * Which two resume numbers a company earns.
@@ -495,6 +566,30 @@ var REFERRAL_SUBJECTS = [
  * subjects to thirty six, and reusing the template index would leave twenty six
  * of them unreachable while every eleventh reader saw a repeat.
  */
+// The subject names the request plainly, without asking the recipient to absorb
+// the sender's insecurity in the preview pane. Indexing still produces distinct
+// wording for the people at one employer.
+REFERRAL_SUBJECTS = [
+  'Referral request for {role}', 'Resume review and referral request',
+  'Referral consideration for {role}', 'Request for referral consideration',
+  'Referral request regarding {role}', 'Resume review for a referral request',
+  'Referral request from Henry Nguyen', 'Referral request for an open SWE role',
+  'Referral request for a current role', 'Referral consideration for your team',
+  'Resume review and referral consideration', 'Referral request regarding your team',
+  'Request to consider a referral', 'Referral request for an engineering role',
+  'Resume review and referral request for SWE', 'Referral request from a Kenyon CS student',
+  'Referral consideration for an internship', 'Request for a software engineering referral',
+  'Referral request for a software engineering role', 'Resume review request and referral',
+  'Referral request for an internship role', 'Referral consideration for an open role',
+  'Referral request for a software engineering internship', 'Request for resume review and referral',
+  'Referral request for a current SWE opening', 'Referral request from a CS student',
+  'Referral consideration for a SWE internship', 'Resume review for a SWE referral request',
+  'Referral request for an engineering internship', 'Request for a referral for {role}',
+  'Referral request and resume review', 'Referral consideration for your engineering team',
+  'Referral request for a current engineering role', 'Request to review my resume for a referral',
+  'Referral request for a software engineering opportunity', 'Referral consideration and resume review'
+];
+
 function outreachReferralSubjectIndex_(company, attempt) {
   var seed = 0, name = String(company || '');
   for (var i = 0; i < name.length; i++) {
@@ -587,12 +682,26 @@ var REFERRAL_APPLIED_LINES = [
  * eligibility for an intake and the year is the fact that decides it. The engineer
  * is checking nothing, and the room is better spent on the school and the subject.
  */
+REFERRAL_APPLIED_LINES = [
+  'The role aligns closely with the software engineering work I have been building.',
+  'I am reaching out because the role looks closely aligned with my software engineering background.',
+  'The position stood out because its technical focus fits the work I have pursued so far.',
+  'I believe my experience could be relevant to the responsibilities the role describes.',
+  'The opening is a strong match for the direction I have been building toward in software engineering.',
+  'I am interested in the role because it aligns with the systems and products I have worked on.',
+  'The position is closely related to the engineering work I hope to continue doing.',
+  'I saw a genuine connection between the role and the projects I have built.',
+  'The role appears well aligned with the technical foundation I have developed.',
+  'I wanted to reach out because the work described is closely related to my background.'
+];
+
 function outreachReferralIntro_(company, role, index) {
   var study = SENDER_STUDY.replace(/\s*\(class of \d{4},\s*/i, ' (')
                           .replace(/\s*\(class of \d{4}\)/i, '');
   var count = REFERRAL_APPLIED_LINES.length;
   var why = REFERRAL_APPLIED_LINES[(((Number(index) || 0) % count) + count) % count];
-  return 'I am ' + SENDER_NAME + ', ' + study + ', and I have already applied for the '
+  return 'My name is ' + SENDER_NAME + '. I am ' + study
+       + ' with a background in software engineering, and I have already applied for the '
        + role + ' role at ' + company + '. ' + why;
 }
 
@@ -631,7 +740,8 @@ function outreachReferralCompose_(options) {
   // One paragraph, not two. The opening and the company sentence are both a line
   // long, and stacked as separate paragraphs above a third short one the message
   // opens as three fragments rather than as somebody talking.
-  var opening = [template.open]
+  var opening = ['We have not met before, but I came across your profile and saw that you work at '
+                 + options.company + '.', template.open]
     .concat(options.angle ? [outreachNoDashes_(options.angle)] : []).join(' ');
   var intro = outreachReferralIntro_(options.company, role, index);
   var bullets = outreachReferralBullets_(options.bucket, options.attempt);

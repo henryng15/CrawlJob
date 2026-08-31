@@ -3139,14 +3139,13 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     });
   });
 
-  // The gradient the tiers exist for: the ask gets smaller as the reader gets more
-  // senior, and only the top tier names the reach.
-  run('only the staff tier admits it is reaching', () => {
-    const admits = (entry) => /reach|presumptuous|long shot|out of my depth|bold note|nervy|stretch|aimed higher|below what usually|liberty|several levels/.test(entry.open);
-    assert.strictEqual(S.REFERRAL_TEMPLATES.staff.filter(admits).length, 10);
-    ['peer', 'mid', 'senior'].forEach((tier) => {
-      assert.strictEqual(S.REFERRAL_TEMPLATES[tier].filter(admits).length, 0, tier);
-    });
+  run('no referral template uses self-deprecating language', () => {
+    const selfDeprecating = /long shot|non target|presumptuous|out of my depth|nervy|stretch|aimed higher|below what usually|liberty|no connections|starting from zero/i;
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      ['open', 'ask', 'offer', 'close'].forEach((field) => {
+        assert.ok(!selfDeprecating.test(entry[field]), tier + ' #' + (i + 1) + '.' + field);
+      });
+    }));
   });
 
   // Never a meeting. A call turns a two minute favour into a calendar item, and
@@ -4145,15 +4144,33 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(/:$/.test(lines[firstBullet - 2]), lines[firstBullet - 2]);
   });
 
-  // A referral is the big ask; forwarding a resume is the one a stranger can say
-  // yes to without spending anything of their own.
-  run('every message offers the easier favour as well', () => {
+  run('every message names the attached resume, posting and respectful opt out', () => {
     S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
-      assert.ok(/forward|pass|point|send|hand/i.test(entry.offer),
-                tier + ' #' + (i + 1) + ' offers no second route: ' + entry.offer);
-      assert.ok(/resume|it is attached|attached/i.test(entry.offer),
+      assert.ok(/resume.*attached|attached.*resume/i.test(entry.offer),
                 tier + ' #' + (i + 1) + ' never mentions the resume');
+      assert.ok(/posting|link/i.test(entry.offer),
+                tier + ' #' + (i + 1) + ' never mentions the posting');
+      assert.ok(/understand|no obligation|no pressure/i.test(entry.offer),
+                tier + ' #' + (i + 1) + ' lacks an opt out');
     }));
+  });
+
+  run('the composed email is humble, serious and conditional on fit', () => {
+    const one = S.outreachReferralCompose_({
+      personName: 'Priya Raman', personTitle: 'Software Engineer', company: 'Reddit',
+      bucket: 'consumer', angle: '', role: 'Software Engineering Intern, Summer 2027',
+      attempt: 1, jobLink: 'https://job-boards.greenhouse.io/reddit/jobs/7123456'
+    });
+    ['My name is Henry Nguyen.', 'We have not met before', 'work at Reddit'].forEach((phrase) => {
+      assert.ok(one.plain.toLowerCase().indexOf(phrase.toLowerCase()) !== -1,
+                phrase + '\n' + one.plain);
+    });
+    assert.ok(/review.*resume|resume.*review/i.test(one.plain), one.plain);
+    assert.ok(/consider \*?\*?referring me\*?\*?/i.test(one.plain), one.plain);
+    assert.ok(/opportunity|chance|consideration/i.test(one.plain), one.plain);
+    assert.ok(/resume.*attached|attached.*resume/i.test(one.plain), one.plain);
+    assert.ok(!/long shot|non target|presumptuous|out of my depth|starting from zero/i.test(one.plain),
+              one.plain);
   });
 
   // Saying it in the opening and again in the ask is what made the first draft

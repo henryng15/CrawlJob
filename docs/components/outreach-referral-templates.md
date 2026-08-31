@@ -1,7 +1,9 @@
 # outreach_referral.gs — the referral ask's words
 
 The referral message is not a cold email with a different noun. It asks a stranger to spend
-their own credibility, so it has its own tiers, subjects and templates.
+their own credibility, so it has its own tiers, subjects and templates. Humble here means clear,
+professional and conditional: it asks for a resume review first, then a referral only if the
+reader independently sees a fit. It does not use self-deprecating language.
 
 Every string is listed verbatim in
 [../email-templates.md](../email-templates.md#part-3--the-referral-ask) — the four tiers of ten, the
@@ -16,7 +18,10 @@ thirty six subjects, the ten applied lines and the bullet order per bucket.
 ## Tiers and templates
 
 A person's **tier** comes from their title and seniority; the tier plus an index picks the
-subject and body. Ten templates, so six people at one employer never read the same message.
+subject and wording variation. Ten variations keep six people at one employer from receiving an
+identical body, while every variation has the same serious structure: introduction, no-prior-
+connection context, applied role, two relevant projects, resume-review/referral request, attached
+resume and direct posting link, then an easy opt-out.
 
 | Function | Does |
 |---|---|
@@ -24,8 +29,8 @@ subject and body. Ten templates, so six people at one employer never read the sa
 | `outreachReferralIndex_(company, attempt)` | Which of the ten templates this attempt gets. Keyed on the company so the sequence is stable per employer. |
 | `outreachReferralSubjectIndex_(...)` | Which subject a person gets. |
 | `outreachReferralSubject_(...)` | That subject. |
-| `outreachReferralIntro_(...)` | Who is writing, what they have **already applied to**, and one line on why the note followed it. Graduation year left out. |
-| `REFERRAL_APPLIED_LINES` | The ten answers to *the form is in, so what are you asking me for*. Indexed with the template, so six people at one employer do not read the same sentence. |
+| `outreachReferralIntro_(...)` | Who is writing, their software-engineering background, what they have **already applied to**, and one line on why the role fits. Graduation year left out. |
+| `REFERRAL_APPLIED_LINES` | Ten concise role-fit lines, indexed with the template so six people at one employer do not read the same sentence. |
 | `outreachReferralBullets_(...)` | The body's bullet block. |
 | `outreachReferralPosting_(link)` | The posting, on a line of its own at the foot of the message. |
 | `outreachReferralCompose_(...)` | **The entry point.** One referral email, in both halves. |

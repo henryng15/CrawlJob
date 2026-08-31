@@ -449,6 +449,44 @@ function draftReferralAsks() {
   }
 }
 
+/**
+ * Retire unsent Gmail drafts after a wording correction, so no row created under
+ * the previous template is sent by the minute tick. The next draft pass recreates
+ * each row from the current template against its unchanged scheduled hour.
+ */
+function refreshReferralDraftsForTemplateChange() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) return outreachReferralIdle_();
+    var drafted = outreachReadReferralRows_(referral).filter(function (row) {
+      return row.status === STATUS_DRAFTED;
+    });
+    var tally = { requeued: 0, draftsRemoved: 0 };
+    drafted.forEach(function (row) {
+      if (row.draftId) {
+        try { GmailApp.getDraft(row.draftId).deleteDraft(); tally.draftsRemoved++; }
+        // A missing draft has the same safe outcome: the row is returned to
+        // Queued and a fresh current-template draft will be made when due.
+        catch (error) { Logger.log('Could not remove old referral draft: ' + row.index); }
+      }
+      var updates = {};
+      updates[R_STATUS] = STATUS_QUEUED;
+      updates[R_DRAFT_ID] = '';
+      updates[R_DRAFTED_AT] = outreachReferralDraftHour_(row.scheduled);
+      updates[R_ERROR] = '';
+      outreachWriteRow_(referral, row.index, updates);
+      tally.requeued++;
+    });
+    Logger.log('Referral drafts requeued for template refresh: ' + tally.requeued + '.');
+    return tally;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // -------------------------------------------------------------------- sending
 
 /**
