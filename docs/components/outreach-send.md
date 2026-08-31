@@ -1,7 +1,7 @@
 # outreach_send.gs — drafting, sending, the cycle
 
-Owns Gmail for the cold path, and owns `runOutreachCycle`, the hourly entry point for the whole
-outreach script.
+Owns Gmail for the cold path, `runOutreachCycle`, the hourly planning entry point for the whole
+outreach script, and `runOutreachSendTick`, the one-minute delivery entry point.
 
 ## Connections
 
@@ -10,7 +10,7 @@ outreach script.
 - **Out:** Gmail drafts and sends; status written back to `Email`.
 - **Drives:** every other outreach file, through `runOutreachCycle`.
 
-## `runOutreachCycle` — the hourly trigger
+## `runOutreachCycle` — the hourly planning trigger
 
 Steps, in order. Order is load-bearing; the comments in the file say why for each.
 
@@ -36,9 +36,10 @@ Two rules shape it:
 | Function | Does |
 |---|---|
 | `runOutreachCycle()` | The above. Returns `summary`; throws at the end if any step failed, so the run shows red in Executions. |
+| `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts. It does not plan, scan or draft, so its frequency cannot inflate the hourly quotas. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
 | `outreachHealthStart_(tracker, runId)` | Stamps `Cycle Health` **before** the fatal schema step, newest row first, trimmed to 240 rows. |
 | `outreachHealthFinish_(sheet, runId, summary, failures)` | Closes that row with `ok`/`failed`, the failed step names, and the summary. |
-| `installOutreachTriggers()` | Hourly `runOutreachCycle` plus the `onEdit` trigger. Clears existing ones first. |
+| `installOutreachTriggers()` | Hourly `runOutreachCycle`, one-minute `runOutreachSendTick`, plus the `onEdit` trigger. Clears existing ones first. |
 | `removeOutreachTriggers()` | The kill switch. |
 | `onOutreachQueueEdit(e)` | Reproject the moment somebody ticks `Priority`, so a tick visibly does something. |
 

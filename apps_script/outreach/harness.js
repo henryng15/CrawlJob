@@ -61,6 +61,26 @@ const S = load();
 const SALT = 'test-salt';
 const day = (y, m, d) => new Date(y, m - 1, d, 12, 0, 0);
 
+console.log('the delivery tick — frequent sending without frequent planning');
+{
+  run('runs each delivery path and returns their separate outcomes', () => {
+    const original = [S.sendReferralAsks, S.sendPreparedDrafts, S.sendFollowUpReplies];
+    S.sendReferralAsks = () => ({ sent: 1 });
+    S.sendPreparedDrafts = () => ({ sent: 2 });
+    S.sendFollowUpReplies = () => ({ sent: 3 });
+    try {
+      const out = S.runOutreachSendTick();
+      assert.strictEqual(out.referral.sent, 1);
+      assert.strictEqual(out.cold.sent, 2);
+      assert.strictEqual(out.followUp.sent, 3);
+    } finally {
+      S.sendReferralAsks = original[0];
+      S.sendPreparedDrafts = original[1];
+      S.sendFollowUpReplies = original[2];
+    }
+  });
+}
+
 function contact(company, name, email, extra) {
   return Object.assign({
     company, name, email,

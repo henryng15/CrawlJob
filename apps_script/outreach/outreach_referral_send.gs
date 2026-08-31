@@ -491,6 +491,12 @@ function outreachReferralToSend_(referralRows, now, globalMode, queueRows) {
  * lock through a run of sends is how a drafting run gets starved out of its hour.
  */
 function sendReferralAsks() {
+  // `runOutreachSendTick` wakes every minute while the full cycle also has a
+  // sending step. Serialising both paths is what makes an early minute tick a
+  // latency improvement instead of a duplicate-send race.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach send holds the lock.');
+  try {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   // Two switches, and either alone holds a referral back. The narrow one exists so
   // this path can have its own first week without the cold path being stopped to
@@ -552,6 +558,9 @@ function sendReferralAsks() {
   Logger.log('referral asks sent ' + tally.sent + ', called off ' + tally.cancelled
            + ', failed ' + tally.failed + '.');
   return tally;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**

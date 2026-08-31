@@ -129,6 +129,12 @@ function outreachDraftsToSend_(queueRows, now, globalMode) {
  * that hour, which is checked here rather than trusted from an hour ago.
  */
 function sendPreparedDrafts() {
+  // The minute tick and the hourly cycle can both notice the same due draft.
+  // One script-wide lock makes that race one sender and one harmless later read,
+  // never two calls to GmailApp.send() for one draft.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach send holds the lock.');
+  try {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var globalMode = outreachProperty_(PROP_MODE, false);
   var app = tracker.getSheetByName(TAB_APP);
@@ -198,6 +204,9 @@ function sendPreparedDrafts() {
   Logger.log('sent ' + tally.sent + ', called off ' + tally.cancelled
            + ', failed ' + tally.failed + ', priorities retired ' + tally.retired);
   return tally;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -851,6 +860,31 @@ function runOutreachCycle() {
 }
 
 /**
+ * Send only what is already due, every minute.
+ *
+ * Planning, scanning and drafting deliberately remain hourly: their quota and
+ * fair-share arithmetic assume one pass per hour. Sending is different — it only
+ * advances rows whose hour has arrived — so running it each minute turns the old
+ * trigger's :21 delay into at most the next minute tick without changing volume.
+ */
+function runOutreachSendTick() {
+  var summary = {}, failures = [];
+  var step = function (name, work) {
+    try { summary[name] = work(); }
+    catch (error) {
+      summary[name] = 'failed: ' + String(error.message || error);
+      failures.push(name);
+    }
+  };
+  step('referral', sendReferralAsks);
+  step('cold', sendPreparedDrafts);
+  step('followUp', sendFollowUpReplies);
+  Logger.log('send tick ' + JSON.stringify(summary));
+  if (failures.length) throw new Error('Outreach send tick failed: ' + failures.join(', '));
+  return summary;
+}
+
+/**
  * Install the hourly trigger.
  *
  * Existing outreach triggers are cleared first, so running this twice does not
@@ -944,6 +978,11 @@ function installOutreachTriggers() {
   // One hourly trigger rather than four on separate clocks. Four would drift
   // apart and leave the table describing four different moments.
   ScriptApp.newTrigger('runOutreachCycle').timeBased().everyHours(1).create();
+  // The full cycle may be pinned to any minute in its hour by Apps Script. A
+  // separate one-minute tick sends only already-prepared drafts, so a message
+  // scheduled for 14:00 is noticed at the first firing after 14:00 instead of
+  // waiting for the full cycle's old :21 minute.
+  ScriptApp.newTrigger('runOutreachSendTick').timeBased().everyMinutes(1).create();
   // And one that answers a tick straight away, on either tab. It sends nothing and
   // drafts nothing: on Email it rewrites the two projected columns, and on Referral
   // it settles a Cancel or a Priority tick and refiles the table. No mailbox is
@@ -954,11 +993,12 @@ function installOutreachTriggers() {
            .forSpreadsheet(outreachProperty_(PROP_TRACKER_ID, true))
            .onEdit()
            .create();
-  Logger.log('Installed. The kill switch is removeOutreachTriggers, and it is the only one.');
+  Logger.log('Installed hourly planning plus one-minute sending. The kill switch is '
+           + 'removeOutreachTriggers, and it is the only one.');
 }
 
 function removeOutreachTriggers() {
-  var mine = ['runOutreachCycle', 'prepareOutreachDrafts', 'sendPreparedDrafts',
+  var mine = ['runOutreachCycle', 'runOutreachSendTick', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
               'scanRejectionEmails', 'onOutreachQueueEdit',
               'planFollowUpReplies', 'sendFollowUpReplies', 'replanOutreachFollowUps',
