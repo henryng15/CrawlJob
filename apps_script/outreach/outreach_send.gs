@@ -143,8 +143,8 @@ function sendPreparedDrafts() {
   // between and it is an hour in which the answer can change. The rejection scan
   // catches the ones that arrive by email; this catches every other way an
   // application closes — a Process moved by hand, or a rejection that landed in
-  // the other mailbox. Without it, a draft written at 09:00 goes out at 10:00
-  // whatever happened at 09:30.
+  // the other mailbox. Without it, a draft written at 08:00 goes out at 09:00
+  // whatever happened at 08:30.
   var appLast = app.getLastRow();
   var byProperty = {};
   if (appLast >= 2) {
@@ -831,6 +831,14 @@ function runOutreachCycle() {
   step('referralSorted', function () {
     return outreachSortReferralByTime_(tracker.getSheetByName(TAB_REFERRAL));
   });
+  // Dead last, and last is a correctness requirement rather than a tidy finish.
+  // This is the only step that moves rows on App, and half the steps above hold
+  // App row numbers taken before it ran: scanRejectionEmails writes Process and
+  // Update back by row number, cancelStaleOutreachRows and both referral planners
+  // read the tab by row number. Sorting App while any of them still held an index
+  // would file a rejection against a different application. Nothing reads App
+  // after this, so nothing can.
+  step('appWorklist', function () { return syncAppOfficialWorklist().needing; });
 
   summary.failedSteps = failures;
   try { outreachHealthFinish_(health, runId, summary, failures); }

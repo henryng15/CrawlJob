@@ -1296,44 +1296,27 @@ function appOfficialNeedsLink_(company, applicationLink, official) {
 
 
 /**
- * Paint A..L yellow on every App row still needing an official link, and clear the
- * colour from every row that does not.
+ * The optimistic repaint, over the rows one edit touched. The only App painting
+ * left in this script.
  *
- * Clearing is half the job, not a tidy-up: paste a link into column I and the row
- * has to stop shouting, or the colour turns into decoration nobody trusts.
+ * "Optimistic" is the whole character of it. The rule it paints on —
+ * appOfficialNeedsLink_, "neither link starts with http" — is not the rule the
+ * sender decides by, and cannot be: the real one needs the Employees (seed) tab
+ * in a spreadsheet this script cannot open. What it is good at is the case it
+ * runs in. You are looking at a yellow row and you paste something into column I;
+ * the row goes white under the cursor, immediately, because a tab that goes on
+ * telling you to find a link you have just found is a tab you stop believing.
  *
- * One read and one write for the whole block. Row by row this would be one call to
- * setBackground per application, each one a round trip to the spreadsheet service,
- * and Apps Script stops a trigger at thirty seconds — the paint would die
- * somewhere in the middle of the tab, leaving half of it coloured by the old rule.
- *
- * The rows are then brought into order, painted first and sorted second. That way
- * round because the paint is what settles which rows are yellow and the sort needs
- * that settled before it can act on it. The sort writes nothing at all when the
- * rows are already where they belong, so the ordinary case is still one read and
- * one write.
- */
-function paintAppOfficialRows() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var app = ss.getSheetByName(APP_TAB);
-  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
-  var bottom = app.getLastRow();
-  if (bottom < FIRST_ROW) {
-    ss.toast('Tab ' + APP_TAB + ' has no rows yet.', 'App', 5);
-    return;
-  }
-  paintAppOfficialBlock_(app, FIRST_ROW, bottom);
-  sortAppOfficialBlock_(app);
-}
-
-
-/**
- * The paint itself, over one block of rows, so the full sweep and the single row
- * onEdit repaints cannot disagree about what yellow means.
+ * If what you pasted does not pass the sender's gate — a Jobright redirect, a
+ * sign-in page — the hourly cycle paints it yellow again and puts it back at the
+ * top within the hour. That is the right way round. Being briefly too optimistic
+ * costs a colour for a few minutes; being pessimistic would mean the tab arguing
+ * with you while you type.
  *
  * Out to UPDATE_COL, which is where this tool stops owning the row. Not out to
  * getLastColumn: a colour laid over somebody's own column past Update would be
- * this script painting a cell it has no opinion about.
+ * this script painting a cell it has no opinion about. The sender's sweep paints
+ * exactly the same span, so the two never leave a seam.
  */
 function paintAppOfficialBlock_(app, firstRow, lastRow) {
   if (lastRow < firstRow) return;
@@ -1350,139 +1333,6 @@ function paintAppOfficialBlock_(app, firstRow, lastRow) {
     colours.push(line);
   }
   app.getRange(firstRow, 1, count, UPDATE_COL).setBackgrounds(colours);
-}
-
-
-/**
- * Reorder the App data rows so every application still needing an official link
- * sits at the top of the tab, then repaint.
- *
- * The colour on its own is not enough. App only ever grows, so an application sent
- * in July with no employer link on it is a hundred rows down by September, and the
- * whole point of painting it was to be told about it without going hunting; a
- * yellow row you have to scroll to find is a yellow row you find next term. The
- * sort is what turns the colour into a worklist.
- *
- * Run by hand, and run again at the end of paintAppOfficialRows. Deliberately NOT
- * run from onEdit — see the comment in onAppEdit for why.
- */
-function sortAppOfficialRowsToTop() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var app = ss.getSheetByName(APP_TAB);
-  if (!app) throw new Error('No tab named "' + APP_TAB + '".');
-  sortAppOfficialBlock_(app);
-}
-
-
-/**
- * The sort itself, over one sheet, so paintAppOfficialRows can call it without
- * going back through SpreadsheetApp for a sheet it is already holding.
- *
- * One read and one write of the whole block, for the same reason
- * paintAppOfficialBlock_ paints in one write: moving rows one at a time would be
- * hundreds of round trips to the spreadsheet service, and Apps Script stops a
- * script at thirty seconds. A sort that dies halfway is far worse than a paint
- * that dies halfway — a half-written block is a tab with applications duplicated
- * above and missing below, and App is the source of truth for what has been
- * applied to, so that is lost work rather than a cosmetic problem.
- *
- * sheet.sort() is not used, and not because of the round trips. It orders by a key
- * it reads out of a column, and "needs an official link" is in no column: it is a
- * function of Company, Application Link and Official together. Writing that key
- * into a helper column would put a value past Update on a tab whose columns past
- * Update belong to whoever added them. sheet.sort() is also not documented as
- * stable, and stability is a requirement here rather than a nicety.
- */
-function sortAppOfficialBlock_(app) {
-  // To the real last row and no further, NOT out to LAST_ROW the way the Jobs
-  // sweep used to. Jobs is a fixed five-hundred-row tab; App is appended to, and
-  // onEdit puts each new application at getLastRow() + 1. Writing a block that
-  // reached row 500 would leave five hundred rows of written-and-emptied cells
-  // behind it, and the next row across from Jobs would land at 501 with a
-  // hundred blank lines above it. The same trap setupAppColumns keeps its
-  // checkbox validation clear of.
-  var bottom = app.getLastRow();
-  if (bottom < FIRST_ROW) return false;
-  var count = bottom - FIRST_ROW + 1;
-
-  // Not UPDATE_COL: the App tab really can hold data past column L. Update is
-  // where this tool stops having an opinion, not where the row stops — an
-  // operator's own column sits past it, and a row moved here with only A..L in
-  // hand would leave that cell sitting on whatever row lands in its place,
-  // quietly reattaching one application's notes to a different application.
-  // getLastColumn is the real extent of the data, so the block widens by itself
-  // the day somebody adds a column and there is nothing here to remember to
-  // update. The floor is UPDATE_COL rather than 1, so that a tab whose Update
-  // column happens to be empty still moves the whole layout this tool owns.
-  var width = Math.max(app.getLastColumn(), UPDATE_COL);
-  var rows = app.getRange(FIRST_ROW, 1, count, width).getValues();
-  var ordered = orderAppOfficialRows_(rows);
-
-  // Nothing moved, so nothing is written and nothing is repainted. This is what
-  // makes a second run a genuine no-op rather than a run that happens to write
-  // back the same bytes: if no row moved then no row's colour moved either, and
-  // the repaint below would have nothing to correct.
-  var moved = false;
-  for (var i = 0; i < count; i++) {
-    if (ordered[i] !== rows[i]) { moved = true; break; }
-  }
-  if (!moved) return false;
-
-  app.getRange(FIRST_ROW, 1, count, width).setValues(ordered);
-
-  // The colours are recomputed from the moved values rather than being permuted
-  // alongside them. Carrying them would work, but it means holding two grids in
-  // step through one permutation, and the moment they drift the tab paints the
-  // wrong rows yellow — worse than not sorting at all, because a colour that lies
-  // stops being read, and then the applications that really do need a link stop
-  // being read with it. Recomputing cannot drift: yellow is a pure function of the
-  // row's own Company, Application Link and Official, so whichever row now sits on
-  // a line gets exactly the colour that row earns.
-  paintAppOfficialBlock_(app, FIRST_ROW, bottom);
-  return true;
-}
-
-
-/**
- * The ordering decision on its own — rows in, reordered rows out, no sheet — so
- * that what the sort does can be checked without a spreadsheet to check it on.
- *
- * Three groups, in this order: rows needing a link, everything else, then the
- * empty tail. Each group keeps the order it arrived in.
- *
- * Stable because the tab is something a person works down. Rebuilding the yellow
- * group in some other order would mean the application you were half way through
- * chasing has jumped three rows up, and the next link you paste lands on a
- * different job from the one you were reading. The order the rows are already in
- * is information somebody put there — on App it is the order things were applied
- * to in, which is the one thing Property numbers them by — and a sort asked only
- * to bring yellow to the top has no business spending it.
- *
- * The empty tail is held back rather than left to fall into the second group. An
- * empty row is not yellow, so a plain two-way split would leave the blanks
- * wherever they were — which is fine while they are all at the bottom, and wrong
- * the moment they are not. Pinning the tail makes "the blank rows are at the
- * bottom" true for any input, instead of true by luck of this one.
- *
- * Only the genuinely trailing blanks are pinned. A blank row with real rows still
- * below it is a gap somebody left on purpose, and moving that one would be the
- * reshuffle the stability rule exists to prevent.
- */
-function orderAppOfficialRows_(rows) {
-  var end = rows.length;
-  while (end > 0 && appRowIsEmpty_(rows[end - 1])) end--;
-
-  var needing = [];
-  var rest = [];
-  for (var i = 0; i < end; i++) {
-    if (appOfficialNeedsLink_(
-          rows[i][APP_COMPANY - 1], rows[i][APP_LINK - 1], rows[i][APP_OFFICIAL - 1])) {
-      needing.push(rows[i]);
-    } else {
-      rest.push(rows[i]);
-    }
-  }
-  return needing.concat(rest, rows.slice(end));
 }
 
 
@@ -1614,9 +1464,8 @@ function orderReferralCancelledRows_(rows) {
  * The sort itself, over one sheet, kept separate from the entry point so a caller
  * already holding the sheet does not go back through SpreadsheetApp for it.
  *
- * One read and one write of the whole block, for the same reason
- * sortAppOfficialBlock_ works that way: moving rows one at a time would be a round
- * trip to the spreadsheet service per row, and Apps Script stops a script at
+ * One read and one write of the whole block: moving rows one at a time would be a
+ * round trip to the spreadsheet service per row, and Apps Script stops a script at
  * thirty seconds. A sort that dies halfway leaves the tab with asks duplicated
  * above and missing below — and a missing row here is a person who never gets
  * written to, with nothing left on the tab to say they were ever going to be.
@@ -1626,17 +1475,18 @@ function orderReferralCancelledRows_(rows) {
  * with the rest, which is the case orderReferralCancelledRows_ exists to get
  * right.
  *
- * Nothing is repainted afterwards, unlike the App sort. Status wears its colour
- * from a conditional-format rule keyed on the cell's own text, so the colour
- * recomputes itself wherever the row lands; App's yellow is a background this file
- * paints by hand, which is why that sort has to repaint and this one must not.
+ * Nothing is repainted afterwards, unlike the sender's App sweep. Status wears its
+ * colour from a conditional-format rule keyed on the cell's own text, so the
+ * colour recomputes itself wherever the row lands; App's yellow is a background
+ * painted by hand, which is why that sweep has to carry the colour through its
+ * sort and this one must not.
  */
 function sortReferralCancelledBlock_(queue) {
   // To the real last row and no further, NOT out to LAST_ROW. LAST_ROW is where
   // setupReferralQueue stops laying formatting; the data stops at getLastRow, and
   // writing a block that reached row 500 would leave hundreds of rows of
   // written-and-emptied cells behind the queue, so the next ask appended landed
-  // at 501 under a screen of blanks. The same trap sortAppOfficialBlock_ keeps
+  // at 501 under a screen of blanks. The same trap the sender's App sweep keeps
   // clear of.
   var bottom = queue.getLastRow();
   if (bottom < FIRST_ROW) return false;
@@ -2289,11 +2139,11 @@ function onAppEdit(e) {
   var app = range.getSheet();
 
   // Column I is its own question and it is answered here rather than on the next
-  // full sweep: paste the employer's own posting and the row has to stop being
-  // yellow while you are still looking at it. Waiting for paintAppOfficialRows to
-  // be run by hand would leave the tab telling you to go and find a link you have
-  // already found. Only the rows the edit touched are repainted — a fill-down over
-  // twenty rows is still one write.
+  // hourly cycle: paste the employer's own posting and the row has to stop being
+  // yellow while you are still looking at it. Waiting for the sender to notice
+  // would leave the tab telling you to go and find a link you have already found.
+  // Only the rows the edit touched are repainted — a fill-down over twenty rows is
+  // still one write.
   if (range.getColumn() <= APP_OFFICIAL && range.getLastColumn() >= APP_OFFICIAL) {
     var top = Math.max(range.getRow(), FIRST_ROW);
     var bottom = Math.min(range.getLastRow(), app.getLastRow());
@@ -2309,8 +2159,8 @@ function onAppEdit(e) {
     // onEdit is a simple trigger with thirty seconds, and sorting reads and
     // rewrites every application on the tab, which is not what a single keystroke
     // should cost. So the colour updates instantly, which is the half that has to
-    // be immediate, and the position waits for paintAppOfficialRows — run when
-    // you are ready for the tab to move under you.
+    // be immediate, and the position waits for the sender's hourly cycle — which
+    // moves the tab when you are not looking at it rather than while you are.
   }
 
   if (range.getColumn() > PROCESS_COL || range.getLastColumn() < PROCESS_COL) return;
@@ -2472,54 +2322,55 @@ function report(added, skipped, expired) {
 
 
 // Current first, and every handler name this pair has ever installed after it. The
-// list is the remover's whole reason for working on a spreadsheet set up before the
-// two sweeps were joined; see removeAppOfficialTrigger.
-var HOUSEKEEPING_HANDLERS = ['runHourlyHousekeeping', 'paintAppOfficialRows'];
+// list is the remover's whole reason for working on a spreadsheet set up under an
+// older shape of this script; see removeAppOfficialTrigger. paintAppOfficialRows no
+// longer exists here — it is on the list precisely because it does not, since a
+// trigger left pointing at a deleted function fails silently every hour.
+var HOUSEKEEPING_HANDLERS = [
+  'runHourlyHousekeeping',
+  // Deleted from this file when the App sweep moved to the sender.
+  'paintAppOfficialRows',
+  // Older still, and it was found the way these always are: Cloud Logging showed
+  // "Script function not found: paintJobsReferralRows" at :21 past every hour, for
+  // a trigger nothing on the sheet explained and no kill switch could reach. A
+  // handler name has to stay on this list once it has ever been installed, whether
+  // or not anybody remembers installing it.
+  'paintJobsReferralRows'
+];
 
 /**
- * Put the hourly housekeeping on the clock: the App repaint and the Referral sort.
+ * Put the hourly housekeeping on the clock: the Referral sort.
  *
  * The name is unchanged, and so is the remover's, because docs/spreadsheet.md and a
- * year of notes point at this pair by name. What it installs is now
- * runHourlyHousekeeping rather than paintAppOfficialRows alone — see there for why
- * both sweeps ride one trigger.
+ * year of notes point at this pair by name, and because the kill switch has to keep
+ * answering to the name people reach for. What it installs has changed twice — first
+ * from paintAppOfficialRows to runHourlyHousekeeping when the two sweeps were joined,
+ * and again when the App half left for the sender project.
  *
- * They cannot be left to run by hand, and the reason is that App only ever grows.
- * Every ticked box on Jobs appends a row to the bottom of this tab, and onEdit
- * deliberately does not move it — so the yellow block at the top is accurate only
- * until the next application goes out, and by the end of a week the rows with no
- * employer link on them are scattered down the tab again. A worklist that is only
- * right just after you remember to rebuild it is one nobody reads.
+ * The one job left cannot be run by hand, and the reason is the row it is about is
+ * one somebody has already decided against: ticking Cancel greys the ask out where
+ * it stands and deliberately does not move it, so without this the called-off rows
+ * stay wedged between the live ones until somebody remembers to run the sort. A
+ * queue you have to read past to find the work is a queue that stops being read.
  *
- * The Referral half has the same shape of problem and it is worse, because the row
- * it is about is one somebody has already decided against: ticking Cancel greys the
- * ask out where it stands and deliberately does not move it, so without this the
- * called-off rows stay wedged between the live ones until somebody remembers to run
- * the sort by hand. A queue you have to read past to find the work is a queue that
- * stops being read.
+ * Hourly, the same cadence the outreach machinery runs at, so the top of the tab is
+ * never wrong for longer than it takes the next firing to notice.
  *
- * Hourly, which is the same cadence the outreach machinery runs at, so the top of
- * the tab is never wrong for longer than it takes the next firing to notice.
- *
- * It is not free of races and it is worth naming the one it has. highlight.py
- * reads App A:H, works out which row numbers earn a tick, and writes the two
- * checkbox columns back by position — so a sort landing between that read and that
- * write puts an alumnus against the wrong application. The window is the seconds
- * between two calls in one sync, and the sort writes nothing at all in the
- * ordinary case where no row moved, which is what keeps it narrow rather than what
- * closes it. Run removeAppOfficialTrigger while the Python half is being worked
- * on, the same way the sender is stopped before a migration.
+ * This no longer touches App, so the highlight.py race it used to carry has gone
+ * with the App sweep. The race still exists — it now belongs to
+ * syncAppOfficialWorklist in the sender project, and it is named there. Stopping
+ * this trigger no longer stops App from being reordered; stop the sender's hourly
+ * trigger for that.
  *
  * Safe to run again. The old trigger is removed before the new one is made, so
- * running this three times leaves one trigger rather than three tabs' worth of
- * repaints an hour.
+ * running this three times leaves one trigger rather than three.
  */
 function installAppOfficialTrigger() {
   removeAppOfficialTrigger();
   ScriptApp.newTrigger(HOUSEKEEPING_HANDLERS[0]).timeBased().everyHours(1).create();
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Every hour: App rows needing an official link move to the top, and cancelled '
-    + 'Referral rows sink to the bottom.',
+    'Every hour: cancelled Referral rows sink to the bottom. App rows needing an '
+    + 'official link are the sender project\'s job now.',
     'Installed', 5);
 }
 
@@ -2528,11 +2379,13 @@ function installAppOfficialTrigger() {
  *
  * It deletes every handler name this pair has ever installed, not just the one it
  * installs today. A spreadsheet set up before the two sweeps were joined carries a
- * trigger pointing at paintAppOfficialRows, and a remover that only knew the
- * current name would leave that one firing every hour with nothing on the sheet to
- * say where it came from — you would remove the trigger, watch the tab reorder
- * itself anyway, and have no way from here to stop it. A kill switch that cannot
- * kill what earlier versions installed is not one.
+ * trigger pointing at paintAppOfficialRows, a function this script no longer has,
+ * and a remover that only knew the current name would leave that one firing every
+ * hour against nothing — a failure notification an hour, for a job that has moved.
+ * A kill switch that cannot kill what earlier versions installed is not one.
+ *
+ * It does not stop App being reordered any more. That is the sender's hourly
+ * trigger, in a different script project, and it has its own switch.
  */
 function removeAppOfficialTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
@@ -2544,59 +2397,38 @@ function removeAppOfficialTrigger() {
 
 
 /**
- * The hourly sweep: bring the App worklist back to the top, then sink the Referral
- * rows that have been called off.
+ * The hourly sweep: sink the Referral rows that have been called off.
  *
- * One trigger for both, and not because the two jobs are related — they touch
- * different tabs and neither reads the other. It is because a second hourly trigger
- * doing adjacent work on the same spreadsheet is one more thing to forget: the pair
- * above is documented as the kill switch, people reach for it when the Python half
- * or the sender is being worked on, and a separate Referral trigger left running
- * behind it would go on rewriting a queue somebody had deliberately frozen. Two
- * names to remember is how one of them gets left on for months.
+ * It used to do two jobs. The other one — painting the App tab's worklist yellow
+ * and lifting it to the top — moved to the sender project on 2026-08-30, and the
+ * move is the point rather than a tidy-up. Deciding that an application is waiting
+ * on a link needs the Employees (seed) tab, which lives in the contacts
+ * spreadsheet the sending account owns and this script cannot open, so the rule
+ * here could only ever be an approximation of the sender's: it painted on "no
+ * http link at all", which left every row carrying an aggregator link white while
+ * the referral planner refused it. Two projects painting one tab on two rules is
+ * the failure this codebase is most prone to, and it is the one the Referral tab
+ * spent months in. See outreach_app_worklist.gs, which now owns App's row order
+ * and its yellow.
  *
- * Named for the sweep rather than for either half so that neither half reads as the
- * real job and the other as an afterthought bolted onto its trigger.
+ * What stays here is onAppEdit's repaint, and only that. It is deliberately
+ * optimistic: paste something into column I and the row goes white immediately,
+ * because the alternative is a tab still telling you to find a link you have just
+ * found. If what you pasted does not pass the sender's gate, the next cycle paints
+ * it yellow again within the hour.
  *
- * Repaint first, sort second. paintAppOfficialRows settles which App rows are
- * yellow and then orders them itself, so running the Referral sort first would only
- * make the App half wait; more to the point, the App half is the one whose output a
- * person acts on next, and if the thirty-minute execution budget is ever hit it
- * should be the second job that is cut short, not the first.
+ * The name and the installer's name are unchanged, because docs/spreadsheet.md and
+ * a year of notes point at this pair by name, and because the kill switch people
+ * reach for when the Python half or the sender is being worked on has to keep
+ * working under the name they know.
  *
- * The two are isolated from each other on purpose. A missing App tab, a renamed
- * Referral tab, a row somebody has locked — any of those throws out of one half,
- * and without the try/catch it would take the other half's housekeeping down with
- * it silently, once an hour, on a tab where nothing looked wrong. Both always run;
- * what failed is reported afterwards.
- *
- * Reported by throwing rather than by a toast, because nobody has the spreadsheet
- * open when a clock trigger fires and a toast is only seen by someone watching. A
- * throw is what makes Apps Script send its failure notification, so the error names
- * both halves — which one failed and whether the other still got its work done.
- *
- * Both halves stay runnable on their own from the Apps Script toolbar. Somebody
- * debugging the Referral sort should not have to repaint App to do it.
+ * The try/catch went with the App half. It existed to keep one failing sweep from
+ * silently taking the other down; with one job left there is nothing to isolate it
+ * from, and swallowing the throw would only cost the failure notification that is
+ * the sole way anybody hears about a clock trigger that stopped working.
  */
 function runHourlyHousekeeping() {
-  var problems = [];
-  try {
-    paintAppOfficialRows();
-  } catch (appError) {
-    problems.push('the App repaint failed (' + appError.message + ')');
-  }
-  try {
-    sortReferralCancelledToBottom();
-  } catch (referralError) {
-    problems.push('the Referral sort failed (' + referralError.message + ')');
-  }
-  if (!problems.length) return;
-  throw new Error(
-    'Hourly housekeeping: ' + problems.join(', and ') + '. '
-    + (problems.length === 2
-        ? 'Neither tab was tidied.'
-        : 'The other tab was tidied normally.')
-  );
+  sortReferralCancelledToBottom();
 }
 
 
@@ -2681,4 +2513,3 @@ function onReferralPriorityEdit(e, queue) {
     'Priority set across the ask. The sender moves it up the queue on its next '
     + 'run, within the per-employer limits.', 'Referral', 6);
 }
-

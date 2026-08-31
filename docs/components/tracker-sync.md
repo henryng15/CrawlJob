@@ -4,6 +4,14 @@ Bound to the spreadsheet. Owns the moment a job becomes an application, every ta
 and the hourly housekeeping. Script id `1WrD8HUZ...`; `clasp` profile `default` pushes it,
 `kenyon` deploys it.
 
+## API execution
+
+The bound project exposes its Execution API with `access: ANYONE`, so any signed-in Google
+account can invoke it. This is deliberately broader than the two editor accounts because Apps
+Script cannot allowlist two accounts from different domains at the executable level. It exists
+for `clasp run`; keep calls to named administrative or diagnostic functions and do not expose
+new write-capable entry points casually.
+
 ## Connections
 
 - **In:** `onEdit` on every tab; an hourly clock trigger.
@@ -40,7 +48,7 @@ why the hourly sweep re-does the same work.
 
 | Function | Does |
 |---|---|
-| `setupJobsCheckboxes` | Headers and checkboxes for `Jobs`. |
+| `setupJobsCheckboxes` | Headers and checkbox validation for `Jobs`, through the tab's current last row (and at least row 500). Useful as a manual repair; `job_sync` now extends the validation after every Jobs rewrite. |
 | `setupOutreachQueue` | Create the empty `Email` tab. |
 | `setupReferralQueue` | Create the empty `Referral` tab. |
 | `setupAppColumns` | The four `App` columns past `Note` — including `Official`. |
@@ -49,19 +57,31 @@ why the hourly sweep re-does the same work.
 | `migrateReferralCancelColumn`, `migrateReferralLayout` | Walk `Referral` forward to the current twenty-column layout. |
 | `migrateAppOfficialColumn`, `migrateUpdateColumn` | Walk `App` forward. `Update` used to live at J until Alumni and Recruiter took I and J. |
 
-## The App worklist
+## The App worklist — the optimistic half only
 
-An application whose link nobody can be asked to refer against is worth doing something about,
-so those rows are painted and floated to the top.
+**This file no longer owns the `App` worklist.** Deciding that an application is waiting on a
+link needs the `Employees (seed)` tab, which lives in the contacts spreadsheet the sending
+account owns and this script cannot open, so the rule here could only ever approximate the
+sender's. It painted on "neither link starts with `http`", which left every row carrying a
+Jobright or Simplify link **white** while the referral planner refused it — the applications
+most in need of a pasted link were the ones the tab never mentioned. Moved to the sender on
+2026-08-30: see [outreach-app-worklist.md](outreach-app-worklist.md).
+
+What stays is the `onEdit` repaint, and it is deliberately optimistic: paste something into
+column I and the row goes white immediately, because a tab that goes on telling you to find a
+link you have just found is one you stop believing. If what you pasted does not pass the
+sender's gate, the next cycle paints it yellow again and lifts it back within the hour.
 
 | Function | Does |
 |---|---|
-| `appOfficialUsableLink_(url)` | Whether the link is the employer's own posting. |
-| `appOfficialNeedsLink_(row)` | Which rows are worth painting. |
-| `paintAppOfficialRows`, `paintAppOfficialBlock_` | Paint A..L yellow, and clear rows that no longer qualify. |
-| `sortAppOfficialRowsToTop`, `sortAppOfficialBlock_` | Float them up. |
-| `orderAppOfficialRows_(rows)` | The ordering decision alone — rows in, rows out, no sheet — so it can be tested. |
-| `appRowIsEmpty_(row)` | A row with nothing on it; the two checkbox columns are why this cannot be a simple truth test. |
+| `appOfficialUsableLink_(url)` | Whether the cell holds anything starting with `http`. Not the ATS judgement — that is the sender's. |
+| `appOfficialNeedsLink_(row)` | The optimistic rule, for `onEdit` alone. |
+| `paintAppOfficialBlock_(app, from, to)` | Paint A..L yellow over the rows one edit touched, or clear them. The only App painting left here. |
+| `appRowIsEmpty_(row)` | A row with nothing on it; the two checkbox columns are why this cannot be a simple truth test. Still used by the Referral sort. |
+
+`onEdit` never sorts, and now nothing in this file can: sorting under the cursor would pull the
+row out from under a person mid-paste. Position is the sender's job, once an hour, when nobody
+is looking at the tab.
 
 ## Referral housekeeping
 
@@ -84,8 +104,9 @@ two projects undid each other every hour. See `outreach-referral-queue.md`.
 | Function | Does |
 |---|---|
 | `installAppOfficialTrigger` | Put the hourly housekeeping on the clock. |
-| `removeAppOfficialTrigger` | The kill switch, and still the only one. |
-| `runHourlyHousekeeping` | Float the `App` worklist to the top, then sink the called-off `Referral` rows. |
+| `removeAppOfficialTrigger` | The kill switch, and still the only one. It deletes every handler in `HOUSEKEEPING_HANDLERS`, not just today's. |
+| `HOUSEKEEPING_HANDLERS` | `runHourlyHousekeeping` (current), plus `paintAppOfficialRows` and `paintJobsReferralRows` — both deleted from this file. A name stays on the list *because* the function is gone: a trigger pointing at a deleted function fails silently every hour and no kill switch that does not know its name can reach it. `paintJobsReferralRows` was found on 2026-08-30 in Cloud Logging, failing at `:21` past every hour, from a trigger nothing on the sheet explained. |
+| `runHourlyHousekeeping` | Sink the called-off `Referral` rows. That is now its whole job; the `App` half left for the sender on 2026-08-30. Stopping this trigger no longer stops `App` being reordered. |
 
 ## Backfill and reports
 

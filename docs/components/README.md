@@ -45,12 +45,13 @@ ATS boards + Markdown trackers
 | Tab | Written by | Read by |
 |---|---|---|
 | `Jobs` | job_sync | tracker script (tick → App) |
-| `App` | tracker script | outreach script (both paths), job_sync (`_already_applied`) |
+| `App` | tracker script (rows, columns, `onEdit` repaint) — but its **row order and its yellow** belong to the outreach script's `syncAppOfficialWorklist`, and a rejection found in the mailbox writes `Process` + `Update` | outreach script (both paths), job_sync (`_already_applied`) |
 | `Email` | outreach cold path | outreach budget, referral budget |
 | `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
 | `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export, by hand | outreach compose + planners |
+| `Company` | `company_tab.gs` **only** | people — who to ask for a referral next |
 
 The contacts and employees tabs live in a **separate spreadsheet** owned by the sending
 account, never in the tracker. See [outreach-contacts.md](outreach-contacts.md).
@@ -58,7 +59,10 @@ account, never in the tracker. See [outreach-contacts.md](outreach-contacts.md).
 **One owner per column.** Two projects writing one column is the failure this system is most
 prone to: they cannot see each other, and neither looks wrong on its own. The Referral tab spent
 months with two schedulers for exactly that reason — see the gotcha in
-[outreach-referral-queue.md](outreach-referral-queue.md).
+[outreach-referral-queue.md](outreach-referral-queue.md). The `App` tab had the same problem in a
+quieter form until 2026-08-30: two projects painting one worklist on two different rules, the
+looser one winning every hour — see the gotcha in
+[outreach-app-worklist.md](outreach-app-worklist.md).
 
 ## Index
 
@@ -70,6 +74,7 @@ months with two schedulers for exactly that reason — see the gotcha in
 
 **Tracker script** (`apps_script/`)
 - [tracker-sync.md](tracker-sync.md) — `sync_applied_to_app.gs`
+- [tracker-company-tab.md](tracker-company-tab.md) — `company_tab.gs`
 - [tracker-external-api.md](tracker-external-api.md) — `external_application_api.gs`, `setup_process_dropdown.gs`
 
 **Outreach script** (`apps_script/outreach/`)
@@ -84,6 +89,7 @@ months with two schedulers for exactly that reason — see the gotcha in
 - [outreach-referral-templates.md](outreach-referral-templates.md) — referral wording
 - [outreach-referral-queue.md](outreach-referral-queue.md) — the `Referral` tab: planning and ordering
 - [outreach-referral-send.md](outreach-referral-send.md) — referral drafting, sending, reconciling
+- [outreach-app-worklist.md](outreach-app-worklist.md) — the `App` worklist: which rows are waiting on a link, and where they sit
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
 
 ## The rule
