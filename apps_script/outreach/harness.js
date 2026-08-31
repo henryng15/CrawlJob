@@ -4518,6 +4518,20 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(b.scheduled.getHours(), FIRST + 1, 'B fills in behind the drafted row');
   });
 
+  // The draft step runs after the replan. If a transient dependency failure left
+  // this row Queued, moving it here would defer its retry by an hour forever.
+  run('a row whose drafting window has opened keeps its hour for the retry', () => {
+    const now = new Date(2026, 7, 31, 8, 21, 0);
+    const rows = [
+      REF(2, 'A', 'a@x.com', at(31, 9), 'Queued'),
+      REF(3, 'B', 'b@x.com', at(31, 10), 'Queued')
+    ];
+    const moved = S.outreachReferralReplan_(rows, now, null);
+    assert.ok(!moved.some((m) => m.index === 2),
+              'the row due to draft must not be pushed beyond its retry window');
+    assert.strictEqual(rows[0].scheduled.getHours(), 9);
+  });
+
   run('a sent row is history and is never re-timed', () => {
     const rows = [REF(2, 'A', 'a@x.com', at(27, 8), 'Sent', { sentAt: at(27, 8) })];
     assert.strictEqual(S.outreachReferralReplan_(rows, NOW, null).length, 0);

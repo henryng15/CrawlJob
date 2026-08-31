@@ -816,6 +816,13 @@ function outreachReferralRoomOn_(queueRows, referralRows) {
  */
 function outreachReferralReplan_(referralRows, today, roomOn) {
   var fixed = {};
+  // A row whose drafting window has opened is no longer merely a booking to move
+  // around. The draft step later in this same cycle must get to act on it first.
+  // Otherwise a transient Gmail/Drive failure leaves it Queued, and the next
+  // replan sees its hour as past and moves it forward again before drafting can
+  // retry. That turns one failed dependency into a queue that slips by an hour
+  // forever and never reaches Gmail.
+  var draftDueBy = new Date(today.getTime() + DRAFT_LEAD_HOURS * 3600000);
   var add = function (when, company) {
     if (!when) return;
     var key = outreachDayKey_(when);
@@ -827,7 +834,14 @@ function outreachReferralReplan_(referralRows, today, roomOn) {
 
   var movable = [];
   referralRows.forEach(function (row) {
-    if (row.status === STATUS_QUEUED && !row.cancel) { movable.push(row); return; }
+    if (row.status === STATUS_QUEUED && !row.cancel) {
+      if (row.scheduled && row.scheduled <= draftDueBy) {
+        add(row.scheduled, row.company);
+      } else {
+        movable.push(row);
+      }
+      return;
+    }
     // Cancelled rows hold nothing. That is the point of cancelling one.
     if (row.status === STATUS_CANCELLED || row.cancel) return;
     add(row.scheduled, row.company);
