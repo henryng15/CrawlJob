@@ -812,6 +812,40 @@ def _tab_id(service, settings: Settings, tab: str) -> int | None:
     return None
 
 
+def _jobs_checkbox_rule(sheet_id: int, rows: int) -> dict:
+    """The checkbox validation over exactly the Jobs rows just written.
+
+    Values and validation are separate Sheets API operations.  A boolean written
+    below an old, fixed validation range is otherwise displayed as bare TRUE or
+    FALSE, even though it carries the same state as a checkbox.
+    """
+    return {
+        "setDataValidation": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": 1,  # row 2; row 1 is the header
+                "endRowIndex": rows + 1,
+                "startColumnIndex": APPLIED,
+                "endColumnIndex": EXPIRED + 1,
+            },
+            "rule": {"condition": {"type": "BOOLEAN"}, "showCustomUi": True},
+        }
+    }
+
+
+def _ensure_jobs_checkboxes(service, settings: Settings, rows: int) -> None:
+    """Draw Applied and Expired as checkboxes wherever this sync wrote values."""
+    if not rows:
+        return
+    sheet_id = _tab_id(service, settings, settings.sheet_tab)
+    if sheet_id is None:
+        raise RuntimeError(f"No tab named {settings.sheet_tab!r} to format checkboxes on.")
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=settings.sheet_id,
+        body={"requests": [_jobs_checkbox_rule(sheet_id, rows)]},
+    ).execute()
+
+
 def append_new_jobs(
     settings: Settings,
     jobs: list[Job],
@@ -930,6 +964,10 @@ def append_new_jobs(
         _update(values_api, settings, f"{tab}!{_column(STAMP)}1", [[stamp]], "RAW")
         return SyncResult(stamped=stamp, **standing)
     _write(values_api, settings, tab, [header] + laid_out, clear_to_row=len(existing))
+    # Keep the validation bound to the same extent as the values.  The old manual
+    # setup stopped at row 500 while Jobs grew past it, leaving boolean values
+    # below that row to render as bare TRUE/FALSE.
+    _ensure_jobs_checkboxes(service, settings, len(laid_out))
     # A new job whose link is already dead is filtered out here, so the count has
     # to be taken from what survived rather than from what was offered.
     fresh_links = {job.apply_link for job in fresh}

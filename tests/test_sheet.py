@@ -27,6 +27,7 @@ from job_sync.sheet import (
     _drop_empty_rows,
     _drop_foreign_rows,
     _fill_source,
+    _jobs_checkbox_rule,
     _key,
     _last_stage,
     _layout,
@@ -361,6 +362,19 @@ def test_a_row_appended_this_run_gets_an_empty_checkbox_cell() -> None:
         [HEADERS + ["Applied"], _row("Acme", "2026-08-02", "TRUE"), _row("Zeta", "2026-08-01")]
     )
     assert api.updates[1][2] == [["Applied"], ["TRUE"], [""]]
+
+
+def test_jobs_checkbox_rule_covers_every_row_the_sync_wrote() -> None:
+    """Jobs must not repeat the old fixed-row checkbox boundary."""
+    grid = _jobs_checkbox_rule(sheet_id=7, rows=811)["setDataValidation"]
+    assert grid["range"] == {
+        "sheetId": 7,
+        "startRowIndex": 1,
+        "endRowIndex": 812,
+        "startColumnIndex": APPLIED,
+        "endColumnIndex": EXPIRED + 1,
+    }
+    assert grid["rule"] == {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}
 
 
 def test_the_tail_of_a_shortened_sheet_is_cleared_before_the_write() -> None:

@@ -60,7 +60,8 @@ interrupted between. `_write` rewrites the range in one call.
 | `_sorted_rows`, `_divided` | Order, then one blank row between what is still to do and what is dealt with. |
 | `_stamp`, `_unstamped` | The caption in H1 saying when this run wrote; blanked for the comparison that decides whether anything changed. |
 | `_trimmed(rows)` | Trailing blank cells removed — how the API hands rows back. |
-| `_column(index)`, `_update`, `_write` | The A1 arithmetic and the single write call. |
+| `_column(index)`, `_update`, `_write` | The A1 arithmetic and the value writes. |
+| `_jobs_checkbox_rule`, `_ensure_jobs_checkboxes` | Apply `BOOLEAN` validation to `Applied` and `Expired` through exactly the Jobs rows just written, so boolean state always renders as checkboxes rather than bare `TRUE`/`FALSE`. |
 | `append_new_jobs(...)` | The entry point `main.py` calls. |
 | `audit_app(...)` | Read every `App` row and say what is wrong with it. `--audit-app` only; writes nothing. |
 | `SyncResult` | What one run changed, so the log can say which rows left and why. |

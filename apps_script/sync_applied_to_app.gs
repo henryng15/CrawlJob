@@ -321,7 +321,7 @@ function identity(company, role) {
 
 
 /**
- * Run once by hand: build the headers and checkboxes for the Jobs tab.
+ * Run by hand to repair the headers and checkbox validation for the Jobs tab.
  *
  * Free-text notes start at column H, not G. A checkbox column reads as FALSE on
  * every row it covers, so if G counted as note space the Python half would see a
@@ -335,10 +335,14 @@ function setupJobsCheckboxes() {
 
   jobs.getRange(1, APPLIED_COL).setValue('Applied');
   jobs.getRange(1, EXPIRED_COL).setValue('Expired');
-  jobs.getRange(FIRST_ROW, APPLIED_COL, LAST_ROW - FIRST_ROW + 1, 2)
+  // LAST_ROW was once enough room to grow, until Jobs grew past it.  Use the
+  // actual extent as well, so a repair draws checkbox UI over every current
+  // boolean rather than leaving the tail as bare TRUE/FALSE.
+  var lastRow = Math.max(LAST_ROW, jobs.getLastRow());
+  jobs.getRange(FIRST_ROW, APPLIED_COL, lastRow - FIRST_ROW + 1, 2)
       .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 
-  ss.toast('Columns F and G (rows 2–' + LAST_ROW + ') are now checkboxes.', 'Done', 5);
+  ss.toast('Columns F and G (rows 2–' + lastRow + ') are now checkboxes.', 'Done', 5);
 }
 
 
