@@ -18,11 +18,15 @@
  *                to, which makes it flattery reverse engineered from the ask,
  *                and it reads that way. The warmth lives in the sentences after
  *                the request instead, where it costs the reader nothing.
- *   Who and what one line of who is writing, one of what was applied to, and the
- *                posting link. The link is not decoration: a referral is a form
- *                with a job id in it, and an email that omits the req makes the
- *                willing reader go and find it. That errand is where most of the
- *                yes goes.
+ *   Who and what one line of who is writing, one saying the application is
+ *                already in and why the note exists anyway, and the posting link.
+ *                The applied fact is stated rather than implied: a reader who
+ *                assumes otherwise spends the email wondering whether they are
+ *                being asked to carry a resume to something nobody has applied
+ *                to, and the real ask is smaller than that. The link is not
+ *                decoration either: a referral is a form with a job id in it, and
+ *                an email that omits the req makes the willing reader go and find
+ *                it. That errand is where most of the yes goes.
  *   Two bullets  the same resume numbers the recruiter email uses, chosen by what
  *                the company does rather than by who is reading.
  *   The ask      one bolded question and one short way out.
@@ -523,19 +527,73 @@ function outreachReferralIndex_(company, attempt) {
 
 
 /**
- * Who is writing, in one line, with the graduation year left out.
+ * Why the note exists, given that the application is already in.
  *
- * SENDER_STUDY carries "class of 2028" because the recruiter email wants it: a
- * recruiter is checking eligibility for an intake and the year is the fact that
- * decides it. The engineer being asked for a referral is not checking anything.
- * To them it is one more number in a sentence they are reading to find out who
- * this is, and the room is better spent on the school and the subject.
+ * One line, and it is the line that keeps the ask honest. Every row on this tab
+ * comes from an application actually made, so the email can say so; and once it
+ * says so the reader's next question is immediate and fair, which is what this
+ * sentence answers. The answer is not a shortcut past anything. A submitted
+ * application is one of several thousand read in the order they arrived, and a
+ * referral is the only part of that the writer cannot do alone.
+ *
+ * The temptation is to leave it implied. It was implied for a long time, by a
+ * present tense that read "applying for the role", and implied is where the
+ * reader supplies the worse version: that they are being asked to carry a resume
+ * for somebody who has not bothered to apply. Two thousand engineers filling that
+ * gap themselves is worse than sixteen words spending it.
+ *
+ * The register is the constraint, and it is easy to lose. Every one of these is
+ * one sentence, under twenty words, and none of them argues. The two failure
+ * modes are both a line longer than they need to be: defensive ("I am not trying
+ * to skip the queue, but"), which makes the reader wonder who accused the writer
+ * of it, and aggrieved ("I would rather not be left in the pile"), which asks a
+ * stranger to fix a system on the writer's behalf. What is left when both are cut
+ * is the humble version, which is also the short one: the application is in, this
+ * is what a referral would do for it, and the decision is the reader's.
+ *
+ * Ten of them, indexed with the template, for the reason there are ten of
+ * everything else in this file. Six people at one employer can be written to on
+ * one morning, and a sentence identical across all six is what turns six letters
+ * into one mailing.
  */
-function outreachReferralIntro_(company, role) {
+var REFERRAL_APPLIED_LINES = [
+  'It is already in, and I am writing only in the hope that it reaches a person.',
+  'That part is done. What I am hoping for is that it is read rather than filtered.',
+  'It sits with a few thousand others, which is the only reason I am writing to you.',
+  'I would not ask you to shorten any of that, only to help it be seen.',
+  'It is in the system, and I am hoping a referral gives it a chance of being read.',
+  'It went in a while ago, and I am writing in the hope of it reaching a person.',
+  'I have taken the ordinary route, and a referral is the one part I cannot do myself.',
+  'I am not asking for anything to be skipped, only for what I sent to be seen.',
+  'It is in, and a referral is the one thing that might lift it out of the pile.',
+  'That is the process and I have followed it. The rest is not in my hands.'
+];
+
+/**
+ * Who is writing, what was applied to, and why this note followed it.
+ *
+ * The tense is the fact. "Applying for the role" was true while this path read the
+ * crawler's Jobs tab and had a posting rather than an application behind it; every
+ * row now comes from something submitted, and the present tense about an
+ * application three weeks old is the same falsehood pointing the other way.
+ *
+ * No date, though the send path looks one up and passes it. The recruiter email
+ * names the day because a recruiter can check it; the engineer being asked a
+ * favour is not going to, and a date in this sentence is one more thing to read
+ * before finding out who is writing.
+ *
+ * The graduation year is left out for the same reason. SENDER_STUDY carries
+ * "class of 2028" because the recruiter email wants it: a recruiter is checking
+ * eligibility for an intake and the year is the fact that decides it. The engineer
+ * is checking nothing, and the room is better spent on the school and the subject.
+ */
+function outreachReferralIntro_(company, role, index) {
   var study = SENDER_STUDY.replace(/\s*\(class of \d{4},\s*/i, ' (')
                           .replace(/\s*\(class of \d{4}\)/i, '');
-  return 'I am ' + SENDER_NAME + ', ' + study + ', applying for the '
-       + role + ' role at ' + company + '.';
+  var count = REFERRAL_APPLIED_LINES.length;
+  var why = REFERRAL_APPLIED_LINES[(((Number(index) || 0) % count) + count) % count];
+  return 'I am ' + SENDER_NAME + ', ' + study + ', and I have already applied for the '
+       + role + ' role at ' + company + '. ' + why;
 }
 
 /**
@@ -575,7 +633,7 @@ function outreachReferralCompose_(options) {
   // opens as three fragments rather than as somebody talking.
   var opening = [template.open]
     .concat(options.angle ? [outreachNoDashes_(options.angle)] : []).join(' ');
-  var intro = outreachReferralIntro_(options.company, role);
+  var intro = outreachReferralIntro_(options.company, role, index);
   var bullets = outreachReferralBullets_(options.bucket, options.attempt);
   var ask = template.ask + ' ' + template.offer;
   var posting = outreachReferralPosting_(options.jobLink);

@@ -60,11 +60,20 @@ var REFERRAL_ATS_DOMAINS = [
 /**
  * Hosts known to republish somebody else's posting.
  *
- * Nothing is gated on this list: the allowlist above already refuses everything
- * it does not recognise, and a second list that could also refuse would be a
- * second place to be wrong. This exists so the App tab can say which kind of
- * wrong a link is, because "that is a Jobright redirect, paste the real one" and
- * "I do not recognise this host" ask a person to do different things.
+ * This list used to gate nothing, and the reasoning was sound while it held: the
+ * allowlist refused everything it did not recognise, so a second list that could
+ * also refuse would have been a second place to be wrong. It existed only so the
+ * App tab could say which kind of wrong a link is, because "that is a Jobright
+ * redirect, paste the real one" and "I do not recognise this host" ask a person to
+ * do different things.
+ *
+ * It became load-bearing on 2026-08-30, when outreachReferralNameMatchesHost_ was
+ * added. That rule accepts hosts nothing recognises, on the strength of the
+ * company's own name appearing at the front of them — so for the first time
+ * something here can say yes to a domain that is on no allowlist, and this list is
+ * the one thing standing between that and an aggregator handing out
+ * "stripe.someboard.com" style subdomains. Adding a host here now changes a
+ * decision, not just a message.
  *
  * Mirrors AGGREGATOR_HOSTS in job_sync/sources.py, which knows only jobright
  * because that is the only one whose links the crawler can currently produce.
@@ -104,17 +113,87 @@ function outreachReferralIsAggregator_(url) {
 }
 
 /**
+ * The spellings of a company's name that may stand at the front of a host.
+ *
+ * Two, and the second is why this is not one line. The full name with everything
+ * that is not a letter or a digit taken out — "Old Mission Capital" becomes
+ * "oldmissioncapital" — and, only when the noise-stripped name is a single word,
+ * that word on its own. The single-word clause is what lets "Acme Technologies,
+ * Inc." be recognised as "acme"; the restriction to one word is what stops
+ * "General Motors" being recognised as "general", which would hand the rule to
+ * whoever registers general.anything.
+ *
+ * outreachCompanyTokens_ sorts, so its output is never joined back together here.
+ * "Old Mission Capital" tokenises to capital,mission,old, and a key built from
+ * that would be a word the company has never been called.
+ */
+function outreachReferralNameKeys_(company) {
+  var key = outreachNameKey_(company).replace(/ /g, '');
+  if (!key) return [];
+  var keys = [key];
+  var tokens = outreachCompanyTokens_(company);
+  if (tokens.length === 1 && tokens[0] !== key) keys.push(tokens[0]);
+  return keys;
+}
+
+/**
+ * Whether the host's first label is the company's name.
+ *
+ * blackrock.tal.net and amazon.jobs are both an employer's own application system
+ * and both were refused: TalentLink is on no allowlist worth keeping, and Amazon
+ * takes applications on a domain that is not the one its staff read mail at, so
+ * neither the ATS list nor the employer's own domain could recognise them. What
+ * does recognise them is the thing a person uses at a glance — the company's name,
+ * sitting at the front of the host.
+ *
+ * The first label only. "blackrock" in "blackrock.tal.net" is a name TalentLink
+ * assigned to a customer; "blackrock" anywhere further right would be a domain
+ * somebody else registered, and the difference is the whole rule.
+ *
+ * Matched whole, never as a substring, which is the lesson outreachSameEmployer_
+ * already carries: "dice" must not match "dicerna", and "amazon" must not match
+ * "notamazon". A label is split on hyphens first, so campus-amd is AMD, and the
+ * undivided label is also compared so general-motors is General Motors.
+ *
+ * This is the loosest rule in the gate and the only one that can say yes to a host
+ * on no list at all, so it refuses anything on REFERRAL_AGGREGATOR_DOMAINS
+ * outright. Without that, the day a job board starts handing out
+ * stripe.thatboard.com is the day referral asks start pointing at redirects again
+ * — which is exactly what deny-by-default was built to prevent.
+ */
+function outreachReferralNameMatchesHost_(host, company) {
+  var keys = outreachReferralNameKeys_(company);
+  if (!keys.length || !host) return false;
+  var label = host.split('.')[0];
+  if (!label) return false;
+  var parts = label.split('-').filter(function (part) { return !!part; });
+  var candidates = parts.length > 1 ? parts.concat(parts.join('')) : parts;
+  return candidates.some(function (candidate) {
+    return keys.indexOf(candidate) !== -1;
+  });
+}
+
+/**
  * Whether this link can be put in front of somebody being asked for a referral.
  *
- * Two ways to pass. Either the host is an applicant tracking system, or it is the
- * employer's own domain: jobs.apple.com and careers.google.com receive their own
- * applications and are the best possible link, but there is no list of them and
- * there never will be, so the company's domain out of the ColdEmail dataset is
- * what recognises them.
+ * Three ways to pass, in the order they are cheapest to be sure about:
+ *
+ *   the host is the employer's own domain    jobs.apple.com for apple.com
+ *   the host is an applicant tracking system  REFERRAL_ATS_DOMAINS
+ *   the host wears the company's own name     blackrock.tal.net, amazon.jobs
+ *
+ * The first two are the original gate and are unchanged. The third was added on
+ * 2026-08-30 and is deliberately the last thing tried: it is the only one that can
+ * accept a domain nothing on any list has ever seen, so everything that can be
+ * decided from a list is decided first, and the aggregator refusal inside it is
+ * what keeps the relaxation from reopening the hole the allowlist closed.
+ *
+ * `company` is optional. Called with two arguments — as every caller did before
+ * the third rule existed — the name rule simply never fires.
  *
  * An http link is refused. Everything here is a form that will be typed into.
  */
-function outreachReferralLinkOk_(url, companyDomain) {
+function outreachReferralLinkOk_(url, companyDomain, company) {
   var text = String(url == null ? '' : url).trim();
   if (!/^https:\/\//i.test(text)) return false;
   var host = outreachReferralHost_(text);
@@ -122,9 +201,11 @@ function outreachReferralLinkOk_(url, companyDomain) {
   if (outreachReferralUnder_(host, String(companyDomain || '').toLowerCase().replace(/^www\./, ''))) {
     return true;
   }
-  return REFERRAL_ATS_DOMAINS.some(function (domain) {
-    return outreachReferralUnder_(host, domain);
-  });
+  if (REFERRAL_ATS_DOMAINS.some(function (domain) {
+        return outreachReferralUnder_(host, domain);
+      })) return true;
+  if (outreachReferralIsAggregator_(text)) return false;
+  return outreachReferralNameMatchesHost_(host, company);
 }
 
 /**
@@ -133,10 +214,10 @@ function outreachReferralLinkOk_(url, companyDomain) {
  * Returned rather than logged, because where this ends up is next to the row on
  * the App tab that it is about. '' means the link was accepted.
  */
-function outreachReferralLinkProblem_(url, companyDomain) {
+function outreachReferralLinkProblem_(url, companyDomain, company) {
   var text = String(url == null ? '' : url).trim();
   if (!text) return 'no link';
-  if (outreachReferralLinkOk_(text, companyDomain)) return '';
+  if (outreachReferralLinkOk_(text, companyDomain, company)) return '';
   if (outreachReferralIsAggregator_(text)) {
     return 'aggregator link (' + outreachReferralHost_(text) + '), paste the employer one';
   }
@@ -245,8 +326,8 @@ function outreachParseApplication_(row, index, domainFor) {
   // The pasted link is preferred when both pass. Somebody typed it deliberately,
   // and the only reason to type one over a link that already works is that they
   // know something the row does not say.
-  var link = outreachReferralLinkOk_(official, domain) ? official
-           : (outreachReferralLinkOk_(applied, domain) ? applied : '');
+  var link = outreachReferralLinkOk_(official, domain, company) ? official
+           : (outreachReferralLinkOk_(applied, domain, company) ? applied : '');
   return {
     index: index,
     company: company,
@@ -336,7 +417,8 @@ function outreachReferralNeedsLink_(applications, employees) {
       index: one.index,
       company: one.company,
       role: one.role,
-      reason: outreachReferralLinkProblem_(one.officialLink || one.appliedLink, one.domain)
+      reason: outreachReferralLinkProblem_(
+        one.officialLink || one.appliedLink, one.domain, one.company)
     };
   });
 }

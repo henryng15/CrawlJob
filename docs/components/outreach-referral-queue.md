@@ -26,9 +26,11 @@ hour, and in what order. Almost all pure — the sheet work lives in
 |---|---|
 | `outreachReferralHost_(url)`, `outreachReferralUnder_(host, domain)` | Host parsing. |
 | `outreachReferralIsAggregator_(url)` | A link that redirects rather than being the posting. |
-| `outreachReferralLinkOk_(url, domain)` | Whether this link can be put in front of somebody being asked for a referral. |
-| `outreachReferralLinkProblem_(url)` | **Why** it was refused, for the person who has to fix it. |
-| `outreachReferralNeedsLink_(appRows)` | `App` rows that should be painted yellow, and why. |
+| `outreachReferralLinkOk_(url, domain, company)` | Whether this link can be put in front of somebody being asked for a referral. Three ways to pass: the employer's own domain, an ATS, or the company's name at the front of the host. `company` is optional — called with two arguments the name rule never fires. |
+| `outreachReferralNameKeys_(company)` | The spellings of a name that may stand at the front of a host: the full name with punctuation removed, plus the single noise-stripped word when there is exactly one. |
+| `outreachReferralNameMatchesHost_(host, company)` | The third rule. `blackrock.tal.net` is BlackRock, `amazon.jobs` is Amazon. First label only, matched whole, aggregators refused outright. |
+| `outreachReferralLinkProblem_(url, domain, company)` | **Why** it was refused, for the person who has to fix it. |
+| `outreachReferralNeedsLink_(appRows, employees)` | `App` rows that should be painted yellow, and why. Called by `syncAppOfficialWorklist` — see [outreach-app-worklist.md](outreach-app-worklist.md). Dead code until 2026-08-30, while the tracker script painted the tab on a looser rule of its own. |
 | `outreachReferralSeason_(role)` | Whether a posting names the intake being asked about. `REFERRAL_REQUIRE_SEASON` is `false`: of 327 live `App` rows only 81 say "summer", and having applied is a far stronger signal than a word in a title. |
 | `outreachReferralLive_(app)` | Whether this application is still worth asking a favour about. |
 | `outreachPickReferralRole_(apps)` | Which of a company's applications to ask about. |

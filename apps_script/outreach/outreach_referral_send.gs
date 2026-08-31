@@ -401,12 +401,13 @@ function draftReferralAsks() {
           // and the application already has a row of its own two tabs away that
           // stays right when it is corrected there.
           //
-          // It has to be here at all because every row on this tab now comes from
-          // an application that was actually made. While this path read the Jobs
-          // tab there was often no date and the email said "I am applying";
-          // saying that about an application submitted three weeks ago is the same
-          // falsehood the present tense was introduced to avoid, pointing the
-          // other way.
+          // The composed message prints no day: outreachReferralIntro_ says the
+          // application has already been made and stops there, because the
+          // engineer being asked a favour is not going to check a date. What this
+          // lookup is good for is the claim underneath that sentence. Every row on
+          // this tab comes from an application actually made, and a row this
+          // lookup cannot match is one whose company and role have drifted from
+          // the App row they were queued off.
           dateApplied: appliedOn[outreachReferralAppKey_(row.company, row.role)] || null,
           today: now,
           jobLink: row.jobLink,
