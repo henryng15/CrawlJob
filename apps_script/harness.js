@@ -3,6 +3,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const SRC = require('path').join(__dirname, 'sync_applied_to_app.gs');
+const COMPANY_SRC = require('path').join(__dirname, 'company_tab.gs');
 
 function makeSheet(name, data) {
   const grid = data.map((r) => r.slice());
@@ -325,6 +326,13 @@ function load() {
   return sandbox;
 }
 
+function loadCompany() {
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(COMPANY_SRC, 'utf8'), sandbox);
+  return sandbox;
+}
+
 const JOBS_HEADER = ['Company', 'Role', 'Link Apply', 'Date Posted', 'Source',
                     'Applied', 'Expired'];
 // The checkbox columns in the grid, 0-based: Source pushed in ahead of them, so
@@ -377,6 +385,39 @@ function run(name, fn) {
     console.log('  FAIL ' + name + '\n       ' + err.message);
     process.exitCode = 1;
   }
+}
+
+console.log('Company tab templates — clear, respectful referral requests');
+{
+  run('the opening-role email states every fact and request in the right order', () => {
+    const company = loadCompany();
+    const link = 'https://jobs.example.com/acme/swe-intern';
+    const body = company.companyEmailBody_('Acme', company.COMPANY_SUMMER, link);
+    assert.ok(body.includes('My name is Henry Nguyen.'), body);
+    assert.ok(body.includes('We have not met before'), body);
+    assert.ok(body.includes('work at Acme'), body);
+    assert.ok(body.includes('open summer software engineering internship'), body);
+    assert.ok(body.includes('review my resume'), body);
+    assert.ok(body.includes('consider referring me for the role'), body);
+    assert.ok(body.includes('opportunity to move forward in the process'), body);
+    assert.ok(body.includes('attached my resume and included the application link below'), body);
+    assert.ok(body.endsWith('Application link: ' + link), body);
+  });
+
+  run('the LinkedIn template carries the same respectful referral request', () => {
+    const company = loadCompany();
+    const body = company.companyLinkedInTemplate_('Acme', company.COMPANY_SUMMER, 'https://x.test');
+    assert.ok(body.includes('My name is Henry Nguyen.'), body);
+    assert.ok(body.includes('review my resume'), body);
+    assert.ok(body.includes('consider referring me for the role'), body);
+  });
+
+  run('the Company subject names the concrete role without a self-deprecating hook', () => {
+    const company = loadCompany();
+    const subject = company.companyEmailSubject_('Acme', company.COMPANY_SUMMER);
+    assert.strictEqual(subject,
+      'Resume review and referral request for the Acme summer software engineering internship');
+  });
 }
 
 // Counted and printed at the bottom rather than left to be eyeballed: a test that
@@ -3538,4 +3579,3 @@ console.log('orderReferralCancelledRows_ — a Priority tick moves nothing');
     assert.strictEqual(names(out).join(','), 'Acme,Beta');
   });
 }
-

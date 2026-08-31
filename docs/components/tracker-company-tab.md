@@ -79,23 +79,24 @@ row again.
 
 ## The templates
 
-Every message, email and LinkedIn alike, is **the same eight beats in the same order**. Only the
-wording varies.
+Every message, email and LinkedIn alike, follows the same **eight beats in the same order**.
+The substantive wording is deliberately consistent: a stranger deserves a clear explanation and
+a direct but respectful request, not a different rhetorical strategy for every company.
 
 1. a greeting
 2. who is writing: the name and the subject read
 3. we have never met, and I saw that you are at this company
-4. why the role and the company look like a genuine fit
-5. the application went in the day the role opened, and a referral is what would give it a fair look
-6. the ask: might you refer me
-7. it is completely all right to say no
+4. the open SWE role and why Henry's software-engineering background is relevant
+5. the ask: review the resume, then refer only if Henry seems like a fit
+6. appreciation for an opportunity to move forward, with the resume and application link below
+7. it is completely all right to decline
 8. thank you for the time it took to read this
 
-The register is deliberately **humble and a little formal**. An earlier draft was written closer
-to the sender's cold-email voice, which is brisk because it is writing to recruiters, whose job
-is to read applications. This is writing to an engineer who owes the reader nothing and is being
-asked to spend their own credibility, so the message admits that plainly, asks once, gives the
-reader an easy way out, and thanks them either way.
+The register is deliberately **clear, courteous and professional**. This is writing to an engineer
+who owes the reader nothing and is being asked to spend their own credibility, so it identifies
+Henry first, acknowledges there was no prior connection, asks for a resume review before the
+referral, and makes the referral conditional on genuine fit. It gives the reader an easy way out
+without repeatedly apologising for the message.
 
 Beats 3 to 7 live in `companyMiddleBeats_` and are shared, so the email and the LinkedIn message
 can never drift into saying different things.
@@ -104,29 +105,18 @@ can never drift into saying different things.
 past the 300 characters a connection note allows. It differs from the email only in dropping the
 subject, the signature block and the paragraph breaks.
 
-**Beat 5 states the application as a fact**, the way the sender's referral email does and for the
-same reason: an engineer reading a referral ask from somebody who has not applied assumes the
-expensive version of the favour. It is also the answer to the question the ask invites — *the form
-is in, so what am I being asked for* — which is why it sits immediately before the ask rather than
-earlier.
-
-> **It has to be true when the message is sent.** Nothing here can check it: the tab knows the
-> posting exists, not that anybody applied to it. Apply first, then send. A row whose `Applied`
-> box on `Jobs` is still unticked is a row where this sentence is not yet true.
+**The template does not claim that an application has already been submitted.** The Company tab
+knows that a posting exists, not whether Henry has applied. It instead gives the recipient the
+resume and direct application link, so the sender can apply at the appropriate point without the
+message making a false claim.
 
 A company with no opening cannot be asked for a referral against a req that does not exist, and
 cannot have been applied to either. Beats 4 to 6 are replaced there by one saying no posting has
 appeared and asking whether one is expected.
 
-**No two companies get the same words.** Each beat is drawn with its **own salted hash** of the
-company name. A single hash with fixed offsets would not do: 173 companies over 20 variants puts
-nine of them on identical text, which is the thing this exists to prevent. Verified across all
-243 companies in all three shapes: 243 distinct LinkedIn messages and 243 distinct email bodies,
-no collisions. The beat arrays hold 20 variants each, bar the no-opening one at 12.
-
-The draw is a pure function of the name, so it is **stable** — a rebuild next week hands back the
-message you read today. That matters because this tab is copied from by hand, and wording that
-reshuffled under a rebuild would mean sending something other than what was reviewed.
+The company name, role season and direct link make every row specific. Greetings and closings are
+still drawn deterministically by company name, so a rebuild gives back the exact message that was
+reviewed. That stability matters because this tab is copied from by hand.
 
 **No variant may carry an em dash, and none may repeat another in its own array.** Both are
 asserted where the arrays are generated. Comments and this document keep their em dashes; nothing

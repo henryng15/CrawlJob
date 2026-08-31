@@ -276,58 +276,43 @@ function companyIsDeadIntake_(role) {
 
 // ----------------------------------------------------------------- the templates
 //
-// Every message, email and LinkedIn alike, is the same seven beats in the same
-// order. Only the wording varies.
+// Every message, email and LinkedIn alike, follows the same respectful sequence.
+// This is a hand-sent referral request, not a cold-email experiment: consistency
+// makes sure nobody has to infer why a stranger wrote or what is being asked.
 //
 //   1. a greeting
 //   2. who is writing: the name and the subject read
 //   3. we have never met, and I saw that you are at this company
-//   4. why the role and the company look like a genuine fit
-//   5. the application went in the day the role opened, and a referral is what
-//      would give it a fair look
-//   6. the ask: might you refer me
-//   7. it is completely all right to say no
+//   4. the open SWE role and why the sender's SWE background is relevant
+//   5. the ask: review the resume, then refer only if the reader sees a fit
+//   6. appreciation for a chance to move forward, with resume and link below
+//   7. an easy, respectful way to decline
 //   8. thank you for the time it took to read this
 //
 // The register is deliberately humble and a little formal. An earlier draft of
 // these was written closer to the sender's cold-email voice, which is brisk
 // because it is writing to recruiters, whose job is to read applications. This is
 // writing to an engineer who owes the reader nothing and is being asked to spend
-// their own credibility, so the message admits that plainly, asks once, and gives
-// the reader an easy way out before thanking them either way.
+// their own credibility. It therefore asks for a resume review before a referral,
+// makes the referral conditional on genuine fit, and gives the reader an easy way
+// out before thanking them either way.
 //
 // Both messages carry the whole structure. The LinkedIn one is therefore not a
 // connection note - it is far past the 300-character cap and is meant to be sent
 // as a DM. It differs from the email only in dropping the subject, the signature
 // block and the paragraph breaks.
 //
-// Beat 5 states the application as a fact, the way the sender's referral email
-// does, and for the same reason: an engineer reading a referral ask from someone
-// who has not applied assumes the expensive version of the favour. It is also the
-// answer to the question the ask invites - the form is in, so what am I being
-// asked for - which is why it sits immediately before the ask rather than earlier.
-//
-// **It has to be true when the message is sent.** Nothing here can check it: the
-// tab knows the posting exists, not that anybody applied to it. Apply first, then
-// send. A row whose Applied box on Jobs is still unticked is a row where this
-// sentence is not yet true.
+// The tab knows only that a posting exists, not whether an application was made.
+// It must therefore never claim that the application is already in. The direct
+// link at the foot is useful precisely because it leaves that decision honest.
 //
 // A company with no opening cannot be asked for a referral against a req that does
 // not exist, and cannot have been applied to either. Beats 4 to 6 are replaced
 // there by one that says no posting has appeared and asks whether one is expected.
 //
-// **No two companies get the same words.** Each beat is drawn with its own salted
-// hash of the company name - see companyPick_. One hash with fixed offsets would
-// not do: 173 companies over 20 variants puts nine of them on identical text,
-// which is the thing this exists to prevent.
-//
-// The draw is a pure function of the name, so it is stable: a rebuild next week
-// hands back the message read today. The tab is copied from by hand, and wording
-// that reshuffled under a rebuild would mean sending something other than what was
-// reviewed.
-//
-// No variant may contain an em dash, and none may repeat another in its own array.
-// Both are asserted where these arrays are generated.
+// The company, role season and application link make every message specific. The
+// greeting and sign-off are drawn deterministically by company name, so a rebuild
+// gives back exactly what was reviewed and copied by hand.
 
 var COMPANY_GREETINGS = [
   'I hope this message finds you well.', 'I hope this note finds you at a good time.',
@@ -550,27 +535,38 @@ function companyFill_(text, company, label) {
 }
 
 /**
- * Beats 3 to 6, which are the same sentences in the email and on LinkedIn. Kept in
- * one place so the two can never drift into saying different things.
+ * The substantive beats, shared by email and LinkedIn so the two cannot drift.
+ *
+ * The Company tab cannot prove that a person has applied, so it never claims an
+ * application is already in. It gives the reader the actual application link and
+ * leaves the decision to apply before or after a referral to the sender.
  */
 function companyMiddleBeats_(company, label) {
-  var met = companyFill_(companyPick_(company, 'met', COMPANY_MET_LINES), company, label);
-  var okay = companyPick_(company, 'okay', COMPANY_OKAY_LINES);
+  var met = 'We have not met before, but I came across your profile and saw that you work at '
+    + company + '.';
   if (!label) {
     return [met,
-            companyFill_(companyPick_(company, 'norole', COMPANY_NO_ROLE_ASKS), company, label),
-            okay];
+            'I do not see an open software engineering internship at ' + company
+              + ' right now, but I wanted to ask whether one may be expected this cycle.',
+            'If you have a moment, I would appreciate any guidance on the right team or time to apply.'
+              + ' I have attached my resume and included my contact details below.'];
   }
   return [met,
-          companyFill_(companyPick_(company, 'fit', COMPANY_FIT_LINES), company, label),
-          companyPick_(company, 'applied', COMPANY_APPLIED_LINES),
-          companyPick_(company, 'ask', COMPANY_ASK_LINES),
-          okay];
+          'I noticed that ' + company + ' currently has an open '
+            + (label === COMPANY_SUMMER ? 'summer ' : '')
+            + 'software engineering internship. My software engineering background aligns with'
+            + ' the kind of work the role describes, so I wanted to reach out.',
+          'If you have a moment, would you be willing to review my resume? If you feel I could'
+            + ' be a fit, I would be very grateful if you would consider referring me for the role.',
+          'I would appreciate any opportunity to move forward in the process. I have attached my'
+            + ' resume and included the application link below. I completely understand if a referral'
+            + ' is not something you can offer.'];
 }
 
 /** Beat 2, the one fixed sentence in the message. */
 function companyIntro_(study) {
-  return 'My name is ' + COMPANY_SENDER + ', and I am ' + study + '.';
+  return 'My name is ' + COMPANY_SENDER + '. I am ' + study
+    + ' with a background in software engineering.';
 }
 
 /**
@@ -594,12 +590,13 @@ function companyLinkedInTemplate_(company, label, link) {
  * every single time.
  */
 function companyEmailSubject_(company, label) {
-  if (!label) return 'Kenyon student asking about ' + company + ' SWE internships';
-  return companyFill_(companyPick_(company, 'em-subject', COMPANY_EMAIL_SUBJECTS), company, label);
+  if (!label) return 'Question about software engineering internships at ' + company;
+  return 'Resume review and referral request for the ' + company + ' '
+    + (label === COMPANY_SUMMER ? 'summer ' : '') + 'software engineering internship';
 }
 
 /**
- * The email body: the same seven beats, in paragraphs.
+ * The email body: the same respectful sequence, in paragraphs.
  *
  * The link sits on its own line at the foot, not inside the sentence naming the
  * role, for the reason docs/email-templates.md gives: a link inside a sentence
@@ -620,7 +617,7 @@ function companyEmailBody_(company, label, link) {
     + companyPick_(company, 'thanks', COMPANY_THANKS_LINES) + '\n\n'
     + companyPick_(company, 'em-close', COMPANY_EMAIL_CLOSES) + '\n'
     + COMPANY_SENDER + '\n' + COMPANY_SENDER_CONTACT
-    + (link ? '\n\nThe posting: ' + link : '');
+    + (link ? '\n\nApplication link: ' + link : '');
 }
 
 
