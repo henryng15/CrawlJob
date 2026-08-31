@@ -288,6 +288,25 @@ var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
 
 // ------------------------------------------------- referral policy
 
+// A referral is timely only while the application is still recognisably fresh.
+// `Property` is the user's existing company-priority rank on App: the first
+// seventy are strategic enough to remain eligible after that seven-day window.
+var REFERRAL_RECENT_APPLICATION_DAYS = 7;
+var REFERRAL_TOP_COMPANY_PROPERTY_MAX = 70;
+
+// Quant firms are deliberately outside this referral campaign, including when a
+// recent application would otherwise qualify. The names use the shared company
+// normaliser, so punctuation and common short-name variants do not evade it.
+var REFERRAL_QUANT_COMPANIES = [
+  'Chicago Trading Company', 'Virtu Financial', 'Old Mission Capital',
+  'Akuna Capital', 'PDT Partners', 'DRW', 'Hudson River Trading',
+  'Susquehanna International Group', 'D. E. Shaw', 'Jane Street', 'Optiver',
+  'PEAK6', 'DV Trading', 'Quadrillion Labs', 'Quantbot Technologies',
+  'Balyasny Asset Management', 'Belvedere Trading', 'TransMarket Group',
+  'Hypercubic', 'Point72', 'Xantium', 'Verition', 'Garda Capital Partners',
+  'The Voleon Group', 'Castleton Commodities International', 'InfiniteQuant'
+];
+
 // How many people at one employer are ever asked for a referral.
 //
 // Six. Still far short of the twenty three engineers the dataset holds at Reddit,

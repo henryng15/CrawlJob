@@ -1,8 +1,11 @@
 # outreach_referral_queue.gs — the Referral tab
 
 Decides which applications are worth asking a favour about, who to ask, on what day and at what
-hour, and in what order. Almost all pure — the sheet work lives in
-[outreach-referral-send.md](outreach-referral-send.md).
+hour, and in what order. A **new** row is admitted only for a non-quant employer whose application
+is at most seven calendar days old or whose `App!Property` rank is in the top 70. A same-day
+application is marked `Priority`; the overall mailbox cap still applies. Existing Referral rows are
+never removed by this admission rule — a drafted or queued row remains in its established pipeline.
+Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach-referral-send.md).
 
 ## Connections
 
@@ -33,6 +36,8 @@ hour, and in what order. Almost all pure — the sheet work lives in
 | `outreachReferralNeedsLink_(appRows, employees)` | `App` rows that should be painted yellow, and why. Called by `syncAppOfficialWorklist` — see [outreach-app-worklist.md](outreach-app-worklist.md). Dead code until 2026-08-30, while the tracker script painted the tab on a looser rule of its own. |
 | `outreachReferralSeason_(role)` | Whether a posting names the intake being asked about. `REFERRAL_REQUIRE_SEASON` is `false`: of 327 live `App` rows only 81 say "summer", and having applied is a far stronger signal than a word in a title. |
 | `outreachReferralLive_(app)` | Whether this application is still worth asking a favour about. |
+| `outreachReferralIsQuantFirm_(company)` | Whether the company matches the maintained quant-firm exclusion list. |
+| `outreachReferralAdmission_(app, today)` | The new-row gate: rejects quant firms, admits a ≤7-day application or a non-quant top-70 `Property` company, and marks only a same-day application as automatic `Priority`. Does not alter existing Referral rows. |
 | `outreachPickReferralRole_(apps)` | Which of a company's applications to ask about. |
 
 ## People
@@ -52,7 +57,7 @@ hour, and in what order. Almost all pure — the sheet work lives in
 |---|---|
 | `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total, per employer, and by occupied hour. |
 | `outreachReferralSlot_(company, today, load, roomOn, priority)` | **The first slot this person can have.** Walks forward a day at a time, skipping weekends, checking three limits: the day's mailbox room, the day's referral cap, and the per-employer cap. It chooses the first unoccupied actual hour, rather than offsetting by a day's booking count — otherwise a past send could make a replan skip still-free hours today. No ceiling — a referral ask has no window it can miss, so a backlog is spread rather than dropped. |
-| `outreachReferralPlan_(...)` | **Which rows to add.** Round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first fourteen employers fill six days while the two-hundredth waited a quarter of a year. |
+| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, puts same-day applications first, then runs round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first fourteen employers fill six days while the two-hundredth waited a quarter of a year. |
 | `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. |
 | `outreachReferralReplan_(rows, today, roomOn)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Ticked rows first, then the rest; each half interleaved by company. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
 | `outreachReferralDueNow_(rows, now, queueRows)` | Rows whose hour has come, `Drafted` and due, priority ahead of the clock. |

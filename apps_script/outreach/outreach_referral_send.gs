@@ -71,6 +71,10 @@ function outreachReferralRowValues_(item) {
   // read it first — needed both hours to be visible at once. Status is what says
   // whether the draft exists yet; this says when it is due.
   row[R_DRAFTED_AT - 1] = outreachReferralDraftHour_(item.scheduled);
+  // A same-day application is urgent by definition. Persisting the Priority
+  // tick makes that reason visible and lets the normal replan keep this ask
+  // ahead of ordinary queued rows.
+  row[R_PRIORITY - 1] = item.priority === true;
   row[R_STATUS - 1] = STATUS_QUEUED;
   row[R_ID - 1] = 'R-' + item.person.email;
   row[R_VERSION - 1] = 1;
@@ -209,9 +213,19 @@ function planReferralAsks() {
     // a dozen rows in a run is a dozen round trips, and a run interrupted in the
     // middle of them leaves rows whose neighbours were never written.
     var referralLast = referral.getLastRow();
+    var reprioritized = 0;
     if (plan.booked.length) {
       var values = plan.booked.map(outreachReferralRowValues_);
       referral.getRange(referralLast + 1, 1, values.length, R_WIDTH).setValues(values);
+      // A script write does not invoke the installable onEdit handler. Reproject
+      // here when a just-applied role was automatically marked Priority, or it
+      // would visibly carry the tick but wait for the next hourly cycle before
+      // it could displace ordinary Queued rows. Drafted and Sent rows remain
+      // fixed; only undrafted queue bookings can give up a slot.
+      if (plan.booked.some(function (item) { return item.priority; })) {
+        reprioritized = outreachApplyReferralTimes_(
+          tracker, referral, outreachReadReferralRows_(referral));
+      }
       // Appended rows land at the bottom whatever hour they hold, so the table is
       // out of order the moment this writes. Refiling here rather than waiting for
       // the end of the cycle is what lets this function be run on its own and
@@ -221,7 +235,7 @@ function planReferralAsks() {
 
     Logger.log('referral asks booked ' + plan.booked.length + ', already written to '
              + plan.skipped + '.');
-    return { booked: plan.booked.length, skipped: plan.skipped };
+    return { booked: plan.booked.length, skipped: plan.skipped, reprioritized: reprioritized };
   } finally {
     lock.releaseLock();
   }

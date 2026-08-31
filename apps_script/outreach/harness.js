@@ -3506,17 +3506,54 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   const GH = 'https://boards.greenhouse.io/stripe/jobs/';
   const jobRow = (company, role, link) => {
     const row = new Array(S.APP_READ_WIDTH).fill('');
+    // Existing queue tests concern scheduling, so their fixture is an already
+    // admitted top-ranked application made yesterday rather than an unqualified
+    // blank-date row.
+    row[S.APP_PROPERTY - 1] = 1;
     row[S.APP_COMPANY - 1] = company;
     row[S.APP_ROLE - 1] = role;
     row[S.APP_LINK - 1] = link;
+    row[S.APP_DATE_APPLIED - 1] = new Date(2026, 7, 27, 7, 0, 0);
     row[S.APP_PROCESS - 1] = 'Applied';
     return S.outreachParseApplication_(row, 2, () => 'stripe.com');
   };
   const TODAY = new Date(2026, 7, 28, 7, 0, 0);
   const summerJob = [jobRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')];
 
+  run('new referral rows are limited to recent apps or non-quant top companies', () => {
+    const base = summerJob[0];
+    const old = new Date(2026, 7, 20, 7, 0, 0);
+    const atSevenDays = new Date(2026, 7, 21, 7, 0, 0);
+    assert.ok(S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 71, dateApplied: old }), TODAY).eligible === false);
+    assert.ok(S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 70, dateApplied: old }), TODAY).eligible);
+    assert.ok(S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 71, dateApplied: atSevenDays }), TODAY).eligible);
+    const hot = S.outreachReferralAdmission_(
+      Object.assign({}, base, { property: 71, dateApplied: TODAY }), TODAY);
+    assert.ok(hot.eligible && hot.priority);
+  });
+
+  run('quant firms are excluded even when an application was made today', () => {
+    const blocked = Object.assign({}, summerJob[0], {
+      company: 'Chicago Trading Company (CTC)', property: 5, dateApplied: TODAY
+    });
+    assert.ok(S.outreachReferralIsQuantFirm_(blocked.company));
+    assert.strictEqual(S.outreachReferralAdmission_(blocked, TODAY).eligible, false);
+  });
+
   const sixPeople = () => ['a', 'b', 'c', 'd', 'e', 'f', 'g']
     .map((letter) => person(letter.toUpperCase(), letter + '@stripe.com'));
+
+  run('a same-day application persists its automatic Priority tick', () => {
+    const hot = Object.assign({}, summerJob[0], { property: 101, dateApplied: TODAY });
+    const booked = S.outreachReferralPlan_([hot], [], sixPeople(), TODAY).booked;
+    assert.ok(booked.length > 0);
+    assert.ok(booked.every((one) => one.priority));
+    const row = S.outreachReferralRowValues_(booked[0]);
+    assert.strictEqual(row[S.R_PRIORITY - 1], true);
+  });
 
   run('six people at one employer, and never a seventh', () => {
     const plan = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY);
@@ -3790,9 +3827,11 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   };
   const jobsRow = (company, role, link) => {
     const row = new Array(S.APP_READ_WIDTH).fill('');
+    row[S.APP_PROPERTY - 1] = 1;
     row[S.APP_COMPANY - 1] = company;
     row[S.APP_ROLE - 1] = role;
     row[S.APP_LINK - 1] = link;
+    row[S.APP_DATE_APPLIED - 1] = new Date(Date.now() - 24 * 3600 * 1000);
     row[S.APP_PROCESS - 1] = 'Applied';
     return row;
   };
@@ -4188,9 +4227,11 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const GH = 'https://boards.greenhouse.io/x/jobs/';
     const jobRow = (company, link) => {
       const row = new Array(S.APP_READ_WIDTH).fill('');
+      row[S.APP_PROPERTY - 1] = 1;
       row[S.APP_COMPANY - 1] = company;
       row[S.APP_ROLE - 1] = 'Software Engineer Intern, Summer 2027';
       row[S.APP_LINK - 1] = link;
+      row[S.APP_DATE_APPLIED - 1] = new Date(2026, 7, 27, 7, 0, 0);
       row[S.APP_PROCESS - 1] = 'Applied';
       return S.outreachParseApplication_(row, 2, () => '');
     };

@@ -330,6 +330,7 @@ function outreachParseApplication_(row, index, domainFor) {
            : (outreachReferralLinkOk_(applied, domain, company) ? applied : '');
   return {
     index: index,
+    property: Number(outreachCell_(row, APP_PROPERTY)) || 0,
     company: company,
     role: outreachCell_(row, APP_ROLE),
     dateApplied: outreachDate_(row[APP_DATE_APPLIED - 1]),
@@ -339,6 +340,39 @@ function outreachParseApplication_(row, index, domainFor) {
     link: link,
     domain: domain
   };
+}
+
+/** Whether this employer is intentionally outside the referral campaign. */
+function outreachReferralIsQuantFirm_(company) {
+  var tokens = outreachCompanyTokens_(company);
+  if (!tokens.length) return false;
+  return REFERRAL_QUANT_COMPANIES.some(function (name) {
+    return outreachSameEmployer_(tokens, outreachCompanyTokens_(name));
+  });
+}
+
+/**
+ * The admission rule for a new Referral row.
+ *
+ * Existing rows are deliberately not passed through this gate. A queued or
+ * drafted ask is already a commitment with a scheduled hour (and perhaps a
+ * Gmail draft); changing eligibility must never silently withdraw it.
+ */
+function outreachReferralAdmission_(application, today) {
+  if (outreachReferralIsQuantFirm_(application.company)) {
+    return { eligible: false, priority: false, reason: 'quant' };
+  }
+  var applied = application.dateApplied;
+  var days = applied ? outreachDaysBetween_(outreachMidnight_(applied),
+                                            outreachMidnight_(today)) : Infinity;
+  if (days >= 0 && days <= REFERRAL_RECENT_APPLICATION_DAYS) {
+    return { eligible: true, priority: days === 0, reason: 'recent', days: days };
+  }
+  if (application.property > 0
+      && application.property <= REFERRAL_TOP_COMPANY_PROPERTY_MAX) {
+    return { eligible: true, priority: false, reason: 'top-company', days: days };
+  }
+  return { eligible: false, priority: false, reason: 'stale-or-outside-top', days: days };
 }
 
 /**
@@ -624,9 +658,11 @@ function outreachReferralSlot_(company, today, load, roomOn, priority) {
  * for where a decision has already been made. Thirty nine employers clear that
  * bar on the live tab against two under the old rule.
  *
- * There is still no waiting period. A referral attached the day after applying is
- * worth more than one attached a fortnight later, because the file is still near
- * the top of somebody's queue.
+ * New rows have a short admission window instead of an unbounded backlog: an
+ * application stays eligible for seven days, unless its non-quant employer is
+ * in the existing top-70 Property ranks. A same-day application is Priority,
+ * because the file is closest to the top of somebody's queue then. The gate is
+ * new-row-only; it does not withdraw an ask already in the pipeline.
  */
 function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) {
   var asked = outreachReferralAsked_(referralRows);
@@ -675,7 +711,13 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
 
   var plans = [];
   openFirst.forEach(function (key) {
-    var job = outreachPickReferralRole_(byCompany[key]);
+    // The admission gate comes before choosing a role. If an employer has one
+    // fresh app and one stale low-priority app, the stale one must not win merely
+    // because it happens to be newer than another row in the group.
+    var admitted = byCompany[key].filter(function (one) {
+      return outreachReferralAdmission_(one, today).eligible;
+    });
+    var job = outreachPickReferralRole_(admitted);
     if (!job) return;
     if (replied[outreachReferralGroupKey_(job.company, job.role, -1)]) return;
 
@@ -685,8 +727,21 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
     var spent = outreachReferralSpent_(referralRows, job.company);
     if (REFERRAL_PER_COMPANY - spent <= 0) return;
 
+    var admission = outreachReferralAdmission_(job, today);
     plans.push({ job: job, people: people, at: 0, taken: 0,
-                 spent: spent, room: REFERRAL_PER_COMPANY - spent });
+                 spent: spent, room: REFERRAL_PER_COMPANY - spent,
+                 priority: admission.priority, days: admission.days,
+                 property: job.property, order: plans.length });
+  });
+
+  // An application submitted today is automatically the same class of urgent
+  // ask as a person ticking Priority on the Referral tab. Everything else keeps
+  // its established open-first/App-tab order, rather than a policy addition
+  // silently reshuffling a long-standing pipeline.
+  plans.sort(function (left, right) {
+    var lifted = (right.priority ? 1 : 0) - (left.priority ? 1 : 0);
+    if (lifted) return lifted;
+    return left.order - right.order;
   });
 
   // Round by round rather than company by company, and this is the change that
@@ -731,7 +786,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
       if (plan.at >= plan.people.length) { plan.room = 0; return; }
       var person = plan.people[plan.at];
 
-      var slot = outreachReferralSlot_(plan.job.company, today, load, roomOn);
+      var slot = outreachReferralSlot_(plan.job.company, today, load, roomOn, plan.priority);
       if (!slot) return;
 
       var attempt = plan.spent + plan.taken + 1;
@@ -743,7 +798,8 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
         tier: outreachReferralTier_(person.title, person.seniority),
         template: outreachReferralIndex_(plan.job.company, attempt) + 1,
         attempt: attempt,
-        scheduled: slot
+        scheduled: slot,
+        priority: plan.priority
       });
       asked[person.email] = true;
       plan.at++;
