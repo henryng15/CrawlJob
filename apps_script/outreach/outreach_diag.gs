@@ -12,7 +12,16 @@ function pingOutreach() {
 
 function diagnoseOutreachAccess() {
   var props = PropertiesService.getScriptProperties();
-  var out = { runningAs: '', ids: {}, open: {}, triggers: [] };
+  var out = { runningAs: '', ids: {}, open: {}, triggers: [], modes: {} };
+
+  // These are operational switches, not credentials. A queue can be perfectly
+  // healthy yet intentionally held in Draft mode, so diagnosing delivery without
+  // reporting them leaves the decisive distinction invisible.
+  out.modes = {
+    outreach: props.getProperty(PROP_MODE) || MODE_SEND,
+    referral: props.getProperty(PROP_REFERRAL_MODE) || MODE_SEND,
+    followUp: props.getProperty(PROP_FOLLOWUP_MODE) || MODE_SEND
+  };
 
   try { out.runningAs = Session.getEffectiveUser().getEmail(); }
   catch (error) { out.runningAs = 'unknown: ' + String(error.message || error); }
