@@ -158,9 +158,17 @@ function sendPreparedDrafts() {
        .map(outreachParseApp_).forEach(function (row) { byProperty[row.property] = row; });
   }
 
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  var referralRows = referral && referral.getLastRow() > 1
+    ? outreachReadReferralRows_(referral) : [];
+
   var tally = { sent: 0, cancelled: 0, failed: 0, retired: 0 };
 
-  outreachDraftsToSend_(rows, now, globalMode).forEach(function (row) {
+  // Do not let a cold draft created before Referral was planned consume its
+  // reserved room. Referral is sent first, and any remaining cold/follow-up
+  // capacity is coordinated by the shared budget on their next firing.
+  var coldRoom = outreachBudgetRoom_(rows, referralRows, now, 'cold');
+  outreachDraftsToSend_(rows, now, globalMode).slice(0, coldRoom).forEach(function (row) {
     var updates = {};
 
     var check = outreachStillQualifies_(byProperty[row.property]);
@@ -256,6 +264,9 @@ function prepareOutreachDrafts() {
     var queueLast = queue.getLastRow();
     if (queueLast < 2) { Logger.log('Queue is empty.'); return { drafted: 0 }; }
     var queueRows = queue.getRange(2, 1, queueLast - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    var referralRows = referral && referral.getLastRow() > 1
+      ? outreachReadReferralRows_(referral) : [];
 
     var now = new Date();
     // The last firing of the day only sends; anything written then would have no
@@ -264,7 +275,10 @@ function prepareOutreachDrafts() {
       Logger.log('Last firing of the day: sending only, nothing new written.');
       return { drafted: 0 };
     }
-    var due = outreachDueNow_(queueRows, now);
+    // Referral owns the first twenty mailbox slots. Passing its rows here lets
+    // the shared budget reserve those already-booked asks before cold drafting
+    // uses the remainder.
+    var due = outreachDueNow_(queueRows, now, referralRows);
     if (!due.length) { Logger.log('Nothing due this firing.'); return { drafted: 0 }; }
 
     var contacts = outreachReadContacts_(contactsBook);

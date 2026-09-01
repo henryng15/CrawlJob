@@ -227,12 +227,18 @@ function planReferralAsks() {
         plan.booked.forEach(function (item) {
           if (item.priority) freshPriority[item.person.email.toLowerCase()] = true;
         });
+        var currentReferralRows = outreachReadReferralRows_(referral);
+        var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(
+          currentReferralRows, appRows, new Date());
         var fastPriorityIndexes = {};
-        outreachReadReferralRows_(referral).forEach(function (row) {
-          if (freshPriority[String(row.email || '').toLowerCase()]) fastPriorityIndexes[row.index] = true;
+        currentReferralRows.forEach(function (row) {
+          if (freshPriority[String(row.email || '').toLowerCase()]) {
+            fastPriorityIndexes[row.index] = true;
+          }
         });
         reprioritized = outreachApplyReferralTimes_(
-          tracker, referral, outreachReadReferralRows_(referral), fastPriorityIndexes);
+          tracker, referral, currentReferralRows, fastPriorityIndexes,
+          automaticPriorityDays);
       }
       // Appended rows land at the bottom whatever hour they hold, so the table is
       // out of order the moment this writes. Refiling here rather than waiting for
@@ -524,8 +530,8 @@ function refreshReferralDraftsForTemplateChange() {
  * column and nothing else, and a safety switch that fails open is worse than no
  * switch because it is believed.
  */
-function outreachReferralToSend_(referralRows, now, globalMode, queueRows) {
-  return outreachReferralDueNow_(referralRows, now, queueRows)
+function outreachReferralToSend_(referralRows, now, globalMode, queueRows, priorityDaysByIndex) {
+  return outreachReferralDueNow_(referralRows, now, queueRows, priorityDaysByIndex)
     .filter(function (row) {
       return outreachModeFor_(row.mode, globalMode) !== MODE_DRAFT;
     });
@@ -568,6 +574,10 @@ function sendReferralAsks() {
   if (!apps) throw new Error('No ' + TAB_APP + ' tab; Referral sending is held.');
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var queueRows = queue && queue.getLastRow() > 1
+    ? queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+        .map(function (row, index) { return outreachParseQueue_(row, index + 2); }) : [];
 
   var last = referral.getLastRow();
   if (last < 2) return { sent: 0, cancelled: 0, failed: 0 };
@@ -581,7 +591,8 @@ function sendReferralAsks() {
   }
   var applications = apps.getRange(2, 1, appLast - 1, APP_READ_WIDTH).getValues()
     .map(function (row, index) { return outreachParseApplication_(row, index + 2); });
-  var due = outreachReferralToSend_(rows, now, globalMode);
+  var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(rows, applications, now);
+  var due = outreachReferralToSend_(rows, now, globalMode, queueRows, automaticPriorityDays);
   if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: 0, failed: 0 }; }
 
   var tally = { sent: 0, cancelled: 0, failed: 0 };
@@ -782,7 +793,8 @@ function outreachApplyReferralCancels_(referral, rows) {
  * hourly run then undoes — the tab moving twice for one decision, which reads as
  * the queue being unstable rather than as two systems disagreeing.
  */
-function outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes) {
+function outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes,
+                                     priorityDaysByIndex) {
   var queue = tracker.getSheetByName(TAB_QUEUE);
   var queueRows = [];
   if (queue && queue.getLastRow() > 1) {
@@ -791,7 +803,8 @@ function outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexe
   }
 
   var moved = outreachReferralReplan_(rows, new Date(),
-                                      outreachReferralRoomOn_(queueRows, rows), fastPriorityIndexes);
+                                      outreachReferralRoomOn_(queueRows, rows), fastPriorityIndexes,
+                                      priorityDaysByIndex);
   moved.forEach(function (change) {
     var updates = {};
     updates[R_SCHEDULED] = change.scheduled;
@@ -1100,6 +1113,8 @@ function replanReferralAsks() {
     // A queued ask that predates a same-day/yesterday application must not miss
     // the fast lane merely because no new row needs appending. Drafted and Sent
     // rows remain fixed inside outreachReferralAutomaticPriorities_.
+    var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(
+      rows, applications, new Date());
     var fastPriorityIndexes = {};
     outreachReferralAutomaticPriorities_(rows, applications, new Date()).forEach(function (index) {
       var updates = {};
@@ -1147,7 +1162,8 @@ function replanReferralAsks() {
     });
   }
 
-  tally.moved = outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes);
+  tally.moved = outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexes,
+                                            automaticPriorityDays);
   // The hours on this tab have just changed, and the tab is filed by those hours.
   // Refiling here rather than only at the end of the cycle is what makes this
   // function complete on its own: run by hand it used to leave the table in the

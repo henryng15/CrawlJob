@@ -51,7 +51,7 @@ leaves behind.** That is why there are two stamps rather than one — see
 
 | Function | Does |
 |---|---|
-| `prepareOutreachDrafts()` | Write the next hour's emails into Drafts, addressed and complete. |
+| `prepareOutreachDrafts()` | Write the next hour's emails into Drafts, addressed and complete. It passes the Referral rows into the shared budget so the Referral allocation is reserved before cold drafting uses the remainder. |
 | `outreachDraftsToSend_(rows, now)` | The drafts whose hour has come. |
 | `sendPreparedDrafts()` | Send what was written an hour ago. **Re-reads `App` for every draft**, so a rejection recorded by any route still stops it. |
 | `outreachSendHourAfter_(now)` | The hour a draft written now leaves in — the top of it, not the minute. |

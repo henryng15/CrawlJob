@@ -3,8 +3,11 @@
 Decides which applications are worth asking a favour about, who to ask, on what day and at what
 hour, and in what order. A **new** row is admitted only for a non-quant employer whose application
 is at most seven calendar days old or whose `App!Property` rank is in the top 70. An application
-made today or yesterday is marked `Priority`; the overall mailbox cap still applies. Existing Referral rows are
-never removed by this admission rule — a drafted or queued row remains in its established pipeline.
+made today or yesterday is marked `Priority`; **today is ordered before yesterday**, and the
+overall mailbox cap still applies. Referral is planned before the other paths and reserves up to
+its full 20-message daily allowance; Email and Reply coordinate over the remainder. Existing
+Referral rows are never removed by this admission rule — a drafted or queued row remains in its
+established pipeline.
 Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach-referral-send.md).
 
 ## Connections
@@ -39,6 +42,7 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 | `outreachReferralIsQuantFirm_(company)` | Whether the company matches the maintained quant-firm exclusion list. |
 | `outreachReferralAdmission_(app, today)` | The new-row gate: rejects quant firms, admits a ≤7-day application or a non-quant top-70 `Property` company, and marks applications from today or yesterday as automatic `Priority`. Does not alter existing Referral rows. |
 | `outreachReferralAutomaticPriorities_(rows, apps, today)` | Finds existing **Queued** Referral rows at an employer with a today/yesterday application so the sender can persist Priority before re-timing. Drafted and Sent rows remain fixed. |
+| `outreachReferralAutomaticPriorityDays_(rows, apps, today)` | Maps queued automatic-Priority rows to application age (`0` today, `1` yesterday), so an existing queue is re-timed in fresh-application order rather than by its old scheduled hour. |
 | `outreachPickReferralRole_(apps)` | Which of a company's applications to ask about. |
 
 ## People
@@ -59,10 +63,10 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 | `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total, per employer, by occupied hour and by exact timestamp for the Priority fast lane. |
 | `outreachReferralPriorityGapMinutes_(...)` / `outreachReferralPrioritySlot_(...)` | Stable 10–20 minute jitter and the Priority slot finder. It uses the next two hours, avoids any Referral already within ten minutes, and returns no fast slot rather than bursting. |
 | `outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority)` | **The first slot this person can have.** A newly automatic Priority row first tries the two-hour fast lane, including a weekend or after the normal cutoff; otherwise it walks forward a day at a time, skipping weekends, checking the day's mailbox room, Referral cap and per-employer cap. Priority remains first in the normal queue after that one fast-lane pass, so an overloaded burst stays stable rather than re-timing hourly. At 20/day six ordinary hours may take two asks; no hour takes more than two. |
-| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, puts today/yesterday applications first, then runs round-robin: the outer loop is the attempt number, the inner loop the companies, so every employer gets its first ask before any gets its second. Company-by-company made the first employers fill multiple days while the two-hundredth waited a quarter of a year. |
-| `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. |
-| `outreachReferralReplan_(rows, today, roomOn, fastPriorityIndexes)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Ticked rows first, then the rest; each half interleaved by company. `fastPriorityIndexes` is a one-run map for applications just recognised as today/yesterday Priority; only those rows use the two-hour lane. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
-| `outreachReferralDueNow_(rows, now, queueRows)` | Rows whose hour has come, `Drafted` and due, priority ahead of the clock. |
+| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, orders today's applications first, yesterday's second, then older eligible work, and runs round-robin within each group. |
+| `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. Referral's 20 slots are considered before lower paths; unused Referral room can still be used by Email and Reply. |
+| `outreachReferralReplan_(rows, today, roomOn, fastPriorityIndexes, priorityDaysByIndex)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Manual Priority first, then automatic Priority applications from today and yesterday in that order, then the rest; each half is interleaved by company. `fastPriorityIndexes` is a one-run map for applications just recognised as today/yesterday Priority; only those rows use the two-hour lane. `priorityDaysByIndex` keeps already queued automatic rows in fresh-application order even when their old hours disagree. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
+| `outreachReferralDueNow_(rows, now, queueRows, priorityDaysByIndex)` | Rows whose hour has come, `Drafted` and due, priority ahead of the clock; automatic Priority due today is selected before yesterday when a firing has limited room. |
 | `outreachReferralAbandoned_(rows)` | Rows whose Gmail draft now points at a message nobody wants sent. |
 
 ## Groups — a tick moves the whole ask

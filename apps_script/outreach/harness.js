@@ -3649,6 +3649,22 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(row[S.R_PRIORITY - 1], true);
   });
 
+  run('today applications lead yesterday applications before the older queue', () => {
+    const jobs = [
+      Object.assign({}, summerJob[0], { company: 'Yesterday Co', dateApplied: new Date(2026, 7, 27, 7), property: 101 }),
+      Object.assign({}, summerJob[0], { company: 'Older Co', dateApplied: new Date(2026, 7, 26, 7), property: 101 }),
+      Object.assign({}, summerJob[0], { company: 'Today Co', dateApplied: TODAY, property: 101 })
+    ];
+    const people = jobs.map((job) => ({
+      company: job.company, tokens: S.outreachCompanyTokens_(job.company),
+      name: 'P', email: 'p@' + job.company.toLowerCase().replace(/ /g, '') + '.com',
+      title: 'Software Engineer', domain: '', seniority: '', angle: '', bucket: ''
+    }));
+    const booked = S.outreachReferralPlan_(jobs, [], people, TODAY).booked;
+    assert.strictEqual(booked.slice(0, 3).map((one) => one.company).join(','),
+                       'Today Co,Yesterday Co,Older Co');
+  });
+
   run('a queued existing ask is promoted when its company has a today/yesterday application', () => {
     const hot = Object.assign({}, summerJob[0], { dateApplied: TODAY, property: 101 });
     const yesterday = Object.assign({}, summerJob[0], {
@@ -3661,6 +3677,21 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       { index: 5, company: 'Stripe', status: S.STATUS_QUEUED, cancel: false, priority: true }
     ];
     assert.strictEqual(S.outreachReferralAutomaticPriorities_(rows, [hot, yesterday], TODAY).join(','), '2,3');
+  });
+
+  run('an existing today ask is re-timed ahead of yesterday before older asks', () => {
+    const now = new Date(2026, 7, 28, 8, 0, 0);
+    const rows = [
+      { index: 2, company: 'Yesterday Co', role: 'Engineer', status: S.STATUS_QUEUED,
+        cancel: false, priority: true, scheduled: new Date(2026, 7, 31, 9), draftedAt: new Date(2026, 7, 31, 8) },
+      { index: 3, company: 'Today Co', role: 'Engineer', status: S.STATUS_QUEUED,
+        cancel: false, priority: true, scheduled: new Date(2026, 8, 1, 9), draftedAt: new Date(2026, 8, 1, 8) },
+      { index: 4, company: 'Older Co', role: 'Engineer', status: S.STATUS_QUEUED,
+        cancel: false, priority: false, scheduled: new Date(2026, 8, 2, 9), draftedAt: new Date(2026, 8, 2, 8) }
+    ];
+    const moved = S.outreachReferralReplan_(
+      rows, now, () => 20, {}, { 2: 1, 3: 0 });
+    assert.strictEqual(moved.map((one) => one.index).join(','), '3,2,4');
   });
 
   run('a Priority group is paced inside two hours at ten to twenty minute gaps', () => {
@@ -3895,6 +3926,22 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     ['Sent', 'Queued', 'Cancelled', 'Failed', 'Replied'].forEach((state) => {
       assert.strictEqual(S.outreachReferralDueNow_([row(9, state)], at(14)).length, 0, state);
     });
+  });
+
+  run('due Referral capacity selects today before yesterday when the mailbox is tight', () => {
+    const at = (hour) => new Date(2026, 7, 28, hour, 0, 0);
+    const yesterday = refRow('Yesterday Co', 'yesterday@example.com', at(9), 'Drafted');
+    const today = refRow('Today Co', 'today@example.com', at(10), 'Drafted');
+    yesterday.index = 2;
+    today.index = 3;
+    yesterday.priority = true;
+    today.priority = true;
+    yesterday.jobLink = GH + 'yesterday';
+    today.jobLink = GH + 'today';
+    const coldAlreadySpent = Array.from({ length: 44 }, () => ({ sentAt: at(8) }));
+    const due = S.outreachReferralDueNow_(
+      [yesterday, today], at(14), coldAlreadySpent, { 2: 1, 3: 0 });
+    assert.deepStrictEqual(due.map((one) => one.index), [3]);
   });
 
   run('a row with no link or no address is never due, whatever its hour says', () => {
@@ -4537,6 +4584,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
         status: 'Queued', rowNumber: i + 2, scheduled: TUE,
         email: 'person' + i + '@example.com', jobLink: 'https://example.com/job'
       }));
+      assert.strictEqual(S.outreachBudgetRoom_(pendingCold, pendingReferral, TUE, 'cold'), 27);
+      assert.strictEqual(S.outreachBudgetRoom_(pendingCold, pendingReferral, TUE, 'referral'),
+                         S.REFERRAL_DAILY_CAP);
       assert.strictEqual(S.outreachBudgetRoom_(pendingCold, pendingReferral, TUE, 'followup'), 0);
     } finally {
       S.DAILY_CAP[2] = saved;

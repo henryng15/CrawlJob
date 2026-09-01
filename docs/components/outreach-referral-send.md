@@ -32,7 +32,7 @@ could have been read always exists.
 | `outreachReferralToDraft_(rows, now)` | Rows whose message should exist by now. |
 | `draftReferralAsks()` | Write them into Drafts, addressed and complete. Sets `STATUS_DRAFTED`. |
 | `refreshReferralDraftsForTemplateChange()` | Run after an approved wording change: delete every unsent referral draft, return its row to `Queued`, and leave its scheduled hour intact so the next draft pass recreates it from the current template. |
-| `outreachReferralToSend_(rows, now)` | The drafted rows whose hour has arrived. |
+| `outreachReferralToSend_(rows, now, globalMode, queueRows, priorityDaysByIndex)` | The drafted rows whose hour has arrived, after the shared budget and today/yesterday Priority ordering are applied. |
 | `sendReferralAsks()` | Re-read `App` and send the asks still in Drafts when their hour comes. A row whose application is now `Rejected` has its draft deleted and is cancelled before Gmail is touched. |
 | `scanReferralReplies()` | Mark the asks that have been answered. |
 | `repairMisreadReferralBounces()` | Run by hand: undo a bounce recorded as a reply. |
@@ -42,7 +42,7 @@ could have been read always exists.
 | Function | Does |
 |---|---|
 | `outreachApplyReferralCancels_(sheet, rows)` | Settle every `Cancel` tick, expanded to whole asks. |
-| `outreachApplyReferralTimes_(tracker, sheet, rows, fastPriorityIndexes)` | **Re-time everything still queued** against what the whole mailbox has left. Passes the one-run newly-promoted Priority map to `outreachReferralReplan_`, then writes each move with `outreachWriteRow_`. |
+| `outreachApplyReferralTimes_(tracker, sheet, rows, fastPriorityIndexes, priorityDaysByIndex)` | **Re-time everything still queued** against what the whole mailbox has left. Passes the one-run newly-promoted Priority map and today/yesterday application-age map to `outreachReferralReplan_`, then writes each move with `outreachWriteRow_`. |
 | `settleReferralTab_(tracker)` | Everything a tick means, done at once: cancel → re-time → refile. Sheet-only, so it is quick enough to hang off a keystroke. |
 | `replanReferralAsks()` | The hourly version: cancels, discards orphaned drafts, promotes eligible existing `Queued` rows for today/yesterday applications, repoints rows onto newer applications, retires rows nothing qualifies for, re-times, refiles. |
 | `sortReferralTab()` | Run by hand: file the tab in time order. |

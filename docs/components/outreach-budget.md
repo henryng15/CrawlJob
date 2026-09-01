@@ -11,22 +11,23 @@ each may have.
 
 ## The rule
 
-`EMAIL_PATH_ORDER = ['referral', 'cold', 'followup']` — a path gets first refusal when the
-budget is tight. A higher-priority path reserves only the allowance it has real queued work
-for on that day; an idle path does not strand its allowance.
+`EMAIL_PATH_ORDER = ['referral', 'cold', 'followup']` — Referral gets first refusal when the
+budget is tight. Its queued work reserves up to the full **20-message Referral allowance**;
+cold email and follow-up then coordinate over the remaining mailbox room. If fewer than 20
+Referral rows can use the day, the unused room remains available to the lower paths.
 
 - Referral goes first because it is the scarcest: six people per employer, no second attempt
   ever, so an ask that loses its place is one of six chances spent on nothing.
 - Follow-up goes last because it is the only path that loses nothing by slipping a day — the
   message it chases has already landed, and its window is five to ten days wide.
 - The reservation matters because the cold path runs on an hourly trigger that has been firing
-  for weeks. It protects actual Referral/cold work from a lower path that fires first, while
-  allowing follow-ups to use capacity that the higher paths cannot use.
+  for weeks. It protects today's Referral allocation from a lower path that fires first, while
+  allowing Email and Reply to self-coordinate over whatever remains.
 
 Individual path caps intentionally may sum to more than `DAILY_EMAIL_BUDGET`: a Tuesday can be
-27 cold + 20 Referral + 6 follow-up = 53 against the hard 47-message budget. Referral and
-cold reserve only their pending work, so follow-up defers when those slots are needed and uses
-otherwise idle room; the mailbox never exceeds 47.
+27 cold + 20 Referral + 6 follow-up = 53 against the hard 47-message budget. Referral reserves
+its pending capacity first, cold receives the remaining room, and follow-up yields last; the
+mailbox never exceeds 47 under the normal planner.
 
 ## Functions
 

@@ -387,16 +387,41 @@ function outreachReferralAdmission_(application, today) {
  * row indexes; the sender owns the actual sheet writes.
  */
 function outreachReferralAutomaticPriorities_(referralRows, applications, today) {
-  var hot = {};
-  applications.forEach(function (application) {
-    if (application.company && outreachReferralAdmission_(application, today).priority) {
-      hot[outreachNameKey_(application.company)] = true;
-    }
-  });
+  var priorityDaysByIndex = outreachReferralAutomaticPriorityDays_(
+    referralRows, applications, today);
   return referralRows.filter(function (row) {
     return row.status === STATUS_QUEUED && !row.cancel && !row.priority
-      && hot[outreachNameKey_(row.company)];
+      && priorityDaysByIndex[row.index] !== undefined;
   }).map(function (row) { return row.index; });
+}
+
+/**
+ * The application age behind each queued automatic Priority row.
+ *
+ * Priority is a class, but freshness is the order inside that class: today is
+ * zero days old and yesterday is one. Keeping the age by Referral row lets a
+ * re-plan fix an already queued yesterday/today pair too; looking only at the
+ * Priority checkbox would leave whichever row happened to be scheduled first
+ * in front forever.
+ */
+function outreachReferralAutomaticPriorityDays_(referralRows, applications, today) {
+  var hot = {};
+  (applications || []).forEach(function (application) {
+    if (!application.company) return;
+    var admission = outreachReferralAdmission_(application, today);
+    if (!admission.priority || typeof admission.days !== 'number'
+        || !isFinite(admission.days)) return;
+    var key = outreachNameKey_(application.company);
+    if (hot[key] === undefined || admission.days < hot[key]) hot[key] = admission.days;
+  });
+
+  var priorityDaysByIndex = {};
+  (referralRows || []).forEach(function (row) {
+    if (row.status !== STATUS_QUEUED || row.cancel) return;
+    var days = hot[outreachNameKey_(row.company)];
+    if (days !== undefined) priorityDaysByIndex[row.index] = days;
+  });
+  return priorityDaysByIndex;
 }
 
 /**
@@ -859,6 +884,13 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
   plans.sort(function (left, right) {
     var lifted = (right.priority ? 1 : 0) - (left.priority ? 1 : 0);
     if (lifted) return lifted;
+    // Freshness is the next decision: an application made today must be offered
+    // before one made yesterday. Both are Priority, but treating them as one
+    // bucket lets the order of the App tab decide which fresh application gets
+    // the first slot. Older applications keep the established queue order.
+    if (left.priority && right.priority && left.days !== right.days) {
+      return left.days - right.days;
+    }
     return left.order - right.order;
   });
 
@@ -950,13 +982,14 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
  * rows dated today is six people spread across eleven hours, and a day comparison
  * would send all six at whichever firing first noticed the date.
  */
-function outreachReferralDueNow_(referralRows, now, queueRows) {
+function outreachReferralDueNow_(referralRows, now, queueRows, priorityDaysByIndex) {
   // First in EMAIL_PATH_ORDER, so nothing is held back ahead of this one and the
   // only limit is the budget itself. It is still checked: three paths sharing one
   // mailbox means even the path that goes first can find the day already spent,
   // on a morning the cold path was catching up from downtime.
   var room = outreachBudgetRoom_(queueRows, referralRows, now, 'referral');
   if (room <= 0) return [];
+  priorityDaysByIndex = priorityDaysByIndex || {};
   return referralRows.filter(function (row) {
     // Drafted, not Queued. A row waiting to be sent has already been written and
     // has sat its hour in Drafts; Queued is the state before any of that. This
@@ -965,10 +998,15 @@ function outreachReferralDueNow_(referralRows, now, queueRows) {
     return row.status === STATUS_DRAFTED && row.scheduled && row.scheduled <= now
         && row.email && row.jobLink;
   }).sort(function (left, right) {
-    // Priority ahead of the clock. Two rows both overdue after a quiet weekend go
-    // in the order somebody asked for, not the order they happened to be booked.
-    var lifted = (right.priority ? 1 : 0) - (left.priority ? 1 : 0);
-    if (lifted) return lifted;
+    // Priority ahead of the clock. Within automatic Priority, today then
+    // yesterday still wins when both rows are overdue and the budget cannot send
+    // them all in one firing. A manually ticked row keeps the original first
+    // position, just as it does during re-planning.
+    var leftOrder = priorityDaysByIndex[left.index] !== undefined
+      ? priorityDaysByIndex[left.index] : (left.priority ? -1 : Infinity);
+    var rightOrder = priorityDaysByIndex[right.index] !== undefined
+      ? priorityDaysByIndex[right.index] : (right.priority ? -1 : Infinity);
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
     return left.scheduled - right.scheduled;
   }).slice(0, room);
 }
@@ -981,11 +1019,11 @@ function outreachReferralDueNow_(referralRows, now, queueRows) {
  * it has not thought of yet: it walks forward until it finds room, and how far it
  * walks depends on what it has already placed.
  *
- * This is where the three paths meet. outreachBudgetRoom_ subtracts what the cold
- * path and the follow-ups have already spent on that day and holds back nothing
- * for them, because referral leads EMAIL_PATH_ORDER — but it does subtract, so a
- * day the cold path has filled is a day this queue is told to skip rather than a
- * day it books into and discovers at sending time.
+ * This is where the three paths meet. Referral gets its own twenty-message
+ * allowance first. The lower paths receive only the remaining mailbox room after
+ * these rows are booked, so a cold-email trigger cannot consume Referral's slots
+ * just because it happened to run first. If fewer than twenty Referral rows exist,
+ * the unused room remains available to Email and Reply.
  */
 function outreachReferralRoomOn_(queueRows, referralRows) {
   return function (day) {
@@ -1010,8 +1048,10 @@ function outreachReferralRoomOn_(queueRows, referralRows) {
  * Order is preserved: rows are re-placed in the order they were already going out,
  * so a re-plan tightens the queue without reshuffling who is next.
  */
-function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexes) {
+function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexes,
+                                 priorityDaysByIndex) {
   fastPriorityIndexes = fastPriorityIndexes || {};
+  priorityDaysByIndex = priorityDaysByIndex || {};
   var fixed = {};
   // A row whose drafting window has opened is no longer merely a booking to move
   // around. The draft step later in this same cycle must get to act on it first.
@@ -1048,10 +1088,17 @@ function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexe
   // and lifting one of them above the other five would send the ask twice over,
   // days apart, to colleagues who can see each other's mail.
   var urgent = {};
+  var automaticPriorityDays = {};
   referralRows.forEach(function (row) {
+    if (priorityDaysByIndex[row.index] !== undefined) {
+      automaticPriorityDays[row.index] = priorityDaysByIndex[row.index];
+    }
     if (!row.priority) return;
     outreachReferralGroupOf_(referralRows, row).forEach(function (member) {
       urgent[member.index] = true;
+      if (priorityDaysByIndex[row.index] !== undefined) {
+        automaticPriorityDays[member.index] = priorityDaysByIndex[row.index];
+      }
     });
   });
   // Two lines, not one, and the ticked one is served whole before the other is
@@ -1070,7 +1117,22 @@ function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexe
     var b = right.scheduled ? right.scheduled.getTime() : Infinity;
     return a === b ? left.index - right.index : a - b;
   };
-  var ticked = movable.filter(function (row) { return urgent[row.index]; }).sort(byTime);
+  var priorityOrder = function (row) {
+    // A manually ticked row keeps the original Priority meaning and remains
+    // ahead of the automatic fresh-application lane. Within that lane, today
+    // must precede yesterday regardless of the hours the rows had before this
+    // re-plan.
+    if (automaticPriorityDays[row.index] !== undefined) {
+      return automaticPriorityDays[row.index];
+    }
+    return row.priority ? -1 : Infinity;
+  };
+  var byPriorityThenTime = function (left, right) {
+    var a = priorityOrder(left), b = priorityOrder(right);
+    return a === b ? byTime(left, right) : a - b;
+  };
+  var ticked = movable.filter(function (row) { return urgent[row.index]; })
+    .sort(byPriorityThenTime);
   var rest = movable.filter(function (row) { return !urgent[row.index]; }).sort(byTime);
   movable = outreachInterleaveByCompany_(ticked)
     .concat(outreachInterleaveByCompany_(rest));
