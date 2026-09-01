@@ -787,7 +787,8 @@ console.log('the message');
   run('the first bullet introduces a person, by name and by school', () => {
     const first = mail.plain.split('Quick intro:\n')[1].split('\n')[0];
     assert.match(first, /^ {2}- I am Henry Nguyen, a Math and Computer Science student at Kenyon College/);
-    assert.match(first, /class of 2028, 4\.0 GPA/);
+    assert.ok(first.indexOf('class of 2028') === -1);
+    assert.ok(first.indexOf('4.0 GPA') === -1);
   });
   run('the application gets a line of its own', () => {
     const second = mail.plain.split('Quick intro:\n')[1].split('\n')[1];
@@ -2887,12 +2888,10 @@ console.log('follow-up — one reply per row, and only while nobody at the compa
   });
   run('blocked overdue follow-ups are rebooked on the next day with room', () => {
     const dueRows = [booked(2, slot(2026, 8, 27, 8)), booked(3, slot(2026, 8, 27, 10))];
-    const blocked = Array.from({ length: S.outreachPathCap_('cold', at(10)) }, () => ({
-      status: 'Sent', sentAt: at(10), scheduledAt: at(10)
-    })).concat(Array.from({ length: S.REFERRAL_DAILY_CAP }, () => ({
-      status: 'Sent', scheduled: at(10)
-    })));
-    const moved = S.outreachRescheduleBlockedFollowUps_(dueRows.concat(blocked), [], at(15));
+    const alreadySent = Array.from({ length: S.FOLLOWUP_DAILY_CAP }, () => ({
+      followUpStatus: 'Sent', followUpAt: at(10)
+    }));
+    const moved = S.outreachRescheduleBlockedFollowUps_(dueRows.concat(alreadySent), [], at(15));
     assert.strictEqual(moved.length, 2);
     assert.strictEqual(moved[0].rowNumber, 2);
     assert.strictEqual(moved[1].rowNumber, 3);
@@ -2901,7 +2900,7 @@ console.log('follow-up — one reply per row, and only while nobody at the compa
       assert.strictEqual(item.at.getHours() >= S.FOLLOWUP_HOUR_FIRST, true);
       assert.strictEqual(item.at.getHours() <= S.FOLLOWUP_HOUR_LAST, true);
     });
-    assert.strictEqual(S.outreachFollowUpsDueNow_(dueRows.concat(blocked), at(15)).length, 0);
+    assert.strictEqual(S.outreachFollowUpsDueNow_(dueRows.concat(alreadySent), at(15)).length, 0);
   });
   run('a day still ahead is left alone', () => {
     assert.strictEqual(
@@ -4475,7 +4474,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     try {
       // Cold has sent 20 of a raised cap of 40, so its own cap says twenty more.
       // No Referral work is queued, so all of the idle Referral room is usable.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'cold'), 27);
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'cold'), 20);
       // And the referral path finds its whole share waiting for it.
       assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'referral'),
                          S.REFERRAL_DAILY_CAP);
@@ -5230,7 +5229,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     });
     assert.ok(one.plain.indexOf('class of') === -1, one.plain);
     assert.ok(one.plain.indexOf('Kenyon College') !== -1);
-    assert.ok(one.plain.indexOf('4.0 GPA') !== -1);
+    assert.ok(one.plain.indexOf('4.0 GPA') === -1, one.plain);
   });
 }
 

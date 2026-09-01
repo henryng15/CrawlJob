@@ -102,8 +102,7 @@ Subject: {variant subject}
 Hi {first name},
 
 Quick intro:
-  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College
-    (class of 2028, 4.0 GPA).
+  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College.
   • Applied for the {Short Role} role on {date}.
   • {resume bullet}
 
@@ -161,7 +160,7 @@ Constants that never move:
 | Slot | Value |
 |---|---|
 | `SENDER_NAME` | `Henry Nguyen` |
-| `SENDER_STUDY` | `a Math and Computer Science student at **Kenyon College** (class of 2028, 4.0 GPA)` |
+| `SENDER_STUDY` | `a Math and Computer Science student at **Kenyon College**` |
 | `SENDER_LINKS` | `hoanng15.work@gmail.com · linkedin.com/in/hoanng15 · github.com/henryng15` |
 | Sign-off | `Thanks either way,` |
 | Attachment | `Henry_Nguyen_Resume.pdf`, 110 KB, from Drive |
@@ -567,7 +566,7 @@ Hi {first name},
 
 {open}  {company angle, if there is one}
 
-I am Henry Nguyen, a Math and Computer Science student at Kenyon College (4.0 GPA),
+I am Henry Nguyen, a Math and Computer Science student at Kenyon College,
 and I have already applied for the {Short Role} role at {Company}. {applied line}
 
 {lead}
@@ -743,7 +742,7 @@ before they have agreed to be interested.
 | 5 | Referral ask: no network, a few real numbers |
 | 6 | One referral ask from a Kenyon College student |
 | 7 | A small referral ask with a big dream behind it |
-| 8 | Non target, class of 2028, asking about a referral |
+| 8 | Non target student asking about a referral |
 | 9 | Referral ask for {role} |
 | 10 | A long shot referral ask about {company} |
 | 11 | Would you consider a referral at {company}? |
@@ -841,7 +840,7 @@ Hi Priya,
 
 A few lines, and an easy one to ignore.
 
-I am Henry Nguyen, a Math and Computer Science student at Kenyon College (4.0 GPA), and I have already applied for the Software Engineer Intern role at Reddit. It is in the system, and I am hoping a referral gives it a chance of being read.
+I am Henry Nguyen, a Math and Computer Science student at Kenyon College, and I have already applied for the Software Engineer Intern role at Reddit. It is in the system, and I am hoping a referral gives it a chance of being read.
 
 Two of my own results that speak to the same problems:
 
@@ -901,7 +900,7 @@ Hi {first name},
 
 {company angle}
 
-I'm a Math and Computer Science student at Kenyon College (class of 2028), and I
+I'm a Math and Computer Science student at Kenyon College, and I
 applied for the Software Engineer Intern role on {date}.
 
 Two things from my resume that seem most relevant:

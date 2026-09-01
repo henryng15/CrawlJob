@@ -33,7 +33,7 @@ direct posting link, then an easy opt-out.
 | `outreachReferralAttemptForTemplate_(...)` | Recover the stable attempt belonging to a persisted template, so the subject and resume-bullet pair can be recreated at draft time. |
 | `outreachReferralSubjectIndex_(...)` | Which subject a person gets. |
 | `outreachReferralSubject_(...)` | That subject. |
-| `outreachReferralIntro_(...)` | Who is writing, their software-engineering background, what they have **already applied to**, and one line on why the role fits. Graduation year left out. |
+| `outreachReferralIntro_(...)` | Who is writing, their software-engineering background, what they have **already applied to**, and one line on why the role fits. No graduation-year or GPA metadata. |
 | `REFERRAL_APPLIED_LINES` | Ten concise role-fit lines, indexed with the template so six people at one employer do not read the same sentence. |
 | `outreachReferralBullets_(...)` | The body's bullet block. |
 | `outreachReferralPosting_(link)` | The posting, on a line of its own at the foot of the message. |

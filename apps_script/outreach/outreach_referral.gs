@@ -567,7 +567,7 @@ var REFERRAL_SUBJECTS = [
   'Referral ask: no network, a few real numbers',
   'One referral ask from a Kenyon College student',
   'A small referral ask with a big dream behind it',
-  'Non target, class of 2028, asking about a referral',
+  'Non target student asking about a referral',
   'Referral ask for {role}',
   'A long shot referral ask about {company}',
   'Would you consider a referral at {company}?',
@@ -737,10 +737,9 @@ var REFERRAL_APPLIED_LINES = [
  * favour is not going to, and a date in this sentence is one more thing to read
  * before finding out who is writing.
  *
- * The graduation year is left out for the same reason. SENDER_STUDY carries
- * "class of 2028" because the recruiter email wants it: a recruiter is checking
- * eligibility for an intake and the year is the fact that decides it. The engineer
- * is checking nothing, and the room is better spent on the school and the subject.
+ * The academic profile stays short for the same reason. The recipient needs to know
+ * who is writing and what role is being discussed, not receive transcript or
+ * graduation-status metadata in the opening sentence.
  */
 REFERRAL_APPLIED_LINES = [
   'The role aligns closely with the software engineering work I have been building.',
@@ -756,8 +755,7 @@ REFERRAL_APPLIED_LINES = [
 ];
 
 function outreachReferralIntro_(company, role, index) {
-  var study = SENDER_STUDY.replace(/\s*\(class of \d{4},\s*/i, ' (')
-                          .replace(/\s*\(class of \d{4}\)/i, '');
+  var study = SENDER_STUDY;
   var count = REFERRAL_APPLIED_LINES.length;
   var why = REFERRAL_APPLIED_LINES[(((Number(index) || 0) % count) + count) % count];
   return 'My name is ' + SENDER_NAME + '. I am ' + study

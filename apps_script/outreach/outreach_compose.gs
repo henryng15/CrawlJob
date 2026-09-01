@@ -39,11 +39,10 @@
 
 var SENDER_NAME  = 'Henry Nguyen';
 var SENDER_LINKS = 'hoanng15.work@gmail.com · linkedin.com/in/hoanng15 · github.com/henryng15';
-// Bold on the name and the school, and nowhere else in this line. The year and
-// the GPA are worth stating and not worth shouting; bold on a fourth thing in one
-// sentence is bold on nothing.
-var SENDER_STUDY = 'a Math and Computer Science student at **Kenyon College** '
-                 + '(class of 2028, 4.0 GPA)';
+// Bold on the name and the school, and nowhere else in this line. Keep the
+// introduction human and relevant to the application rather than turning it into
+// a transcript or graduation-status line.
+var SENDER_STUDY = 'a Math and Computer Science student at **Kenyon College**';
 
 // Every number below is taken verbatim from henryng_swe.tex. Nothing here is
 // rounded up, and nothing is a claim the resume does not already make — a
@@ -361,8 +360,8 @@ function outreachFirstName_(name) {
  * the section is three lines: a person, a verifiable fact, and one number.
  *
  * Two bullets rather than one. An earlier version compressed both into a single
- * fragment — "Math and Computer Science at Kenyon College, class of 2028. Applied
- * for..." — which saved eight words and cost the introduction: no name, no verb,
+ * fragment — "Math and Computer Science at Kenyon College. Applied for..." — which
+ * saved eight words and cost the introduction: no name, no verb,
  * and it read as the top of a CV rather than a person writing to another person.
  * The name belonged there. It was only in the sign-off, four sections below.
  *

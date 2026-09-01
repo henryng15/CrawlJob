@@ -37,3 +37,5 @@ subject and body. It opens nothing and sends nothing.
 - There are ten factual base variations and three paraphrased copy forms per base. The subject,
   headings and closing vary, but the resume fact, recipient-specific hook, company angle and ask
   do not; surface variation must never create a new claim or a stronger request.
+- The opening identifies Henry and Kenyon plainly. It must not include graduation-year or GPA
+  metadata such as `class of 2028` or `4.0 GPA`.

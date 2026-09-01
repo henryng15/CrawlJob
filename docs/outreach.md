@@ -1952,8 +1952,7 @@ Subject: 340K bad records were inflating severity by 8%
 Hi Michelle,
 
 Quick intro:
-  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College
-    (class of 2028, 4.0 GPA).
+  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College.
   • Applied for the Software Engineer Intern role on Jul 20.
   • Removed 340K malformed records from a 2.1M-record dataset that were
     inflating severity rates by 8%.
