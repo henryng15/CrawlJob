@@ -302,6 +302,7 @@ function prepareOutreachDrafts() {
         // what you read before it went. Recomputing here could quietly disagree.
         variant: item.template
           || outreachVariantFor_(item.attempt, contact.focus, outreachBucketFor_(companyContacts)),
+        company: item.company,
         role: appRow.role,
         recruiterName: contact.name,
         dateApplied: appRow.dateApplied,
@@ -619,6 +620,7 @@ function previewOutreachEmail() {
     var mail = outreachCompose_({
       variant: item.template
         || outreachVariantFor_(item.attempt, contact.focus, outreachBucketFor_(companyContacts)),
+      company: item.company,
       role: appRow.role || item.role,
       recruiterName: contact.name,
       dateApplied: appRow.dateApplied || item.dateApplied,

@@ -721,8 +721,18 @@ console.log('the message');
       const forms = S.VARIANTS[key].subjectForms;
       assert.strictEqual(forms.length, S.COLD_COPY_FORMS.length, key);
       assert.strictEqual(new Set(forms).size, forms.length, key);
-      forms.forEach((line) => assert.ok(line.length <= 60, key + ': ' + line));
+      forms.forEach((line) => {
+        const rendered = S.outreachSubject_(line, 'Software Engineer Intern');
+        assert.ok(rendered.length <= 60, key + ': ' + rendered);
+        assert.ok(!/[0-9%]/.test(rendered), key + ': ' + rendered);
+      });
     });
+  });
+  run('a natural hook adds intent without echoing a profile label', () => {
+    assert.strictEqual(
+      S.outreachNaturalHook_('Since you own intern hiring at AMD,', 'Software Engineer Intern'),
+      'I noticed you own intern hiring at AMD, so I wanted to reach out directly about my '
+        + '**Software Engineer Intern** application.');
   });
   run('new cold rows fill the least-used base template before repeating one', () => {
     const load = S.outreachVariantTemplateLoad_([]).bases;
@@ -759,51 +769,53 @@ console.log('the message');
 
   const mail = S.outreachCompose_({
     variant: 'application', role: 'Software Engineer Intern', recruiterName: 'Julie Zehnpfennig',
+    company: 'AMD',
     dateApplied: day(2026, 8, 4), today, hook: 'Since you own intern hiring at AMD,',
     angle: 'AMD is where systems have to fail loudly.',
     formatDate: (d) => 'Aug ' + d.getDate()
   });
-  run('the subject is the hook, and short enough for a phone', () => {
-    assert.strictEqual(mail.subject, 'Cut a 30-minute research loop to 60 seconds');
+  run('the subject is a short human hook, not a statistic', () => {
+    assert.strictEqual(mail.subject, 'I applied. What happens next?');
     assert.ok(mail.subject.length < 60);
+    assert.ok(!/\d|%/.test(mail.subject));
   });
   run('a copy form paraphrases the surface without changing the facts or ask', () => {
     const alternate = S.outreachCompose_({
       variant: 'application:2', role: 'Software Engineer Intern', recruiterName: 'Julie',
+      company: 'AMD',
       dateApplied: day(2026, 8, 4), today, hook: 'I saw your work in university hiring.',
       angle: 'AMD is where systems have to fail loudly.', formatDate: () => 'Aug 4'
     });
-    assert.strictEqual(alternate.subject, 'A 30-minute research step, reduced to 60 seconds');
-    assert.ok(alternate.plain.indexOf('A brief introduction:') !== -1);
-    assert.ok(alternate.plain.indexOf('Thank you for considering it,') !== -1);
+    assert.strictEqual(alternate.subject, "I'm hoping to move forward");
+    assert.ok(alternate.plain.indexOf('A quick introduction:') !== -1);
+    assert.ok(alternate.plain.indexOf('Thanks for considering it,') !== -1);
     assert.ok(alternate.plain.indexOf('30 minutes to 1 minute') !== -1);
     assert.ok(alternate.plain.indexOf('take a quick look at my application') !== -1);
   });
   run('three labelled sections, the way a recruiter scans', () => {
-    assert.ok(mail.html.indexOf('<b>Quick intro:</b>') !== -1);
+    assert.ok(mail.html.indexOf('<b>A quick introduction:</b>') !== -1);
     assert.ok(mail.html.indexOf('reaching out:</b>') !== -1);
-    assert.ok(mail.html.indexOf('<b>The ask:</b>') !== -1);
+    assert.ok(mail.html.indexOf('<b>A quick question:</b>') !== -1);
   });
-  run('the first bullet introduces a person, by name and by school', () => {
-    const first = mail.plain.split('Quick intro:\n')[1].split('\n')[0];
-    assert.match(first, /^ {2}- I am Henry Nguyen, a Math and Computer Science student at Kenyon College/);
-    assert.ok(first.indexOf('class of 2028') === -1);
-    assert.ok(first.indexOf('4.0 GPA') === -1);
+  run('the introduction sounds like a person and states the intent', () => {
+    const intro = mail.plain.split('A quick introduction:\n')[1].split('\n\n')[0];
+    assert.match(intro, /^I’m Henry Nguyen, a Math and Computer Science student at Kenyon College/);
+    assert.match(intro, /I applied for the Software Engineer Intern position at AMD on Aug 4/);
+    assert.match(intro, /genuinely hoping to move forward to the next stage/);
+    assert.ok(intro.indexOf('class of 2028') === -1);
+    assert.ok(intro.indexOf('4.0 GPA') === -1);
   });
-  run('the application gets a line of its own', () => {
-    const second = mail.plain.split('Quick intro:\n')[1].split('\n')[1];
-    assert.strictEqual(second, '  - Applied for the Software Engineer Intern role on Aug 4.');
+  run('the application is named naturally, not as a data field', () => {
+    assert.ok(mail.plain.indexOf('Applied for the Software Engineer Intern role') === -1);
     assert.ok(mail.plain.indexOf('Hope you') === -1);
   });
   run('the name is bold in the intro, not only signed at the bottom', () => {
     assert.ok(mail.html.indexOf('<b>Henry Nguyen</b>') !== -1);
     assert.ok(mail.html.indexOf('<b>Kenyon College</b>') !== -1);
   });
-  run('no section is longer than three bullets', () => {
-    const sections = mail.plain.split(/\n\n/).filter((b) => b.indexOf('  - ') !== -1);
-    sections.forEach((block) => {
-      assert.ok(block.split('\n').filter((l) => l.startsWith('  - ')).length <= 4, block);
-    });
+  run('the body uses short paragraphs instead of generated bullet blocks', () => {
+    assert.ok(mail.html.indexOf('<ul>') === -1);
+    assert.ok(mail.plain.indexOf('  - ') === -1);
   });
   run('not one dash anywhere in what the recruiter reads', () => {
     assert.ok(!/[\u2014\u2013]/.test(mail.plain), mail.plain);
@@ -811,7 +823,7 @@ console.log('the message');
     assert.ok(!/[\u2014\u2013]/.test(mail.html));
   });
   run('the ask carries its own bold, so the eye lands on it', () => {
-    assert.ok(mail.html.split('<b>The ask:</b>')[1].indexOf('<b>take a quick look at my application</b>') !== -1);
+    assert.ok(mail.html.split('<b>A quick question:</b>')[1].indexOf('<b>take a quick look at my application</b>') !== -1);
   });
   run('an em dash in the angle becomes two sentences, not a long breath', () => {
     const split = S.outreachNoDashes_('systems fail loudly — at Vietcombank I shipped it');
@@ -821,25 +833,27 @@ console.log('the message');
     assert.strictEqual(S.outreachNoDashes_('One plain sentence.'), 'One plain sentence.');
   });
   run('the reason sits under its own heading, not inside the intro', () => {
-    const why = mail.plain.split('Why I\u2019m reaching out:')[1].split('The ask:')[0];
-    assert.match(why, /Since you own intern hiring at AMD/);
+    const why = mail.plain.split('Why I\u2019m reaching out:')[1].split('A quick question:')[0];
+    assert.match(why, /I noticed you own intern hiring at AMD/);
+    assert.match(why, /reach out directly about my Software Engineer Intern application/);
     assert.match(why, /fail loudly/);
   });
-  run('every bullet stays short enough to be read at a glance', () => {
-    mail.plain.split('\n').filter((l) => l.startsWith('  - ')).forEach((line) => {
-      assert.ok(line.split(/\s+/).length <= 22, line);
+  run('each paragraph stays short enough to be read at a glance', () => {
+    mail.plain.split(/\n\n/).forEach((paragraph) => {
+      assert.ok(paragraph.split(/\s+/).length <= 70, paragraph);
     });
   });
   run('only the first name is used', () => {
     assert.match(mail.plain, /^Hi Julie,/);
   });
-  run('three intro bullets: who I am, what I applied to, then one result', () => {
-    const intro = mail.html.split('<b>Quick intro:</b>')[1].split('</ul>')[0];
-    assert.strictEqual((intro.match(/<li>/g) || []).length, 3);
+  run('the introduction carries one bold proof point', () => {
+    const intro = mail.html.split('<b>A quick introduction:</b>')[1].split('</p>')[1];
+    assert.ok(intro.indexOf('<b>30 minutes to 1 minute</b>') !== -1);
   });
-  run('the reason is two bullets, not a paragraph', () => {
-    const why = mail.html.split('reaching out:</b></p>')[1].split('</ul>')[0];
-    assert.strictEqual((why.match(/<li>/g) || []).length, 2);
+  run('the reason is a natural paragraph, not two bullets', () => {
+    const why = mail.html.split('reaching out:</b></p>')[1].split('<p><b>A quick question:')[0];
+    assert.strictEqual((why.match(/<li>/g) || []).length, 0);
+    assert.ok(why.indexOf('I noticed you own intern hiring') !== -1);
   });
   run('numbers arrive bold in HTML and clean in plain text', () => {
     assert.ok(mail.html.indexOf('<b>30 minutes to 1 minute</b>') !== -1);
@@ -849,12 +863,10 @@ console.log('the message');
   run('the resume is announced', () => {
     assert.match(mail.plain, /Resume attached\./);
   });
-  run('the hook and the angle are separate bullets, each on its own line', () => {
-    const why = mail.plain.split('Why I\u2019m reaching out:')[1].split('The ask:')[0];
-    const lines = why.split('\n').filter((l) => l.startsWith('  - '));
-    assert.strictEqual(lines.length, 2);
-    assert.match(lines[0], /Since you own intern hiring at AMD/);
-    assert.match(lines[1], /fail loudly/);
+  run('the hook explains why this recruiter received the note', () => {
+    const why = mail.plain.split('Why I\u2019m reaching out:')[1].split('A quick question:')[0];
+    assert.match(why, /I noticed you own intern hiring at AMD, so I wanted to reach out directly/);
+    assert.match(why, /fail loudly/);
   });
 
   const stale = S.outreachCompose_({
@@ -863,8 +875,8 @@ console.log('the message');
   });
   run('past 45 days the date is dropped rather than volunteered', () => {
     assert.ok(stale.plain.indexOf('May 1') === -1);
-    assert.match(stale.plain, /Applied for the SWE Intern role earlier this year/);
-    assert.match(stale.plain, /I am Henry Nguyen/);
+    assert.match(stale.plain, /I applied for the SWE Intern position earlier this year/);
+    assert.match(stale.plain, /I’m Henry Nguyen/);
   });
   run('with no hook or angle the Why section is left out, not left empty', () => {
     assert.ok(stale.html.indexOf('reaching out:') === -1);
@@ -876,18 +888,16 @@ console.log('the message');
     dateApplied: day(2026, 8, 4), today, process: 'Completed OA',
     formatDate: (d) => 'Aug ' + d.getDate()
   });
-  run('an application that cleared its assessment says so, in the same bullet', () => {
-    const second = cleared.plain.split('Quick intro:\n')[1].split('\n')[1];
-    assert.strictEqual(
-      second,
-      '  - Applied for the SWE Intern role on Aug 4 and have since completed the '
-        + 'online assessment.');
+  run('an application that cleared its assessment says so in the introduction', () => {
+    assert.match(
+      cleared.plain,
+      /I applied for the SWE Intern position on Aug 4 and have since completed the online assessment/);
   });
   run('the assessment clause carries no date of its own', () => {
     // The day the OA was submitted is not in the App tab, and Date Applied is not
     // it. Naming one would mean inventing it.
-    const bullet = cleared.plain.split('completed the online assessment')[1].split('\n')[0];
-    assert.strictEqual(bullet, '.');
+    const tail = cleared.plain.split('completed the online assessment')[1].split('\n')[0];
+    assert.match(tail, /genuinely hoping to move forward/);
   });
   run('a stale application that cleared its assessment drops the date, not the clause', () => {
     const old = S.outreachCompose_({
@@ -898,7 +908,7 @@ console.log('the message');
     assert.ok(old.plain.indexOf('May 1') === -1);
     assert.match(
       old.plain,
-      /Applied for the SWE Intern role earlier this year and have since completed the online assessment\./);
+      /I applied for the SWE Intern position earlier this year and have since completed the online assessment/);
   });
   run('an Applied row is unchanged — no assessment it has not taken', () => {
     assert.ok(mail.plain.indexOf('online assessment') === -1);
@@ -923,8 +933,8 @@ console.log('the message');
     assert.ok(nasty.html.indexOf('Bo &amp; Co') !== -1 || nasty.html.indexOf('Hi Bo,') !== -1);
   });
   run('the long role name is not repeated in the ask', () => {
-    assert.ok(nasty.plain.indexOf('The ask:') !== -1);
-    assert.ok(nasty.plain.split('The ask:')[1].indexOf('alert(1)') === -1);
+    assert.ok(nasty.plain.indexOf('A quick question:') !== -1);
+    assert.ok(nasty.plain.split('A quick question:')[1].indexOf('alert(1)') === -1);
   });
 }
 
@@ -3067,12 +3077,18 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       assert.strictEqual(S.REFERRAL_TEMPLATES[tier].length, 10, tier);
     });
   });
-  run('the cold-contact line has ten professional paraphrases', () => {
-    assert.strictEqual(S.REFERRAL_CONTACT_OPENINGS.length, 10);
-    assert.strictEqual(new Set(S.REFERRAL_CONTACT_OPENINGS).size, 10);
-    S.REFERRAL_CONTACT_OPENINGS.forEach((line) => {
-      assert.ok(line.indexOf('{company}') !== -1, line);
-      assert.ok(!/[–—]/.test(line), line);
+  run('every referral template has a stable track id', () => {
+    S.REFERRAL_TIERS.forEach((tier) => S.REFERRAL_TEMPLATES[tier].forEach((entry, i) => {
+      assert.strictEqual(entry.id, tier + ':' + (i + 1));
+    }));
+  });
+  run('the tracked forms name the company and role without a duplicate opener', () => {
+    assert.strictEqual(S.REFERRAL_TEMPLATE_FORMS.length, 10);
+    assert.strictEqual(new Set(S.REFERRAL_TEMPLATE_FORMS.map((form) => form.open)).size, 10);
+    S.REFERRAL_TEMPLATE_FORMS.forEach((form) => {
+      assert.ok(form.open.indexOf('{company}') !== -1, form.open);
+      assert.ok(form.open.indexOf('{role}') !== -1, form.open);
+      assert.ok(!/[–—]/.test(form.open), form.open);
     });
   });
   run('new referral asks fill the least-used template per tier', () => {
@@ -3184,7 +3200,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   });
 
   run('the job board title is shortened the same way the recruiter email does', () => {
-    assert.ok(referral({}).plain.indexOf('Software Engineer Intern role at Reddit') !== -1);
+    assert.ok(referral({}).plain.indexOf('Software Engineer Intern position at Reddit') !== -1);
   });
 
   run('a stale application drops its date and keeps its link', () => {
@@ -3244,8 +3260,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('the applied sentence is followed by why the note was sent anyway', () => {
     const one = referral({});
     const line = one.plain.split('\n').find((l) => l.indexOf('I have already applied') !== -1);
-    const why = line.split('role at Reddit. ')[1];
-    assert.ok(S.REFERRAL_APPLIED_LINES.indexOf(why) !== -1, why);
+    assert.ok(line.indexOf('position at Reddit.') !== -1, line);
+    assert.ok(S.REFERRAL_APPLIED_LINES.some((why) => line.indexOf(why) !== -1), line);
   });
 
   // Six people at one employer can be written to on one morning, and a sentence
@@ -3265,9 +3281,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   run('three people at one company get three different reasons', () => {
     const seen = [1, 2, 3].map((attempt) => {
-      const line = referral({ attempt: attempt }).plain
-        .split('\n').find((l) => l.indexOf('I have already applied') !== -1);
-      return line.split('role at Reddit. ')[1];
+      return S.outreachReferralIntro_('Reddit', 'Software Engineer Intern', attempt - 1);
     });
     assert.strictEqual(new Set(seen).size, 3, seen.join(' | '));
   });
@@ -4311,7 +4325,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     };
     const one = S.outreachReferralCompose_(base);
     assert.ok(one.plain.indexOf(
-      'I have already applied for the Software Engineer Intern role at Stripe') !== -1,
+      'I have already applied for the Software Engineer Intern position at Stripe') !== -1,
               one.plain);
     // Past tense, and no date behind it. Every row on this tab comes from an
     // application actually made, so the claim is true; the day it was made is a
@@ -4357,16 +4371,30 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       bucket: 'consumer', angle: '', role: 'Software Engineering Intern, Summer 2027',
       attempt: 1, jobLink: 'https://job-boards.greenhouse.io/reddit/jobs/7123456'
     });
-    ['My name is Henry Nguyen.', 'at Reddit'].forEach((phrase) => {
+    ['Henry Nguyen', 'at Reddit'].forEach((phrase) => {
       assert.ok(one.plain.toLowerCase().indexOf(phrase.toLowerCase()) !== -1,
                 phrase + '\n' + one.plain);
     });
     assert.ok(/review.*resume|resume.*review/i.test(one.plain), one.plain);
-    assert.ok(/consider \*?\*?referring me\*?\*?/i.test(one.plain), one.plain);
-    assert.ok(/opportunity|chance|consideration/i.test(one.plain), one.plain);
+    assert.ok(/\b(referring me|refer me)\b/i.test(one.plain), one.plain);
+    assert.ok(/fit|opportunity|chance|consideration/i.test(one.plain), one.plain);
     assert.ok(/resume.*attached|attached.*resume/i.test(one.plain), one.plain);
     assert.ok(!/long shot|non target|presumptuous|out of my depth|starting from zero/i.test(one.plain),
               one.plain);
+  });
+
+  run('the referral message has scan headings and emphasis in the right places', () => {
+    const one = S.outreachReferralCompose_({
+      personName: 'Priya Raman', personTitle: 'Software Engineer', company: 'Reddit',
+      bucket: 'consumer', angle: '', role: 'Software Engineering Intern, Summer 2027',
+      attempt: 1, jobLink: 'https://job-boards.greenhouse.io/reddit/jobs/7123456'
+    });
+    ['Why I\u2019m reaching out:', 'A quick look:', 'The ask:'].forEach((heading) => {
+      assert.ok(one.html.indexOf('<b>' + heading + '</b>') !== -1, heading);
+    });
+    assert.ok(one.html.indexOf('<b>Software Engineer Intern</b>') !== -1);
+    assert.ok(/<b>referr(?:ing me|me)<\/b>/.test(one.html));
+    assert.ok(one.html.indexOf('<ul>') !== -1);
   });
 
   // Saying it in the opening and again in the ask is what made the first draft

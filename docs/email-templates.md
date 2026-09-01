@@ -41,9 +41,10 @@ checked mechanically, and the tests carry the argument in their comments.
   nothing written by hand here has ever used one. A template that did would be the only line in the
   message that reads as one long breath.
 - **ASCII only.** Nothing depends on how a mail client guesses an encoding.
-- **One bolded thing per message**, and it is the ask. Bold is a pointer, and two pointers point
-  nowhere. `**double asterisks**` render as `<b>` in HTML and are stripped in the plain part, so
-  both halves of the message say the same thing.
+- **Bold is selective.** The sender identity, role/company, one concrete proof point and the ask
+  are bolded so the eye can scan them; the rest stays plain. `**double asterisks**` render as
+  `<b>` in HTML and are stripped in the plain part, so both halves of the message say the same
+  thing.
 - **Word ceilings.** Resume bullets ≤ 20 words and cold asks ≤ 25, both enforced by the harness;
   referral applied lines ≤ 20, likewise. The referral asks and the follow-up notes have no test on
   them and are held to the same budget by hand, and today the longest of each is 19 and 18 words.
@@ -53,8 +54,9 @@ checked mechanically, and the tests carry the argument in their comments.
   recruiter's job *is* the call.)
 - **No new fact in a follow-up.** A follow-up that adds an argument is a second pitch, and a second
   pitch is exactly what it is built not to be.
-- **Nothing rounded up.** Every number in a subject or a bullet is a true number from the resume,
-  because a recruiter who checks must find the two documents saying one thing.
+- **Nothing rounded up.** Every number in the body is a true number from the resume, because a
+  recruiter who checks must find the two documents saying one thing. Cold subjects no longer use
+  resume statistics as their hook.
 
 ## Why there are so many of each
 
@@ -94,23 +96,22 @@ pipeline run and a re-export of two thousand rows.
 
 ## The skeleton
 
-Three labelled sections. Six bullets and one sentence, and none of them over twenty words.
+Three labelled sections with short paragraphs rather than generated bullet blocks.
 
 ```
 Subject: {variant subject}
 
 Hi {first name},
 
-Quick intro:
-  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College.
-  • Applied for the {Short Role} role on {date}.
-  • {resume bullet}
+A quick introduction:
+I’m Henry Nguyen, a Math and Computer Science student at Kenyon College. I applied for the
+{Short Role} position at {company} on {date}, and I’m genuinely hoping to move forward to the
+next stage of the process. {resume bullet}
 
 Why I'm reaching out:
-  • {per-person hook}
-  • {per-company angle}
+{natural per-person hook} {per-company angle}
 
-The ask:
+A quick question:
 {variant ask} Resume attached.
 
 Thanks either way,
@@ -118,40 +119,31 @@ Henry Nguyen
 hoanng15.work@gmail.com · linkedin.com/in/hoanng15 · github.com/henryng15
 ```
 
-The three headings — `Quick intro:`, `Why I'm reaching out:`, `The ask:` — are fixed and bold in
-every variation. They are what makes the email skimmable, which is the only kind that gets
-answered.
+The three headings — `A quick introduction:`, `Why I’m reaching out:`, `A quick question:` — are
+fixed and bold in every variation. They create scan points without making the body look like a
+database record.
 
 ### The budget each section is held to
 
-The headings survived a rewrite that the length did not. Three labelled sections is what makes
-the email skimmable, but a section holding four bullets is a paragraph wearing a label, and that
-is what the previous version had become: a `Quick intro` of four lines, a `Why I'm reaching out`
-whose two sentences each bridged into a resume item the intro had already stated, and an ask of
-twenty-eight words. **140 to 166 words** depending on which hook and angle a contact drew, and
-the `Why I'm reaching out` block alone ran from 50 to 78 of them — longer, at its worst, than
-everything above it put together.
+The old version made the three sections into labelled bullet blocks. That was skimmable, but it
+also made every message look generated. The current version keeps the scan points and uses short
+paragraphs, with the application and the genuine intent visible in the first two sentences.
 
 Each heading now does exactly one job, and each has a ceiling:
 
 | Section | Holds | Ceiling |
 |---|---|---|
-| `Quick intro` | 3 bullets: who is writing, what they applied to, one result | 20 words a bullet |
-| `Why I'm reaching out` | 2 bullets: why this person, why this company | 20 words a bullet |
-| `The ask` | 1 sentence: the bolded request, then one way out | 25 words |
+| `A quick introduction` | identity, application, next-stage intent and one proof point | short paragraph |
+| `Why I'm reaching out` | why this recruiter, then why this company | short paragraph |
+| `A quick question` | one bolded request, then one way out | 25 words |
 
-That lands a body of **about 105 words** including the greeting and `Resume attached.`, and a
-`Why I'm reaching out` of 26 to 30. The three rules that get it there, each cutting one specific
-thing:
+That keeps the body close to the old length while making the first two sentences do more work:
 
-- **One result bullet, not two.** The second was always the weaker of the pair and it bought
-  nothing the subject had not already promised. The reader who wants a second number opens the
-  attachment; the reader who does not was going to skip the fourth line either way.
-- **The hook stops after one sentence.** It used to carry a tail explaining why the sender wrote
-  to this person rather than the careers inbox. A reader told you know what they recruit for can
-  work that out.
-- **The angle stops before the resume.** It used to bridge into a thirty-word retelling of a
-  bullet printed in bold two lines above it.
+- **The proof point lives in the introduction.** It is bolded once, not used as a statistics-led
+  subject and then repeated as a second bullet.
+- **The hook explains the contact.** It starts with a real profile fact and ends with why Henry
+  reached out about this application.
+- **The angle stays compact.** It adds one company-specific sentence, not another resume summary.
 
 Anything a recruiter wants past this is in the attachment. That is what the attachment is for.
 
@@ -165,21 +157,21 @@ Constants that never move:
 | Sign-off | `Thanks either way,` |
 | Attachment | `Henry_Nguyen_Resume.pdf`, 110 KB, from Drive |
 
-Bold carries exactly two things: the numbers in the intro bullets, and the request itself in the
-ask. Bold on a third thing is bold on nothing.
+Bold carries the sender identity, role/company, one proof point and the request. Everything else
+stays plain so the emphasis remains useful.
 
 **No dashes anywhere** — not in a subject, not in a bullet, not in the ask. Text arriving from
 ColdEmail does use them, and `outreachNoDashes_` turns each into a full stop on the way in.
 
 ## The ten factual variations
 
-Format, bolding and order are identical across all ten. Only the **subject**, the **result
-bullet** and the **ask** move — three people at one company must not receive three copies, and a
-run of identical bodies is a spam signal in its own right.
+The three sections and their order stay identical across all ten. The **subject**, proof point and
+**ask** move — three people at one company must not receive three copies, and a run of identical
+bodies is a spam signal in its own right.
 
-Every subject is a true number from `henryng_swe.tex`, stated so that it is not yet explained.
-The subject's only job is the open. All ten are under 60 characters, because a recruiter reads
-them on a phone.
+Subjects are short, human curiosity hooks under 60 characters. They create a small pattern break
+without pretending to be urgent or hiding that the email is about an application. Resume numbers
+stay in the body where they have context.
 
 **The bullet is the one the subject is about**, so the email answers its own subject on the third
 line. **Every ask is one sentence under twenty-five words**: the bolded request, then one short
@@ -188,124 +180,124 @@ forwarding to a colleague actually quotes.
 
 ### 1. `application` — the fallback, used where the industry is unknown
 
-> **Subject:** Cut a 30-minute research loop to 60 seconds
+> **Subject:** I applied. What happens next?
 
 - Cut analyst research from **30 minutes to 1 minute** with a Python MCP server over validated DuckDB data.
 
-**The ask:** Would you be able to **take a quick look at my application**? If someone else owns
+**A quick question:** Would you be able to **take a quick look at my application**? If someone else owns
 the req, a pointer would help just as much.
 
 ### 2. `data` — bucket `data`
 
-> **Subject:** 340K bad records were inflating severity by 8%
+> **Subject:** Could this application move forward?
 
 - Removed **340K** malformed records from a **2.1M**-record dataset that were inflating severity rates by **8%**.
 
-**The ask:** Would you be able to **take a quick look at my application**? Or point me to
+**A quick question:** Would you be able to **take a quick look at my application**? Or point me to
 whoever is closest to this req.
 
 ### 3. `fintech` — bucket `fintech`
 
-> **Subject:** 50 duplicate webhooks, exactly one order
+> **Subject:** I may have the wrong person
 
 - Made repeat Stripe webhooks safe in one PostgreSQL transaction. **50 concurrent webhooks**, exactly **one** order.
 
-**The ask:** Would you be able to **take a quick look at my application**? If someone else owns
+**A quick question:** Would you be able to **take a quick look at my application**? If someone else owns
 this req, I will go to them.
 
 ### 4. `cloud` — bucket `cloud`
 
-> **Subject:** 500 concurrent requests, zero overbookings
+> **Subject:** Is this application still moving?
 
 - Held seat limits across **500 concurrent requests** on EKS with PostgreSQL row locks. No overbooking got through.
 
-**The ask:** Would you be able to **take a quick look at my application**? Or tell me who runs
+**A quick question:** Would you be able to **take a quick look at my application**? Or tell me who runs
 intern hiring this cycle.
 
 ### 5. `ai` — bucket `ai`
 
-> **Subject:** Repeat checks: 4 seconds to 400 milliseconds
+> **Subject:** I’d really like to continue
 
 - Cut repeat claim checks from **4s to 400ms** by caching embeddings in Redis over **120** SEC filings.
 
-**The ask:** Would you be open to a **short chat about the role**? If it is not yours, a pointer
+**A quick question:** Would you be open to a **short chat about the role**? If it is not yours, a pointer
 to the closest team helps.
 
 *The only variation whose ask is a conversation rather than an application review.*
 
 ### 6. `security` — bucket `security`
 
-> **Subject:** Four high-severity CVEs, one export path
+> **Subject:** Could you help me find the next step?
 
 - Removed **4 high-severity CVEs** from customer-data exports by swapping xlsx for ExcelJS, with **11** tests behind it.
 
-**The ask:** Would you be able to **take a quick look at my application**? Or tell me who I
+**A quick question:** Would you be able to **take a quick look at my application**? Or tell me who I
 should be talking to.
 
 ### 7. `hardware` — bucket `hardware`
 
-> **Subject:** A daily report was 3 days stale and nobody knew
+> **Subject:** Could you take a look?
 
 - Caught a silent Lambda failure after a report ran **3 days** stale, by emitting freshness metrics to Prometheus.
 
-**The ask:** Would you be able to **take a quick look at my application**? If the intern cohort
+**A quick question:** Would you be able to **take a quick look at my application**? If the intern cohort
 is not yours, a pointer helps.
 
 ### 8. `consumer` — bucket `consumer`
 
-> **Subject:** 480 dishes, top 5 matches in under 300ms
+> **Subject:** One honest question about the role
 
 - Matched a **480**-dish catalog to calorie, protein and budget targets, returning the top **5** in under **300ms**.
 
-**The ask:** Would you be able to **take a quick look at my application**? Or point me at
+**A quick question:** Would you be able to **take a quick look at my application**? Or point me at
 whoever owns intern hiring there.
 
 ### 9. `edtech` — bucket `edtech`
 
-> **Subject:** 90 students a semester, zero local setup
+> **Subject:** Could you point me in the right direction?
 
 - Built browser coding workspaces for **90** students a semester with Skulpt and WebSockets. No local setup.
 
-**The ask:** Would you be able to **take a quick look at my application**? Or send me toward
+**A quick question:** Would you be able to **take a quick look at my application**? Or send me toward
 whoever is reading these applications.
 
 ### 10. `campus` — a university recruiter, whatever the industry
 
-> **Subject:** The model was ignoring location: 0% to 24.7%
+> **Subject:** Is Kenyon part of your campus hiring?
 
 - Fixed a crash model that ignored location, raising the share of groups reflecting it from **0% to 24.7%**.
 
-**The ask:** Would you be able to **take a quick look at my application**? I would also like to
+**A quick question:** Would you be able to **take a quick look at my application**? I would also like to
 know whether Kenyon is on the campus list.
 
 *The only ask that asks a second question, and the only one that names Kenyon.*
 
 ## The three copy forms
 
-The subject, section labels and closing are paraphrased; the application fact, resume bullet,
-recipient-specific hook, company angle and ask remain exactly the same. A row stores this as
+The subject and closing are paraphrased; the three section labels, application fact, resume proof,
+recipient-specific hook, company angle and ask remain grounded in the same source data. A row stores this as
 `base:form`, for example `fintech:2`; a legacy base-only value is form 1.
 
 | Form | Introduction | Reason | Ask label | Closing |
 |---|---|---|---|---|
-| 1 | Quick intro: | Why I'm reaching out: | The ask: | Thanks either way, |
-| 2 | A brief introduction: | Why I thought to write: | A quick question: | Thank you for considering it, |
-| 3 | A little context: | Why I reached out: | My question: | Thank you for your time, |
+| 1 | A quick introduction: | Why I’m reaching out: | A quick question: | Thanks either way, |
+| 2 | A quick introduction: | Why I’m reaching out: | A quick question: | Thanks for considering it, |
+| 3 | A quick introduction: | Why I’m reaching out: | A quick question: | Thank you for your time, |
 
 ### Alternate subjects
 
 | Base | Form 2 | Form 3 |
 |---|---|---|
-| `application` | A 30-minute research step, reduced to 60 seconds | Research that went from 30 minutes to 60 seconds |
-| `data` | 340K malformed rows were distorting severity by 8% | An 8% severity distortion traced to 340K bad rows |
-| `fintech` | 50 repeat webhooks, one recorded order | One order from 50 concurrent webhooks |
-| `cloud` | 500 concurrent requests, without an overbooking | No overbookings across 500 concurrent requests |
-| `ai` | Repeat claim checks, from 4 seconds to 400ms | A 4-second repeat check reduced to 400ms |
-| `security` | Four high-severity CVEs removed from one export path | One export path, four high-severity CVEs removed |
-| `hardware` | A report ran stale for 3 days before the alert existed | Making a 3-day stale report visible |
-| `consumer` | 480 dishes, five matches in under 300 milliseconds | Top five matches from 480 dishes in under 300ms |
-| `edtech` | 90 students each semester, no local setup | No local setup for 90 students a semester |
-| `campus` | Location was ignored: 0% to 24.7% coverage | A crash model began reflecting location: 0% to 24.7% |
+| `application` | I'm hoping to move forward | Could I ask about my application? |
+| `data` | One question about my application | I applied and wanted to follow up |
+| `fintech` | Could you point me to the right person? | Who handles this application? |
+| `cloud` | Could I ask about next steps? | A quick question about the role |
+| `ai` | Could I move to the next stage? | Hoping to take the next step |
+| `security` | Is there someone I should contact? | I'm reaching out about my application |
+| `hardware` | Would you be the right person to ask? | I may be early, but I wanted to ask |
+| `consumer` | Could I ask about the open role? | Is the role still open? |
+| `edtech` | I'd value a quick pointer | I may have found the right person |
+| `campus` | Could I ask about campus hiring? | Hoping to move forward from Kenyon |
 
 ## Which variation a contact gets
 
@@ -351,12 +343,12 @@ a bullet, and the bullet is already written.
 
 ## The two sentences that are not chosen from a list
 
-`Why I'm reaching out` is two bullets, never a paragraph: the hook and the angle arrive as whole
-sentences from two different files, and run together they make the block a recruiter skips.
+`Why I'm reaching out` is a short paragraph: the hook and the angle arrive from two different
+files, and the composer joins them into a natural reason for writing.
 
-**Each bullet has one purpose and one sentence.** The first says why this person, the second says
-why this company, and neither reaches back into the resume — the intro bullet above them already
-carries the number, in bold. Both are under twenty words.
+**Each source sentence has one purpose.** The hook says why this person and why the application is
+being raised with them; the angle says why this company. The resume proof lives once in the intro,
+in bold, and is not repeated as a subject statistic.
 
 ### Bullet one — the per-person hook
 
@@ -367,16 +359,16 @@ raw search snippet, which is too noisy to drop into a sentence.
 Ordered, most specific first. The first three are facts about the person; `FOCUS_LINE` is the
 floor, reached only when neither a school nor a headline was found.
 
-| Shape | Sentence | Words |
+| Shape | Source sentence |
 |---|---|---|
-| school + role | `I noticed you studied at {school}, and that you're now {role} at {company}.` | 15 to 22 |
-| school only | `I noticed you studied at {school}.` | 7 |
-| role only | `I saw your work as {role} at {company}.` | 9 |
-| focus `university` | `I saw that you work on university hiring at {company}.` | 10 |
-| focus `technical` | `I saw that you recruit for engineering roles at {company}.` | 10 |
-| focus `leadership` | `I saw that you lead technical recruiting at {company}.` | 9 |
-| focus `sourcing` | `I saw that you source engineering candidates at {company}.` | 9 |
-| nothing found | *(empty — the bullet is dropped)* | 0 |
+| school + role | `I noticed you studied at {school}, and that you're now {role} at {company}.` |
+| school only | `I noticed you studied at {school}.` |
+| role only | `I saw your work as {role} at {company}.` |
+| focus `university` | `I saw that you work on university hiring at {company}.` |
+| focus `technical` | `I saw that you recruit for engineering roles at {company}.` |
+| focus `leadership` | `I saw that you lead technical recruiting at {company}.` |
+| focus `sourcing` | `I saw that you source engineering candidates at {company}.` |
+| nothing found | *(empty — the reason section is omitted)* |
 
 **The ceiling does not hold on the school + role shape.** `{role}` is a headline scraped from a
 search snippet, and 57 of the 1,863 hooks in the current export (3.1%) run past twenty words
@@ -394,12 +386,14 @@ empty `person_focus`, not `leadership` or `sourcing`, so the four focus shapes a
 rows that do not exist yet. They cost nothing and are correct when the classifier starts labelling
 those people; they are not why anyone gains a bullet today.
 
-**The tail is gone.** Every one of the first three shapes used to append a second sentence off a
-`FOCUS_TAIL` table — `Since you own early-career and intern hiring there, I wanted to reach you
-directly rather than the general careers inbox.` Twenty-two words to state what the first sentence
-had already implied: a reader told you know what they recruit for can work out why you wrote to
-them and not to the careers inbox. Dropping it is what let `leadership` and `sourcing` get a
-bullet of their own, which they never had.
+Before rendering, `outreachNaturalHook_` removes headline spillover, normalizes common `Since...`,
+`I saw that...` and `You...` openings to `I noticed...`, and adds the application reason: `..., so
+I wanted to reach out directly about my {role} application.` This is the sentence the recruiter
+sees; the source hook remains the factual input.
+
+**The old tail is gone.** The composer now adds one compact clause to the source hook — `so I
+wanted to reach out directly about my {role} application.` It gives the email a reason for arriving
+in this person's inbox without bringing back a long generic explanation about the careers inbox.
 
 ### Bullet two — the per-company angle
 
@@ -474,8 +468,8 @@ old sentences and the old sentences are what sends.
 
 | Condition | Sentence |
 |---|---|
-| applied within 45 days | `Applied for the **{Short Role}** role on {Mon d}.` |
-| older than `STALE_APPLICATION_DAYS` (45) | `Applied for the **{Short Role}** role earlier this year.` |
+| applied within 45 days | `I applied for the **{Short Role}** position at **{company}** on {Mon d}.` |
+| older than `STALE_APPLICATION_DAYS` (45) | `I applied for the **{Short Role}** position at **{company}** earlier this year.` |
 | `Process` is `Completed OA` | the same line plus ` and have since completed the online assessment` |
 
 Naming a date from months ago points the reader straight at the weakest fact in the email.
@@ -618,7 +612,12 @@ role, which put a Workday URL, two lines of query string, exactly where the read
 out who was writing. Down at the bottom, labelled, it is out of the prose and easy to copy,
 which is the only thing anybody ever does with it. A row without a usable link is never sent.
 
-## The forty bodies (`REFERRAL_TEMPLATES`)
+## Historical referral bodies (`REFERRAL_TEMPLATES`)
+
+> These tables document the superseded copybook. Production now composes each body from ten
+> tracked forms and ten tier asks, with ids such as `mid:5`; see
+> [the component document](components/outreach-referral-templates.md) and
+> `apps_script/outreach/outreach_referral.gs` for the live source.
 
 Four tiers of ten. The **tier** is how far above the writer the reader sits, resolved by
 `outreachReferralTier_` from the job title first and ColdEmail's seniority column only as a

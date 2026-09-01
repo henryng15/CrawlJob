@@ -8,33 +8,28 @@
  *
  * Shape, and why it is this shape:
  *
- *   Subject       a true number, stated so it is not yet explained. The subject's
- *                 only job is the open; an unopened email has no other qualities.
- *   Quick intro   three bullets: the name and the school, the application and its
- *                 date, then the one result the subject just promised.
- *   Why I'm       two bullets: what this person recruits for, and what is worth
- *   reaching out  saying about this company. Never a paragraph: the two arrive as
- *                 whole sentences from two different files and run together into
- *                 the block a recruiter skips.
- *   The ask       one bolded question and one short way out, so the easiest reply
- *                 is still a useful one.
+ *   Subject       a short, human question or interruption. It earns the open by
+ *                 creating curiosity around the application, not by dangling a
+ *                 resume statistic that makes the note feel like an ad.
+ *   A quick       two short sentences: who is writing, which role they applied
+ *   introduction  for, and that they genuinely hope to move to the next stage.
+ *   Why I'm       a natural reason for choosing this recruiter, followed by one
+ *   reaching out  concrete company or resume detail. The hook must explain why
+ *                 this person is receiving the note, not merely label their job.
+ *   A quick       one bolded question and one short way out, so the easiest reply
+ *   question      is still a useful one.
  *
- * Six bullets and one sentence, and none of them over twenty words. The headings
- * survived a rewrite that the length did not: three labelled sections is what makes
- * the email skimmable, but a section holding four bullets is a paragraph wearing a
- * label. Each heading now does exactly one job — who is writing, why this person,
- * what is being asked — and the body lands near ninety words rather than a hundred
- * and forty. Anything a recruiter wants past that is in the attachment.
+ * Three labelled sections and short paragraphs make the note skimmable without
+ * making it look like a generated record. Each section does exactly one job: who
+ * is writing, why this person, and what is being asked. The body stays near ninety
+ * words; anything a recruiter wants past that is in the attachment.
  *
  * Nothing here uses a dash. Text arriving from ColdEmail does, and outreachNoDashes_
  * turns each one into a full stop on the way in: two short sentences carry the same
  * meaning without the line reading as one long breath.
  *
- * Three labelled sections, not two. An earlier version folded the introduction
- * and the reason into one unlabelled paragraph of ninety words, and it read as a
- * wall: the recruiter has nothing to scan by, and the application — the strongest
- * fact in the message — is buried in the middle of it. Labels are what make an
- * email skimmable, and a skimmable email is the only kind that gets answered.
+ * Three labelled sections, not two. The labels provide scan points, while the
+ * prose underneath keeps the note sounding like one person wrote to another.
  */
 
 var SENDER_NAME  = 'Henry Nguyen';
@@ -79,21 +74,17 @@ var RESUME_BULLETS = {
 /**
  * Ten variations on one skeleton.
  *
- * Format, bolding and order are identical across all ten — only the subject, the
- * result bullet and the ask move. Three people at one company must not receive
- * three copies, and a run of identical bodies is a spam signal in its own right.
+ * The three sections stay stable, but the subject and ask move. Subjects are
+ * short curiosity hooks rather than generic statistics. Three people at one
+ * company must not receive three copies, and a run of identical bodies is a spam
+ * signal in its own right.
  *
- * Every subject is a true number from henryng_swe.tex, stated so that it is not
- * yet explained. That is the whole trick: the reader has to open it to find out
- * what happened. None is over 60 characters, because a recruiter reads them on a
- * phone. Nothing here is rounded up, because a recruiter who checks the resume
- * must find the two documents saying one thing.
+ * Every subject is under 60 characters after `{role}` is filled, because a
+ * recruiter reads it on a phone. The subject may create a small pattern break,
+ * but it never pretends to be urgent or hides what the email is about.
  *
- * One result bullet, not two. The second was always the weaker of the pair, and
- * it bought nothing the subject had not already promised: the reader who wants a
- * second number opens the attachment, and the reader who does not was going to
- * skip the fourth line either way. The bullet named here is the one the subject
- * is about, so the email answers its own subject on the third line.
+ * One result proof point, not two. It belongs in the introduction with context;
+ * the subject earns the open through curiosity rather than repeating the number.
  *
  * Every ask is one sentence under twenty-five words: the bolded request, then one
  * short way out. The way out is worded differently in each, because it is the
@@ -101,110 +92,110 @@ var RESUME_BULLETS = {
  */
 var VARIANTS = {
   application: {
-    subject: 'Cut a 30-minute research loop to 60 seconds',
+    subject: 'I applied. What happens next?',
     subjectForms: [
-      'Cut a 30-minute research loop to 60 seconds',
-      'A 30-minute research step, reduced to 60 seconds',
-      'Research that went from 30 minutes to 60 seconds'
+      'I applied. What happens next?',
+      "I'm hoping to move forward",
+      'Could I ask about my application?'
     ],
     bullet: 'mcp',
     ask: 'Would you be able to **take a quick look at my application**? If someone else '
        + 'owns the req, a pointer would help just as much.'
   },
   data: {
-    subject: '340K bad records were inflating severity by 8%',
+    subject: 'Could this application move forward?',
     subjectForms: [
-      '340K bad records were inflating severity by 8%',
-      '340K malformed rows were distorting severity by 8%',
-      'An 8% severity distortion traced to 340K bad rows'
+      'Could this application move forward?',
+      'One question about my application',
+      'I applied and wanted to follow up'
     ],
     bullet: 'polars',
     ask: 'Would you be able to **take a quick look at my application**? Or point me to '
        + 'whoever is closest to this req.'
   },
   fintech: {
-    subject: '50 duplicate webhooks, exactly one order',
+    subject: 'I may have the wrong person',
     subjectForms: [
-      '50 duplicate webhooks, exactly one order',
-      '50 repeat webhooks, one recorded order',
-      'One order from 50 concurrent webhooks'
+      'I may have the wrong person',
+      'Could you point me to the right person?',
+      'Who handles this application?'
     ],
     bullet: 'webhooks',
     ask: 'Would you be able to **take a quick look at my application**? If someone else '
        + 'owns this req, I will go to them.'
   },
   cloud: {
-    subject: '500 concurrent requests, zero overbookings',
+    subject: 'Is this application still moving?',
     subjectForms: [
-      '500 concurrent requests, zero overbookings',
-      '500 concurrent requests, without an overbooking',
-      'No overbookings across 500 concurrent requests'
+      'Is this application still moving?',
+      'Could I ask about next steps?',
+      'A quick question about the role'
     ],
     bullet: 'locks',
     ask: 'Would you be able to **take a quick look at my application**? Or tell me who '
        + 'runs intern hiring this cycle.'
   },
   ai: {
-    subject: 'Repeat checks: 4 seconds to 400 milliseconds',
+    subject: "I'd really like to continue",
     subjectForms: [
-      'Repeat checks: 4 seconds to 400 milliseconds',
-      'Repeat claim checks, from 4 seconds to 400ms',
-      'A 4-second repeat check reduced to 400ms'
+      "I'd really like to continue",
+      'Could I move to the next stage?',
+      'Hoping to take the next step'
     ],
     bullet: 'rag',
     ask: 'Would you be open to a **short chat about the role**? If it is not yours, a '
        + 'pointer to the closest team helps.'
   },
   security: {
-    subject: 'Four high-severity CVEs, one export path',
+    subject: 'Could you help me find the next step?',
     subjectForms: [
-      'Four high-severity CVEs, one export path',
-      'Four high-severity CVEs removed from one export path',
-      'One export path, four high-severity CVEs removed'
+      'Could you help me find the next step?',
+      'Is there someone I should contact?',
+      "I'm reaching out about my application"
     ],
     bullet: 'cves',
     ask: 'Would you be able to **take a quick look at my application**? Or tell me who I '
        + 'should be talking to.'
   },
   hardware: {
-    subject: 'A daily report was 3 days stale and nobody knew',
+    subject: 'Could you take a look?',
     subjectForms: [
-      'A daily report was 3 days stale and nobody knew',
-      'A report ran stale for 3 days before the alert existed',
-      'Making a 3-day stale report visible'
+      'Could you take a look?',
+      'Would you be the right person to ask?',
+      'I may be early, but I wanted to ask'
     ],
     bullet: 'freshness',
     ask: 'Would you be able to **take a quick look at my application**? If the intern '
        + 'cohort is not yours, a pointer helps.'
   },
   consumer: {
-    subject: '480 dishes, top 5 matches in under 300ms',
+    subject: 'One honest question about the role',
     subjectForms: [
-      '480 dishes, top 5 matches in under 300ms',
-      '480 dishes, five matches in under 300 milliseconds',
-      'Top five matches from 480 dishes in under 300ms'
+      'One honest question about the role',
+      'Could I ask about the open role?',
+      'Is the role still open?'
     ],
     bullet: 'menulens',
     ask: 'Would you be able to **take a quick look at my application**? Or point me at '
        + 'whoever owns intern hiring there.'
   },
   edtech: {
-    subject: '90 students a semester, zero local setup',
+    subject: 'Could you point me in the right direction?',
     subjectForms: [
-      '90 students a semester, zero local setup',
-      '90 students each semester, no local setup',
-      'No local setup for 90 students a semester'
+      'Could you point me in the right direction?',
+      "I'd value a quick pointer",
+      'I may have found the right person'
     ],
     bullet: 'workspaces',
     ask: 'Would you be able to **take a quick look at my application**? Or send me toward '
        + 'whoever is reading these applications.'
   },
   campus: {
-    subject: 'The model was ignoring location: 0% to 24.7%',
+    subject: 'Is Kenyon part of your campus hiring?',
     subjectForms: [
-      'The model was ignoring location: 0% to 24.7%',
-      'Location was ignored: 0% to 24.7% coverage',
-      'A crash model began reflecting location: 0% to 24.7%'
+      'Is Kenyon part of your campus hiring?',
+      'Could I ask about campus hiring?',
+      'Hoping to move forward from Kenyon'
     ],
     bullet: 'calibration',
     ask: 'Would you be able to **take a quick look at my application**? I would also like '
@@ -212,16 +203,15 @@ var VARIANTS = {
   }
 };
 
-// Three light paraphrases of the same recruiter note. The facts, recipient
-// specific lines and request stay untouched; only the labels, subject wording
-// and closing move. That prevents a copy form from quietly becoming a different
-// claim or a stronger ask.
+// Three light paraphrases of the same recruiter note. The three scan points stay
+// fixed and short; only the subject wording and closing move. That keeps the
+// structure recognisable without making the body read like a form.
 var COLD_COPY_FORMS = [
-  { intro: 'Quick intro:', reason: 'Why I\u2019m reaching out:', ask: 'The ask:',
+  { intro: 'A quick introduction:', reason: 'Why I\u2019m reaching out:', ask: 'A quick question:',
     close: 'Thanks either way,' },
-  { intro: 'A brief introduction:', reason: 'Why I thought to write:', ask: 'A quick question:',
-    close: 'Thank you for considering it,' },
-  { intro: 'A little context:', reason: 'Why I reached out:', ask: 'My question:',
+  { intro: 'A quick introduction:', reason: 'Why I\u2019m reaching out:', ask: 'A quick question:',
+    close: 'Thanks for considering it,' },
+  { intro: 'A quick introduction:', reason: 'Why I\u2019m reaching out:', ask: 'A quick question:',
     close: 'Thank you for your time,' }
 ];
 
@@ -355,31 +345,12 @@ function outreachFirstName_(name) {
 }
 
 /**
- * The two bullets that open Quick intro: who is writing, and what they applied to.
- * The variant's single result bullet is appended to these by outreachCompose_, so
- * the section is three lines: a person, a verifiable fact, and one number.
- *
- * Two bullets rather than one. An earlier version compressed both into a single
- * fragment — "Math and Computer Science at Kenyon College. Applied for..." — which
- * saved eight words and cost the introduction: no name, no verb,
- * and it read as the top of a CV rather than a person writing to another person.
- * The name belonged there. It was only in the sign-off, four sections below.
- *
- * The application gets a line of its own because it is the strongest fact in the
- * message: it is the one thing the reader can go and verify in their own system.
- * When it has cleared an assessment the line says so, because that is the same
- * fact one stage stronger — there is finished work in their system already.
- *
- * Past STALE_APPLICATION_DAYS the date is dropped. A date from months ago is the
- * weakest fact in the email, and naming it invites exactly the wrong question.
- */
-/**
  * What to call the job in the email, whatever the posting called it.
  *
  * A posting title is written for a job board, not for a sentence. "Campus
  * Undergraduate Summer Internship Program - 2027 Software Engineer, Enterprise
  * Technology Services- Charlotte, NC" is a real title out of the sheet, and
- * dropped whole into "Applied for the ... role on Aug 21" it buries the one fact
+ * dropped whole into "I applied for the ... position on Aug 21" it buries the one fact
  * the line exists to carry. The recruiter owns the req; what they need from that
  * bullet is which kind of job, in three words.
  *
@@ -416,7 +387,7 @@ var SHORT_ROLES = [
 ];
 
 // What an empty cell is called. Only an empty one: a title nobody typed cannot be
-// left as it was, because "Applied for the  role" is not a sentence.
+// left as it was, because "I applied for the  position" is not a sentence.
 var DEFAULT_SHORT_ROLE = 'Software Engineer Intern';
 
 /**
@@ -445,13 +416,22 @@ function outreachShortRole_(role) {
   return written;
 }
 
-function outreachIntroBullets_(role, dateApplied, today, formatDate, process) {
-  var who = 'I am **' + SENDER_NAME + '**, ' + SENDER_STUDY + '.';
+/**
+ * The short introduction is prose rather than a bullet block: who is writing,
+ * what they applied for, and that they genuinely hope to move to the next stage.
+ * Past STALE_APPLICATION_DAYS the date is dropped because a date from months ago
+ * invites exactly the wrong question.
+ */
+function outreachIntroText_(role, company, dateApplied, today, formatDate, process) {
+  var who = 'I\u2019m **' + SENDER_NAME + '**, ' + SENDER_STUDY + '.';
   var stale = !dateApplied
     || outreachDaysBetween_(dateApplied, today) > STALE_APPLICATION_DAYS;
+  var destination = company
+    ? ' at **' + outreachNoDashes_(company).replace(/[.]$/, '') + '**'
+    : '';
   var applied = stale
-    ? 'Applied for the **' + role + '** role earlier this year'
-    : 'Applied for the **' + role + '** role on ' + formatDate(dateApplied);
+    ? 'I applied for the **' + role + '** position' + destination + ' earlier this year'
+    : 'I applied for the **' + role + '** position' + destination + ' on ' + formatDate(dateApplied);
   // Appended rather than given a bullet of its own. It is the same fact as the
   // application — how far it has got — and split across two lines the reader has
   // to join them back up. The clause carries no date: the day the assessment was
@@ -459,7 +439,32 @@ function outreachIntroBullets_(role, dateApplied, today, formatDate, process) {
   if (process === STAGE_COMPLETED_OA) {
     applied += ' and have since completed the online assessment';
   }
-  return [who, applied + '.'];
+  return who + ' ' + applied + ', and I\u2019m genuinely hoping to move forward to the '
+    + 'next stage of the process.';
+}
+
+/**
+ * Turn a profile-derived hook into a sentence that explains the contact.
+ *
+ * ColdEmail sometimes supplies a useful fact as "Since you own..." or "I saw
+ * that you...". Those are true, but they sound like profile labels when dropped
+ * into an email. This keeps the fact, removes headline spillover after the first
+ * sentence, and adds the missing reason for writing.
+ */
+function outreachNaturalHook_(hook, role) {
+  var text = String(hook == null ? '' : hook).trim().replace(/\s+/g, ' ');
+  if (!text) return '';
+  text = text.split(/[.!?]/)[0].replace(/[,:;]+$/, '').trim();
+  text = text.replace(/^Since\s+/i, 'I noticed ')
+    .replace(/^I saw that\s+/i, 'I noticed ')
+    .replace(/^I saw your\s+/i, 'I noticed your ')
+    .replace(/^You\s+/i, 'I noticed you ');
+  if (!/^I noticed\b/i.test(text)) text = 'I noticed ' + text;
+  return text + ', so I wanted to reach out directly about my **' + role + '** application.';
+}
+
+function outreachSubject_(template, role) {
+  return String(template || '').replace(/\{role\}/g, role || DEFAULT_SHORT_ROLE);
 }
 
 /**
@@ -480,43 +485,39 @@ function outreachCompose_(options) {
   };
 
   var greeting = 'Hi ' + outreachFirstName_(options.recruiterName) + ',';
-  var intro = outreachIntroBullets_(
-      role, options.dateApplied, options.today, formatDate, options.process)
-    .concat([RESUME_BULLETS[variant.bullet]]);
-  // Two bullets rather than a paragraph. The hook and the angle arrive as whole
-  // sentences from two different files, and run together they make the block a
-  // recruiter skips.
-  var reasons = [options.hook, options.angle]
+  var intro = outreachIntroText_(
+    role, options.company, options.dateApplied, options.today, formatDate, options.process)
+    + ' ' + RESUME_BULLETS[variant.bullet];
+  var hook = outreachNaturalHook_(options.hook, role);
+  var reasons = [hook, options.angle]
     .filter(function (part) { return part; })
     .map(outreachNoDashes_);
   var ask = variant.ask;
 
-  var bullets = function (lines) {
-    return '<ul>' + lines.map(function (line) {
-      return '<li>' + outreachBoldHtml_(line) + '</li>';
-    }).join('') + '</ul>';
+  var paragraphs = function (lines) {
+    return lines.map(function (line) { return '<p>' + outreachBoldHtml_(line) + '</p>'; }).join('');
   };
 
   var html = [
     '<p>' + outreachEscape_(greeting) + '</p>',
-    '<p><b>' + outreachEscape_(copy.intro) + '</b></p>', bullets(intro),
-    reasons.length ? '<p><b>' + outreachEscape_(copy.reason) + '</b></p>' + bullets(reasons) : '',
+    '<p><b>' + outreachEscape_(copy.intro) + '</b></p><p>' + outreachBoldHtml_(intro) + '</p>',
+    reasons.length ? '<p><b>' + outreachEscape_(copy.reason) + '</b></p>' + paragraphs(reasons) : '',
     '<p><b>' + outreachEscape_(copy.ask) + '</b><br>' + outreachBoldHtml_(ask) + ' Resume attached.</p>',
     '<p>' + outreachEscape_(copy.close) + '<br>' + outreachEscape_(SENDER_NAME) + '<br>'
       + '<span style="color:#666">' + outreachEscape_(SENDER_LINKS) + '</span></p>'
   ].join('');
 
-  var listPlain = function (lines) {
-    return lines.map(function (line) { return '  - ' + outreachBoldPlain_(line); }).join('\n');
+  var paragraphsPlain = function (lines) {
+    return lines.map(function (line) { return outreachBoldPlain_(line); }).join('\n\n');
   };
-  var plain = [greeting, '', copy.intro, listPlain(intro)]
-    .concat(reasons.length ? ['', copy.reason, listPlain(reasons)] : [])
+  var plain = [greeting, '', copy.intro, outreachBoldPlain_(intro)]
+    .concat(reasons.length ? ['', copy.reason, paragraphsPlain(reasons)] : [])
     .concat(['', copy.ask, outreachBoldPlain_(ask) + ' Resume attached.', '',
              copy.close, SENDER_NAME, SENDER_LINKS])
     .join('\n');
 
   return {
-    subject: (variant.subjectForms || [variant.subject])[parts.form - 1] || variant.subject,
+    subject: outreachSubject_((variant.subjectForms || [variant.subject])[parts.form - 1] || variant.subject, role),
     html: html,
     plain: plain,
     variant: parts.name,

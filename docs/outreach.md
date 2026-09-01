@@ -273,8 +273,8 @@ One day apart rather than one morning, because three near-identical emails landi
 inside an hour is what reads as spray. Spread over three days it reads as a person working
 through a list — which is what it is.
 
-The three subjects, the result bullet under each and the ask all differ, so what arrives is
-three different emails, not three copies.
+The three subjects, the proof point in the introduction and the ask all differ, so what arrives
+is three different emails, not three copies.
 
 ### Three at a time, not three in total
 
@@ -1947,22 +1947,22 @@ a sentence is an edit to one file rather than a pipeline run and a re-export of 
 rows.
 
 ```
-Subject: 340K bad records were inflating severity by 8%
+Subject: I applied. What happens next?
 
 Hi Michelle,
 
-Quick intro:
-  • I am Henry Nguyen, a Math and Computer Science student at Kenyon College.
-  • Applied for the Software Engineer Intern role on Jul 20.
-  • Removed 340K malformed records from a 2.1M-record dataset that were
-    inflating severity rates by 8%.
+A quick introduction:
+I’m Henry Nguyen, a Math and Computer Science student at Kenyon College. I applied for the
+Software Engineer Intern position at Google on Jul 20, and I’m genuinely hoping to move forward
+to the next stage of the process. Removed 340K malformed records from a 2.1M-record dataset that
+were inflating severity rates by 8%.
 
 Why I'm reaching out:
-  • I saw that you recruit for engineering roles at Google.
-  • I'm especially interested in Google because correctness under concurrency
-    is what I work on.
+I noticed you recruit for engineering roles at Google, so I wanted to reach out directly about my
+Software Engineer Intern application. I’m especially interested in Google because correctness
+under concurrency is what I work on.
 
-The ask:
+A quick question:
 Would you be able to take a quick look at my application? Or point me to
 whoever is closest to this req. Resume attached.
 
@@ -1970,19 +1970,15 @@ Thanks either way,
 Henry Nguyen
 ```
 
-Three labelled sections, and **every one of them is bullets or one short sentence**. An earlier
-version folded the introduction and the reason into a single ninety-word paragraph, and it read
-as a wall: nothing to scan by, and the application — the strongest fact in the message — buried
-in the middle of it.
+Three labelled sections with short paragraphs. The labels provide scan points, while the prose
+keeps the message sounding like one person writing to another.
 
-Two things carry bold, and only two: the numbers in the intro, and the request itself in the
-ask. Bold on a third thing is bold on nothing.
+Bold is selective: sender identity, role/company, one proof point and the request are emphasized;
+everything else stays plain.
 
-**Six bullets and one sentence, none of them over twenty words.** The headings survived a rewrite
-that the length did not: three labelled sections is what makes an email skimmable, but a section
-holding four bullets is a paragraph wearing a label. The body ran to between 140 and 166 words
-depending on which hook and angle a contact drew, so each heading was cut back to doing exactly
-one job and it now lands at about 105. The ceilings and what each cut removed are in
+**Short paragraphs, with no statistics-led subject.** The three headings now do exactly one job
+each: introduce the sender and application, explain why this recruiter, and make the ask. The
+ceilings and what changed are in
 [email-templates.md](email-templates.md#the-budget-each-section-is-held-to).
 
 ### The job is named in three words, not in the job board's
@@ -2022,67 +2018,54 @@ padding, not to relabel a job they do not recognise. Only an empty cell falls ba
 Since an unrecognised title reaches the reader as written, escaping is still what stands between
 the role cell and the message.
 
-**No dashes.** Not in a subject, not in a bullet, not in the ask. Text arriving from ColdEmail
+**No dashes.** Not in a subject, not in a paragraph, not in the ask. Text arriving from ColdEmail
 does use them, and `outreachNoDashes_` turns each into a full stop on the way in, so a long
 angle becomes two short sentences instead of one long breath.
 
 Each slot is doing one job:
 
-- **Subject** — a true number, stated so it is not yet explained. Its only job is the open, and
-  an unopened email has no other qualities. All ten are under 60 characters, because a recruiter
-  reads them on a phone.
-- **First bullet** — the name and the school. A version that compressed this into
-  "Math and Computer Science at Kenyon College…" saved eight words and cost the introduction:
-  no name, no verb, and it read as the top of a CV rather than one person writing to another.
-- **Second bullet** — the application and its date, on a line of its own, because it is the one
-  fact in the message the reader can go and verify in their own system. Gmail shows the first
-  ~90 characters as preview text, and these two bullets are what fills it. `Hope you're doing
-  well` used to sit there and spent that slot saying nothing.
-- **One result bullet** — numbers in bold, prose plain, and it is the bullet the subject is
-  about, so the email answers its own subject on the third line. Every number is taken verbatim
-  from `henryng_swe.tex`: a recruiter who checks must find the two documents saying one thing.
-  There used to be a second, and it bought nothing the subject had not already promised.
-- **Why I'm reaching out** — two bullets, never a paragraph. The hook and the angle arrive as
-  whole sentences from two different files, and run together they make the block that gets
-  skipped. One purpose and one sentence each: why this person, why this company. Neither reaches
-  back into the resume, because the bullet above them already carries the number in bold.
-- **The ask** — one bolded question and one short way out, so the easiest reply is a useful one.
+- **Subject** — a short curiosity hook or pattern break, never a dangling resume statistic. All
+  ten are under 60 characters, because a recruiter reads them on a phone.
+- **A quick introduction** — identity, application, genuine next-stage intent and one proof point.
+- **Why I'm reaching out** — the normalized profile hook explains why this person received the
+  email; the company angle then explains why the role is interesting.
+- **A quick question** — one bolded request and one short way out, so the easiest reply is useful.
   Under twenty-five words, and the way out is worded differently in each variation, because it is
   the clause a recruiter forwarding to a colleague actually quotes.
 
-### Ten hooks, matched to what the company does
+### Ten subjects, matched to what the company does
 
-Identical skeleton, identical bolding. Only the subject, the result bullet and the ask move —
+The three sections stay stable, while the subject, proof point and ask move —
 three people at one company must not receive three copies, and a run of identical bodies is a
 spam signal in its own right.
 
-| Hook | For |
+| Subject | For |
 |---|---|
-| `340K bad records were inflating severity by 8%` | data |
-| `50 duplicate webhooks, exactly one order` | fintech |
-| `500 concurrent requests, zero overbookings` | cloud |
-| `Repeat checks: 4 seconds to 400 milliseconds` | ai |
-| `Four high-severity CVEs, one export path` | security |
-| `A daily report was 3 days stale and nobody knew` | hardware |
-| `480 dishes, top 5 matches in under 300ms` | consumer |
-| `90 students a semester, zero local setup` | edtech |
-| `The model was ignoring location — 0% to 24.7%` | a university recruiter, whatever the industry |
-| `Cut a 30-minute research loop to 60 seconds` | fallback where the industry is unknown |
+| `Could this application move forward?` | data |
+| `I may have the wrong person` | fintech |
+| `Is this application still moving?` | cloud |
+| `I’d really like to continue` | ai |
+| `Could you help me find the next step?` | security |
+| `Could you take a look?` | hardware |
+| `One honest question about the role` | consumer |
+| `Could you point me in the right direction?` | edtech |
+| `Is Kenyon part of your campus hiring?` | a university recruiter, whatever the industry |
+| `I applied. What happens next?` | fallback where the industry is unknown |
 
-The industry comes from ColdEmail's `bucket`, so it is the same judgement that wrote the opening
-line. A university recruiter is served before the industry match, because they are usually not
-the person who reads "50 duplicate webhooks" and feels anything.
+The industry comes from ColdEmail's `bucket`, so it is the same judgement that chooses the resume
+proof point. A university recruiter is served before the industry match, because the campus
+question is more relevant to them than an engineering result.
 
 The hooks are **ordered, not picked**: attempt 2 takes the next one down, attempt 3 the one after.
 Three people at one employer therefore never see the same subject line twice.
 
-> **Why the hook is not held back for later attempts.** An earlier draft put the plain
+> **Why the subject hook is not held back for later attempts.** An earlier draft put the plain
 > application subject on attempt 1 so the recruiter could find it in the ATS. That was the wrong
 > trade — Gmail indexes the body too, and the role and date are the first line of it, so nothing
 > was lost by hooking the subject. An email that is not opened has no other qualities.
 
-The body is HTML — bold and bullets do not exist in plain text — and a plain-text alternative is
-sent alongside it. Light HTML like this costs nothing in deliverability; what gets penalised is
+The body is HTML, and a plain-text alternative is sent alongside it. Light HTML like this costs
+nothing in deliverability; what gets penalised is
 the heavy kind with images and tracking pixels, which is why there are none.
 
 `Henry_Nguyen_Resume.pdf` is attached from Drive, 110 KB. The filename is what the recruiter
@@ -2092,8 +2075,8 @@ Age changes one line:
 
 | Application age | The sentence |
 |---|---|
-| 45 days or less | `I applied for the {Role} role on {date}.` |
-| more than 45 days | `I applied for the {Role} role earlier and I'm still hoping to be considered.` |
+| 45 days or less | `I applied for the {Role} position at {company} on {date}, and I'm genuinely hoping to move forward.` |
+| more than 45 days | `I applied for the {Role} position at {company} earlier this year, and I'm genuinely hoping to move forward.` |
 
 Naming a date from months ago points the reader straight at the weakest fact in the email.
 Dropping it keeps the sentence true without drawing the line under it.
