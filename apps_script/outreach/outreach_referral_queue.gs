@@ -412,6 +412,29 @@ function outreachReferralLive_(application) {
 }
 
 /**
+ * Whether a drafted ask points at an application rejected since the last cycle.
+ *
+ * The hourly reconcile normally closes this row first, but the one-minute send
+ * trigger can arrive between that pass and the next one. This last-mile check
+ * deliberately errs on the side of cancelling: a rejected application must not
+ * be used to ask an engineer for a referral, even if another replan would later
+ * have repointed the row to a newer application.
+ */
+function outreachReferralRejectedFor_(referralRow, applications) {
+  var companyTokens = outreachCompanyTokens_(referralRow.company);
+  var roleTokens = outreachRoleTokens_(referralRow.role);
+  var roleKey = outreachNameKey_(referralRow.role);
+  if (!companyTokens.length || !roleTokens.length) return false;
+  return (applications || []).some(function (application) {
+    if (outreachReferralLive_(application) || !application.company) return false;
+    if (!outreachSameEmployer_(companyTokens, outreachCompanyTokens_(application.company))) return false;
+    var applicationRoleKey = outreachNameKey_(application.role);
+    return applicationRoleKey === roleKey
+      || outreachSameRole_(roleTokens, outreachRoleTokens_(application.role));
+  });
+}
+
+/**
  * Which of a company's applications is the one to ask about.
  *
  * Four applications at one employer is not four referrals. Asking six people at

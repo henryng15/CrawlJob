@@ -543,6 +543,10 @@ function outreachReferralToSend_(referralRows, now, globalMode, queueRows) {
  * more. The cold path draws the same line in sendPreparedDrafts, and the two
  * have to agree or the tabs stop meaning the same thing side by side.
  *
+ * App is read again here because the one-minute send trigger can run after the
+ * hourly rejection scan. A rejected application cancels the draft before Gmail
+ * is touched, even if the Referral tab still says Drafted for a few minutes.
+ *
  * No lock. This only ever advances a row that drafting already finished with, so
  * two overlapping firings cost at worst one wasted Gmail lookup, and holding the
  * lock through a run of sends is how a drafting run gets starved out of its hour.
@@ -560,6 +564,8 @@ function sendReferralAsks() {
   // watch it, which is the arrangement the follow-up rollout already uses.
   var globalMode = outreachProperty_(PROP_REFERRAL_MODE, false) === MODE_DRAFT
     ? MODE_DRAFT : outreachProperty_(PROP_MODE, false);
+  var apps = tracker.getSheetByName(TAB_APP);
+  if (!apps) throw new Error('No ' + TAB_APP + ' tab; Referral sending is held.');
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
 
@@ -568,6 +574,13 @@ function sendReferralAsks() {
 
   var now = new Date();
   var rows = outreachReadReferralRows_(referral);
+  var appLast = apps.getLastRow();
+  if (appLast < 2) {
+    Logger.log('No applications are available; Referral sending is held.');
+    return { sent: 0, cancelled: 0, failed: 0 };
+  }
+  var applications = apps.getRange(2, 1, appLast - 1, APP_READ_WIDTH).getValues()
+    .map(function (row, index) { return outreachParseApplication_(row, index + 2); });
   var due = outreachReferralToSend_(rows, now, globalMode);
   if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: 0, failed: 0 }; }
 
@@ -580,6 +593,20 @@ function sendReferralAsks() {
     // the tab, and the id arrives attached to the row it belongs to instead of to
     // an index into a parallel array.
     var draftId = row.draftId;
+
+    if (outreachReferralRejectedFor_(row, applications)) {
+      if (draftId) {
+        try { GmailApp.getDraft(draftId).deleteDraft(); } catch (error) { /* already gone */ }
+      }
+      updates[R_STATUS] = STATUS_CANCELLED;
+      updates[R_SCHEDULED] = '';
+      updates[R_DRAFTED_AT] = '';
+      updates[R_DRAFT_ID] = '';
+      updates[R_ERROR] = 'The application was rejected; this referral ask was cancelled before sending.';
+      outreachWriteRow_(referral, row.index, updates);
+      tally.cancelled++;
+      return;
+    }
 
     // Drafted with no draft to show for it. Not Cancelled — nobody deleted
     // anything here, the row simply lost the one reference that made it sendable,

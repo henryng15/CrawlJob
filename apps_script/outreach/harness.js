@@ -3946,7 +3946,10 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   };
   S.GmailApp.getDraft = (id) => {
     if (!gmail.drafts[id]) throw new Error('Draft not found: ' + id);
-    return { send: () => ({ getId: () => 'msg-' + id }) };
+    return {
+      send: () => ({ getId: () => 'msg-' + id }),
+      deleteDraft: () => { delete gmail.drafts[id]; }
+    };
   };
 
   const employeeRow = (company, name, email, title) => {
@@ -4150,7 +4153,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
                   referralRow('b@stripe.com', 'B Two', minutes(-60), S.STATUS_DRAFTED, 'draft-gone')];
     gmail.drafts['draft-live'] = true;
     delete gmail.drafts['draft-gone'];
-    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
     const tally = S.sendReferralAsks();
 
     assert.strictEqual(tally.sent, 1);
@@ -4164,11 +4168,29 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.match(String(rows[1][S.R_RESULT - 1]), /deleted before its hour/);
   });
 
+  run('a rejected application cancels a referral before Gmail is touched', () => {
+    const rows = [referralRow('a@stripe.com', 'A One', minutes(-60), S.STATUS_DRAFTED, 'draft-rejected')];
+    const rejected = jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1');
+    rejected[S.APP_PROCESS - 1] = S.STAGE_REJECTED;
+    gmail.drafts['draft-rejected'] = true;
+    sheets = { [S.TAB_APP]: tab([rejected], S.APP_READ_WIDTH),
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    const tally = S.sendReferralAsks();
+
+    assert.strictEqual(tally.sent, 0);
+    assert.strictEqual(tally.cancelled, 1);
+    assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_CANCELLED);
+    assert.strictEqual(rows[0][S.R_DRAFT_ID - 1], '');
+    assert.strictEqual(gmail.drafts['draft-rejected'], undefined);
+    assert.match(String(rows[0][S.R_ERROR - 1]), /application was rejected/);
+  });
+
   // Nobody deleted anything here: the row lost the one reference that made it
   // sendable, and calling that a person's decision would hide a real defect.
   run('a Drafted row carrying no draft is Failed rather than called off', () => {
     const rows = [referralRow('a@stripe.com', 'A One', minutes(-60), S.STATUS_DRAFTED, '')];
-    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
     const tally = S.sendReferralAsks();
     assert.strictEqual(tally.failed, 1);
     assert.strictEqual(tally.cancelled, 0);
@@ -4181,7 +4203,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
                   referralRow('b@stripe.com', 'B Two', minutes(-60), S.STATUS_DRAFTED, 'draft-live')];
     rows[1][S.R_MODE - 1] = S.MODE_DRAFT;
     gmail.drafts['draft-live'] = true;
-    sheets = { [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+    sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
     const tally = S.sendReferralAsks();
     assert.strictEqual(tally.sent, 0);
     assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_DRAFTED);

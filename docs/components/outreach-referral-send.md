@@ -33,7 +33,7 @@ could have been read always exists.
 | `draftReferralAsks()` | Write them into Drafts, addressed and complete. Sets `STATUS_DRAFTED`. |
 | `refreshReferralDraftsForTemplateChange()` | Run after an approved wording change: delete every unsent referral draft, return its row to `Queued`, and leave its scheduled hour intact so the next draft pass recreates it from the current template. |
 | `outreachReferralToSend_(rows, now)` | The drafted rows whose hour has arrived. |
-| `sendReferralAsks()` | Send the asks still in Drafts when their hour comes. Only sends rows the tab still calls `Drafted`. |
+| `sendReferralAsks()` | Re-read `App` and send the asks still in Drafts when their hour comes. A row whose application is now `Rejected` has its draft deleted and is cancelled before Gmail is touched. |
 | `scanReferralReplies()` | Mark the asks that have been answered. |
 | `repairMisreadReferralBounces()` | Run by hand: undo a bounce recorded as a reply. |
 
@@ -67,5 +67,8 @@ A fourth caller that writes a status or an hour outside the cycle belongs in the
 - **The Gmail half and the sheet half are split deliberately.** `settleReferralTab_` marks a row
   `Cancelled` at the keystroke; `replanReferralAsks` bins its draft within the hour. Safe in that
   direction only, because `sendReferralAsks` sends nothing the tab no longer calls `Drafted`.
+- `sendReferralAsks` repeats the rejection check immediately before sending because the
+  one-minute trigger can run between hourly reconciliation passes. A rejected application is
+  cancelled and its draft removed instead of being used for a referral request.
 - `outreachApplyReferralTimes_` writes **one row at a time**. That is fine at 172 rows and was
   not fine at 499 — see [outreach-diagnostics.md](outreach-diagnostics.md).
