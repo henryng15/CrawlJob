@@ -33,7 +33,7 @@ order, and what the tab should look like. 45 functions, most of them pure.
 |---|---|
 | `outreachPriorityGroups_(rows)` | The company-and-role pairs somebody ticked by hand. |
 | `outreachPrioritised_(row)` | Whether a row rides on someone else's tick — **a tick moves the whole group**. |
-| `outreachOrderForSending_(rows)` | Ticked rows first, then employers taking turns, oldest application first inside each. Both halves go through `outreachInterleaveByCompany_`. |
+| `outreachOrderForSending_(rows)` | Ticked rows first, then employers taking turns, oldest application first inside each. Both halves go through `outreachInterleaveByCompany_`; the shared budget separately protects this path only when queued cold work is present. |
 | `outreachDueNow_(...)` | The rows allowed out on this firing, against the shared budget. |
 | `outreachProjectSchedule_(rows)` | The date each queued row is expected to go. |
 | `refreshOutreachSchedule()`, `outreachWriteProjection_(...)` | Rewrite the derived columns, and only those. |

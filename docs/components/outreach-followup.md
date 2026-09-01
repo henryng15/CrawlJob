@@ -32,6 +32,9 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 | `outreachFollowUpAt_(day, index)` | Day plus hour, as one timestamp. |
 | `outreachDayKey_(date)` | Day identity for the load tables. |
 | `outreachPlanFollowUps_(...)` | **Pure:** book every row that earned one, and un-book every row that stopped earning it. |
+| `outreachFollowUpRowsDueByTime_(...)` | Queued follow-ups whose booked timestamp has arrived, oldest send first. |
+| `outreachFollowUpDayRoom_(...)` | Remaining follow-up slots after the daily cap and shared mailbox budget. |
+| `outreachRescheduleBlockedFollowUps_(...)` | **Pure:** move overdue rows to the next day with both kinds of room. |
 | `outreachFollowUpsDueNow_(...)` | The follow-ups this firing may send. |
 
 ## Wording
@@ -49,7 +52,7 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 | `outreachMessageIdHeader_(message)` | The `Message-ID` of a message this account sent — what makes the reply thread correctly. |
 | `outreachSendFollowUp_(row)` | Post one reply onto the existing thread. |
 | `planFollowUpReplies()` | Write the plan onto the tab. |
-| `sendFollowUpReplies()` | Send the ones whose day has come. |
+| `sendFollowUpReplies()` | Send due Reply rows; when quota blocks overdue rows, move their `Follow Up At` forward while keeping them `Queued`. |
 | `replanOutreachFollowUps()` | Run by hand: throw away every booking not yet gone, and book again. |
 | `checkOutreachFollowUpService()` | Run by hand: whether the one thing this file needs from Gmail actually works. |
 | `previewOutreachFollowUps()` | Run by hand: print all twenty templates as a list. |
@@ -58,6 +61,11 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 
 Planning happens **before** sending in the cycle, so a row booked for today may go out on the
 same firing rather than waiting an hour. Reversing the two would add an hour to every nudge.
+
+If a queued follow-up is overdue but the daily cap or shared budget leaves no room, the send
+step keeps it `Queued` and writes a new future `Follow Up At` automatically. It searches
+forward for the next allowed day with a real slot, so a blocked Reply is not left with a stale
+timestamp or silently dropped.
 
 The balance rule only applies when a new booking is made. A queued or drafted follow-up retains
 the template number it already advertises, so a replan cannot silently change a message under

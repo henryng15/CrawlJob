@@ -25,7 +25,7 @@ here. Nothing in this file touches a sheet or Gmail.
 | Constant | Value | Means |
 |---|---|---|
 | `DAILY_EMAIL_BUDGET` | 47 | Everything the mailbox may send in a day, across all three paths. |
-| `EMAIL_PATH_ORDER` | `referral, cold, followup` | Who reserves first. Referral leads because it is scarcest; follow-up is last because it loses least by slipping a day. |
+| `EMAIL_PATH_ORDER` | `referral, cold, followup` | Priority when real queued work competes for the shared budget. Referral leads because it is scarcest; follow-up is last because it loses least by slipping a day. Idle higher-priority capacity is not reserved. |
 | `DAILY_CAP` | `[0,17,27,24,20,12,0]` | Cold path, by weekday. Sunday and Saturday are zero. |
 | `COMPANY_WEEKLY_CAP` | 5 | Cold emails per company per rolling 7 days. |
 | `REFERRAL_DAILY_CAP` | 20 | Referral asks a day. The 06:00–19:00 window has fourteen hours, so six hours may carry two asks; total mailbox volume remains capped at 47 and lower-priority paths yield as necessary. |

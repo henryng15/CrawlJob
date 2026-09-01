@@ -775,7 +775,8 @@ function runOutreachCycle() {
   // ask that loses its place today is not delayed, it is one of three chances at
   // that company spent on nothing. The budget in outreach_budget.gs reserves its
   // share, and running it first is the other half of the same promise: a
-  // reservation nothing claims is a reservation that expires.
+  // actual pending work is protected, while unused higher-priority room remains
+  // available to the lower path rather than expiring unused.
   //
   // Sending before writing, exactly as the cold path below does, so that no
   // message can be written and sent inside one firing and the hour in which it

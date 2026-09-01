@@ -2885,6 +2885,24 @@ console.log('follow-up — one reply per row, and only while nobody at the compa
     const rows = [booked(2, slot(2026, 8, 22, 9))];
     assert.strictEqual(S.outreachFollowUpsDueNow_(rows, at(11))[0].rowNumber, 2);
   });
+  run('blocked overdue follow-ups are rebooked on the next day with room', () => {
+    const dueRows = [booked(2, slot(2026, 8, 27, 8)), booked(3, slot(2026, 8, 27, 10))];
+    const blocked = Array.from({ length: S.outreachPathCap_('cold', at(10)) }, () => ({
+      status: 'Sent', sentAt: at(10), scheduledAt: at(10)
+    })).concat(Array.from({ length: S.REFERRAL_DAILY_CAP }, () => ({
+      status: 'Sent', scheduled: at(10)
+    })));
+    const moved = S.outreachRescheduleBlockedFollowUps_(dueRows.concat(blocked), [], at(15));
+    assert.strictEqual(moved.length, 2);
+    assert.strictEqual(moved[0].rowNumber, 2);
+    assert.strictEqual(moved[1].rowNumber, 3);
+    moved.forEach((item) => {
+      assert.strictEqual(item.at.getDate(), 28);
+      assert.strictEqual(item.at.getHours() >= S.FOLLOWUP_HOUR_FIRST, true);
+      assert.strictEqual(item.at.getHours() <= S.FOLLOWUP_HOUR_LAST, true);
+    });
+    assert.strictEqual(S.outreachFollowUpsDueNow_(dueRows.concat(blocked), at(15)).length, 0);
+  });
   run('a day still ahead is left alone', () => {
     assert.strictEqual(
       S.outreachFollowUpsDueNow_([booked(2, slot(2026, 8, 30, 9))], at(11)).length, 0);
@@ -4443,26 +4461,33 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachDaySpend_([], [{ status: 'Queued', scheduled: TUE }], TUE).referral, 0);
   });
 
-  run('an untouched day reserves the budget in path order', () => {
+  run('an untouched day leaves idle budget available to every path', () => {
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'referral'), S.REFERRAL_DAILY_CAP);
     assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'cold'), 27);
-    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), 0);
+    assert.strictEqual(S.outreachBudgetRoom_([], [], TUE, 'followup'), S.FOLLOWUP_DAILY_CAP);
   });
 
-  // The whole point of the reservation. Without it the priority order would be
-  // decided by which trigger fired first, and the cold path has been firing
-  // hourly for weeks: it would take the budget every morning.
-  run('the referral path keeps its share even when the cold path got there first', () => {
+  // Priority is reserved for real queued work, not for an empty path. Without
+  // this distinction an unused Referral allowance would strand follow-ups.
+  run('a higher priority path keeps room when it has queued work', () => {
     const saved = S.DAILY_CAP[2];
     S.DAILY_CAP[2] = 40;
     try {
       // Cold has sent 20 of a raised cap of 40, so its own cap says twenty more.
-      // The twenty held back for Referral leave seven.
-      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'cold'),
-                         S.DAILY_EMAIL_BUDGET - 20 - S.REFERRAL_DAILY_CAP);
+      // No Referral work is queued, so all of the idle Referral room is usable.
+      assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'cold'), 27);
       // And the referral path finds its whole share waiting for it.
       assert.strictEqual(S.outreachBudgetRoom_(coldSent(TUE, 20), [], TUE, 'referral'),
                          S.REFERRAL_DAILY_CAP);
+
+      const pendingCold = Array.from({ length: 27 }, (_, i) => ({
+        status: 'Queued', rowNumber: i + 2, eligibleAt: TUE
+      }));
+      const pendingReferral = Array.from({ length: S.REFERRAL_DAILY_CAP }, (_, i) => ({
+        status: 'Queued', rowNumber: i + 2, scheduled: TUE,
+        email: 'person' + i + '@example.com', jobLink: 'https://example.com/job'
+      }));
+      assert.strictEqual(S.outreachBudgetRoom_(pendingCold, pendingReferral, TUE, 'followup'), 0);
     } finally {
       S.DAILY_CAP[2] = saved;
     }

@@ -555,24 +555,77 @@ function outreachPlanFollowUps_(queueRows, today) {
  * of downtime, or a day the cap could not absorb, catch up rather than silently
  * drop.
  */
+function outreachFollowUpRowsDueByTime_(queueRows, now) {
+  return queueRows.filter(function (row) {
+    return row.followUpStatus === FOLLOWUP_QUEUED && row.followUpAt
+        && row.followUpAt.getTime() <= now.getTime();
+  }).sort(function (a, b) {
+    var left = a.sentAt ? a.sentAt.getTime() : Infinity;
+    var right = b.sentAt ? b.sentAt.getTime() : Infinity;
+    return left === right ? a.rowNumber - b.rowNumber : left - right;
+  });
+}
+
+/** The number of follow-up slots this day can still use across the mailbox. */
+function outreachFollowUpDayRoom_(queueRows, referralRows, day) {
+  var key = outreachDayKey_(day);
+  var used = queueRows.filter(function (row) {
+    return (row.followUpStatus === FOLLOWUP_SENT || row.followUpStatus === FOLLOWUP_DRAFTED)
+        && row.followUpAt && outreachDayKey_(row.followUpAt) === key;
+  }).length;
+  return Math.max(0, Math.min(FOLLOWUP_DAILY_CAP - used,
+    outreachBudgetRoom_(queueRows, referralRows, day, 'followup')));
+}
+
+/**
+ * Move overdue queued follow-ups to the next day with both a follow-up slot and
+ * shared-budget room. Pure: the caller persists only the returned timestamps.
+ */
+function outreachRescheduleBlockedFollowUps_(queueRows, referralRows, now) {
+  if (now.getHours() < FOLLOWUP_HOUR_FIRST || now.getHours() > FOLLOWUP_HOUR_LAST
+      || !outreachFollowUpDayAllowed_(now)) return [];
+
+  var overdue = outreachFollowUpRowsDueByTime_(queueRows, now);
+  if (!overdue.length || outreachFollowUpDayRoom_(queueRows, referralRows, now) > 0) return [];
+
+  var load = {};
+  queueRows.forEach(function (row) {
+    if (!row.followUpAt || (row.followUpStatus !== FOLLOWUP_QUEUED
+        && row.followUpStatus !== FOLLOWUP_DRAFTED && row.followUpStatus !== FOLLOWUP_SENT)) return;
+    var key = outreachDayKey_(row.followUpAt);
+    load[key] = (load[key] || 0) + 1;
+  });
+
+  var moved = [];
+  overdue.forEach(function (row) {
+    var day = outreachAddDays_(outreachMidnight_(now), 1);
+    for (var guard = 0; guard < 180; guard++) {
+      if (outreachFollowUpDayAllowed_(day)) {
+        var key = outreachDayKey_(day);
+        var slots = Math.min(FOLLOWUP_DAILY_CAP - (load[key] || 0),
+          outreachBudgetRoom_(queueRows, referralRows, day, 'followup'));
+        if (slots > 0) {
+          var at = outreachFollowUpAt_(day, load[key] || 0);
+          moved.push({ rowNumber: row.rowNumber, at: at });
+          load[key] = (load[key] || 0) + 1;
+          return;
+        }
+      }
+      day = outreachAddDays_(day, 1);
+    }
+  });
+  return moved;
+}
+
 function outreachFollowUpsDueNow_(queueRows, now, referralRows) {
   var hour = now.getHours();
   if (hour < FOLLOWUP_HOUR_FIRST || hour > FOLLOWUP_HOUR_LAST) return [];
   if (!outreachFollowUpDayAllowed_(now)) return [];
 
-  var today = outreachMidnight_(now).getTime();
-  var gone = queueRows.filter(function (row) {
-    return (row.followUpStatus === FOLLOWUP_SENT || row.followUpStatus === FOLLOWUP_DRAFTED)
-        && row.followUpAt && outreachDayKey_(row.followUpAt) === today;
-  }).length;
-  var remaining = FOLLOWUP_DAILY_CAP - gone;
-  if (remaining <= 0) return [];
-
   // Last in EMAIL_PATH_ORDER, so on a day the budget binds this is the path that
   // gives way, and it is the right one: the message this chases has already
   // landed and its window is five to ten days wide. See outreach_budget.gs.
-  remaining = Math.min(remaining,
-    outreachBudgetRoom_(queueRows, referralRows, now, 'followup'));
+  var remaining = outreachFollowUpDayRoom_(queueRows, referralRows, now);
   if (remaining <= 0) return [];
 
   // A brake on catch-up, not the spreader it used to be. The hours are booked now,
@@ -586,14 +639,7 @@ function outreachFollowUpsDueNow_(queueRows, now, referralRows) {
   // row goes at, exactly as Scheduled At is for a cold email — a row booked for
   // 14:00 is not due at 09:20 just because the date matches. An hour already past
   // is still due, which is what makes a missed firing catch up.
-  return queueRows.filter(function (row) {
-    return row.followUpStatus === FOLLOWUP_QUEUED && row.followUpAt
-        && row.followUpAt.getTime() <= now.getTime();
-  }).sort(function (a, b) {
-    var left = a.sentAt ? a.sentAt.getTime() : Infinity;
-    var right = b.sentAt ? b.sentAt.getTime() : Infinity;
-    return left === right ? a.rowNumber - b.rowNumber : left - right;
-  }).slice(0, slots);
+  return outreachFollowUpRowsDueByTime_(queueRows, now).slice(0, slots);
 }
 
 // --------------------------------------------------------------------- sending
@@ -791,8 +837,23 @@ function sendFollowUpReplies() {
 
     var now = new Date();
     var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
-    var due = outreachFollowUpsDueNow_(rows, now);
-    if (!due.length) { Logger.log('No follow-up due this firing.'); return { sent: 0, drafted: 0, stopped: 0, failed: 0 }; }
+    var referralSheet = tracker.getSheetByName(TAB_REFERRAL);
+    var referralRows = referralSheet ? outreachReadReferralRows_(referralSheet) : [];
+    var due = outreachFollowUpsDueNow_(rows, now, referralRows);
+    if (!due.length) {
+      var moved = outreachRescheduleBlockedFollowUps_(rows, referralRows, now);
+      moved.forEach(function (item) {
+        var updates = {};
+        updates[Q_FOLLOWUP_AT] = item.at;
+        outreachWriteRow_(queue, item.rowNumber, updates);
+      });
+      if (moved.length) {
+        Logger.log('Rescheduled ' + moved.length + ' blocked follow-up(s).');
+      } else {
+        Logger.log('No follow-up due this firing.');
+      }
+      return { sent: 0, drafted: 0, stopped: 0, failed: 0, rescheduled: moved.length };
+    }
 
     // The advanced service, checked once before the loop rather than discovered
     // inside it.

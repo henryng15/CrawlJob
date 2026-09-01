@@ -82,23 +82,45 @@ function outreachPathCap_(path, day) {
  * How many more messages a path may send on a day.
  *
  * Two limits, and the smaller wins: the path's own cap, and what is left of the
- * budget once room has been held back for every path above it in
- * EMAIL_PATH_ORDER that has not yet spent its own allowance.
+ * budget once room has been held back for pending work in every path above it
+ * in EMAIL_PATH_ORDER. An idle higher-priority path does not reserve an empty
+ * allowance forever; only rows that can actually use that allowance today are
+ * protected.
  *
  * That reservation is what makes the ordering mean anything. Without it the
  * priority would be decided by which planner happened to run first, and the cold
  * path runs on an hourly trigger that has been firing for weeks — it would take
  * the whole budget every morning and the ordering would be a comment rather than
- * a rule. Holding back Referral's twenty until that path has had its chance is
- * the difference.
+ * a rule. Holding back Referral's twenty when Referral really has twenty queued
+ * asks is the difference. When it has no work, lower paths may use that idle room.
  */
+function outreachPendingPathDemand_(queueRows, referralRows, day, path) {
+  var key = outreachDayKey_(day);
+  if (path === 'referral') {
+    return (referralRows || []).filter(function (row) {
+      return row.status === STATUS_QUEUED && row.scheduled
+        && outreachDayKey_(row.scheduled) === key && row.email && row.jobLink;
+    }).length;
+  }
+  if (path === 'cold') {
+    var dayKey = outreachMidnight_(day).getTime();
+    return (queueRows || []).filter(function (row) {
+      return row.status === STATUS_QUEUED && row.eligibleAt
+        && outreachMidnight_(row.eligibleAt).getTime() <= dayKey;
+    }).length;
+  }
+  return 0;
+}
+
 function outreachBudgetRoom_(queueRows, referralRows, day, path) {
   var spend = outreachDaySpend_(queueRows, referralRows, day);
   var reserved = 0;
   for (var i = 0; i < EMAIL_PATH_ORDER.length; i++) {
     var above = EMAIL_PATH_ORDER[i];
     if (above === path) break;
-    reserved += Math.max(0, outreachPathCap_(above, day) - spend[above]);
+    var available = Math.max(0, outreachPathCap_(above, day) - spend[above]);
+    reserved += Math.min(available,
+      outreachPendingPathDemand_(queueRows, referralRows, day, above));
   }
   var left = DAILY_EMAIL_BUDGET - spend.total - reserved;
   var own = outreachPathCap_(path, day) - spend[path];

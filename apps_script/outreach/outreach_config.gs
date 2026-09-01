@@ -255,7 +255,8 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 // this number bound exactly at forty five — so a decision about the path was also
 // a decision about the account, which is what the paragraph above was written to
 // force. The budget remains the hard reputation limit even when the individual
-// caps overbook it; referral reserves first, so cold and then follow-up yield.
+// caps overbook it; actual pending Referral work reserves first, then cold, and
+// follow-up yields only when those higher-priority rows need the room.
 //
 // Two ceilings sit above this one and neither binds. Apps Script allows a consumer
 // gmail.com account 100 recipients a day, so this is under half of what the

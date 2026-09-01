@@ -74,3 +74,7 @@ leaves behind.** That is why there are two stamps rather than one — see
 
 `sendPreparedDrafts` deliberately survives a failed `scan`. A failed scan costs an hour of
 freshness, not the safety check — the re-read of `App` is the check that actually matters.
+
+The cycle runs Referral before cold before follow-up. The shared 47-message budget protects
+actual queued higher-priority work; unused capacity is available to Reply instead of being
+reserved by an empty path.

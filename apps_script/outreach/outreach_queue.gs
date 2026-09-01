@@ -1253,9 +1253,10 @@ function outreachOrderForSending_(rows, all) {
  *
  * Two limits now, not one. DAILY_CAP is what this path may send; the budget in
  * outreach_budget.gs is what the account may send across all three paths, and it
- * holds back the referral path's allowance before this one is served. Without
+ * protects actual queued higher-priority work before this one is served. Without
  * that reservation the priority order would be decided by which trigger fired
- * first, and this one has been firing hourly for weeks.
+ * first, and this one has been firing hourly for weeks; an empty higher path does
+ * not strand its unused allowance.
  */
 function outreachDueNow_(queueRows, now, referralRows) {
   var cap = outreachDailyCap_(now);
