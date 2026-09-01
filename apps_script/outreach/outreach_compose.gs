@@ -103,65 +103,183 @@ var RESUME_BULLETS = {
 var VARIANTS = {
   application: {
     subject: 'Cut a 30-minute research loop to 60 seconds',
+    subjectForms: [
+      'Cut a 30-minute research loop to 60 seconds',
+      'A 30-minute research step, reduced to 60 seconds',
+      'Research that went from 30 minutes to 60 seconds'
+    ],
     bullet: 'mcp',
     ask: 'Would you be able to **take a quick look at my application**? If someone else '
        + 'owns the req, a pointer would help just as much.'
   },
   data: {
     subject: '340K bad records were inflating severity by 8%',
+    subjectForms: [
+      '340K bad records were inflating severity by 8%',
+      '340K malformed rows were distorting severity by 8%',
+      'An 8% severity distortion traced to 340K bad rows'
+    ],
     bullet: 'polars',
     ask: 'Would you be able to **take a quick look at my application**? Or point me to '
        + 'whoever is closest to this req.'
   },
   fintech: {
     subject: '50 duplicate webhooks, exactly one order',
+    subjectForms: [
+      '50 duplicate webhooks, exactly one order',
+      '50 repeat webhooks, one recorded order',
+      'One order from 50 concurrent webhooks'
+    ],
     bullet: 'webhooks',
     ask: 'Would you be able to **take a quick look at my application**? If someone else '
        + 'owns this req, I will go to them.'
   },
   cloud: {
     subject: '500 concurrent requests, zero overbookings',
+    subjectForms: [
+      '500 concurrent requests, zero overbookings',
+      '500 concurrent requests, without an overbooking',
+      'No overbookings across 500 concurrent requests'
+    ],
     bullet: 'locks',
     ask: 'Would you be able to **take a quick look at my application**? Or tell me who '
        + 'runs intern hiring this cycle.'
   },
   ai: {
     subject: 'Repeat checks: 4 seconds to 400 milliseconds',
+    subjectForms: [
+      'Repeat checks: 4 seconds to 400 milliseconds',
+      'Repeat claim checks, from 4 seconds to 400ms',
+      'A 4-second repeat check reduced to 400ms'
+    ],
     bullet: 'rag',
     ask: 'Would you be open to a **short chat about the role**? If it is not yours, a '
        + 'pointer to the closest team helps.'
   },
   security: {
     subject: 'Four high-severity CVEs, one export path',
+    subjectForms: [
+      'Four high-severity CVEs, one export path',
+      'Four high-severity CVEs removed from one export path',
+      'One export path, four high-severity CVEs removed'
+    ],
     bullet: 'cves',
     ask: 'Would you be able to **take a quick look at my application**? Or tell me who I '
        + 'should be talking to.'
   },
   hardware: {
     subject: 'A daily report was 3 days stale and nobody knew',
+    subjectForms: [
+      'A daily report was 3 days stale and nobody knew',
+      'A report ran stale for 3 days before the alert existed',
+      'Making a 3-day stale report visible'
+    ],
     bullet: 'freshness',
     ask: 'Would you be able to **take a quick look at my application**? If the intern '
        + 'cohort is not yours, a pointer helps.'
   },
   consumer: {
     subject: '480 dishes, top 5 matches in under 300ms',
+    subjectForms: [
+      '480 dishes, top 5 matches in under 300ms',
+      '480 dishes, five matches in under 300 milliseconds',
+      'Top five matches from 480 dishes in under 300ms'
+    ],
     bullet: 'menulens',
     ask: 'Would you be able to **take a quick look at my application**? Or point me at '
        + 'whoever owns intern hiring there.'
   },
   edtech: {
     subject: '90 students a semester, zero local setup',
+    subjectForms: [
+      '90 students a semester, zero local setup',
+      '90 students each semester, no local setup',
+      'No local setup for 90 students a semester'
+    ],
     bullet: 'workspaces',
     ask: 'Would you be able to **take a quick look at my application**? Or send me toward '
        + 'whoever is reading these applications.'
   },
   campus: {
     subject: 'The model was ignoring location: 0% to 24.7%',
+    subjectForms: [
+      'The model was ignoring location: 0% to 24.7%',
+      'Location was ignored: 0% to 24.7% coverage',
+      'A crash model began reflecting location: 0% to 24.7%'
+    ],
     bullet: 'calibration',
     ask: 'Would you be able to **take a quick look at my application**? I would also like '
        + 'to know whether Kenyon is on the campus list.'
   }
 };
+
+// Three light paraphrases of the same recruiter note. The facts, recipient
+// specific lines and request stay untouched; only the labels, subject wording
+// and closing move. That prevents a copy form from quietly becoming a different
+// claim or a stronger ask.
+var COLD_COPY_FORMS = [
+  { intro: 'Quick intro:', reason: 'Why I\u2019m reaching out:', ask: 'The ask:',
+    close: 'Thanks either way,' },
+  { intro: 'A brief introduction:', reason: 'Why I thought to write:', ask: 'A quick question:',
+    close: 'Thank you for considering it,' },
+  { intro: 'A little context:', reason: 'Why I reached out:', ask: 'My question:',
+    close: 'Thank you for your time,' }
+];
+
+function outreachVariantParts_(value) {
+  var written = String(value || '');
+  var match = written.match(/^([a-z]+):(\d+)$/i);
+  var name = match ? match[1] : written;
+  var form = match ? Number(match[2]) : 1;
+  if (!VARIANTS[name]) name = 'application';
+  if (form < 1 || form > COLD_COPY_FORMS.length) form = 1;
+  return { name: name, form: form };
+}
+
+function outreachVariantKey_(name, form) {
+  return name + ':' + form;
+}
+
+function outreachVariantTemplateLoad_(queueRows) {
+  var bases = {}, forms = {};
+  Object.keys(VARIANTS).forEach(function (name) {
+    bases[name] = 0;
+    for (var form = 1; form <= COLD_COPY_FORMS.length; form++) {
+      forms[outreachVariantKey_(name, form)] = 0;
+    }
+  });
+  (queueRows || []).forEach(function (row) {
+    if (!row || row.status === STATUS_CANCELLED || !row.template) return;
+    var parts = outreachVariantParts_(row.template);
+    bases[parts.name]++;
+    forms[outreachVariantKey_(parts.name, parts.form)]++;
+  });
+  return { bases: bases, forms: forms };
+}
+
+function outreachBalancedVariantFor_(attempt, focus, bucket, load) {
+  if (!load) return outreachVariantFor_(attempt, focus, bucket);
+  var names = Object.keys(VARIANTS);
+  var minimum = Math.min.apply(null, names.map(function (name) { return load[name] || 0; }));
+  var order = outreachVariantOrder_(bucket, focus);
+  var chosen = order.filter(function (name) { return (load[name] || 0) === minimum; })[0];
+  load[chosen] = (load[chosen] || 0) + 1;
+  return chosen;
+}
+
+function outreachCopyFormFor_(variant, load) {
+  var forms = [];
+  for (var form = 1; form <= COLD_COPY_FORMS.length; form++) forms.push(form);
+  var minimum = Math.min.apply(null, forms.map(function (form) {
+    return load[outreachVariantKey_(variant, form)] || 0;
+  }));
+  var chosen = forms.filter(function (form) {
+    return (load[outreachVariantKey_(variant, form)] || 0) === minimum;
+  })[0];
+  var key = outreachVariantKey_(variant, chosen);
+  load[key] = (load[key] || 0) + 1;
+  return chosen;
+}
 
 // Which subject a company's industry earns. The bucket comes from ColdEmail's
 // company angle file, so it is the same judgement that wrote the opening line.
@@ -354,7 +472,9 @@ function outreachIntroBullets_(role, dateApplied, today, formatDate, process) {
  * of sending it. Nothing here decides that; see outreach_queue.gs.
  */
 function outreachCompose_(options) {
-  var variant = VARIANTS[options.variant] || VARIANTS.application;
+  var parts = outreachVariantParts_(options.variant);
+  var variant = VARIANTS[parts.name];
+  var copy = COLD_COPY_FORMS[parts.form - 1];
   var role = outreachShortRole_(options.role);
   var formatDate = options.formatDate || function (d) {
     return Utilities.formatDate(d, Session.getScriptTimeZone(), 'MMM d');
@@ -380,21 +500,27 @@ function outreachCompose_(options) {
 
   var html = [
     '<p>' + outreachEscape_(greeting) + '</p>',
-    '<p><b>Quick intro:</b></p>', bullets(intro),
-    reasons.length ? '<p><b>Why I’m reaching out:</b></p>' + bullets(reasons) : '',
-    '<p><b>The ask:</b><br>' + outreachBoldHtml_(ask) + ' Resume attached.</p>',
-    '<p>Thanks either way,<br>' + outreachEscape_(SENDER_NAME) + '<br>'
+    '<p><b>' + outreachEscape_(copy.intro) + '</b></p>', bullets(intro),
+    reasons.length ? '<p><b>' + outreachEscape_(copy.reason) + '</b></p>' + bullets(reasons) : '',
+    '<p><b>' + outreachEscape_(copy.ask) + '</b><br>' + outreachBoldHtml_(ask) + ' Resume attached.</p>',
+    '<p>' + outreachEscape_(copy.close) + '<br>' + outreachEscape_(SENDER_NAME) + '<br>'
       + '<span style="color:#666">' + outreachEscape_(SENDER_LINKS) + '</span></p>'
   ].join('');
 
   var listPlain = function (lines) {
     return lines.map(function (line) { return '  - ' + outreachBoldPlain_(line); }).join('\n');
   };
-  var plain = [greeting, '', 'Quick intro:', listPlain(intro)]
-    .concat(reasons.length ? ['', 'Why I\u2019m reaching out:', listPlain(reasons)] : [])
-    .concat(['', 'The ask:', outreachBoldPlain_(ask) + ' Resume attached.', '',
-             'Thanks either way,', SENDER_NAME, SENDER_LINKS])
+  var plain = [greeting, '', copy.intro, listPlain(intro)]
+    .concat(reasons.length ? ['', copy.reason, listPlain(reasons)] : [])
+    .concat(['', copy.ask, outreachBoldPlain_(ask) + ' Resume attached.', '',
+             copy.close, SENDER_NAME, SENDER_LINKS])
     .join('\n');
 
-  return { subject: variant.subject, html: html, plain: plain, variant: options.variant };
+  return {
+    subject: (variant.subjectForms || [variant.subject])[parts.form - 1] || variant.subject,
+    html: html,
+    plain: plain,
+    variant: parts.name,
+    form: parts.form
+  };
 }

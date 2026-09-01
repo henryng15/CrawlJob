@@ -17,16 +17,20 @@ thirty six subjects, the ten applied lines and the bullet order per bucket.
 
 ## Tiers and templates
 
-A person's **tier** comes from their title and seniority; the tier plus an index picks the
-subject and wording variation. Ten variations keep six people at one employer from receiving an
-identical body, while every variation has the same serious structure: introduction, no-prior-
-connection context, applied role, two relevant projects, resume-review/referral request, attached
-resume and direct posting link, then an easy opt-out.
+A person's **tier** comes from their title and seniority. Ten variations per tier keep six people
+at one employer from receiving an identical body, while a least-used-first selector balances new
+asks within that tier. A company-seeded order breaks ties, preserving a stable sequence for people
+at one employer. Every variation has the same serious structure: introduction, no-prior-connection
+context, applied role, two relevant projects, resume-review/referral request, attached resume and
+direct posting link, then an easy opt-out.
 
 | Function | Does |
 |---|---|
 | `outreachReferralTier_(title, seniority)` | The tier for one person. |
 | `outreachReferralIndex_(company, attempt)` | Which of the ten templates this attempt gets. Keyed on the company so the sequence is stable per employer. |
+| `outreachReferralTemplateLoad_(...)`, `outreachBalancedReferralTemplateFor_(...)` | Count non-cancelled referral rows per tier and choose the least-used template for a newly booked row; the company-seeded index breaks a tie. |
+| `outreachReferralContactOpening_(...)` | One of ten professional paraphrases of the no-prior-connection sentence. |
+| `outreachReferralAttemptForTemplate_(...)` | Recover the stable attempt belonging to a persisted template, so the subject and resume-bullet pair can be recreated at draft time. |
 | `outreachReferralSubjectIndex_(...)` | Which subject a person gets. |
 | `outreachReferralSubject_(...)` | That subject. |
 | `outreachReferralIntro_(...)` | Who is writing, their software-engineering background, what they have **already applied to**, and one line on why the role fits. Graduation year left out. |
@@ -50,3 +54,5 @@ resume and direct posting link, then an easy opt-out.
   to a calendar item is silence.
 - `previewReferralTemplates` is the only safe way to change wording. There is **no second
   attempt** at a person, so a template bug is not a retry, it is a chance spent.
+- A queued referral row keeps the body-template number already displayed on its tab. The balance
+  rule fills only new rows, never rewriting a draft or changing a message awaiting review.

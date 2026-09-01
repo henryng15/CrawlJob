@@ -333,11 +333,7 @@ function outreachReferralAppliedOn_(tracker) {
 }
 
 function outreachReferralAttemptFor_(company, template) {
-  var wanted = (Number(template) || 1) - 1;
-  for (var attempt = 1; attempt <= 10; attempt++) {
-    if (outreachReferralIndex_(company, attempt) === wanted) return attempt;
-  }
-  return 1;
+  return outreachReferralAttemptForTemplate_(company, template);
 }
 
 /**
@@ -436,7 +432,8 @@ function draftReferralAsks() {
           // The tab already names which of the ten this row is getting, and that
           // is what a person read before it went. Recomputing from scratch here
           // could quietly disagree with the cell.
-          attempt: outreachReferralAttemptFor_(row.company, row.template)
+          attempt: outreachReferralAttemptFor_(row.company, row.template),
+          template: row.template
         });
 
         var draft = GmailApp.createDraft(row.email, mail.subject, mail.plain, {

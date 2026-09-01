@@ -22,7 +22,7 @@ order, and what the tab should look like. 45 functions, most of them pure.
 | `outreachCompanySendsThisWeek_(...)` | What the company is already committed to, against `COMPANY_WEEKLY_CAP`. |
 | `outreachContactAvailable_(...)` | Whether this person may be written to about this intake today. |
 | `outreachPickContact_(...)` | The first contact who may be. |
-| `outreachPlanEnqueue_(...)` | **Pure planner:** data in, rows and reasons out. |
+| `outreachPlanEnqueue_(...)` | **Pure planner:** data in, rows and reasons out. It counts non-cancelled templates already committed in `Email`, then gives each new row the least-used cold base and copy form; company relevance only breaks ties. |
 | `outreachQueueRowValues_(...)` | One booked row as the cells to append. |
 | `enqueueOutreach()` | Read `App` and the queue, work out what is missing, append it. |
 | `enqueueAndProject()` | The same, plus a reprojection. |

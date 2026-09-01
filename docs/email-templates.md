@@ -1,7 +1,7 @@
 # Email templates — every subject line and every body that can go out
 
-The full catalogue of everything this project can put in somebody's mailbox: the **10** cold
-recruiter variations, the **20** follow-up nudges, and the **40** referral bodies with the **36**
+The full catalogue of everything this project can put in somebody's mailbox: the **10** factual cold
+recruiter variations with **3** copy forms each, the **20** follow-up nudges, and the **40** referral bodies with the **36**
 subjects and **10** applied lines they draw from, plus the **13** resume bullets all three share.
 [outreach.md](outreach.md) covers *when* an email is sent and to whom; this page covers *what* is in
 it.
@@ -20,8 +20,8 @@ at all**, so a template bug is not a retry, it is a chance spent.
 | Reads | a recruiter | the same recruiter, on the same thread | an engineer at the company |
 | Asks for | a look at the application | nothing new | a referral, or a forward |
 | Lives in | `outreach_compose.gs` | `outreach_followup.gs` | `outreach_referral.gs` |
-| Variations | 10 | 20 note + close pairs | 40 bodies × 36 subjects × 10 applied lines |
-| Picked by | the company's industry bucket | company name, then follow-up count | tier from job title, then a company-seeded index |
+| Variations | 10 factual bases × 3 copy forms | 20 note + close pairs | 40 bodies × 36 subjects × 10 applied lines |
+| Picked by | least-used base/form, with industry relevance as tie-breaker | least-used note, with company ordering as tie-breaker | least-used body per tier, with company ordering as tie-breaker |
 | Length | ~90 words | 2 sentences | ~150 words |
 | Attachment | resume | **none** | resume |
 | Daily cap | 25 at peak | 6 | 14, and 6 people per employer ever |
@@ -65,9 +65,10 @@ The dataset has 23 engineers at Reddit and 22 at Goldman Sachs. `REFERRAL_PER_CO
 them, and `REFERRAL_COMPANY_DAILY_CAP` used to spread those 6 across six days. It is now **1 per
 employer per day**, but the argument for six-in-a-morning was never wrong: what makes six notes
 read as a mailing shot is six *identical* notes. So the tier, the template, the subject, the applied
-line and the bullet pair all move per person, and none of them is chosen at random —
-`outreachReferralIndex_` and `outreachFollowUpStartFor_` seed on the **company name**, so the
-sequence is stable per employer and reproducible for a row that gets replanned.
+line and the bullet pair all move per person. New rows fill the least-used live template first;
+`outreachVariantOrder_`, `outreachReferralIndex_` and `outreachFollowUpStartFor_` use company
+relevance or a company name only to break a tie. The selected number is written to the tab before
+drafting, so it remains reproducible for a row that gets replanned.
 
 The follow-up gets 20 rather than 10 for a reason worth knowing: a cold email varies its subject,
 its number and its ask, which is a lot of surface. A follow-up is one sentence with no subject of
@@ -171,7 +172,7 @@ ask. Bold on a third thing is bold on nothing.
 **No dashes anywhere** — not in a subject, not in a bullet, not in the ask. Text arriving from
 ColdEmail does use them, and `outreachNoDashes_` turns each into a full stop on the way in.
 
-## The ten variations
+## The ten factual variations
 
 Format, bolding and order are identical across all ten. Only the **subject**, the **result
 bullet** and the **ask** move — three people at one company must not receive three copies, and a
@@ -280,11 +281,40 @@ know whether Kenyon is on the campus list.
 
 *The only ask that asks a second question, and the only one that names Kenyon.*
 
+## The three copy forms
+
+The subject, section labels and closing are paraphrased; the application fact, resume bullet,
+recipient-specific hook, company angle and ask remain exactly the same. A row stores this as
+`base:form`, for example `fintech:2`; a legacy base-only value is form 1.
+
+| Form | Introduction | Reason | Ask label | Closing |
+|---|---|---|---|---|
+| 1 | Quick intro: | Why I'm reaching out: | The ask: | Thanks either way, |
+| 2 | A brief introduction: | Why I thought to write: | A quick question: | Thank you for considering it, |
+| 3 | A little context: | Why I reached out: | My question: | Thank you for your time, |
+
+### Alternate subjects
+
+| Base | Form 2 | Form 3 |
+|---|---|---|
+| `application` | A 30-minute research step, reduced to 60 seconds | Research that went from 30 minutes to 60 seconds |
+| `data` | 340K malformed rows were distorting severity by 8% | An 8% severity distortion traced to 340K bad rows |
+| `fintech` | 50 repeat webhooks, one recorded order | One order from 50 concurrent webhooks |
+| `cloud` | 500 concurrent requests, without an overbooking | No overbookings across 500 concurrent requests |
+| `ai` | Repeat claim checks, from 4 seconds to 400ms | A 4-second repeat check reduced to 400ms |
+| `security` | Four high-severity CVEs removed from one export path | One export path, four high-severity CVEs removed |
+| `hardware` | A report ran stale for 3 days before the alert existed | Making a 3-day stale report visible |
+| `consumer` | 480 dishes, five matches in under 300 milliseconds | Top five matches from 480 dishes in under 300ms |
+| `edtech` | 90 students each semester, no local setup | No local setup for 90 students a semester |
+| `campus` | Location was ignored: 0% to 24.7% coverage | A crash model began reflecting location: 0% to 24.7% |
+
 ## Which variation a contact gets
 
-`outreachVariantOrder_` builds an ordered list, best first, and the attempt number indexes into
-it. The list is **ordered, not picked**, so attempts 2 and 3 — different people at the same
-employer — take the next one down and never repeat a subject.
+`outreachVariantOrder_` builds the relevance order. `outreachVariantTemplateLoad_` counts every
+non-cancelled row already committed to `Email`, and `outreachBalancedVariantFor_` gives a new row
+the least-used factual base; relevance chooses among bases tied for that minimum. The copy form is
+then chosen the same way inside that base. Existing rows keep the subject/body form already stored
+on their tab.
 
 1. `campus`, if the contact's focus is `university`. They are usually not the person who reads
    "50 duplicate webhooks" and feels anything.
@@ -557,6 +587,25 @@ Seven beats: the cold-contact admission, who is writing and what was already app
 clause introducing two numbers, the two numbers, the bolded ask with the easier favour beside
 it, the close, and the posting link on a line of its own at the foot.
 
+## Cold-contact openings
+
+This first sentence is paired with the stored referral body-template number. All ten say only
+that this is a brief cold note to someone at the company; the underlying ask and facts do not
+change.
+
+| # | Opening |
+|---|---|
+| 1 | We have not met before, but I came across your profile and saw that you work at {company}. |
+| 2 | We have not spoken before, but I found your profile while learning more about {company}. |
+| 3 | I do not know you personally, but I came across your work at {company}. |
+| 4 | We have not met, but your profile came up while I was looking into {company}. |
+| 5 | I came across your profile while researching {company}, although we have not spoken before. |
+| 6 | This is a cold note, but I found your profile while learning about the team at {company}. |
+| 7 | We have not connected before, but I noticed your work at {company} while researching the company. |
+| 8 | I hope you do not mind a brief note from someone who found your profile while looking at {company}. |
+| 9 | Although we have not met, I came across your profile while learning more about {company}. |
+| 10 | This is the first time I am writing to you, after coming across your profile at {company}. |
+
 **The graduation year is left out**, unlike the cold email. A recruiter is checking
 eligibility for an intake and the year is the fact that decides it; the engineer is checking
 nothing, and the room is better spent on the school and the subject.
@@ -602,6 +651,10 @@ Each row is four strings plus the lead-in. `open` is the cold-contact admission 
 it — **every message offers to have the resume forwarded to whoever runs hiring**, because a
 referral spends the reader's credibility and a forward spends nothing, and a reader who will not do
 the first will often do the second.
+
+New rows use the least-used live body within their tier. The company-seeded index only breaks a
+tie; it does not allow a common body to keep being chosen while another is underused. The template
+number is stored when the row is booked and is never changed under a queued or drafted row.
 
 
 ### Tier `peer`

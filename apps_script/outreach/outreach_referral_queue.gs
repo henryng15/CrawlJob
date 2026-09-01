@@ -758,6 +758,10 @@ function outreachReferralSlot_(company, today, load, roomOn, priority, fastPrior
 function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) {
   var asked = outreachReferralAsked_(referralRows);
   var load = outreachReferralLoad_(referralRows, null);
+  // Body templates are balanced independently per seniority tier. A template
+  // already shown in the tab is never reassigned; only new asks fill the least
+  // used slot, with the stable company sequence breaking ties.
+  var templateLoad = outreachReferralTemplateLoad_(referralRows);
   var booked = [], skipped = 0;
 
   // Grouped by employer, because the representative posting is chosen per company
@@ -882,14 +886,20 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
       if (!slot) return;
 
       var attempt = plan.spent + plan.taken + 1;
+      var tier = outreachReferralTier_(person.title, person.seniority);
+      var template = outreachBalancedReferralTemplateFor_(
+        tier, plan.job.company, attempt, templateLoad);
       booked.push({
         company: plan.job.company,
         role: plan.job.role,
         jobLink: plan.job.link,
         person: person,
-        tier: outreachReferralTier_(person.title, person.seniority),
-        template: outreachReferralIndex_(plan.job.company, attempt) + 1,
-        attempt: attempt,
+        tier: tier,
+        template: template,
+        // The Referral sheet persists its body-template number. Recover the
+        // corresponding stable attempt so the subject and resume-bullet pair
+        // remain reproducible when a queued row is drafted later.
+        attempt: outreachReferralAttemptForTemplate_(plan.job.company, template),
         scheduled: slot,
         priority: plan.priority
       });

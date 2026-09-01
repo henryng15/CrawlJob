@@ -38,8 +38,8 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 
 | Function | Does |
 |---|---|
-| `outreachFollowUpStartFor_(row)` | The template a row gets, as the number the `Follow Up Template` column shows. |
-| `outreachFollowUpTemplateFor_(n)` | That template. |
+| `outreachFollowUpStartFor_(company)`, `outreachFollowUpTemplateFor_(...)` | The stable company-specific ordering of the twenty notes. |
+| `outreachFollowUpTemplateLoad_(...)`, `outreachBalancedFollowUpTemplateFor_(...)` | Count live Queued, Drafted and Sent follow-up bookings, then give a new row the least-used note. The company-specific ordering breaks ties, so colleagues still differ. |
 | `outreachFollowUpBody_(...)` | One follow-up, as the plain text that actually goes. |
 
 ## Sending
@@ -58,3 +58,7 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 
 Planning happens **before** sending in the cycle, so a row booked for today may go out on the
 same firing rather than waiting an hour. Reversing the two would add an hour to every nudge.
+
+The balance rule only applies when a new booking is made. A queued or drafted follow-up retains
+the template number it already advertises, so a replan cannot silently change a message under
+review.

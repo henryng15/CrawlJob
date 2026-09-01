@@ -603,8 +603,8 @@ console.log('the tab says which template is coming, and at what hour');
     [app('1', 'Stripe', 'SWE Intern', day(2026, 8, 1))], [], people, today, SALT);
 
   run('the row names its template before it is sent, not after', () => {
-    assert.strictEqual(plan.planned[0].template, 'fintech');
-    assert.strictEqual(S.outreachQueueRowValues_(plan.planned[0])[S.Q_TEMPLATE - 1], 'fintech');
+    assert.strictEqual(plan.planned[0].template, 'fintech:1');
+    assert.strictEqual(S.outreachQueueRowValues_(plan.planned[0])[S.Q_TEMPLATE - 1], 'fintech:1');
   });
   run('two people at one company get two different templates', () => {
     assert.notStrictEqual(plan.planned[0].template, plan.planned[1].template);
@@ -716,6 +716,28 @@ console.log('the message');
     assert.strictEqual(new Set(subjects).size, 10);
     subjects.forEach((line) => assert.ok(line.length <= 60, line));
   });
+  run('each cold variation has three concise paraphrased subject forms', () => {
+    Object.keys(S.VARIANTS).forEach((key) => {
+      const forms = S.VARIANTS[key].subjectForms;
+      assert.strictEqual(forms.length, S.COLD_COPY_FORMS.length, key);
+      assert.strictEqual(new Set(forms).size, forms.length, key);
+      forms.forEach((line) => assert.ok(line.length <= 60, key + ': ' + line));
+    });
+  });
+  run('new cold rows fill the least-used base template before repeating one', () => {
+    const load = S.outreachVariantTemplateLoad_([]).bases;
+    for (let i = 0; i < Object.keys(S.VARIANTS).length; i++) {
+      S.outreachBalancedVariantFor_(1, '', 'fintech', load);
+    }
+    const counts = Object.keys(load).map((key) => load[key]);
+    assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, counts.join(','));
+  });
+  run('copy forms rotate evenly inside a cold base template', () => {
+    const load = S.outreachVariantTemplateLoad_([]).forms;
+    for (let i = 0; i < 9; i++) S.outreachCopyFormFor_('application', load);
+    const counts = [1, 2, 3].map((form) => load[S.outreachVariantKey_('application', form)]);
+    assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, counts.join(','));
+  });
   run('every variation names one bullet that exists', () => {
     Object.keys(S.VARIANTS).forEach((key) => {
       const v = S.VARIANTS[key];
@@ -744,6 +766,18 @@ console.log('the message');
   run('the subject is the hook, and short enough for a phone', () => {
     assert.strictEqual(mail.subject, 'Cut a 30-minute research loop to 60 seconds');
     assert.ok(mail.subject.length < 60);
+  });
+  run('a copy form paraphrases the surface without changing the facts or ask', () => {
+    const alternate = S.outreachCompose_({
+      variant: 'application:2', role: 'Software Engineer Intern', recruiterName: 'Julie',
+      dateApplied: day(2026, 8, 4), today, hook: 'I saw your work in university hiring.',
+      angle: 'AMD is where systems have to fail loudly.', formatDate: () => 'Aug 4'
+    });
+    assert.strictEqual(alternate.subject, 'A 30-minute research step, reduced to 60 seconds');
+    assert.ok(alternate.plain.indexOf('A brief introduction:') !== -1);
+    assert.ok(alternate.plain.indexOf('Thank you for considering it,') !== -1);
+    assert.ok(alternate.plain.indexOf('30 minutes to 1 minute') !== -1);
+    assert.ok(alternate.plain.indexOf('take a quick look at my application') !== -1);
   });
   run('three labelled sections, the way a recruiter scans', () => {
     assert.ok(mail.html.indexOf('<b>Quick intro:</b>') !== -1);
@@ -2589,6 +2623,13 @@ console.log('follow-up — one reply per row, and only while nobody at the compa
     assert.strictEqual(S.outreachFollowUpTemplateFor_('Samsara Inc.', 1),
                        S.outreachFollowUpTemplateFor_('Samsara Inc.', 1));
   });
+  run('new follow-ups fill the least-used note before repeating one', () => {
+    const load = S.outreachFollowUpTemplateLoad_([]);
+    for (let i = 0; i < S.FOLLOWUP_TEMPLATES.length; i++) {
+      S.outreachBalancedFollowUpTemplateFor_('Company ' + i, 0, load);
+    }
+    assert.ok(Math.max(...load) - Math.min(...load) <= 1, load.join(','));
+  });
 
   console.log('  what earns one');
   const today = day(2026, 8, 27);
@@ -3008,6 +3049,22 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     S.REFERRAL_TIERS.forEach((tier) => {
       assert.strictEqual(S.REFERRAL_TEMPLATES[tier].length, 10, tier);
     });
+  });
+  run('the cold-contact line has ten professional paraphrases', () => {
+    assert.strictEqual(S.REFERRAL_CONTACT_OPENINGS.length, 10);
+    assert.strictEqual(new Set(S.REFERRAL_CONTACT_OPENINGS).size, 10);
+    S.REFERRAL_CONTACT_OPENINGS.forEach((line) => {
+      assert.ok(line.indexOf('{company}') !== -1, line);
+      assert.ok(!/[–—]/.test(line), line);
+    });
+  });
+  run('new referral asks fill the least-used template per tier', () => {
+    const load = S.outreachReferralTemplateLoad_([]);
+    for (let i = 0; i < 20; i++) {
+      S.outreachBalancedReferralTemplateFor_('mid', 'Company ' + i, 1, load);
+    }
+    const counts = load.mid;
+    assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, counts.join(','));
   });
 
   run('every ask carries exactly one bolded request', () => {
@@ -4260,7 +4317,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       bucket: 'consumer', angle: '', role: 'Software Engineering Intern, Summer 2027',
       attempt: 1, jobLink: 'https://job-boards.greenhouse.io/reddit/jobs/7123456'
     });
-    ['My name is Henry Nguyen.', 'We have not met before', 'work at Reddit'].forEach((phrase) => {
+    ['My name is Henry Nguyen.', 'at Reddit'].forEach((phrase) => {
       assert.ok(one.plain.toLowerCase().indexOf(phrase.toLowerCase()) !== -1,
                 phrase + '\n' + one.plain);
     });

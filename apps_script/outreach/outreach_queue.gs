@@ -297,6 +297,9 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
   var planned = [];
   var skipped = [];
   var pretendSent = queueRows.slice();
+  // Existing rows keep the template the tab already promised. New rows fill the
+  // least-used base and copy-form slots, with company relevance as the tie-breaker.
+  var templateLoad = outreachVariantTemplateLoad_(queueRows);
 
   // One posting gets one wave, however many times it was applied to.
   //
@@ -382,6 +385,9 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
       if (n === 0) {
         waves.push({ property: app.property, tokens: tokens, role: role, season: season });
       }
+      var variant = outreachBalancedVariantFor_(attempt, pick.contact.focus, bucket,
+                                                templateLoad.bases);
+      var form = outreachCopyFormFor_(variant, templateLoad.forms);
       planned.push({
         id: 'P' + app.property + '-A' + attempt,
         recruiters: companyContacts.length,
@@ -391,9 +397,9 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
         role: app.role,
         dateApplied: app.dateApplied,
         attempt: attempt,
-        // Decided here rather than at send time, so the tab says which of the ten
+        // Decided here rather than at send time, so the tab says which copy form
         // is coming before it goes rather than after.
-        template: outreachVariantFor_(attempt, pick.contact.focus, bucket),
+        template: outreachVariantKey_(variant, form),
         eligibleAt: outreachEligibleDay_(app.dateApplied, attempt),
         fingerprint: pick.fingerprint,
         contact: pick.contact,

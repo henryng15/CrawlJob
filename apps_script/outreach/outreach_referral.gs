@@ -439,6 +439,45 @@ function outreachReferralInstallSeriousTemplates_() {
 
 outreachReferralInstallSeriousTemplates_();
 
+// The old first sentence was identical in every referral note. These ten forms
+// say exactly the same thing — this is a cold note to someone at the company —
+// without making a batch of otherwise different templates begin alike.
+var REFERRAL_CONTACT_OPENINGS = [
+  'We have not met before, but I came across your profile and saw that you work at {company}.',
+  'We have not spoken before, but I found your profile while learning more about {company}.',
+  'I do not know you personally, but I came across your work at {company}.',
+  'We have not met, but your profile came up while I was looking into {company}.',
+  'I came across your profile while researching {company}, although we have not spoken before.',
+  'This is a cold note, but I found your profile while learning about the team at {company}.',
+  'We have not connected before, but I noticed your work at {company} while researching the company.',
+  'I hope you do not mind a brief note from someone who found your profile while looking at {company}.',
+  'Although we have not met, I came across your profile while learning more about {company}.',
+  'This is the first time I am writing to you, after coming across your profile at {company}.'
+];
+
+function outreachReferralContactOpening_(company, index) {
+  var opening = REFERRAL_CONTACT_OPENINGS[
+    ((Number(index) || 0) % REFERRAL_CONTACT_OPENINGS.length
+      + REFERRAL_CONTACT_OPENINGS.length) % REFERRAL_CONTACT_OPENINGS.length
+  ];
+  return opening.replace(/\{company\}/g, company || 'your company');
+}
+
+function outreachReferralTemplateLoad_(referralRows) {
+  var load = {};
+  REFERRAL_TIERS.forEach(function (tier) {
+    load[tier] = [];
+    for (var index = 0; index < REFERRAL_TEMPLATES[tier].length; index++) load[tier][index] = 0;
+  });
+  (referralRows || []).forEach(function (row) {
+    if (!row || row.status === STATUS_CANCELLED || !row.template) return;
+    var tier = REFERRAL_TEMPLATES[row.tier] ? row.tier : REFERRAL_DEFAULT_TIER;
+    var index = Number(row.template) - 1;
+    if (index >= 0 && index < load[tier].length) load[tier][index]++;
+  });
+  return load;
+}
+
 
 /**
  * Which two resume numbers a company earns.
@@ -620,6 +659,27 @@ function outreachReferralIndex_(company, attempt) {
   return (seed + Math.max(Number(attempt) || 1, 1) - 1) % 10;
 }
 
+function outreachReferralAttemptForTemplate_(company, template) {
+  var wanted = (Number(template) || 1) - 1;
+  for (var attempt = 1; attempt <= 10; attempt++) {
+    if (outreachReferralIndex_(company, attempt) === wanted) return attempt;
+  }
+  return 1;
+}
+
+function outreachBalancedReferralTemplateFor_(tier, company, attempt, load) {
+  var counts = load[tier] || [];
+  var minimum = Math.min.apply(null, counts);
+  var start = outreachReferralIndex_(company, attempt);
+  for (var offset = 0; offset < counts.length; offset++) {
+    var index = (start + offset) % counts.length;
+    if (counts[index] !== minimum) continue;
+    counts[index]++;
+    return index + 1;
+  }
+  return 1;
+}
+
 
 /**
  * Why the note exists, given that the application is already in.
@@ -733,15 +793,17 @@ function outreachReferralPosting_(link) {
  */
 function outreachReferralCompose_(options) {
   var tier = outreachReferralTier_(options.personTitle, options.seniority);
-  var index = outreachReferralIndex_(options.company, options.attempt);
+  var index = Number(options.template) - 1;
+  if (!(index >= 0 && index < REFERRAL_TEMPLATES[tier].length)) {
+    index = outreachReferralIndex_(options.company, options.attempt);
+  }
   var template = REFERRAL_TEMPLATES[tier][index];
   var role = outreachShortRole_(options.role);
   var greeting = 'Hi ' + outreachFirstName_(options.personName) + ',';
   // One paragraph, not two. The opening and the company sentence are both a line
   // long, and stacked as separate paragraphs above a third short one the message
   // opens as three fragments rather than as somebody talking.
-  var opening = ['We have not met before, but I came across your profile and saw that you work at '
-                 + options.company + '.', template.open]
+  var opening = [outreachReferralContactOpening_(options.company, index), template.open]
     .concat(options.angle ? [outreachNoDashes_(options.angle)] : []).join(' ');
   var intro = outreachReferralIntro_(options.company, role, index);
   var bullets = outreachReferralBullets_(options.bucket, options.attempt);

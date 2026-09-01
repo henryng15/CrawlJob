@@ -118,6 +118,30 @@ function outreachFollowUpTemplateFor_(company, index) {
   return ((start + Math.max(Number(index) || 0, 0)) % FOLLOWUP_TEMPLATES.length) + 1;
 }
 
+function outreachFollowUpTemplateLoad_(queueRows) {
+  var load = [];
+  for (var index = 0; index < FOLLOWUP_TEMPLATES.length; index++) load[index] = 0;
+  (queueRows || []).forEach(function (row) {
+    var counts = row && (row.followUpStatus === FOLLOWUP_QUEUED
+      || row.followUpStatus === FOLLOWUP_DRAFTED || row.followUpStatus === FOLLOWUP_SENT);
+    var index = Number(row && row.followUpTemplate) - 1;
+    if (counts && index >= 0 && index < load.length) load[index]++;
+  });
+  return load;
+}
+
+function outreachBalancedFollowUpTemplateFor_(company, index, load) {
+  var minimum = Math.min.apply(null, load);
+  var start = outreachFollowUpTemplateFor_(company, index) - 1;
+  for (var offset = 0; offset < load.length; offset++) {
+    var candidate = (start + offset) % load.length;
+    if (load[candidate] !== minimum) continue;
+    load[candidate]++;
+    return candidate + 1;
+  }
+  return 1;
+}
+
 /**
  * One follow-up, as the plain text that actually goes.
  *
@@ -387,6 +411,9 @@ function outreachPlanFollowUps_(queueRows, today) {
   var load = {};
   var perCompany = {};
   var replied = {};
+  // All existing live bookings count. New rows fill the least-used note, while
+  // the company-specific order breaks ties so colleagues still differ.
+  var templateLoad = outreachFollowUpTemplateLoad_(queueRows);
 
   var companyKey = function (company) {
     var tokens = outreachCompanyTokens_(company);
@@ -499,7 +526,8 @@ function outreachPlanFollowUps_(queueRows, today) {
         return;
       }
       var key = companyKey(row.company);
-      var template = outreachFollowUpTemplateFor_(row.company, perCompany[key] || 0);
+      var template = outreachBalancedFollowUpTemplateFor_(
+        row.company, perCompany[key] || 0, templateLoad);
       perCompany[key] = (perCompany[key] || 0) + 1;
       // Read before the increment: the hour a row gets is its position in the
       // day, and the row being booked is the (n+1)th of n already there.
