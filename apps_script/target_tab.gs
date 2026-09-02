@@ -17,6 +17,7 @@ var TARGET_BLOCK_WIDTH = 3;
 var TARGET_RENDER_WIDTH = 15;
 var TARGET_FIRST_ROW = 2;
 var TARGET_AGE_THRESHOLD_DAYS = 5;
+var TARGET_OPENING_START_DAY = '2026-07-20';
 var TARGET_NOT_OPEN_GREEN = '#D9EAD3';
 var TARGET_OPEN_WHITE = '#FFFFFF';
 var TARGET_URGENT_RED = '#F4CCCC';
@@ -166,6 +167,7 @@ function targetOpeningStatuses_() {
     var postingTokens = companyTokens_(values[r][at.company]);
     if (!postingTokens.length) continue;
     var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
+    if (targetAgeDays_(TARGET_OPENING_START_DAY, postedDay) < 0) continue;
     var age = targetAgeDays_(postedDay, today);
 
     targetNames.forEach(function (name) {

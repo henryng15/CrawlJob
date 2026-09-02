@@ -52,6 +52,9 @@ Engineer`, `Software Engineering`, or `Software Developer` as whole-word phrases
 Among those roles, a `Summer` role counts; an unlabelled role also counts unless its
 title explicitly contains the whole word `Winter` or `Spring`:
 
+Only rows with `Date Posted` on or after `2026-07-20` are considered. Older Jobs
+rows do not affect the Target color, even if they otherwise match the role rule.
+
 - green means no qualifying software-engineering opening row exists for the company in `Jobs`;
 - white means a qualifying software-engineering opening row exists, but its posting is older than five calendar days;
 - red means a qualifying software-engineering opening row was posted within the last five calendar days.
@@ -71,7 +74,7 @@ unreadable, names stay white rather than being incorrectly marked as not opened.
 | `targetRows_(names, referralCounts)` | Pairs each target company with its current sendable count and researched posting date. |
 | `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering and Software Developer titles. |
 | `targetCountsAsOpeningRole_(role)` | Counts a software-engineering title when it says `Summer`, or when it is unlabelled and does not say `Winter`/`Spring`. |
-| `targetOpeningStatuses_()` | Reads live opening roles from `Jobs` and classifies each Target company for the three-state color rule. |
+| `targetOpeningStatuses_()` | Reads qualifying SWE opening roles from `Jobs` posted on or after `2026-07-20` and classifies each Target company for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the three headers, freezes row 1 and sizes the blocks and gutters. |
