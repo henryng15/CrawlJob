@@ -125,23 +125,26 @@ function targetIsSoftwareEngineerRole_(role) {
   return /\bsoftware\s+(?:engineer(?:ing)?|developer)\b/i.test(title);
 }
 
-/**
- * A software-engineering role counts as opened when it says Summer, or when it
- * is unlabelled and does not explicitly say Winter or Spring.
- */
-function targetCountsAsOpeningRole_(role) {
-  var title = String(role == null ? '' : role).trim();
-  if (!title || !targetIsSoftwareEngineerRole_(title)) return false;
-  if (/\bsummer\b/i.test(title)) return true;
-  return !/\b(?:winter|spring)\b/i.test(title);
+/** Whether a title explicitly names a Summer intake. */
+function targetIsExplicitSummerRole_(role) {
+  return /\bsummer\b/i.test(String(role == null ? '' : role));
+}
+
+/** Whether a title explicitly names an off-cycle intake. */
+function targetIsExplicitOffCycleRole_(role) {
+  return /\b(?:winter|spring|fall)\b/i.test(String(role == null ? '' : role));
 }
 
 /**
- * Read live opening roles from Jobs and classify each Target company.
+ * Read live SWE roles from Jobs and classify each Target company for Summer.
  *
- * `urgentOpening` wins over `hasOpening`: any qualifying software-engineering role from the last
- * five calendar days is the red referral warning. An older qualifying role
- * leaves the company white. Companies with no qualifying role are green.
+ * An explicit Summer row counts for a company with any number of SWE rows. If
+ * there is exactly one SWE row and it is unlabelled, infer Summer. Multiple SWE
+ * rows with no Summer row do not count as Summer; Winter, Spring and Fall rows
+ * are evidence that the company has not opened Summer yet. `urgentOpening` wins
+ * over `hasOpening`: any recognized Summer row from the last five calendar days
+ * is the red referral warning. An older recognized Summer row leaves the company
+ * white. Companies with no recognized Summer row are green.
  * Applied and Expired are deliberately ignored: either flag may describe an
  * application choice, a duplicate, or a stale row, but the user's rule is that
  * appearance in Jobs is enough evidence. A missing/unreadable Jobs tab returns
@@ -162,7 +165,8 @@ function targetOpeningStatuses_() {
     statuses[companyTokens_(name).join(' ')] = {
       hasOpening: false,
       urgentOpening: false,
-      latestOpeningDay: ''
+      latestOpeningDay: '',
+      roleRows: []
     };
   });
   var today = Utilities.formatDate(
@@ -173,7 +177,7 @@ function targetOpeningStatuses_() {
 
   for (var r = 1; r < values.length; r++) {
     var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
-    if (!targetCountsAsOpeningRole_(role)) continue;
+    if (!role || !targetIsSoftwareEngineerRole_(role)) continue;
     var postingTokens = companyTokens_(values[r][at.company]);
     if (!postingTokens.length) continue;
     var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
@@ -183,15 +187,33 @@ function targetOpeningStatuses_() {
     targetNames.forEach(function (name) {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
-      status.hasOpening = true;
-      if (!status.latestOpeningDay || postedDay > status.latestOpeningDay) {
-        status.latestOpeningDay = postedDay;
+      status.roleRows.push({
+        summer: targetIsExplicitSummerRole_(role),
+        offCycle: targetIsExplicitOffCycleRole_(role),
+        postedDay: postedDay,
+        age: age
+      });
+    });
+  }
+
+  targetNames.forEach(function (name) {
+    var status = statuses[companyTokens_(name).join(' ')];
+    var summerRows = status.roleRows.filter(function (row) { return row.summer; });
+    var openingRows = summerRows;
+    if (!openingRows.length && status.roleRows.length === 1 && !status.roleRows[0].offCycle) {
+      openingRows = status.roleRows;
+    }
+    status.hasOpening = openingRows.length > 0;
+    openingRows.forEach(function (row) {
+      if (!status.latestOpeningDay || row.postedDay > status.latestOpeningDay) {
+        status.latestOpeningDay = row.postedDay;
       }
-      if (age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
+      if (row.age >= 0 && row.age <= TARGET_AGE_THRESHOLD_DAYS) {
         status.urgentOpening = true;
       }
     });
-  }
+    delete status.roleRows;
+  });
   return statuses;
 }
 

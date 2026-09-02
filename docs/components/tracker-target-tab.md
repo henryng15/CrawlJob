@@ -46,7 +46,7 @@ date cell has a note with its source and evidence scope. `Unknown` means no exac
 public date was sufficiently verifiable in this pass; it is not a claim that no role
 was opened. In the sheet, unknown dates are left blank to keep the view clean.
 
-`Date open` is the latest `Date Posted` found in live `Jobs` for a qualifying
+`Date open` is the latest `Date Posted` found in live `Jobs` for a recognized Summer
 software-engineering role posted on or after `2026-07-20`. It is independent of the
 `Applied` and `Expired` flags; a blank means no qualifying row was found after the
 cutoff.
@@ -54,22 +54,24 @@ cutoff.
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
 role must first be a software-engineering role: its title must contain `Software
 Engineer`, `Software Engineering`, or `Software Developer` as whole-word phrases.
-Among those roles, a `Summer` role counts; an unlabelled role also counts unless its
-title explicitly contains the whole word `Winter` or `Spring`:
+Summer inference is then done per company:
+
+- if the company has exactly one SWE role after the cutoff and it is unlabelled, infer Summer;
+- if the company has multiple SWE roles, require at least one role with `Summer`;
+- `Winter`, `Spring`, or `Fall` without a `Summer` role does not count as a Summer opening.
 
 Only rows with `Date Posted` on or after `2026-07-20` are considered. Older Jobs
 rows do not affect the Target color, even if they otherwise match the role rule.
 
-- green means no qualifying software-engineering opening row exists for the company in `Jobs`;
-- white means a qualifying software-engineering opening row exists, but its posting is older than five calendar days;
-- red means a qualifying software-engineering opening row was posted within the last five calendar days.
+- green means no recognized Summer SWE opening exists for the company in `Jobs`;
+- white means a recognized Summer SWE opening exists, but its posting is older than five calendar days;
+- red means a recognized Summer SWE opening was posted within the last five calendar days.
 
 `Applied` and `Expired` are ignored for this color logic. Either flag may mean the
 role was applied to, expired, duplicated, or simply not worth pursuing, but the rule
-here is that appearance in `Jobs` is enough to count it. A software-engineering role
-with no `Summer`, `Winter`, or `Spring` word is therefore counted as opened. Green
-is reserved for companies with no qualifying row at all. If the Jobs tab is
-unreadable, names stay white rather than being incorrectly marked as not opened.
+here is that appearance in `Jobs` is enough to count it. Green is reserved for
+companies with no recognized Summer row at all. If the Jobs tab is unreadable,
+names stay white rather than being incorrectly marked as not opened.
 
 ## Functions
 
@@ -78,8 +80,9 @@ unreadable, names stay white rather than being incorrectly marked as not opened.
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
 | `targetRows_(names, referralCounts, statuses)` | Pairs each target company with its current sendable count, researched posting date and latest live `Date open`. |
 | `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering and Software Developer titles. |
-| `targetCountsAsOpeningRole_(role)` | Counts a software-engineering title when it says `Summer`, or when it is unlabelled and does not say `Winter`/`Spring`. |
-| `targetOpeningStatuses_()` | Reads qualifying SWE opening roles from `Jobs` posted on or after `2026-07-20`, tracks the latest opening date, and classifies each Target company for the three-state color rule. |
+| `targetIsExplicitSummerRole_(role)` | Detects an explicit `Summer` intake. |
+| `targetIsExplicitOffCycleRole_(role)` | Detects an explicit `Winter`, `Spring` or `Fall` intake. |
+| `targetOpeningStatuses_()` | Groups SWE rows from `Jobs` posted on or after `2026-07-20`, infers Summer per company, tracks the latest recognized opening date, and classifies each Target company for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the four headers, freezes row 1 and sizes the blocks and gutters. |
