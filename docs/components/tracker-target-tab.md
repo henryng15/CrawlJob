@@ -46,17 +46,20 @@ date cell has a note with its source and evidence scope. `Unknown` means no exac
 public date was sufficiently verifiable in this pass; it is not a claim that no role
 was opened.
 
-The company-name cell is refreshed from live `Jobs` data on every Target rebuild:
+The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
+non-empty role counts as an opening unless its title explicitly contains the whole
+word `Winter` or `Spring`:
 
-- green means no `Summer` row exists for the company in `Jobs`;
-- white means a Summer row exists, but its posting is older than five calendar days;
-- red means a Summer row was posted within the last five calendar days.
+- green means no qualifying opening row exists for the company in `Jobs`;
+- white means a qualifying opening row exists, but its posting is older than five calendar days;
+- red means a qualifying opening row was posted within the last five calendar days.
 
 `Applied` and `Expired` are ignored for this color logic. Either flag may mean the
 role was applied to, expired, duplicated, or simply not worth pursuing, but the rule
-here is that appearance in `Jobs` is enough to count it. Green is reserved for
-companies with no Summer row at all. If the Jobs tab is unreadable, names stay white
-rather than being incorrectly marked as not opened.
+here is that appearance in `Jobs` is enough to count it. A role with no `Summer`,
+`Winter`, or `Spring` word is therefore counted as opened. Green is reserved for
+companies with no qualifying row at all. If the Jobs tab is unreadable, names stay
+white rather than being incorrectly marked as not opened.
 
 ## Functions
 
@@ -64,7 +67,8 @@ rather than being incorrectly marked as not opened.
 |---|---|
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
 | `targetRows_(names, referralCounts)` | Pairs each target company with its current sendable count and researched posting date. |
-| `targetSummerStatuses_()` | Reads live Summer roles from `Jobs` and classifies each Target company for the three-state color rule. |
+| `targetCountsAsOpeningRole_(role)` | Treats any non-empty role as opened unless its title explicitly contains `Winter` or `Spring`. |
+| `targetOpeningStatuses_()` | Reads live opening roles from `Jobs` and classifies each Target company for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the three headers, freezes row 1 and sizes the blocks and gutters. |

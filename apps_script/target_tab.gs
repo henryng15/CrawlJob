@@ -112,18 +112,25 @@ function targetAgeDays_(postedDay, todayDay) {
   return Math.floor((todayUtc - postedUtc) / 86400000);
 }
 
+/** A non-empty role counts as an opening unless it explicitly says Winter or Spring. */
+function targetCountsAsOpeningRole_(role) {
+  var title = String(role == null ? '' : role).trim();
+  if (!title) return false;
+  return !/\b(?:winter|spring)\b/i.test(title);
+}
+
 /**
- * Read live Summer roles from Jobs and classify each Target company.
+ * Read live opening roles from Jobs and classify each Target company.
  *
- * `urgentSummer` wins over `hasSummer`: any Summer posting from the last five
- * calendar days is the red referral warning. A Summer posting older than five
- * days leaves the company white. Companies with no Summer posting are green.
+ * `urgentOpening` wins over `hasOpening`: any qualifying role from the last
+ * five calendar days is the red referral warning. An older qualifying role
+ * leaves the company white. Companies with no qualifying role are green.
  * Applied and Expired are deliberately ignored: either flag may describe an
  * application choice, a duplicate, or a stale row, but the user's rule is that
  * appearance in Jobs is enough evidence. A missing/unreadable Jobs tab returns
  * null so the caller can avoid falsely marking every company as not opened.
  */
-function targetSummerStatuses_() {
+function targetOpeningStatuses_() {
   var jobs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANY_JOBS_TAB);
   if (!jobs) return null;
   var lastRow = jobs.getLastRow(), lastCol = jobs.getLastColumn();
@@ -135,7 +142,7 @@ function targetSummerStatuses_() {
   var targetNames = TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3);
   var statuses = {};
   targetNames.forEach(function (name) {
-    statuses[companyTokens_(name).join(' ')] = { hasSummer: false, urgentSummer: false };
+    statuses[companyTokens_(name).join(' ')] = { hasOpening: false, urgentOpening: false };
   });
   var today = Utilities.formatDate(
     new Date(),
@@ -145,7 +152,7 @@ function targetSummerStatuses_() {
 
   for (var r = 1; r < values.length; r++) {
     var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
-    if (!companyIsSummerRole_(role)) continue;
+    if (!targetCountsAsOpeningRole_(role)) continue;
     var postingTokens = companyTokens_(values[r][at.company]);
     if (!postingTokens.length) continue;
     var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
@@ -154,9 +161,9 @@ function targetSummerStatuses_() {
     targetNames.forEach(function (name) {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
-      status.hasSummer = true;
+      status.hasOpening = true;
       if (age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
-        status.urgentSummer = true;
+        status.urgentOpening = true;
       }
     });
   }
@@ -166,8 +173,8 @@ function targetSummerStatuses_() {
 function targetCompanyFill_(name, statuses) {
   if (statuses === null) return TARGET_OPEN_WHITE;
   var status = statuses[companyTokens_(name).join(' ')];
-  if (!status || !status.hasSummer) return TARGET_NOT_OPEN_GREEN;
-  if (status.urgentSummer) return TARGET_URGENT_RED;
+  if (!status || !status.hasOpening) return TARGET_NOT_OPEN_GREEN;
+  if (status.urgentOpening) return TARGET_URGENT_RED;
   return TARGET_OPEN_WHITE;
 }
 
@@ -217,7 +224,7 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
 function targetRebuild_() {
   var sheet = targetSheet_(true);
   var referralCounts = companyReferralCounts_();
-  var statuses = targetSummerStatuses_();
+  var statuses = targetOpeningStatuses_();
   var blocks = [
     targetRows_(TARGET_P0, referralCounts),
     targetRows_(TARGET_P1, referralCounts),
