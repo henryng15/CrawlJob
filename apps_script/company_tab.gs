@@ -4,13 +4,13 @@
  * Two independent blocks side by side, A:G and H:N. A:G is the standing list of
  * employers that certified an H-1B Software Engineer LCA in FY2025 — the ones
  * where a visa is a question already answered. H:N is every other employer on the
- * same shortlist. Each block also shows the number of exact DeBounce-valid
- * referral emails currently available from the Employees (seed) export.
+ * same shortlist. Each block also shows the number of remaining referral emails
+ * currently available from the Employees (seed) export.
  *
  * This file reads the Jobs tab and the sender-maintained Referral Seed Counts tab,
- * and writes the Company tab. The email count is every unique strict referral
- * candidate in the generated seed, so it describes the sending pool for each
- * company rather than only the rows already scheduled in Referral.
+ * and writes the Company tab. The email count starts with every unique non-invalid
+ * referral candidate in the generated seed, then removes addresses already
+ * reserved or used by Referral, so it describes what can still be selected.
  * No other tab is written here.
  *
  * It also defines no onEdit. Apps Script binds exactly one onEdit per project and

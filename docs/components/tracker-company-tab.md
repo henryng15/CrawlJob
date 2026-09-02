@@ -10,7 +10,8 @@ already answer the visa question.
 - **Runs:** a time-based trigger, `syncCompanyTab`, every 15 minutes.
 
 The sender refreshes the hidden snapshot after each `Employees (seed)` export. It contains one
-row per company and the unique non-invalid DeBounce address count, allowing this bound script to read
+row per company and the remaining unique non-invalid DeBounce address count, after deducting
+addresses already reserved or used by the Referral tab, allowing this bound script to read
 the complete referral pool without needing cross-account access to the contacts spreadsheet.
 
 It shares no constant and calls no function from `sync_applied_to_app.gs`. That is the point
@@ -37,10 +38,12 @@ right on its own when the first gains a column. It moved from `G` to `H` when th
   is green in both its name cell and this one.
 - **`Asked`** is a checkbox, and it is the one column a person owns. Nothing in this file ever
   writes it except to carry the existing tick forward.
-- **`sendable referral emails`** is the number of unique email addresses for that company in the
-  generated `Employees (seed)` tab whose `Verify` cell is exactly `debounce:valid`. It covers
-  every company in the referral candidate list, not only top-100 companies or currently queued
-  rows. Pattern-calibrated, risky, invalid, unverified and blank addresses are not counted.
+- **`sendable referral emails`** is the number of unique remaining email addresses for that
+  company in the generated `Employees (seed)` tab whose DeBounce verdict is non-invalid. It
+  covers every company in the referral candidate list, not only top-100 companies or currently
+  queued rows. Addresses already in Referral with `Queued`, `Drafted`, `Sent`, `Replied`, or
+  `Bounced` status are deducted; `Cancelled` and `Failed` rows are not. Pattern-calibrated,
+  upstream-invalid, inactive/former, and blank addresses never enter the seed.
 - **`LinkedIn`**, **`Email subject`** and **`Email body`** hold that company's messages, with its
   name and its real posting link already in them. The only thing left to fill is `[Name]`.
 

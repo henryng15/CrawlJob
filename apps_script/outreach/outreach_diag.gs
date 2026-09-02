@@ -48,7 +48,7 @@ function diagnoseOutreachAccess() {
   return out;
 }
 
-/** Refresh the hidden tracker snapshot used by Company for all non-invalid seed counts. */
+/** Refresh the hidden tracker snapshot used by Company for remaining seed counts. */
 function refreshReferralSeedCounts() {
   var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
   var seed = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
@@ -68,6 +68,20 @@ function refreshReferralSeedCounts() {
   });
 
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var deducted = 0;
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (referral && referral.getLastRow() > 1) {
+    // A contact is no longer available once Referral has reserved or used it.
+    // Cancelled and Failed rows are intentionally not deducted: no message
+    // reached that person and the address may be used by a later plan.
+    outreachReadReferralRows_(referral).forEach(function (row) {
+      if (STATUS_SPENDS_CONTACT.indexOf(row.status) === -1) return;
+      var key = outreachCompanyTokens_(row.company).join(' ');
+      if (!addresses[key] || !addresses[key].emails[row.email]) return;
+      delete addresses[key].emails[row.email];
+      deducted++;
+    });
+  }
   var sheet = tracker.getSheetByName(TAB_REFERRAL_SEED_COUNTS)
     || tracker.insertSheet(TAB_REFERRAL_SEED_COUNTS);
   var rows = [["Company", "Sendable referral emails"]];
@@ -78,6 +92,7 @@ function refreshReferralSeedCounts() {
   sheet.getRange(1, 1, rows.length, 2).setValues(rows);
   sheet.hideSheet();
   return {tab: TAB_REFERRAL_SEED_COUNTS, companies: rows.length - 1,
+          deducted: deducted,
           emails: rows.slice(1).reduce(function (sum, row) { return sum + row[1]; }, 0),
           spreadsheet: tracker.getName()};
 }

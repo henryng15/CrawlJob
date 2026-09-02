@@ -18,7 +18,7 @@ right now.*
 |---|---|
 | `pingOutreach()` | `'pong'`. If this fails, the failure is not in the code — it is the API or the manifest. |
 | `diagnoseOutreachAccess()` | The account the script runs as, both spreadsheet ids, whether each opens, the installed triggers, and the three effective send/draft switches. |
-| `refreshReferralSeedCounts()` | Recompute the hidden `Referral Seed Counts` snapshot in the tracker from non-invalid `Employees (seed)` rows, so the bound Company script can count every candidate without cross-account access. |
+| `refreshReferralSeedCounts()` | Recompute the hidden `Referral Seed Counts` snapshot from non-invalid `Employees (seed)` rows, deducting referral addresses already reserved or used (`Queued`, `Drafted`, `Sent`, `Replied`, `Bounced`), so the bound Company script shows what remains available without cross-account access. |
 | `auditReferralSeedGate()` | Read-only check that every active `Queued`/`Drafted` Referral row is present in the non-invalid DeBounce seed. |
 | `restoreReferralPolicyCancelledRows()` | Reopen only rows cancelled by the former risky-address gate when their current seed verdict is non-invalid, then replan them; does not send. |
 | `replaceEmployeeSeed(rows)` | Clears generated employee-seed contents while preserving formatting, then writes the supplied 10-column export. Does not touch manual contacts or Referral. |
