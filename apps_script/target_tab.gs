@@ -122,7 +122,7 @@ function targetAgeDays_(postedDay, todayDay) {
 /** Whether a title belongs to the software-engineering role family. */
 function targetIsSoftwareEngineerRole_(role) {
   var title = String(role == null ? '' : role).trim();
-  return /\bsoftware\s+(?:engineer(?:ing)?|developer)\b/i.test(title);
+  return /\b(?:software\s+(?:engineer(?:ing)?|developer)|swe|application\s+development)\b/i.test(title);
 }
 
 /** Whether a title explicitly names a Summer intake. */

@@ -53,7 +53,8 @@ cutoff.
 
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
 role must first be a software-engineering role: its title must contain `Software
-Engineer`, `Software Engineering`, or `Software Developer` as whole-word phrases.
+Engineer`, `Software Engineering`, `Software Developer`, `SWE`, or `Application
+Development` as whole-word phrases.
 Summer inference is then done per company using all SWE rows after the cutoff:
 
 - if there is at least one SWE role with `Summer`, count those Summer rows;
@@ -79,7 +80,7 @@ names stay white rather than being incorrectly marked as not opened.
 |---|---|
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
 | `targetRows_(names, referralCounts, statuses)` | Pairs each target company with its current sendable count, researched posting date and latest live `Date open`. |
-| `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering and Software Developer titles. |
+| `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering, Software Developer, SWE and Application Development titles. |
 | `targetIsExplicitSummerRole_(role)` | Detects an explicit `Summer` intake. |
 | `targetIsExplicitOffCycleRole_(role)` | Detects an explicit `Winter`, `Spring` or `Fall` intake. |
 | `targetOpeningStatuses_()` | Groups SWE rows from `Jobs` posted on or after `2026-07-20`, infers Summer per company, tracks the latest recognized opening date, and classifies each Target company for the three-state color rule. |
