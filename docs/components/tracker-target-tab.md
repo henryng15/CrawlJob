@@ -1,7 +1,9 @@
 # target_tab.gs — the Target tab
 
-The 100-company shortlist plus six Toast-size commerce/fintech/SaaS peers for sourcing
-additional referral contacts, separate from the `Company` tab's current-opening view.
+The 138-company shortlist for sourcing additional referral contacts, separate from the
+`Company` tab's current-opening view. It is the 106-company existing Target list, minus
+eight companies without a credible Summer SWE-intern footprint, plus 40 non-quant
+additions from the multi-source research pass; quant firms are deliberately excluded.
 
 ## Connections
 
@@ -22,8 +24,8 @@ The tab has four compact five-column blocks, separated by gutters:
 | `M:Q` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
 | `S:W` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
 
-P0, P1 and P2 contain 25 companies each; P3 contains 31 after adding Toast and five
-similar-size peers: Block, BILL, Samsara, DigitalOcean and Squarespace. The company columns are 125px wide, the count
+P0 contains 34 companies, P1 contains 33, P2 contains 30, and P3 contains 41 after adding Toast and five
+similar-size peers plus the non-quant research additions. The company columns are 125px wide, the count
 columns are 105px wide, the research date columns are 100px wide, the live `Date open` columns are 85px wide, and `Asked` columns are 55px wide; headers wrap to keep
 the four-block layout compact.
 
