@@ -122,8 +122,10 @@ function targetAgeDays_(postedDay, todayDay) {
  * `urgent2027` wins over `hasSummer`: a Summer 2027 posting from the last five
  * calendar days is the red referral warning. A live Summer posting older than
  * five days leaves the company white. Companies with no live Summer posting are
- * green. Expired rows are ignored; a missing/unreadable Jobs tab returns null so
- * the caller can avoid falsely marking every company as not opened.
+ * green. A row marked Expired still proves that the company opened a Summer role,
+ * but it cannot trigger the red warning because Expired may mean expired, duplicate,
+ * or a role the applicant chose not to pursue. A missing/unreadable Jobs tab returns
+ * null so the caller can avoid falsely marking every company as not opened.
  */
 function targetSummerStatuses_() {
   var jobs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANY_JOBS_TAB);
@@ -146,7 +148,7 @@ function targetSummerStatuses_() {
   );
 
   for (var r = 1; r < values.length; r++) {
-    if (at.expired >= 0 && companyIsTicked_(values[r][at.expired])) continue;
+    var expired = at.expired >= 0 && companyIsTicked_(values[r][at.expired]);
     var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
     if (!companyIsSummerRole_(role)) continue;
     var postingTokens = companyTokens_(values[r][at.company]);
@@ -159,7 +161,7 @@ function targetSummerStatuses_() {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
       status.hasSummer = true;
-      if (year === '2027' && age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
+      if (!expired && year === '2027' && age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
         status.urgent2027 = true;
       }
     });
