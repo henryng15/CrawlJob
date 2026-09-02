@@ -112,17 +112,27 @@ function targetAgeDays_(postedDay, todayDay) {
   return Math.floor((todayUtc - postedUtc) / 86400000);
 }
 
-/** A non-empty role counts as an opening unless it explicitly says Winter or Spring. */
+/** Whether a title belongs to the software-engineering role family. */
+function targetIsSoftwareEngineerRole_(role) {
+  var title = String(role == null ? '' : role).trim();
+  return /\bsoftware\s+(?:engineer(?:ing)?|developer)\b/i.test(title);
+}
+
+/**
+ * A software-engineering role counts as opened when it says Summer, or when it
+ * is unlabelled and does not explicitly say Winter or Spring.
+ */
 function targetCountsAsOpeningRole_(role) {
   var title = String(role == null ? '' : role).trim();
-  if (!title) return false;
+  if (!title || !targetIsSoftwareEngineerRole_(title)) return false;
+  if (/\bsummer\b/i.test(title)) return true;
   return !/\b(?:winter|spring)\b/i.test(title);
 }
 
 /**
  * Read live opening roles from Jobs and classify each Target company.
  *
- * `urgentOpening` wins over `hasOpening`: any qualifying role from the last
+ * `urgentOpening` wins over `hasOpening`: any qualifying software-engineering role from the last
  * five calendar days is the red referral warning. An older qualifying role
  * leaves the company white. Companies with no qualifying role are green.
  * Applied and Expired are deliberately ignored: either flag may describe an
