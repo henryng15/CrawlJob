@@ -13,17 +13,17 @@ the `Company` tab's current-opening view.
 
 ## The layout
 
-The tab has three two-column blocks, separated by gutters:
+The tab has four compact two-column blocks, separated by gutters:
 
 | Columns | Group | First column | Second column |
 |---|---|---|---|
 | `A:B` | P0 | company name | `Sendable referral emails` |
 | `D:E` | P1 | company name | `Sendable referral emails` |
-| `G:H` | P2/P3 | company name | `Sendable referral emails` |
+| `G:H` | P2 | company name | `Sendable referral emails` |
+| `J:K` | P3 | company name | `Sendable referral emails` |
 
-The first two blocks contain 25 companies each. The Extended block contains the
-remaining 50 companies. It combines the previous P2 and P3 groups so the sheet has
-the three tracking sections requested.
+Each block contains 25 companies. The company columns are 150px wide and the count
+columns are 110px wide; the count header wraps to keep the four-block layout compact.
 
 `Sendable referral emails` is the current per-company count from the sender's seed
 snapshot. It uses the same non-invalid referral pool as `Company`, after addresses
@@ -38,6 +38,5 @@ create or reserve email addresses; it only reports where more sourcing is useful
 | `targetRows_(names, referralCounts)` | Pairs each target company with its current sendable referral-email count. |
 | `targetPaintHeader_(sheet)` | Writes the three headers, freezes row 1 and sizes the blocks and gutters. |
 | `targetWriteBlock_(sheet, col, rows, clearDepth)` | Replaces one block's values and clears stale rows. |
-| `targetRebuild_()` | Rebuilds all 100 companies across the three blocks and logs the result. |
+| `targetRebuild_()` | Rebuilds all 100 companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |
-

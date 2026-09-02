@@ -7,20 +7,19 @@
  * contact-sourcing effort. It reads the same sender-maintained Referral Seed Counts
  * snapshot through companyReferralCounts_(), and writes only Target.
  *
- * The three blocks are A:B, D:E and G:H. Columns C and F are gutters so the three
- * lists remain visually separate. P2 and P3 from the sourcing shortlist are
- * intentionally combined into one Extended block so the tab has the three blocks
- * requested for tracking.
+ * The four blocks are A:B, D:E, G:H and J:K. Columns C, F and I are gutters so
+ * the lists remain visually separate.
  */
 
 var TARGET_TAB = 'Target';
-var TARGET_BLOCK_COLS = [1, 4, 7];
+var TARGET_BLOCK_COLS = [1, 4, 7, 10];
 var TARGET_BLOCK_WIDTH = 2;
 var TARGET_FIRST_ROW = 2;
 var TARGET_HEADERS = [
   ['P0 - Core targets', 'Sendable referral emails'],
   ['P1 - Strong targets', 'Sendable referral emails'],
-  ['P2/P3 - Extended targets', 'Sendable referral emails']
+  ['P2 - AI/startup targets', 'Sendable referral emails'],
+  ['P3 - Tech adjacent targets', 'Sendable referral emails']
 ];
 
 var TARGET_P0 = [
@@ -37,15 +36,18 @@ var TARGET_P1 = [
   'Rippling', 'Gusto', 'Mercury'
 ];
 
-var TARGET_EXTENDED = [
+var TARGET_P2 = [
   'Perplexity', 'Replit', 'Hugging Face', 'Cohere', 'Mistral AI', 'Groq', 'Glean',
   'Harvey', 'Sierra', 'Vanta', 'Wiz', 'Fivetran', 'Retool', 'Temporal',
   'Cockroach Labs', 'Snyk', 'Supabase', 'Netlify', 'Miro', 'Coda', 'Airtable',
-  'Cursor', 'Character AI', 'Together AI', 'Modal', 'Affirm', 'Amplitude',
-  'Applied Intuition', 'Akamai', 'Aurora', 'Autodesk', 'Cisco', 'CrowdStrike',
-  'Deel', 'Discord', 'Dropbox', 'Etsy', 'Flexport', 'Grammarly', 'Intuit', 'Lyft',
-  'Marqeta', 'New Relic', 'Okta', 'Roblox', 'Robinhood', 'Rivian', 'Waymo', 'Zoox',
-  'Twilio'
+  'Cursor', 'Character AI', 'Together AI', 'Modal'
+];
+
+var TARGET_P3 = [
+  'Affirm', 'Amplitude', 'Applied Intuition', 'Akamai', 'Aurora', 'Autodesk', 'Cisco',
+  'CrowdStrike', 'Deel', 'Discord', 'Dropbox', 'Etsy', 'Flexport', 'Grammarly',
+  'Intuit', 'Lyft', 'Marqeta', 'New Relic', 'Okta', 'Roblox', 'Robinhood', 'Rivian',
+  'Waymo', 'Zoox', 'Twilio'
 ];
 
 function targetSheet_(create) {
@@ -70,12 +72,16 @@ function targetPaintHeader_(sheet) {
       .setValues([TARGET_HEADERS[b]])
       .setFontWeight('bold')
       .setBackground('#EFEFEF')
-      .setHorizontalAlignment('center');
-    sheet.setColumnWidth(col, 220);
-    sheet.setColumnWidth(col + 1, 140);
+      .setHorizontalAlignment('center')
+      .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP)
+      .setVerticalAlignment('middle');
+    sheet.setColumnWidth(col, 150);
+    sheet.setColumnWidth(col + 1, 110);
   }
-  sheet.setColumnWidth(3, 24);
-  sheet.setColumnWidth(6, 24);
+  sheet.setRowHeight(1, 32);
+  sheet.setColumnWidth(3, 18);
+  sheet.setColumnWidth(6, 18);
+  sheet.setColumnWidth(9, 18);
 }
 
 function targetWriteBlock_(sheet, col, rows, clearDepth) {
@@ -96,7 +102,8 @@ function targetRebuild_() {
   var blocks = [
     targetRows_(TARGET_P0, referralCounts),
     targetRows_(TARGET_P1, referralCounts),
-    targetRows_(TARGET_EXTENDED, referralCounts)
+    targetRows_(TARGET_P2, referralCounts),
+    targetRows_(TARGET_P3, referralCounts)
   ];
   var clearDepth = Math.max(0, sheet.getLastRow() - TARGET_FIRST_ROW + 1);
 
@@ -105,8 +112,8 @@ function targetRebuild_() {
     targetWriteBlock_(sheet, TARGET_BLOCK_COLS[b], blocks[b], clearDepth);
   }
 
-  var total = TARGET_P0.length + TARGET_P1.length + TARGET_EXTENDED.length;
-  var what = 'Target: ' + total + ' companies across 3 sourcing blocks.';
+  var total = TARGET_P0.length + TARGET_P1.length + TARGET_P2.length + TARGET_P3.length;
+  var what = 'Target: ' + total + ' companies across 4 sourcing blocks.';
   Logger.log(what);
   return what;
 }
