@@ -200,8 +200,9 @@ function targetOpeningStatuses_() {
     var status = statuses[companyTokens_(name).join(' ')];
     var summerRows = status.roleRows.filter(function (row) { return row.summer; });
     var offCycleRows = status.roleRows.filter(function (row) { return row.offCycle; });
-    // Explicit Summer wins; otherwise only a completely unlabelled SWE set is
-    // inferred as Summer. Any off-cycle label blocks that inference.
+    // Explicit Summer wins; otherwise a completely unlabelled SWE set is
+    // inferred as Summer, whether it has one row or several. Any off-cycle
+    // label blocks that inference.
     var openingRows = summerRows.length ? summerRows : (offCycleRows.length ? [] : status.roleRows);
     status.hasOpening = openingRows.length > 0;
     openingRows.forEach(function (row) {
