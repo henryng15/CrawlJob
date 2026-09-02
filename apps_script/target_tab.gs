@@ -7,14 +7,14 @@
  * contact-sourcing effort. It reads the same sender-maintained Referral Seed Counts
  * snapshot through companyReferralCounts_(), and writes only Target.
  *
- * The four blocks are A:D, F:I, K:N and P:S. Columns E, J and O are gutters so
+ * The four blocks are A:E, G:K, M:Q and S:W. Columns F, L and R are gutters so
  * the lists remain visually separate.
  */
 
 var TARGET_TAB = 'Target';
-var TARGET_BLOCK_COLS = [1, 6, 11, 16];
-var TARGET_BLOCK_WIDTH = 4;
-var TARGET_RENDER_WIDTH = 19;
+var TARGET_BLOCK_COLS = [1, 7, 13, 19];
+var TARGET_BLOCK_WIDTH = 5;
+var TARGET_RENDER_WIDTH = 23;
 var TARGET_FIRST_ROW = 2;
 var TARGET_AGE_THRESHOLD_DAYS = 5;
 var TARGET_OPENING_START_DAY = '2026-07-20';
@@ -22,10 +22,10 @@ var TARGET_NOT_OPEN_GREEN = '#D9EAD3';
 var TARGET_OPEN_WHITE = '#FFFFFF';
 var TARGET_URGENT_RED = '#F4CCCC';
 var TARGET_HEADERS = [
-  ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
-  ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
-  ['P2 - AI/startup targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
-  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open']
+  ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
+  ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
+  ['P2 - AI/startup targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
+  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked']
 ];
 
 // Earliest concrete 2025 date found in the public sources checked for this
@@ -95,7 +95,7 @@ function targetSheet_(create) {
   return sheet;
 }
 
-function targetRows_(names, referralCounts, statuses) {
+function targetRows_(names, referralCounts, statuses, askedStates) {
   return names.map(function (name) {
     var key = companyTokens_(name).join(' ');
     var evidence = TARGET_OPENING_EVIDENCE[name];
@@ -104,9 +104,29 @@ function targetRows_(names, referralCounts, statuses) {
       name,
       Number(referralCounts[key] || 0),
       evidence ? evidence.date : '',
-      status && status.latestOpeningDay ? status.latestOpeningDay : ''
+      status && status.latestOpeningDay ? status.latestOpeningDay : '',
+      askedStates && askedStates[key] === true
     ];
   });
+}
+
+/** Read manual Asked checkbox states before Target is rebuilt or repositioned. */
+function targetAskedStates_(sheet) {
+  var states = {};
+  var lastRow = sheet.getLastRow();
+  if (lastRow < TARGET_FIRST_ROW) return states;
+  var width = Math.max(sheet.getLastColumn(), TARGET_RENDER_WIDTH);
+  var values = sheet.getRange(1, 1, lastRow, width).getValues();
+  for (var b = 0; b < TARGET_BLOCK_COLS.length; b++) {
+    var companyCol = TARGET_BLOCK_COLS[b] - 1;
+    var askedCol = companyCol + 4;
+    for (var r = 1; r < values.length; r++) {
+      var name = String(values[r][companyCol] == null ? '' : values[r][companyCol]).trim();
+      if (!name) continue;
+      states[companyTokens_(name).join(' ')] = companyIsTicked_(values[r][askedCol]);
+    }
+  }
+  return states;
 }
 
 /** Calendar-day age in the spreadsheet timezone, avoiding UTC/date-only drift. */
@@ -241,11 +261,12 @@ function targetPaintHeader_(sheet) {
     sheet.setColumnWidth(col + 1, 105);
     sheet.setColumnWidth(col + 2, 100);
     sheet.setColumnWidth(col + 3, 85);
+    sheet.setColumnWidth(col + 4, 55);
   }
   sheet.setRowHeight(1, 42);
-  sheet.setColumnWidth(5, 18);
-  sheet.setColumnWidth(10, 18);
-  sheet.setColumnWidth(15, 18);
+  sheet.setColumnWidth(6, 18);
+  sheet.setColumnWidth(12, 18);
+  sheet.setColumnWidth(18, 18);
 }
 
 function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
@@ -259,6 +280,7 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
   // as dates and both date columns stay consistent.
   sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1).setNumberFormat('0');
   sheet.getRange(TARGET_FIRST_ROW, col + 2, rows.length, 2).setNumberFormat('yyyy-mm-dd');
+  sheet.getRange(TARGET_FIRST_ROW, col + 4, rows.length, 1).setNumberFormat('General');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, TARGET_BLOCK_WIDTH)
     .setValues(rows);
   sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1)
@@ -271,6 +293,9 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
     }));
   sheet.getRange(TARGET_FIRST_ROW, col + 3, rows.length, 1)
     .setHorizontalAlignment('center');
+  sheet.getRange(TARGET_FIRST_ROW, col + 4, rows.length, 1)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build())
+    .setHorizontalAlignment('center');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, 1)
     .setBackgrounds(rows.map(function (row) {
       return [targetCompanyFill_(row[0], statuses)];
@@ -279,13 +304,14 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
 
 function targetRebuild_() {
   var sheet = targetSheet_(true);
+  var askedStates = targetAskedStates_(sheet);
   var referralCounts = companyReferralCounts_();
   var statuses = targetOpeningStatuses_();
   var blocks = [
-    targetRows_(TARGET_P0, referralCounts, statuses),
-    targetRows_(TARGET_P1, referralCounts, statuses),
-    targetRows_(TARGET_P2, referralCounts, statuses),
-    targetRows_(TARGET_P3, referralCounts, statuses)
+    targetRows_(TARGET_P0, referralCounts, statuses, askedStates),
+    targetRows_(TARGET_P1, referralCounts, statuses, askedStates),
+    targetRows_(TARGET_P2, referralCounts, statuses, askedStates),
+    targetRows_(TARGET_P3, referralCounts, statuses, askedStates)
   ];
   var clearDepth = Math.max(1, sheet.getLastRow());
 

@@ -13,18 +13,18 @@ additional referral contacts, separate from the `Company` tab's current-opening 
 
 ## The layout
 
-The tab has four compact four-column blocks, separated by gutters:
+The tab has four compact five-column blocks, separated by gutters:
 
-| Columns | Group | First column | Second column | Third column | Fourth column |
-|---|---|---|---|---|---|
-| `A:D` | P0 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` |
-| `F:I` | P1 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` |
-| `K:N` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` |
-| `P:S` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` |
+| Columns | Group | First column | Second column | Third column | Fourth column | Fifth column |
+|---|---|---|---|---|---|---|
+| `A:E` | P0 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
+| `G:K` | P1 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
+| `M:Q` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
+| `S:W` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
 
 P0, P1 and P2 contain 25 companies each; P3 contains 31 after adding Toast and five
 similar-size peers: Block, BILL, Samsara, DigitalOcean and Squarespace. The company columns are 125px wide, the count
-columns are 105px wide, the research date columns are 100px wide, and the live `Date open` columns are 85px wide; headers wrap to keep
+columns are 105px wide, the research date columns are 100px wide, the live `Date open` columns are 85px wide, and `Asked` columns are 55px wide; headers wrap to keep
 the four-block layout compact.
 
 The added cohort is a broad sourcing analogue, not an exact headcount match: Toast's
@@ -50,6 +50,9 @@ was opened. In the sheet, unknown dates are left blank to keep the view clean.
 software-engineering role posted on or after `2026-07-20`. It is independent of the
 `Applied` and `Expired` flags; a blank means no qualifying row was found after the
 cutoff.
+
+`Asked` is a manual checkbox only. It has no sending or filtering logic, and its
+state is preserved when the Target tab is rebuilt or its blocks are refreshed.
 
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
 role must first be a software-engineering role: its title must contain `Software
@@ -79,14 +82,15 @@ names stay white rather than being incorrectly marked as not opened.
 | Function | Does |
 |---|---|
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
-| `targetRows_(names, referralCounts, statuses)` | Pairs each target company with its current sendable count, researched posting date and latest live `Date open`. |
+| `targetRows_(names, referralCounts, statuses, askedStates)` | Pairs each target company with its current sendable count, researched posting date, latest live `Date open` and manual `Asked` state. |
+| `targetAskedStates_(sheet)` | Reads manual `Asked` checkbox states so they survive a Target rebuild. |
 | `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering, Software Developer, SWE and Application Development titles. |
 | `targetIsExplicitSummerRole_(role)` | Detects an explicit `Summer` intake. |
 | `targetIsExplicitOffCycleRole_(role)` | Detects an explicit `Winter`, `Spring` or `Fall` intake. |
 | `targetOpeningStatuses_()` | Groups SWE rows from `Jobs` posted on or after `2026-07-20`, infers Summer per company, tracks the latest recognized opening date, and classifies each Target company for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
-| `targetPaintHeader_(sheet)` | Writes the four headers, freezes row 1 and sizes the blocks and gutters. |
+| `targetPaintHeader_(sheet)` | Writes the five headers, freezes row 1 and sizes the blocks and gutters. |
 | `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, resets count/date number formats, adds notes and company-name colors, and clears stale rows. |
 | `targetRebuild_()` | Rebuilds all current Target companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |
