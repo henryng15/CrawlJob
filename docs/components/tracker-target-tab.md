@@ -37,13 +37,25 @@ date cell has a note with its source and evidence scope. `Unknown` means no exac
 public date was sufficiently verifiable in this pass; it is not a claim that no role
 was opened.
 
+The company-name cell is refreshed from live `Jobs` data on every Target rebuild:
+
+- green means no live role whose title says `Summer`;
+- white means a live Summer role exists, but there is no urgent Summer 2027 warning;
+- red means a live `Summer 2027` role has been posted for at least five calendar days.
+
+Rows ticked `Expired` in `Jobs` are ignored. If the Jobs tab is unreadable, names stay
+white rather than being incorrectly marked as not opened.
+
 ## Functions
 
 | Function | Does |
 |---|---|
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
 | `targetRows_(names, referralCounts)` | Pairs each target company with its current sendable count and researched posting date. |
+| `targetSummerStatuses_()` | Reads live Summer roles from `Jobs` and classifies each Target company for the three-state color rule. |
+| `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
+| `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the three headers, freezes row 1 and sizes the blocks and gutters. |
-| `targetWriteBlock_(sheet, col, rows, clearDepth)` | Replaces one block's values and clears stale rows. |
+| `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, notes and company-name colors, clearing stale rows. |
 | `targetRebuild_()` | Rebuilds all 100 companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |

@@ -16,6 +16,10 @@ var TARGET_BLOCK_COLS = [1, 5, 9, 13];
 var TARGET_BLOCK_WIDTH = 3;
 var TARGET_RENDER_WIDTH = 15;
 var TARGET_FIRST_ROW = 2;
+var TARGET_AGE_THRESHOLD_DAYS = 5;
+var TARGET_NOT_OPEN_GREEN = '#D9EAD3';
+var TARGET_OPEN_WHITE = '#FFFFFF';
+var TARGET_URGENT_RED = '#F4CCCC';
 var TARGET_HEADERS = [
   ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted'],
   ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted'],
@@ -96,6 +100,79 @@ function targetRows_(names, referralCounts) {
   });
 }
 
+/** Return the explicit summer year in a role title, if it has one. */
+function targetSummerYear_(role) {
+  var match = String(role == null ? '' : role).match(/\bsummer\s+(20\d{2})\b/i);
+  return match ? match[1] : '';
+}
+
+/** Calendar-day age in the spreadsheet timezone, avoiding UTC/date-only drift. */
+function targetAgeDays_(postedDay, todayDay) {
+  var posted = String(postedDay == null ? '' : postedDay).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  var today = String(todayDay == null ? '' : todayDay).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!posted || !today) return -1;
+  var postedUtc = Date.UTC(Number(posted[1]), Number(posted[2]) - 1, Number(posted[3]));
+  var todayUtc = Date.UTC(Number(today[1]), Number(today[2]) - 1, Number(today[3]));
+  return Math.floor((todayUtc - postedUtc) / 86400000);
+}
+
+/**
+ * Read live Summer roles from Jobs and classify each Target company.
+ *
+ * `urgent2027` wins over `hasSummer`: a Summer 2027 posting that is at least
+ * five calendar days old is the red referral warning. A live Summer posting
+ * otherwise leaves the company white. Companies with no live Summer posting are
+ * green. Expired rows are ignored; a missing/unreadable Jobs tab returns null so
+ * the caller can avoid falsely marking every company as not opened.
+ */
+function targetSummerStatuses_() {
+  var jobs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANY_JOBS_TAB);
+  if (!jobs) return null;
+  var lastRow = jobs.getLastRow(), lastCol = jobs.getLastColumn();
+  if (lastRow < 2 || lastCol < 2) return {};
+  var values = jobs.getRange(1, 1, lastRow, lastCol).getValues();
+  var at = companyJobsLayout_(values[0]);
+  if (!at) return null;
+
+  var targetNames = TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3);
+  var statuses = {};
+  targetNames.forEach(function (name) {
+    statuses[companyTokens_(name).join(' ')] = { hasSummer: false, urgent2027: false };
+  });
+  var today = Utilities.formatDate(
+    new Date(),
+    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(),
+    'yyyy-MM-dd'
+  );
+
+  for (var r = 1; r < values.length; r++) {
+    if (at.expired >= 0 && companyIsTicked_(values[r][at.expired])) continue;
+    var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
+    if (!companyIsSummerRole_(role)) continue;
+    var postingTokens = companyTokens_(values[r][at.company]);
+    if (!postingTokens.length) continue;
+    var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
+    var age = targetAgeDays_(postedDay, today);
+    var year = targetSummerYear_(role);
+
+    targetNames.forEach(function (name) {
+      if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
+      var status = statuses[companyTokens_(name).join(' ')];
+      status.hasSummer = true;
+      if (year === '2027' && age >= TARGET_AGE_THRESHOLD_DAYS) status.urgent2027 = true;
+    });
+  }
+  return statuses;
+}
+
+function targetCompanyFill_(name, statuses) {
+  if (statuses === null) return TARGET_OPEN_WHITE;
+  var status = statuses[companyTokens_(name).join(' ')];
+  if (!status || !status.hasSummer) return TARGET_NOT_OPEN_GREEN;
+  if (status.urgent2027) return TARGET_URGENT_RED;
+  return TARGET_OPEN_WHITE;
+}
+
 function targetPaintHeader_(sheet) {
   sheet.setFrozenRows(1);
   for (var b = 0; b < TARGET_BLOCK_COLS.length; b++) {
@@ -117,7 +194,7 @@ function targetPaintHeader_(sheet) {
   sheet.setColumnWidth(12, 18);
 }
 
-function targetWriteBlock_(sheet, col, rows, clearDepth) {
+function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
   if (clearDepth > 0) {
     sheet.getRange(TARGET_FIRST_ROW, col, clearDepth, TARGET_BLOCK_WIDTH)
       .clearContent().clearDataValidations().clearNote().setBackground(null);
@@ -133,11 +210,16 @@ function targetWriteBlock_(sheet, col, rows, clearDepth) {
       var evidence = TARGET_OPENING_EVIDENCE[row[0]];
       return [evidence ? evidence.note : 'No exact public 2025 opening date found in the sources checked. Unknown does not mean the company did not open a role; it means the date was not sufficiently verifiable.'];
     }));
+  sheet.getRange(TARGET_FIRST_ROW, col, rows.length, 1)
+    .setBackgrounds(rows.map(function (row) {
+      return [targetCompanyFill_(row[0], statuses)];
+    }));
 }
 
 function targetRebuild_() {
   var sheet = targetSheet_(true);
   var referralCounts = companyReferralCounts_();
+  var statuses = targetSummerStatuses_();
   var blocks = [
     targetRows_(TARGET_P0, referralCounts),
     targetRows_(TARGET_P1, referralCounts),
@@ -152,7 +234,7 @@ function targetRebuild_() {
 
   targetPaintHeader_(sheet);
   for (var b = 0; b < blocks.length; b++) {
-    targetWriteBlock_(sheet, TARGET_BLOCK_COLS[b], blocks[b], clearDepth);
+    targetWriteBlock_(sheet, TARGET_BLOCK_COLS[b], blocks[b], clearDepth, statuses);
   }
 
   var total = TARGET_P0.length + TARGET_P1.length + TARGET_P2.length + TARGET_P3.length;
