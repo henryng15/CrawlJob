@@ -240,7 +240,7 @@ to tick one.
 | `companyPaintHeader_(sheet)` | Header, widths, frozen row. Run on every rebuild, so a tab somebody widened comes back to itself. |
 | `companyWriteBlock_(sheet, col, rows, clearDepth)` | Values, the green, the checkbox. Clears to the tab's current depth, not the new one, so a dropped company leaves no orphan row. |
 | `companyRebuild_(force)` | Both blocks. `force` skips the fingerprint check. |
-| `syncCompanyTab()` | The trigger handler. |
+| `syncCompanyTab()` | The trigger handler. Rebuilds Company when Jobs changes and refreshes Target's contact counts every run. |
 | `rebuildCompanyTab()` | Rebuild now, whatever the fingerprint says. |
 | `setupCompanyTab()` | **The one function to run by hand.** Builds the tab and installs the trigger. Safe to run again. |
 | `removeCompanyTrigger()` | The kill switch. Leaves the tab as it stands. |

@@ -52,6 +52,7 @@ ATS boards + Markdown trackers
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
 | `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export, by hand | outreach compose + planners |
 | `Company` | `company_tab.gs` **only** | people — who to ask for a referral next |
+| `Target` | `target_tab.gs` **only** | people — where to source the next referral contacts |
 
 The contacts and employees tabs live in a **separate spreadsheet** owned by the sending
 account, never in the tracker. See [outreach-contacts.md](outreach-contacts.md).
@@ -75,6 +76,7 @@ looser one winning every hour — see the gotcha in
 **Tracker script** (`apps_script/`)
 - [tracker-sync.md](tracker-sync.md) — `sync_applied_to_app.gs`
 - [tracker-company-tab.md](tracker-company-tab.md) — `company_tab.gs`
+- [tracker-target-tab.md](tracker-target-tab.md) — `target_tab.gs`
 - [tracker-external-api.md](tracker-external-api.md) — `external_application_api.gs`, `setup_process_dropdown.gs`
 
 **Outreach script** (`apps_script/outreach/`)

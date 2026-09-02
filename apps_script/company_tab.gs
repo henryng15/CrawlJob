@@ -1035,13 +1035,16 @@ function companyRebuild_(force) {
  */
 function syncCompanyTab() {
   companyRebuild_(false);
+  targetRebuild_();
 }
 
 /** Rebuild now, whatever the fingerprint says. For a person, from the editor. */
 function rebuildCompanyTab() {
   var what = companyRebuild_(true);
-  SpreadsheetApp.getActiveSpreadsheet().toast(what, 'Company', 8);
-  return what;
+  var targetWhat = targetRebuild_();
+  var combined = what + ' ' + targetWhat;
+  SpreadsheetApp.getActiveSpreadsheet().toast(combined, 'Company + Target', 8);
+  return combined;
 }
 
 /**
