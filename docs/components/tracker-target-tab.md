@@ -44,11 +44,11 @@ create or reserve email addresses; it only reports where more sourcing is useful
 sources recorded in `target_tab.gs`. Dates are ISO strings (`YYYY-MM-DD`) and each
 date cell has a note with its source and evidence scope. `Unknown` means no exact
 public date was sufficiently verifiable in this pass; it is not a claim that no role
-was opened.
+was opened. In the sheet, unknown dates are left blank to keep the view clean.
 
 `Date open` is the latest `Date Posted` found in live `Jobs` for a qualifying
 software-engineering role posted on or after `2026-07-20`. It is independent of the
-`Applied` and `Expired` flags; `Unknown` means no qualifying row was found after the
+`Applied` and `Expired` flags; a blank means no qualifying row was found after the
 cutoff.
 
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A

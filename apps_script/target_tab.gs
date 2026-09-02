@@ -103,8 +103,8 @@ function targetRows_(names, referralCounts, statuses) {
     return [
       name,
       Number(referralCounts[key] || 0),
-      evidence ? evidence.date : 'Unknown',
-      status && status.latestOpeningDay ? status.latestOpeningDay : 'Unknown'
+      evidence ? evidence.date : '',
+      status && status.latestOpeningDay ? status.latestOpeningDay : ''
     ];
   });
 }
