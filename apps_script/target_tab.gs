@@ -7,14 +7,14 @@
  * contact-sourcing effort. It reads the same sender-maintained Referral Seed Counts
  * snapshot through companyReferralCounts_(), and writes only Target.
  *
- * The four blocks are A:C, E:G, I:K and M:O. Columns D, H and L are gutters so
+ * The four blocks are A:D, F:I, K:N and P:S. Columns E, J and O are gutters so
  * the lists remain visually separate.
  */
 
 var TARGET_TAB = 'Target';
-var TARGET_BLOCK_COLS = [1, 5, 9, 13];
-var TARGET_BLOCK_WIDTH = 3;
-var TARGET_RENDER_WIDTH = 15;
+var TARGET_BLOCK_COLS = [1, 6, 11, 16];
+var TARGET_BLOCK_WIDTH = 4;
+var TARGET_RENDER_WIDTH = 19;
 var TARGET_FIRST_ROW = 2;
 var TARGET_AGE_THRESHOLD_DAYS = 5;
 var TARGET_OPENING_START_DAY = '2026-07-20';
@@ -22,10 +22,10 @@ var TARGET_NOT_OPEN_GREEN = '#D9EAD3';
 var TARGET_OPEN_WHITE = '#FFFFFF';
 var TARGET_URGENT_RED = '#F4CCCC';
 var TARGET_HEADERS = [
-  ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted'],
-  ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted'],
-  ['P2 - AI/startup targets', 'Sendable referral emails', 'Summer 2026 first posted'],
-  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Summer 2026 first posted']
+  ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
+  ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
+  ['P2 - AI/startup targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open'],
+  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open']
 ];
 
 // Earliest concrete 2025 date found in the public sources checked for this
@@ -95,11 +95,17 @@ function targetSheet_(create) {
   return sheet;
 }
 
-function targetRows_(names, referralCounts) {
+function targetRows_(names, referralCounts, statuses) {
   return names.map(function (name) {
     var key = companyTokens_(name).join(' ');
     var evidence = TARGET_OPENING_EVIDENCE[name];
-    return [name, Number(referralCounts[key] || 0), evidence ? evidence.date : 'Unknown'];
+    var status = statuses && statuses[key];
+    return [
+      name,
+      Number(referralCounts[key] || 0),
+      evidence ? evidence.date : 'Unknown',
+      status && status.latestOpeningDay ? status.latestOpeningDay : 'Unknown'
+    ];
   });
 }
 
@@ -153,7 +159,11 @@ function targetOpeningStatuses_() {
   var targetNames = TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3);
   var statuses = {};
   targetNames.forEach(function (name) {
-    statuses[companyTokens_(name).join(' ')] = { hasOpening: false, urgentOpening: false };
+    statuses[companyTokens_(name).join(' ')] = {
+      hasOpening: false,
+      urgentOpening: false,
+      latestOpeningDay: ''
+    };
   });
   var today = Utilities.formatDate(
     new Date(),
@@ -174,6 +184,9 @@ function targetOpeningStatuses_() {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
       status.hasOpening = true;
+      if (!status.latestOpeningDay || postedDay > status.latestOpeningDay) {
+        status.latestOpeningDay = postedDay;
+      }
       if (age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
         status.urgentOpening = true;
       }
@@ -204,11 +217,12 @@ function targetPaintHeader_(sheet) {
     sheet.setColumnWidth(col, 125);
     sheet.setColumnWidth(col + 1, 105);
     sheet.setColumnWidth(col + 2, 100);
+    sheet.setColumnWidth(col + 3, 85);
   }
   sheet.setRowHeight(1, 42);
-  sheet.setColumnWidth(4, 18);
-  sheet.setColumnWidth(8, 18);
-  sheet.setColumnWidth(12, 18);
+  sheet.setColumnWidth(5, 18);
+  sheet.setColumnWidth(10, 18);
+  sheet.setColumnWidth(15, 18);
 }
 
 function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
@@ -227,6 +241,8 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
       var evidence = TARGET_OPENING_EVIDENCE[row[0]];
       return [evidence ? evidence.note : 'No exact public 2025 opening date found in the sources checked. Unknown does not mean the company did not open a role; it means the date was not sufficiently verifiable.'];
     }));
+  sheet.getRange(TARGET_FIRST_ROW, col + 3, rows.length, 1)
+    .setHorizontalAlignment('center');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, 1)
     .setBackgrounds(rows.map(function (row) {
       return [targetCompanyFill_(row[0], statuses)];
@@ -238,10 +254,10 @@ function targetRebuild_() {
   var referralCounts = companyReferralCounts_();
   var statuses = targetOpeningStatuses_();
   var blocks = [
-    targetRows_(TARGET_P0, referralCounts),
-    targetRows_(TARGET_P1, referralCounts),
-    targetRows_(TARGET_P2, referralCounts),
-    targetRows_(TARGET_P3, referralCounts)
+    targetRows_(TARGET_P0, referralCounts, statuses),
+    targetRows_(TARGET_P1, referralCounts, statuses),
+    targetRows_(TARGET_P2, referralCounts, statuses),
+    targetRows_(TARGET_P3, referralCounts, statuses)
   ];
   var clearDepth = Math.max(1, sheet.getLastRow());
 
