@@ -1,7 +1,7 @@
 # target_tab.gs — the Target tab
 
-The 100-company shortlist for sourcing additional referral contacts, separate from
-the `Company` tab's current-opening view.
+The 100-company shortlist plus six Toast-size commerce/fintech/SaaS peers for sourcing
+additional referral contacts, separate from the `Company` tab's current-opening view.
 
 ## Connections
 
@@ -22,9 +22,18 @@ The tab has four compact three-column blocks, separated by gutters:
 | `I:K` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` |
 | `M:O` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` |
 
-Each block contains 25 companies. The company columns are 125px wide, the count
+P0, P1 and P2 contain 25 companies each; P3 contains 31 after adding Toast and five
+similar-size peers: Block, BILL, Samsara, DigitalOcean and Squarespace. The company columns are 125px wide, the count
 columns are 105px wide, and the date columns are 100px wide; headers wrap to keep
 the four-block layout compact.
+
+The added cohort is a broad sourcing analogue, not an exact headcount match: Toast's
+2025 Form 10-K reported approximately 6,500 employees, and the additions cover nearby
+commerce, payments and SaaS companies in the same broad growth-stage band. Supporting
+public references include Toast's [2025 Form 10-K](https://www.sec.gov/Archives/edgar/data/1650164/000165016426000057/tost-20251231.htm),
+BILL's [2025 Form 10-K](https://www.sec.gov/Archives/edgar/data/1786352/000178635225000037/bill-20250630.htm),
+Samsara's [2025/2026 workforce disclosure](https://www.samsara.com/support/modern-slavery-statement),
+and Squarespace's [company profile](https://www.squarespace.com/about/company).
 
 `Sendable referral emails` is the current per-company count from the sender's seed
 snapshot. It uses the same non-invalid referral pool as `Company`, after addresses
@@ -64,5 +73,5 @@ stay white rather than being incorrectly marked as not opened.
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the three headers, freezes row 1 and sizes the blocks and gutters. |
 | `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, notes and company-name colors, clearing stale rows. |
-| `targetRebuild_()` | Rebuilds all 100 companies across the four blocks and logs the result. |
+| `targetRebuild_()` | Rebuilds all current Target companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |

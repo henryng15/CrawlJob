@@ -82,7 +82,9 @@ var TARGET_P3 = [
   'Affirm', 'Amplitude', 'Applied Intuition', 'Akamai', 'Aurora', 'Autodesk', 'Cisco',
   'CrowdStrike', 'Deel', 'Discord', 'Dropbox', 'Etsy', 'Flexport', 'Grammarly',
   'Intuit', 'Lyft', 'Marqeta', 'New Relic', 'Okta', 'Roblox', 'Robinhood', 'Rivian',
-  'Waymo', 'Zoox', 'Twilio'
+  'Waymo', 'Zoox', 'Twilio',
+  // Toast and adjacent commerce/fintech/SaaS peers requested for additional sourcing.
+  'Toast', 'Block', 'BILL', 'Samsara', 'DigitalOcean', 'Squarespace'
 ];
 
 function targetSheet_(create) {
