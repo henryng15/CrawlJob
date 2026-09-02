@@ -49,18 +49,14 @@ was opened.
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild:
 
 - green means no `Summer` row exists for the company in `Jobs`;
-- white means a live Summer role exists, but the Summer 2027 posting is older than
-  five calendar days (or there is no urgent Summer 2027 posting). A Summer posting
-  marked `Expired` also keeps the company white because it proves the company opened
-  a Summer role;
-- red means a non-expired `Summer 2027` role was posted within the last five calendar
-  days.
+- white means a Summer row exists, but its posting is older than five calendar days;
+- red means a Summer row was posted within the last five calendar days.
 
-`Expired` is not a reliable semantic status: it may mean the role expired, was a
-duplicate, or was not a role worth applying to. Therefore an `Expired` Summer row
-counts as evidence that the company opened Summer, but never triggers red. Green is
-reserved for companies with no Summer row at all. If the Jobs tab is unreadable, names
-stay white rather than being incorrectly marked as not opened.
+`Applied` and `Expired` are ignored for this color logic. Either flag may mean the
+role was applied to, expired, duplicated, or simply not worth pursuing, but the rule
+here is that appearance in `Jobs` is enough to count it. Green is reserved for
+companies with no Summer row at all. If the Jobs tab is unreadable, names stay white
+rather than being incorrectly marked as not opened.
 
 ## Functions
 

@@ -102,12 +102,6 @@ function targetRows_(names, referralCounts) {
   });
 }
 
-/** Return the explicit summer year in a role title, if it has one. */
-function targetSummerYear_(role) {
-  var match = String(role == null ? '' : role).match(/\bsummer\s+(20\d{2})\b/i);
-  return match ? match[1] : '';
-}
-
 /** Calendar-day age in the spreadsheet timezone, avoiding UTC/date-only drift. */
 function targetAgeDays_(postedDay, todayDay) {
   var posted = String(postedDay == null ? '' : postedDay).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -121,12 +115,12 @@ function targetAgeDays_(postedDay, todayDay) {
 /**
  * Read live Summer roles from Jobs and classify each Target company.
  *
- * `urgent2027` wins over `hasSummer`: a Summer 2027 posting from the last five
- * calendar days is the red referral warning. A live Summer posting older than
- * five days leaves the company white. Companies with no live Summer posting are
- * green. A row marked Expired still proves that the company opened a Summer role,
- * but it cannot trigger the red warning because Expired may mean expired, duplicate,
- * or a role the applicant chose not to pursue. A missing/unreadable Jobs tab returns
+ * `urgentSummer` wins over `hasSummer`: any Summer posting from the last five
+ * calendar days is the red referral warning. A Summer posting older than five
+ * days leaves the company white. Companies with no Summer posting are green.
+ * Applied and Expired are deliberately ignored: either flag may describe an
+ * application choice, a duplicate, or a stale row, but the user's rule is that
+ * appearance in Jobs is enough evidence. A missing/unreadable Jobs tab returns
  * null so the caller can avoid falsely marking every company as not opened.
  */
 function targetSummerStatuses_() {
@@ -141,7 +135,7 @@ function targetSummerStatuses_() {
   var targetNames = TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3);
   var statuses = {};
   targetNames.forEach(function (name) {
-    statuses[companyTokens_(name).join(' ')] = { hasSummer: false, urgent2027: false };
+    statuses[companyTokens_(name).join(' ')] = { hasSummer: false, urgentSummer: false };
   });
   var today = Utilities.formatDate(
     new Date(),
@@ -150,21 +144,19 @@ function targetSummerStatuses_() {
   );
 
   for (var r = 1; r < values.length; r++) {
-    var expired = at.expired >= 0 && companyIsTicked_(values[r][at.expired]);
     var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
     if (!companyIsSummerRole_(role)) continue;
     var postingTokens = companyTokens_(values[r][at.company]);
     if (!postingTokens.length) continue;
     var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
     var age = targetAgeDays_(postedDay, today);
-    var year = targetSummerYear_(role);
 
     targetNames.forEach(function (name) {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
       status.hasSummer = true;
-      if (!expired && year === '2027' && age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
-        status.urgent2027 = true;
+      if (age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
+        status.urgentSummer = true;
       }
     });
   }
@@ -175,7 +167,7 @@ function targetCompanyFill_(name, statuses) {
   if (statuses === null) return TARGET_OPEN_WHITE;
   var status = statuses[companyTokens_(name).join(' ')];
   if (!status || !status.hasSummer) return TARGET_NOT_OPEN_GREEN;
-  if (status.urgent2027) return TARGET_URGENT_RED;
+  if (status.urgentSummer) return TARGET_URGENT_RED;
   return TARGET_OPEN_WHITE;
 }
 
