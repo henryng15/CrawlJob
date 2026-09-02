@@ -1,18 +1,17 @@
 /**
  * The Company tab: which employers worth asking for a referral have opened yet.
  *
- * Two independent blocks side by side, A:E and F:J. A:E is the standing list of
+ * Two independent blocks side by side, A:G and H:N. A:G is the standing list of
  * employers that certified an H-1B Software Engineer LCA in FY2025 — the ones
- * where a visa is a question already answered. F:J is every other employer on the
- * same shortlist. Each block: the company, whether it has an opening on the Jobs
- * tab right now, a checkbox for "I have asked", and that company's own LinkedIn
- * and email message.
+ * where a visa is a question already answered. H:N is every other employer on the
+ * same shortlist. Each block also shows the number of exact DeBounce-valid
+ * referral emails currently available from the Employees (seed) export.
  *
- * This file reads the Jobs tab and writes the Company tab. It reads nothing else
- * and writes nothing else, and that is deliberate: every other tab in this
- * spreadsheet is owned by a scheduler that reorders it, and a second writer is
- * the failure this codebase is most prone to. See the tab-ownership table in
- * docs/components/README.md.
+ * This file reads the Jobs tab and the sender-maintained Referral Seed Counts tab,
+ * and writes the Company tab. The email count is every unique strict referral
+ * candidate in the generated seed, so it describes the sending pool for each
+ * company rather than only the rows already scheduled in Referral.
+ * No other tab is written here.
  *
  * It also defines no onEdit. Apps Script binds exactly one onEdit per project and
  * silently keeps whichever definition loaded last, so a second one here would
@@ -26,23 +25,19 @@ var COMPANY_TAB = 'Company';
 // The tab this one reads. Its own constant rather than the tracker's JOBS_TAB, so
 // that nothing here depends on another file having loaded.
 var COMPANY_JOBS_TAB = 'Jobs';
+var COMPANY_REFERRAL_SEED_COUNTS_TAB = 'Referral Seed Counts';
 
-// Where each block starts. A:E and F:J — five columns each, back to back. The
-// gutter that used to sit at D and E is gone: the templates took those columns,
-// and the block boundary now falls on the letters the tab was specified with.
-// Where each block starts. A:F and G:L — six columns each, back to back. The
-// second block moved right when the email split into a subject and a body: the
-// blocks are defined by their width, so the letters follow the columns rather
-// than the columns being pinned to letters.
-var COMPANY_BLOCK_COLS = [1, 7];
-var COMPANY_BLOCK_WIDTH = 6;   // company | Summer? | Asked | LinkedIn | subject | body
+// Where each block starts. The valid-email count sits beside the company name,
+// so each block is seven columns wide and the second starts at H.
+var COMPANY_BLOCK_COLS = [1, 8];
+var COMPANY_BLOCK_WIDTH = 7;   // company | valid count | Summer? | Asked | LinkedIn | subject | body
 var COMPANY_FIRST_ROW = 2;     // row 1 is the header
 
 var COMPANY_HEADERS = [
-  ['Company - sponsors SWE H-1B, FY2025', 'Summer?', 'Asked', 'LinkedIn',
-   'Email subject', 'Email body'],
-  ['Company - everyone else', 'Summer?', 'Asked', 'LinkedIn',
-   'Email subject', 'Email body']
+  ['Company - sponsors SWE H-1B, FY2025', 'Sendable referral emails', 'Summer?',
+   'Asked', 'LinkedIn', 'Email subject', 'Email body'],
+  ['Company - everyone else', 'Sendable referral emails', 'Summer?', 'Asked',
+   'LinkedIn', 'Email subject', 'Email body']
 ];
 
 // Who the templates are from. Lifted from docs/email-templates.md rather than
@@ -701,6 +696,22 @@ function companyIsTicked_(cell) {
   return String(cell == null ? '' : cell).trim().toLowerCase() === 'true';
 }
 
+/** Count unique non-invalid referral addresses from the sender's hidden snapshot. */
+function companyReferralCounts_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(COMPANY_REFERRAL_SEED_COUNTS_TAB);
+  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 2) return {};
+
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  var counts = {};
+  values.forEach(function (row) {
+    var name = String(row[0] == null ? '' : row[0]).trim();
+    var count = Number(row[1]) || 0;
+    if (name && count > 0) counts[companyTokens_(name).join(' ')] = count;
+  });
+  return counts;
+}
+
 
 // ------------------------------------------------------------------ the rebuild
 
@@ -732,7 +743,7 @@ function companyIsTicked_(cell) {
  * person owns, it survives every rebuild, and keying it by name rather than by row
  * is what lets the rows move underneath it.
  */
-function companyBlockRows_(names, postings, asked) {
+function companyBlockRows_(names, postings, asked, referralCounts) {
   var rows = names.map(function (name) {
     var tokens = companyTokens_(name);
     var open = false, summer = false, link = '', posted = 0, linkTime = -1;
@@ -754,6 +765,7 @@ function companyBlockRows_(names, postings, asked) {
     var label = open ? (summer ? COMPANY_SUMMER : COMPANY_OFFCYCLE) : '';
     return {
       name: name,
+      validReferralEmails: Number(referralCounts[tokens.join(' ')] || 0),
       open: open,
       label: label,
       posted: posted,
@@ -779,12 +791,9 @@ function companyBlockRows_(names, postings, asked) {
  * wholesale and the ticks are the only thing on this tab a person put there.
  *
  * It scans every column rather than the two the blocks are at, and pairs any cell
- * holding a shortlisted company name with the checkbox two to its right. Reading
- * at fixed offsets would be shorter and would have silently dropped every tick in
- * the second block the day it moved from F to G: the layout on the sheet is the
- * old one until the moment this function has already finished with it, so a reader
- * that assumes the new offsets is reading the wrong columns exactly once, and the
- * evidence it destroys is the thing it was called to preserve.
+ * holding a shortlisted company name with the checkbox three to its right. It
+ * also accepts the old two-column offset once, so adding the count column does
+ * not erase an existing Asked tick during the migration.
  *
  * A company name inside a template cell cannot be mistaken for a name cell, because
  * the match is against the whole cell rather than against part of it.
@@ -807,7 +816,8 @@ function companyExistingAsked_(sheet) {
       var text = String(values[r][c] == null ? '' : values[r][c]).trim();
       if (!text) continue;
       var key = companyTokens_(text).join(' ');
-      if (known[key] && companyIsTicked_(values[r][c + 2])) asked[key] = true;
+      if (known[key] && (companyIsTicked_(values[r][c + 3])
+          || companyIsTicked_(values[r][c + 2]))) asked[key] = true;
     }
   }
   return asked;
@@ -860,13 +870,14 @@ function companyPaintHeader_(sheet) {
       .setBackground('#EFEFEF')
       .setHorizontalAlignment('center');
     sheet.setColumnWidth(col, 230);
-    sheet.setColumnWidth(col + 1, 80);
-    sheet.setColumnWidth(col + 2, 60);
+    sheet.setColumnWidth(col + 1, 115);
+    sheet.setColumnWidth(col + 2, 80);
+    sheet.setColumnWidth(col + 3, 60);
     // Clipped, so what shows is the first line and nothing spills into the block
     // beside it. Wide enough to read that first line: the subject entire, the other
     // two far enough in to tell which variant a row drew. Widen one by hand to
     // proofread a whole message; the next rebuild puts it back.
-    for (var t = 3; t < COMPANY_BLOCK_WIDTH; t++) {
+    for (var t = 4; t < COMPANY_BLOCK_WIDTH; t++) {
       sheet.setColumnWidth(col + t, companyHeaderWidth_(COMPANY_HEADERS[b][t]));
     }
   }
@@ -889,24 +900,28 @@ function companyWriteBlock_(sheet, col, rows, clearDepth) {
   if (!rows.length) return;
 
   var values = rows.map(function (r) {
-    return [r.name, r.label, r.asked, r.linkedin, r.subject, r.body];
+    return [r.name, r.validReferralEmails, r.label, r.asked, r.linkedin,
+      r.subject, r.body];
   });
   var greens = rows.map(function (r) {
     var fill = r.open ? COMPANY_OPEN_GREEN : null;
-    return [fill, fill, null, null, null, null];
+    return [fill, null, fill, null, null, null, null];
   });
 
   var range = sheet.getRange(COMPANY_FIRST_ROW, col, rows.length, COMPANY_BLOCK_WIDTH);
   range.setValues(values);
   range.setBackgrounds(greens);
-  sheet.getRange(COMPANY_FIRST_ROW, col + 1, rows.length, 1).setHorizontalAlignment('center');
   sheet.getRange(COMPANY_FIRST_ROW, col + 2, rows.length, 1)
+    .setHorizontalAlignment('center');
+  sheet.getRange(COMPANY_FIRST_ROW, col + 1, rows.length, 1)
+    .setHorizontalAlignment('center');
+  sheet.getRange(COMPANY_FIRST_ROW, col + 3, rows.length, 1)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
   // Clipped, not wrapped, and not overflowing either. Overflow is the Sheets
   // default and would spill a fifteen-line message across the block beside it;
   // clip cuts it at the cell border, which is what makes a 26px column legible as
   // a column rather than as a smear over its neighbours.
-  sheet.getRange(COMPANY_FIRST_ROW, col + 3, rows.length, 3)
+  sheet.getRange(COMPANY_FIRST_ROW, col + 4, rows.length, 3)
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP)
     .setVerticalAlignment('top');
 }
@@ -934,10 +949,11 @@ function companyRebuild_(force) {
 
   sheet = companySheet_(true);
   var asked = companyExistingAsked_(sheet);
+  var referralCounts = companyReferralCounts_();
   var clearDepth = Math.max(0, sheet.getLastRow() - COMPANY_FIRST_ROW + 1);
   var blocks = [
-    companyBlockRows_(COMPANY_SPONSORS, postings, asked),
-    companyBlockRows_(COMPANY_OTHERS, postings, asked)
+    companyBlockRows_(COMPANY_SPONSORS, postings, asked, referralCounts),
+    companyBlockRows_(COMPANY_OTHERS, postings, asked, referralCounts)
   ];
 
   companyPaintHeader_(sheet);

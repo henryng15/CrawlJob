@@ -9,6 +9,8 @@ here. Nothing in this file touches a sheet or Gmail.
 - **Column constants must match the live tabs.** `Q_*` describes `Email` (23 columns), `R_*`
   describes `Referral` (20), `APP_*` describes `App`, `C_*`/`E_*` the contacts spreadsheet.
   Layout migrations live in [tracker-sync.md](tracker-sync.md); this file only names positions.
+- The referral sender's cross-project handoff is `Employees (seed)` plus the hidden tracker tab
+  `Referral Seed Counts`; only `Verify = debounce:valid` is sendable.
 
 ## Script properties
 
@@ -18,7 +20,8 @@ here. Nothing in this file touches a sheet or Gmail.
 | `CONTACTS_SHEET_ID` | The contacts spreadsheet, owned by the sending account. |
 | `RESUME_FILE_ID` | The resume PDF in Drive. It must point to `OFFICIAL_RESUME_FILE_ID`, the stable Drive file that the Resume repository's GitHub workflow overwrites on every `main` push changing `official/henryng_swe.pdf`. |
 | `FINGERPRINT_SALT` | Salts the contact fingerprint. Changing it re-opens every past contact. |
-| `OUTREACH_MODE`, `FOLLOWUP_MODE`, `REFERRAL_MODE` | `Draft` holds messages in Drafts; blank sends them. |
+| `OUTREACH_MODE`, `FOLLOWUP_MODE`, `REFERRAL_MODE` | `Draft` holds messages in Drafts; blank sends them. `REFERRAL_MODE = Pause` stops referral planning, drafting, sending and reply scanning only. |
+| `REFERRAL_REQUIRED_VERIFY` | `debounce:valid` — the exact seed verdict required before a referral row can be drafted or sent. |
 
 ## The caps that decide volume
 
@@ -58,7 +61,7 @@ here. Nothing in this file touches a sheet or Gmail.
 ## Statuses
 
 `STATUS_QUEUED · DRAFTED · SENT · REPLIED · BOUNCED · CANCELLED · FAILED`, plus
-`MODE_DRAFT`/`MODE_SEND` and a parallel `FOLLOWUP_*` set. `STATUS_SPENDS_CONTACT` names the
+`MODE_DRAFT`/`MODE_SEND`/`MODE_PAUSE` and a parallel `FOLLOWUP_*` set. `STATUS_SPENDS_CONTACT` names the
 statuses that count as having used a person up. `PRIORITY_DONE = 'Done'` is what a spent tick
 becomes — it must still count as ticked.
 
@@ -73,6 +76,8 @@ becomes — it must still count as ticked.
 | `outreachFollowUpDayAllowed_(day)` | Whether a day may carry follow-ups at all. |
 | `outreachModeFor_(...)` | Draft or send, for one row. |
 | `outreachProperty_(name, required)` | One script property, throwing if a required one is unset. |
+| `outreachReferralPaused_()` | Whether the referral path is paused without affecting cold email or follow-ups. |
+| `pauseReferralPath()` / `resumeReferralPath()` | Run by hand to pause or resume referral automation while returning the three active modes. |
 | `setupOutreachProperties()` | Run by hand: report which properties are still missing. |
 | `diagnoseOutreachResume()` | Read the Drive resume configured for attachment and return its name, MIME type, size, update time and SHA-256 checksum, without returning the Drive id. Used to prove that the sender's attachment matches the local PDF. |
 | `useOfficialResumeAttachment()` | Validate the stable, GitHub-synchronised official Drive PDF and set `RESUME_FILE_ID` to it. Run once to repair a stale sender pointer; subsequent official-resume pushes update the same Drive file automatically. |

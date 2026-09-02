@@ -153,6 +153,10 @@ function outreachReferralDomainFor_(employees) {
  * failed the first time somebody clicked Run out of curiosity.
  */
 function planReferralAsks() {
+  if (outreachReferralPaused_()) {
+    Logger.log('Referral path is paused; no asks were planned.');
+    return { booked: 0, skipped: 0, paused: true };
+  }
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
   try {
@@ -367,6 +371,42 @@ function outreachReferralPersonFor_(employees, email) {
 }
 
 /**
+ * Cancel queued/drafted rows whose recipient is no longer in the strict seed.
+ *
+ * This is deliberately run before drafting, sending, and replanning. Tightening
+ * the admission rule must also protect rows booked under the old rule; otherwise
+ * an already queued risky or pattern-calibrated address could still reach Gmail.
+ */
+function outreachReferralCancelIneligible_(referral, rows, employees) {
+  var allowed = {};
+  employees.forEach(function (person) { allowed[person.email] = true; });
+  var cancelled = 0;
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
+    if (!row.email || allowed[row.email]) return;
+
+    if (row.draftId) {
+      try { GmailApp.getDraft(row.draftId).deleteDraft(); } catch (error) { /* already gone */ }
+    }
+    var updates = {};
+    updates[R_STATUS] = STATUS_CANCELLED;
+    updates[R_CANCEL] = true;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    updates[R_DRAFT_ID] = '';
+    updates[R_ERROR] = REFERRAL_INELIGIBLE_ERROR;
+    outreachWriteRow_(referral, row.index, updates);
+    row.status = STATUS_CANCELLED;
+    row.cancel = true;
+    row.scheduled = null;
+    row.draftedAt = null;
+    row.draftId = '';
+    cancelled++;
+  });
+  return cancelled;
+}
+
+/**
  * Write the next hour's referral asks into Drafts, addressed and complete.
  *
  * Nothing leaves here. Each row picked becomes a real draft to a real engineer,
@@ -388,6 +428,10 @@ function outreachReferralPersonFor_(employees, email) {
  * somebody else spends a company's remaining names on one broken run.
  */
 function draftReferralAsks() {
+  if (outreachReferralPaused_()) {
+    Logger.log('Referral path is paused; no asks were drafted.');
+    return { drafted: 0, failed: 0, cancelled: 0, paused: true };
+  }
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
   try {
@@ -398,20 +442,22 @@ function draftReferralAsks() {
 
     var now = new Date();
     var rows = outreachReadReferralRows_(referral);
+    var employees = outreachReadEmployees_(contactsBook);
+    var preCancelled = outreachReferralCancelIneligible_(referral, rows, employees);
     var due = outreachReferralToDraft_(rows, now);
     if (!due.length) {
       Logger.log('No referral ask is close enough to its hour to be written.');
-      return { drafted: 0, failed: 0 };
+      return { drafted: 0, failed: 0, cancelled: preCancelled };
     }
 
-    var employees = outreachReadEmployees_(contactsBook);
     var appliedOn = outreachReferralAppliedOn_(tracker);
     var resume = DriveApp.getFileById(outreachProperty_(PROP_RESUME_ID, true)).getBlob();
-    var tally = { drafted: 0, failed: 0 };
+    var tally = { drafted: 0, failed: 0, cancelled: preCancelled };
 
     due.forEach(function (row) {
       try {
-        var person = outreachReferralPersonFor_(employees, row.email) || {};
+        var person = outreachReferralPersonFor_(employees, row.email);
+        if (!person) throw new Error(REFERRAL_INELIGIBLE_ERROR);
         var mail = outreachReferralCompose_({
           personName: row.person,
           personTitle: row.title,
@@ -558,6 +604,10 @@ function outreachReferralToSend_(referralRows, now, globalMode, queueRows, prior
  * lock through a run of sends is how a drafting run gets starved out of its hour.
  */
 function sendReferralAsks() {
+  if (outreachReferralPaused_()) {
+    Logger.log('Referral path is paused; no asks were sent.');
+    return { sent: 0, cancelled: 0, failed: 0, paused: true };
+  }
   // `runOutreachSendTick` wakes every minute while the full cycle also has a
   // sending step. Serialising both paths is what makes an early minute tick a
   // latency improvement instead of a duplicate-send race.
@@ -565,6 +615,7 @@ function sendReferralAsks() {
   if (!lock.tryLock(30000)) throw new Error('Another outreach send holds the lock.');
   try {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
   // Two switches, and either alone holds a referral back. The narrow one exists so
   // this path can have its own first week without the cold path being stopped to
   // watch it, which is the arrangement the follow-up rollout already uses.
@@ -584,6 +635,8 @@ function sendReferralAsks() {
 
   var now = new Date();
   var rows = outreachReadReferralRows_(referral);
+  var employees = outreachReadEmployees_(contactsBook);
+  var preCancelled = outreachReferralCancelIneligible_(referral, rows, employees);
   var appLast = apps.getLastRow();
   if (appLast < 2) {
     Logger.log('No applications are available; Referral sending is held.');
@@ -593,9 +646,9 @@ function sendReferralAsks() {
     .map(function (row, index) { return outreachParseApplication_(row, index + 2); });
   var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(rows, applications, now);
   var due = outreachReferralToSend_(rows, now, globalMode, queueRows, automaticPriorityDays);
-  if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: 0, failed: 0 }; }
+  if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: preCancelled, failed: 0 }; }
 
-  var tally = { sent: 0, cancelled: 0, failed: 0 };
+  var tally = { sent: 0, cancelled: preCancelled, failed: 0 };
 
   due.forEach(function (row) {
     var updates = {};
@@ -681,6 +734,10 @@ function sendReferralAsks() {
  * to be right about one thread.
  */
 function scanReferralReplies() {
+  if (outreachReferralPaused_()) {
+    Logger.log('Referral path is paused; replies were not scanned.');
+    return { replied: 0, bounced: 0, paused: true };
+  }
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) {
@@ -840,6 +897,7 @@ function outreachApplyReferralTimes_(tracker, referral, rows, fastPriorityIndexe
  * only ever sends rows the tab still says are Drafted.
  */
 function settleReferralTab_(tracker) {
+  if (outreachReferralPaused_()) return { cancelled: 0, moved: 0, sorted: 0, paused: true };
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) return { cancelled: 0, moved: 0, sorted: 0 };
   var rows = outreachReadReferralRows_(referral);
@@ -1067,17 +1125,25 @@ function outreachReferralIdle_() {
  * this in the cycle so that it sees the freed days.
  */
 function replanReferralAsks() {
+  if (outreachReferralPaused_()) {
+    Logger.log('Referral path is paused; no asks were replanned.');
+    return { discarded: 0, moved: 0, cancelled: 0, promoted: 0, repointed: 0,
+             retired: 0, sorted: 0, ready: true, paused: true };
+  }
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var referral = tracker.getSheetByName(TAB_REFERRAL);
   if (!referral) { Logger.log(outreachReferralNotSetUp_()); return outreachReferralIdle_(); }
 
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
+  var employees = outreachReadEmployees_(contactsBook);
 
   var tally = { discarded: 0, moved: 0, cancelled: 0, promoted: 0, repointed: 0, retired: 0,
                 sorted: 0, ready: true };
 
-  tally.cancelled = outreachApplyReferralCancels_(referral, rows);
+  tally.cancelled = outreachReferralCancelIneligible_(referral, rows, employees);
+  tally.cancelled += outreachApplyReferralCancels_(referral, rows);
 
   outreachReferralAbandoned_(rows).forEach(function (row) {
     var updates = {};
@@ -1104,8 +1170,7 @@ function replanReferralAsks() {
   // its link, because a draft naming the old posting is worse than no draft.
   var apps = tracker.getSheetByName(TAB_APP);
   if (apps && apps.getLastRow() > 1) {
-    var domainFor = outreachReferralDomainFor_(outreachReadEmployees_(
-      SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true))));
+    var domainFor = outreachReferralDomainFor_(employees);
     var applications = apps.getRange(2, 1, apps.getLastRow() - 1, APP_READ_WIDTH).getValues()
       .map(function (row, index) {
         return outreachParseApplication_(row, index + 2, domainFor);

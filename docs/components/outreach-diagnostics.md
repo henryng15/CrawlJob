@@ -1,7 +1,8 @@
-# outreach_diag.gs — read-only probes against the live script
+# outreach_diag.gs — diagnostics and seed maintenance against the live script
 
-Temporary. Every function here reads; none writes. Delete the file once the open question below
-is settled, and remove this document with it.
+Most functions here are read-only probes. `replaceEmployeeSeed` is the deliberate exception:
+it replaces only the generated `Employees (seed)` tab and leaves `Contacts (manual)` and
+`Referral` untouched.
 
 ## Why it exists
 
@@ -17,6 +18,11 @@ right now.*
 |---|---|
 | `pingOutreach()` | `'pong'`. If this fails, the failure is not in the code — it is the API or the manifest. |
 | `diagnoseOutreachAccess()` | The account the script runs as, both spreadsheet ids, whether each opens, the installed triggers, and the three effective send/draft switches. |
+| `refreshReferralSeedCounts()` | Recompute the hidden `Referral Seed Counts` snapshot in the tracker from non-invalid `Employees (seed)` rows, so the bound Company script can count every candidate without cross-account access. |
+| `auditReferralSeedGate()` | Read-only check that every active `Queued`/`Drafted` Referral row is present in the non-invalid DeBounce seed. |
+| `restoreReferralPolicyCancelledRows()` | Reopen only rows cancelled by the former risky-address gate when their current seed verdict is non-invalid, then replan them; does not send. |
+| `replaceEmployeeSeed(rows)` | Clears generated employee-seed contents while preserving formatting, then writes the supplied 10-column export. Does not touch manual contacts or Referral. |
+| `replaceEmployeeSeedChunk(rows, startRow, clearExisting)` | The same seed-only write with a starting row and optional one-time clear, so a large export can be sent in multiple Apps Script calls without exceeding clasp's argument limit. |
 | `diagnoseReferralReplan()` | What `replanReferralAsks` **would** do — budget per day, live queued/drafted rows grouped by their scheduled day, movable rows, rows it would move, first moves — computed without writing a cell. |
 | `diagnoseReferralTab()` | `maxRows`, `lastRow`, rows with a company, blank rows still holding something, which columns keep them alive, and read/parse timings. |
 | `diagnosePhantomRows()` | The statuses and error text on rows with no company, with samples. |

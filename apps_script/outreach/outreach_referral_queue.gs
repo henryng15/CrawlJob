@@ -269,14 +269,12 @@ function outreachReadEmployees_(contactsSpreadsheet) {
     var email = outreachCell_(row, E_EMAIL).toLowerCase();
     var company = outreachCell_(row, E_COMPANY);
     if (!email || email.indexOf('@') === -1 || !company) return;
-    // The same gate outreachReadContacts_ puts on the recruiter tab, and it is
-    // here for the day the export changes rather than for today: every row this
-    // tab currently holds passed an anymail "valid" check in export_referrals.py
-    // before it was written, so this line drops nothing right now. That is both
-    // why it was missing and why it is worth having — the filter it duplicates
-    // lives in another repository, this path's cap is the one being raised, and
-    // bounce rate rather than volume is what gets a sending account penalised.
-    if (outreachCell_(row, E_VERIFY) === UNSENDABLE_VERIFY) return;
+    // Referral seed rows are admitted only by ColdEmail's final DeBounce gate.
+    // Keep the exact value here as a second line of defence: the seed is a
+    // generated handoff between projects, and an old or manually edited row
+    // must not become sendable merely because it has an address.
+    var verify = outreachCell_(row, E_VERIFY).toLowerCase();
+    if (verify.indexOf(REFERRAL_VERIFY_PREFIX) !== 0 || verify === REFERRAL_REJECTED_VERIFY) return;
     if (seen[email]) return;
     seen[email] = true;
     out.push({

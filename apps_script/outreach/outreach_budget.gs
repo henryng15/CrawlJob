@@ -60,8 +60,15 @@ function outreachDaySpend_(queueRows, referralRows, day) {
   });
 
   (referralRows || []).forEach(function (row) {
-    if ((row.status === STATUS_SENT || row.status === STATUS_DRAFTED)
-        && row.scheduled && outreachDayKey_(row.scheduled) === key) {
+    // A paused referral draft will not be sent by this project, so release its
+    // reserved budget to the cold/reply paths. Already-sent referral mail still
+    // counts against the day even after the path is paused.
+    if (row.status === STATUS_SENT) {
+      var sentDay = row.sentAt || row.scheduled;
+      if (sentDay && outreachDayKey_(sentDay) === key) spend.referral++;
+    } else if (!outreachReferralPaused_()
+               && row.status === STATUS_DRAFTED
+               && row.scheduled && outreachDayKey_(row.scheduled) === key) {
       spend.referral++;
     }
   });
@@ -97,6 +104,7 @@ function outreachPathCap_(path, day) {
 function outreachPendingPathDemand_(queueRows, referralRows, day, path) {
   var key = outreachDayKey_(day);
   if (path === 'referral') {
+    if (outreachReferralPaused_()) return 0;
     return (referralRows || []).filter(function (row) {
       return row.status === STATUS_QUEUED && row.scheduled
         && outreachDayKey_(row.scheduled) === key && row.email && row.jobLink;

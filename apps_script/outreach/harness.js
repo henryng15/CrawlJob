@@ -4021,6 +4021,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     row[S.E_TITLE - 1] = title || 'Software Engineer';
     row[S.E_DOMAIN - 1] = 'stripe.com';
     row[S.E_BUCKET - 1] = 'fintech';
+    row[S.E_VERIFY - 1] = S.REFERRAL_VERIFY_PREFIX + 'valid';
     return row;
   };
   const jobsRow = (company, role, link) => {
@@ -4215,7 +4216,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     gmail.drafts['draft-live'] = true;
     delete gmail.drafts['draft-gone'];
     sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
-               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
     const tally = S.sendReferralAsks();
 
     assert.strictEqual(tally.sent, 1);
@@ -4235,7 +4237,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     rejected[S.APP_PROCESS - 1] = S.STAGE_REJECTED;
     gmail.drafts['draft-rejected'] = true;
     sheets = { [S.TAB_APP]: tab([rejected], S.APP_READ_WIDTH),
-               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
     const tally = S.sendReferralAsks();
 
     assert.strictEqual(tally.sent, 0);
@@ -4251,7 +4254,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('a Drafted row carrying no draft is Failed rather than called off', () => {
     const rows = [referralRow('a@stripe.com', 'A One', minutes(-60), S.STATUS_DRAFTED, '')];
     sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
-               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
     const tally = S.sendReferralAsks();
     assert.strictEqual(tally.failed, 1);
     assert.strictEqual(tally.cancelled, 0);
@@ -4265,7 +4269,8 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     rows[1][S.R_MODE - 1] = S.MODE_DRAFT;
     gmail.drafts['draft-live'] = true;
     sheets = { [S.TAB_APP]: tab([jobsRow('Stripe', 'Software Engineer Intern, Summer 2027', GH + '1')], S.APP_READ_WIDTH),
-               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH) };
+               [S.TAB_REFERRAL]: tab(rows, S.R_WIDTH),
+               [S.TAB_EMPLOYEES_SEED]: tab(people, S.E_WIDTH) };
     const tally = S.sendReferralAsks();
     assert.strictEqual(tally.sent, 0);
     assert.strictEqual(rows[0][S.R_STATUS - 1], S.STATUS_DRAFTED);

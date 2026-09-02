@@ -6,8 +6,10 @@ is at most seven calendar days old or whose `App!Property` rank is in the top 70
 made today or yesterday is marked `Priority`; **today is ordered before yesterday**, and the
 overall mailbox cap still applies. Referral is planned before the other paths and reserves up to
 its full 20-message daily allowance; Email and Reply coordinate over the remainder. Existing
-Referral rows are never removed by this admission rule — a drafted or queued row remains in its
-established pipeline.
+Referral rows are normally never removed by the application admission rule. A separate recipient
+safety gate cancels any queued or drafted row whose email is not present in the strict
+`Employees (seed)` export: only `debounce:valid` rows survive, so pattern-calibrated, risky,
+invalid, and unverified addresses cannot reach Gmail.
 Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach-referral-send.md).
 
 ## Connections
@@ -49,7 +51,7 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 
 | Function | Does |
 |---|---|
-| `outreachReadEmployees_(sheet)` | Employees by employer, from the tab ColdEmail exports. |
+| `outreachReadEmployees_(sheet)` | Employees by employer, from the tab ColdEmail exports; admits only rows whose `Verify` cell is exactly `debounce:valid`. |
 | `outreachEmployeesFor_(employees, company)` | The people at one employer. |
 | `outreachParseApplication_(row, index, domainFor)` | One `App` row as the fields this path reads. |
 | `outreachParseReferral_(row, index)` | One `Referral` row. Checkboxes read `=== true`: an untouched box reads as `''`, not `false`. |

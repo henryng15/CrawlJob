@@ -46,7 +46,9 @@ var PROP_FOLLOWUP_MODE = 'FOLLOWUP_MODE';
 // which is a thing nobody will do, so the batch would go unlooked-at.
 //
 // Set REFERRAL_MODE to Draft and the messages are written, addressed and left in
-// Drafts to be read. Clear it and they go. It can only ever be more cautious than
+// Drafts to be read. Set it to Pause to stop referral planning, drafting, sending
+// and reply scanning while leaving the cold and follow-up paths alone. Clear it
+// and referral asks run normally. It can only ever be more cautious than
 // OUTREACH_MODE, never less.
 var PROP_REFERRAL_MODE = 'REFERRAL_MODE';
 
@@ -81,6 +83,7 @@ var TAB_HEALTH         = 'Cycle Health';
 // than more rows on that one, because the two lists are different people asked
 // for different things, and an export of one must never be able to erase the other.
 var TAB_EMPLOYEES_SEED = 'Employees (seed)';
+var TAB_REFERRAL_SEED_COUNTS = 'Referral Seed Counts';
 
 // App tab, 1-based. Read only with two exceptions, and neither one adds a column:
 // a rejection found in the mailbox writes Process and appends a line to Update,
@@ -585,9 +588,13 @@ function outreachQualifies_(process) {
   return false;
 }
 
-// Unverified addresses were never actually checked, and bounce rate — not
-// volume — is what gets a sending account penalised.
+// Unverified addresses were never actually checked, and risky addresses are not
+// safe enough for a referral ask. The export's exact value is the sender gate.
 var UNSENDABLE_VERIFY = 'local:Unknown';
+var REFERRAL_VERIFY_PREFIX = 'debounce:';
+var REFERRAL_REJECTED_VERIFY = 'debounce:invalid';
+var REFERRAL_INELIGIBLE_ERROR = 'Recipient is not in the verified, non-invalid Employees (seed) export.';
+var REFERRAL_LEGACY_INELIGIBLE_ERROR = 'Recipient is not in the verified, non-risky Employees (seed) export.';
 
 // Past this, the email stops naming the application date. Pointing a recruiter
 // at "I applied 7 months ago" volunteers the weakest fact in the message.
@@ -607,7 +614,25 @@ var STATUS_CANCELLED = 'Cancelled', STATUS_FAILED = 'Failed';
 var STATUS_SPENDS_CONTACT = [
   STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED, STATUS_BOUNCED
 ];
-var MODE_DRAFT = 'Draft', MODE_SEND = 'Send';
+var MODE_DRAFT = 'Draft', MODE_SEND = 'Send', MODE_PAUSE = 'Pause';
+
+function outreachReferralPaused_() {
+  return outreachProperty_(PROP_REFERRAL_MODE, false) === MODE_PAUSE;
+}
+
+/** Pause only the referral path; cold email and follow-up settings are untouched. */
+function pauseReferralPath() {
+  PropertiesService.getScriptProperties().setProperty(PROP_REFERRAL_MODE, MODE_PAUSE);
+  return {referral: MODE_PAUSE, cold: outreachProperty_(PROP_MODE, false),
+          followUp: outreachProperty_(PROP_FOLLOWUP_MODE, false)};
+}
+
+/** Resume the referral path after a pause, restoring its normal Send/Draft behaviour. */
+function resumeReferralPath() {
+  PropertiesService.getScriptProperties().setProperty(PROP_REFERRAL_MODE, '');
+  return {referral: MODE_SEND, cold: outreachProperty_(PROP_MODE, false),
+          followUp: outreachProperty_(PROP_FOLLOWUP_MODE, false)};
+}
 
 // ----------------------------------------------------------------- follow-up
 
@@ -795,7 +820,7 @@ function setupOutreachProperties() {
   var wanted = [
     [PROP_TRACKER_ID,  'ID of the Track App spreadsheet (from its URL)'],
     [PROP_CONTACTS_ID, 'ID of the contacts spreadsheet owned by this account'],
-    [PROP_REFERRAL_MODE, 'Draft to hold referral asks in Drafts, blank to send them'],
+    [PROP_REFERRAL_MODE, 'Pause to stop referral work, Draft to hold asks in Drafts, blank to send'],
     [PROP_RESUME_ID,   'Drive file ID of Henry_Nguyen_Resume.pdf'],
     [PROP_SALT,        'any long random string; changing it re-opens every past contact']
   ];

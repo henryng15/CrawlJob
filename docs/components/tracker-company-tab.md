@@ -5,9 +5,13 @@ already answer the visa question.
 
 ## Connections
 
-- **Reads:** the `Jobs` tab, and nothing else.
+- **Reads:** the `Jobs` tab and the hidden sender-maintained `Referral Seed Counts` snapshot in the tracker.
 - **Writes:** the `Company` tab, and nothing else.
 - **Runs:** a time-based trigger, `syncCompanyTab`, every 15 minutes.
+
+The sender refreshes the hidden snapshot after each `Employees (seed)` export. It contains one
+row per company and the unique non-invalid DeBounce address count, allowing this bound script to read
+the complete referral pool without needing cross-account access to the contacts spreadsheet.
 
 It shares no constant and calls no function from `sync_applied_to_app.gs`. That is the point
 of it: every other tab here is owned by a scheduler that reorders it, and this file is not
@@ -19,20 +23,24 @@ it. The `Asked` checkbox needs no handler — the sweep reads it back before eve
 
 ## The layout
 
-Two independent blocks of six columns, back to back: **A:F** and **G:L**.
+Two independent blocks of seven columns, back to back: **A:G** and **H:N**.
 
-| | 1st col | 2nd | 3rd | 4th | 5th | 6th |
-|---|---|---|---|---|---|---|
-| **A:F** | 173 employers that certified a **Software Engineer H-1B in FY2025** | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
-| **G:L** | the other 70 employers on the shortlist | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
+| | 1st col | 2nd | 3rd | 4th | 5th | 6th | 7th |
+|---|---|---|---|---|---|---|---|
+| **A:G** | 173 employers that certified a **Software Engineer H-1B in FY2025** | sendable referral emails | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
+| **H:N** | the other 70 employers on the shortlist | sendable referral emails | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
 
 The blocks are defined by `COMPANY_BLOCK_WIDTH`, not pinned to letters, so the second one moves
-right on its own when the first gains a column. It moved from `F` to `G` when the email split.
+right on its own when the first gains a column. It moved from `G` to `H` when the count column was added.
 
 - **`Summer?`** says `Summer`, `Off-cycle`, or nothing. A company with any live row on `Jobs`
   is green in both its name cell and this one.
 - **`Asked`** is a checkbox, and it is the one column a person owns. Nothing in this file ever
   writes it except to carry the existing tick forward.
+- **`sendable referral emails`** is the number of unique email addresses for that company in the
+  generated `Employees (seed)` tab whose `Verify` cell is exactly `debounce:valid`. It covers
+  every company in the referral candidate list, not only top-100 companies or currently queued
+  rows. Pattern-calibrated, risky, invalid, unverified and blank addresses are not counted.
 - **`LinkedIn`**, **`Email subject`** and **`Email body`** hold that company's messages, with its
   name and its real posting link already in them. The only thing left to fill is `[Name]`.
 
@@ -217,8 +225,9 @@ to tick one.
 | `companyLinkedInTemplate_(company, label, link)` | The DM. No signature block — the profile is the signature. |
 | `companyEmailSubject_(company, label)` | The subject line, alone, for its own column. |
 | `companyEmailBody_(company, label, link)` | The body, link on its own line at the foot. |
-| `companyBlockRows_(names, postings, asked)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Also picks the posting whose link the templates name — a summer one if there is one. |
-| `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox two to its right — see below. |
+| `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count and picks the posting whose link the templates name — a summer one if there is one. |
+| `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox three to its right, while accepting the old two-column offset during migration. |
+| `companyReferralCounts_()` | Reads the sender-maintained hidden snapshot of unique `debounce:valid` addresses across `Employees (seed)`, for every company on the referral candidate list. |
 | `companyJobsFingerprint_(postings)` | What `Jobs` says, reduced to the two things this tab reads off it. |
 | `companySheet_(create)` | The tab, made if absent. |
 | `companyPaintHeader_(sheet)` | Header, widths, frozen row. Run on every rebuild, so a tab somebody widened comes back to itself. |

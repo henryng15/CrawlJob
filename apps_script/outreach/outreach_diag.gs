@@ -48,6 +48,125 @@ function diagnoseOutreachAccess() {
   return out;
 }
 
+/** Refresh the hidden tracker snapshot used by Company for all non-invalid seed counts. */
+function refreshReferralSeedCounts() {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var seed = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
+  if (!seed || seed.getLastRow() < 2) throw new Error('missing or empty ' + TAB_EMPLOYEES_SEED);
+
+  var values = seed.getRange(2, 1, seed.getLastRow() - 1, E_WIDTH).getValues();
+  var addresses = {};
+  values.forEach(function (row) {
+    var verify = String(row[E_VERIFY - 1] || '').trim().toLowerCase();
+    if (verify.indexOf('debounce:') !== 0 || verify === 'debounce:invalid') return;
+    var company = String(row[E_COMPANY - 1] || '').trim();
+    var email = String(row[E_EMAIL - 1] || '').trim().toLowerCase();
+    if (!company || !email || email.indexOf('@') < 1) return;
+    var key = outreachCompanyTokens_(company).join(' ');
+    if (!addresses[key]) addresses[key] = {name: company, emails: {}};
+    addresses[key].emails[email] = true;
+  });
+
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var sheet = tracker.getSheetByName(TAB_REFERRAL_SEED_COUNTS)
+    || tracker.insertSheet(TAB_REFERRAL_SEED_COUNTS);
+  var rows = [["Company", "Sendable referral emails"]];
+  Object.keys(addresses).sort().forEach(function (key) {
+    rows.push([addresses[key].name, Object.keys(addresses[key].emails).length]);
+  });
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.hideSheet();
+  return {tab: TAB_REFERRAL_SEED_COUNTS, companies: rows.length - 1,
+          emails: rows.slice(1).reduce(function (sum, row) { return sum + row[1]; }, 0),
+          spreadsheet: tracker.getName()};
+}
+
+/** Read-only proof that every active Referral row is in the non-invalid seed. */
+function auditReferralSeedGate() {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var employees = outreachReadEmployees_(contactsBook);
+  var allowed = {};
+  employees.forEach(function (person) { allowed[person.email] = true; });
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  var active = referral ? outreachReadReferralRows_(referral).filter(function (row) {
+    return (row.status === STATUS_QUEUED || row.status === STATUS_DRAFTED) && !row.cancel;
+  }) : [];
+  var ineligible = active.filter(function (row) { return !allowed[row.email]; });
+  return {strictSeedRows: employees.length, activeReferralRows: active.length,
+          activeIneligibleRows: ineligible.length,
+          sample: ineligible.slice(0, 10).map(function (row) {
+            return {row: row.index, company: row.company, email: row.email};
+          })};
+}
+
+/** Reopen rows cancelled by the former risky-address gate, then replan them. */
+function restoreReferralPolicyCancelledRows() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) return {restored: 0, replan: outreachReferralIdle_()};
+
+  var allowed = {};
+  outreachReadEmployees_(contactsBook).forEach(function (person) { allowed[person.email] = true; });
+  var restored = 0;
+  outreachReadReferralRows_(referral).forEach(function (row) {
+    if (row.status !== STATUS_CANCELLED
+        || row.lastError !== REFERRAL_LEGACY_INELIGIBLE_ERROR
+        || !allowed[row.email]) return;
+    var updates = {};
+    updates[R_STATUS] = STATUS_QUEUED;
+    updates[R_CANCEL] = false;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    updates[R_DRAFT_ID] = '';
+    updates[R_ERROR] = '';
+    outreachWriteRow_(referral, row.index, updates);
+    restored++;
+  });
+  var replan = replanReferralAsks();
+  return {restored: restored, replan: replan};
+}
+
+/** Replace the generated Employees (seed) tab from ColdEmail's export.
+ *
+ * The seed tab is owned by the sending account and is intentionally separate
+ * from Contacts (manual). This helper clears only generated cell contents,
+ * preserves the tab's formatting, and does not touch the Referral tab.
+ */
+function replaceEmployeeSeed(rows) {
+  return replaceEmployeeSeedChunk(rows, 2, true);
+}
+
+/** Chunked form for large generated exports that exceed clasp's argument limit. */
+function replaceEmployeeSeedChunk(rows, startRow, clearExisting) {
+  if (!Array.isArray(rows)) throw new Error('rows must be an array');
+  startRow = Number(startRow);
+  if (!isFinite(startRow) || startRow < 2 || Math.floor(startRow) !== startRow) {
+    throw new Error('startRow must be an integer >= 2');
+  }
+  var contactsBook = SpreadsheetApp.openById(
+    outreachProperty_(PROP_CONTACTS_ID, true));
+  var sheet = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
+  if (!sheet) throw new Error('missing tab: ' + TAB_EMPLOYEES_SEED);
+
+  if (clearExisting !== false) {
+    var last = sheet.getLastRow();
+    if (last > 1) sheet.getRange(2, 1, last - 1, E_WIDTH).clearContent();
+  }
+  if (rows.length) {
+    var values = rows.map(function (row) {
+      return [row.Company, row['Person Name'], row.Email, row.Title,
+        row.Domain, row.Seniority, row.LinkedIn, row.Angle, row.Bucket,
+        row.Verify];
+    });
+    sheet.getRange(startRow, 1, values.length, E_WIDTH).setValues(values);
+  }
+  return {tab: TAB_EMPLOYEES_SEED, rows: rows.length,
+          startRow: startRow, spreadsheet: contactsBook.getName()};
+}
+
 /**
  * What replanReferralAsks WOULD do, computed without writing a single cell.
  *
