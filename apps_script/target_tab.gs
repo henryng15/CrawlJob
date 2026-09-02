@@ -1,5 +1,5 @@
 /**
- * The Target tab: the 138-company sourcing shortlist and the number of referral
+ * The Target tab: the 163-company sourcing shortlist and the number of referral
  * addresses that can still be sent for each company.
  *
  * This tab is deliberately separate from Company. Company answers which
@@ -164,7 +164,16 @@ var TARGET_P1 = [
   'Notion', 'Asana', 'Box', 'Brex', 'Chime', 'Circle',
   'Rippling', 'Gusto', 'Mercury',
   'Broadcom', 'Qualcomm', 'Cadence Design Systems', 'Arista Networks', 'NetApp',
-  'Red Hat', 'Juniper Networks', 'PayPal', 'Goldman Sachs', 'Morgan Stanley'
+  'Red Hat', 'Juniper Networks', 'PayPal', 'Goldman Sachs', 'Morgan Stanley',
+  // Large software employers with an annual US Summer SWE intern cohort that the
+  // 150-company research pass missed. Every one holds a DOL-certified Software
+  // Engineer H-1B LCA in both FY2024 and FY2025 — see
+  // job_sync/data/h1b_software_engineer_sponsors.txt. Splunk was considered with
+  // them and left out: it has no certified SWE LCA in FY2025, and Cisco, which now
+  // owns it, is already on P3.
+  'Bloomberg', 'LinkedIn', 'Netflix', 'Snap', 'Workday', 'eBay',
+  'Palo Alto Networks', 'Zoom', 'ByteDance', 'Expedia Group', 'HubSpot',
+  'DocuSign', 'The Trade Desk', 'Fastly', 'Fortinet', 'Roku', 'UiPath'
 ];
 
 var TARGET_P2 = [
@@ -185,7 +194,11 @@ var TARGET_P3 = [
   'Toast', 'Block', 'BILL', 'Samsara', 'DigitalOcean', 'Squarespace',
   // Additional non-quant employers from the multi-source 150-company research.
   'American Express', 'Northrop Grumman', 'Lockheed Martin', 'General Motors',
-  'TikTok', 'Spotify', 'Saviynt', 'Rubrik', 'Arctic Wolf', 'Zscaler'
+  'TikTok', 'Spotify', 'Saviynt', 'Rubrik', 'Arctic Wolf', 'Zscaler',
+  // Payments, telecom, data and infrastructure employers from the same pass. Same
+  // FY2024 + FY2025 certified-SWE-LCA test as the P1 additions.
+  'Mastercard', 'Visa', 'HP', 'T-Mobile', 'Motorola Solutions', 'Equinix',
+  'S&P Global', 'Thomson Reuters'
 ];
 
 function targetSheet_(create) {

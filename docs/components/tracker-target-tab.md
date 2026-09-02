@@ -1,9 +1,17 @@
 # target_tab.gs — the Target tab
 
-The 138-company shortlist for sourcing additional referral contacts, separate from the
+The 163-company shortlist for sourcing additional referral contacts, separate from the
 `Company` tab's current-opening view. It is the 106-company existing Target list, minus
 eight companies without a credible Summer SWE-intern footprint, plus 40 non-quant
-additions from the multi-source research pass; quant firms are deliberately excluded.
+additions from the multi-source research pass, plus 25 large software and tech-adjacent
+employers the research pass had missed; quant firms are deliberately excluded.
+
+The 25 additions were filtered on sponsorship before being added: each one holds a
+DOL-certified Software Engineer H-1B LCA in **both** FY2024 and FY2025, the same test
+[`job_sync/data/h1b_software_engineer_sponsors.txt`](../../job_sync/data/h1b_software_engineer_sponsors.txt)
+records and the `Company` tab's green paint uses. Splunk was considered with them and
+left out on that test: it has no certified SWE LCA in FY2025, and Cisco, which now owns
+it, was already on P3.
 
 ## Connections
 
@@ -24,8 +32,9 @@ The tab has four compact five-column blocks, separated by gutters:
 | `M:Q` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
 | `S:W` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
 
-P0 contains 34 companies, P1 contains 33, P2 contains 30, and P3 contains 41 after adding Toast and five
-similar-size peers plus the non-quant research additions. The company columns are 125px wide, the count
+P0 contains 34 companies, P1 contains 50, P2 contains 30, and P3 contains 49 after adding Toast and five
+similar-size peers, the non-quant research additions, and the 25 sponsorship-filtered additions
+(17 software employers into P1, 8 payments, telecom, data and infrastructure employers into P3). The company columns are 125px wide, the count
 columns are 105px wide, the research date columns are 100px wide, the live `Date open` columns are 85px wide, and `Asked` columns are 55px wide; headers wrap to keep
 the four-block layout compact.
 
@@ -47,6 +56,13 @@ sources recorded in `target_tab.gs`. Dates are ISO strings (`YYYY-MM-DD`) and ea
 date cell has a note with its source and evidence scope. `Unknown` means no exact
 public date was sufficiently verifiable in this pass; it is not a claim that no role
 was opened. In the sheet, unknown dates are left blank to keep the view clean.
+
+A company with no entry in `TARGET_OPENING_EVIDENCE` at all renders blank for the same
+reason and reads identically in the sheet, but means something different again: it was
+never put through the research pass. The 40 non-quant additions and the 25
+sponsorship-filtered additions are all in that state. A blank cell is therefore three
+claims at once — researched and unverifiable, researched and nothing found, or not yet
+researched — and only the note distinguishes them.
 
 `Date open` is the latest `Date Posted` found in live `Jobs` for a recognized Summer
 software-engineering role posted on or after `2026-07-20`. It is independent of the
