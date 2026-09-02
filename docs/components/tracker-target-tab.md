@@ -83,6 +83,6 @@ unreadable, names stay white rather than being incorrectly marked as not opened.
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the four headers, freezes row 1 and sizes the blocks and gutters. |
-| `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, notes and company-name colors, clearing stale rows. |
+| `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, resets count/date number formats, adds notes and company-name colors, and clears stale rows. |
 | `targetRebuild_()` | Rebuilds all current Target companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |

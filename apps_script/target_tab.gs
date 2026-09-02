@@ -231,6 +231,11 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
       .clearContent().clearDataValidations().clearNote().setBackground(null);
   }
   if (!rows.length) return;
+  // The old three-column layout left DATE formatting behind in some columns;
+  // reset each new block's types before writing values so counts cannot display
+  // as dates and both date columns stay consistent.
+  sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1).setNumberFormat('0');
+  sheet.getRange(TARGET_FIRST_ROW, col + 2, rows.length, 2).setNumberFormat('yyyy-mm-dd');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, TARGET_BLOCK_WIDTH)
     .setValues(rows);
   sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1)
