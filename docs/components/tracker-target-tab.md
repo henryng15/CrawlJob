@@ -54,10 +54,10 @@ cutoff.
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
 role must first be a software-engineering role: its title must contain `Software
 Engineer`, `Software Engineering`, or `Software Developer` as whole-word phrases.
-Summer inference is then done per company:
+Summer inference is then done per company using all SWE rows after the cutoff:
 
-- if the company has exactly one SWE role after the cutoff and it is unlabelled, infer Summer;
-- if the company has multiple SWE roles, require at least one role with `Summer`;
+- if there is at least one SWE role with `Summer`, count those Summer rows;
+- if there are no explicit season words in any SWE role, infer Summer from all of those rows, whether there is one role or several;
 - `Winter`, `Spring`, or `Fall` without a `Summer` role does not count as a Summer opening.
 
 Only rows with `Date Posted` on or after `2026-07-20` are considered. Older Jobs

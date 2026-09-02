@@ -139,10 +139,10 @@ function targetIsExplicitOffCycleRole_(role) {
  * Read live SWE roles from Jobs and classify each Target company for Summer.
  *
  * An explicit Summer row counts for a company with any number of SWE rows. If
- * there is exactly one SWE row and it is unlabelled, infer Summer. Multiple SWE
- * rows with no Summer row do not count as Summer; Winter, Spring and Fall rows
- * are evidence that the company has not opened Summer yet. `urgentOpening` wins
- * over `hasOpening`: any recognized Summer row from the last five calendar days
+ * there are no season words across the company's SWE rows, infer Summer even if
+ * there are multiple rows. Winter, Spring and Fall rows without Summer are
+ * evidence that the company has not opened Summer yet. `urgentOpening` wins over
+ * `hasOpening`: any recognized Summer row from the last five calendar days
  * is the red referral warning. An older recognized Summer row leaves the company
  * white. Companies with no recognized Summer row are green.
  * Applied and Expired are deliberately ignored: either flag may describe an
@@ -199,10 +199,10 @@ function targetOpeningStatuses_() {
   targetNames.forEach(function (name) {
     var status = statuses[companyTokens_(name).join(' ')];
     var summerRows = status.roleRows.filter(function (row) { return row.summer; });
-    var openingRows = summerRows;
-    if (!openingRows.length && status.roleRows.length === 1 && !status.roleRows[0].offCycle) {
-      openingRows = status.roleRows;
-    }
+    var offCycleRows = status.roleRows.filter(function (row) { return row.offCycle; });
+    // Explicit Summer wins; otherwise only a completely unlabelled SWE set is
+    // inferred as Summer. Any off-cycle label blocks that inference.
+    var openingRows = summerRows.length ? summerRows : (offCycleRows.length ? [] : status.roleRows);
     status.hasOpening = openingRows.length > 0;
     openingRows.forEach(function (row) {
       if (!status.latestOpeningDay || row.postedDay > status.latestOpeningDay) {
