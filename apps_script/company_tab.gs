@@ -1,9 +1,9 @@
 /**
  * The Company tab: which employers worth asking for a referral have opened yet.
  *
- * Two independent blocks side by side, A:G and H:N. A:G is the standing list of
+ * Two independent blocks side by side, A:H and I:P. A:H is the standing list of
  * employers that certified an H-1B Software Engineer LCA in FY2025 — the ones
- * where a visa is a question already answered. H:N is every other employer on the
+ * where a visa is a question already answered. I:P is every other employer on the
  * same shortlist. Each block also shows the number of remaining referral emails
  * currently available from the Employees (seed) export.
  *
@@ -28,15 +28,16 @@ var COMPANY_JOBS_TAB = 'Jobs';
 var COMPANY_REFERRAL_SEED_COUNTS_TAB = 'Referral Seed Counts';
 
 // Where each block starts. The valid-email count sits beside the company name,
-// so each block is seven columns wide and the second starts at H.
-var COMPANY_BLOCK_COLS = [1, 8];
-var COMPANY_BLOCK_WIDTH = 7;   // company | valid count | Summer? | Asked | LinkedIn | subject | body
+// and First sits beside Summer?, so each block is eight columns wide and the
+// second starts at I.
+var COMPANY_BLOCK_COLS = [1, 9];
+var COMPANY_BLOCK_WIDTH = 8;   // company | valid count | Summer? | First | Asked | LinkedIn | subject | body
 var COMPANY_FIRST_ROW = 2;     // row 1 is the header
 
 var COMPANY_HEADERS = [
   ['Company - sponsors SWE H-1B, FY2025', 'Sendable referral emails', 'Summer?',
-   'Asked', 'LinkedIn', 'Email subject', 'Email body'],
-  ['Company - everyone else', 'Sendable referral emails', 'Summer?', 'Asked',
+   'First', 'Asked', 'LinkedIn', 'Email subject', 'Email body'],
+  ['Company - everyone else', 'Sendable referral emails', 'Summer?', 'First', 'Asked',
    'LinkedIn', 'Email subject', 'Email body']
 ];
 
@@ -643,7 +644,8 @@ function companyJobsLayout_(header) {
 }
 
 /**
- * Every posting still worth counting, as {tokens, summer} — one entry per live row.
+ * Every posting still worth counting, as {tokens, summer, posted, postedDay} — one
+ * entry per live row.
  *
  * A row ticked Expired is left out: the posting is gone, and a company whose only
  * opening has expired has not opened. A row ticked Applied is kept, because having
@@ -672,7 +674,8 @@ function companyLivePostings_() {
       tokens: companyTokens_(name),
       summer: companyIsSummerRole_(values[r][at.role]),
       link: at.link < 0 ? '' : String(values[r][at.link] == null ? '' : values[r][at.link]).trim(),
-      posted: at.posted < 0 ? 0 : companyPostedTime_(values[r][at.posted])
+      posted: at.posted < 0 ? 0 : companyPostedTime_(values[r][at.posted]),
+      postedDay: at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted])
     });
   }
   return out;
@@ -688,6 +691,26 @@ function companyPostedTime_(cell) {
   if (cell instanceof Date) return cell.getTime();
   var parsed = Date.parse(String(cell == null ? '' : cell).trim());
   return isNaN(parsed) ? 0 : parsed;
+}
+
+/** The posting day as YYYY-MM-DD, preserving date-only cells without timezone drift. */
+function companyPostedDay_(cell) {
+  if (cell instanceof Date) {
+    return Utilities.formatDate(
+      cell,
+      SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(),
+      'yyyy-MM-dd'
+    );
+  }
+  var text = String(cell == null ? '' : cell).trim();
+  var dateOnly = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (dateOnly) return dateOnly[1];
+  var parsed = Date.parse(text);
+  return isNaN(parsed) ? '' : Utilities.formatDate(
+    new Date(parsed),
+    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(),
+    'yyyy-MM-dd'
+  );
 }
 
 /** A checkbox cell reads back as a boolean, but a hand-typed one reads as text. */
@@ -746,12 +769,17 @@ function companyReferralCounts_() {
 function companyBlockRows_(names, postings, asked, referralCounts) {
   var rows = names.map(function (name) {
     var tokens = companyTokens_(name);
-    var open = false, summer = false, link = '', posted = 0, linkTime = -1;
+    var open = false, summer = false, link = '', posted = 0, first = 0,
+      firstDay = '', linkTime = -1;
     for (var i = 0; i < postings.length; i++) {
       var p = postings[i];
       if (!companyNameMatches_(tokens, p.tokens)) continue;
       open = true;
       if (p.posted > posted) posted = p.posted;
+      if (p.posted > 0 && (!first || p.posted < first)) {
+        first = p.posted;
+        firstDay = p.postedDay;
+      }
       // Which posting the templates name. The newest, except that once anything
       // summer has been seen only a summer posting may supply it — otherwise the
       // message says "summer opening" over a link to an off-cycle req.
@@ -769,6 +797,7 @@ function companyBlockRows_(names, postings, asked, referralCounts) {
       open: open,
       label: label,
       posted: posted,
+      firstDay: firstDay,
       tier: open ? (summer ? 0 : 1) : 2,
       asked: asked[tokens.join(' ')] === true,
       linkedin: companyLinkedInTemplate_(name, label, link),
@@ -791,9 +820,9 @@ function companyBlockRows_(names, postings, asked, referralCounts) {
  * wholesale and the ticks are the only thing on this tab a person put there.
  *
  * It scans every column rather than the two the blocks are at, and pairs any cell
- * holding a shortlisted company name with the checkbox three to its right. It
- * also accepts the old two-column offset once, so adding the count column does
- * not erase an existing Asked tick during the migration.
+ * holding a shortlisted company name with the checkbox four to its right. It also
+ * accepts the prior three- and two-column offsets once, so adding First does not
+ * erase an existing Asked tick during the migration.
  *
  * A company name inside a template cell cannot be mistaken for a name cell, because
  * the match is against the whole cell rather than against part of it.
@@ -812,11 +841,12 @@ function companyExistingAsked_(sheet) {
   var values = sheet.getRange(COMPANY_FIRST_ROW, 1,
                               lastRow - COMPANY_FIRST_ROW + 1, lastCol).getValues();
   for (var r = 0; r < values.length; r++) {
-    for (var c = 0; c + 2 < values[r].length; c++) {
+    for (var c = 0; c + 4 < values[r].length; c++) {
       var text = String(values[r][c] == null ? '' : values[r][c]).trim();
       if (!text) continue;
       var key = companyTokens_(text).join(' ');
-      if (known[key] && (companyIsTicked_(values[r][c + 3])
+      if (known[key] && (companyIsTicked_(values[r][c + 4])
+          || companyIsTicked_(values[r][c + 3])
           || companyIsTicked_(values[r][c + 2]))) asked[key] = true;
     }
   }
@@ -824,9 +854,9 @@ function companyExistingAsked_(sheet) {
 }
 
 /**
- * What the Jobs tab currently says, reduced to the only two things this tab reads
- * off it. Compared against the last rebuild's value so that a firing which finds
- * nothing new writes nothing at all.
+ * What the Jobs tab currently says, reduced to the company, season, posting day
+ * and link this tab reads off it. Compared against the last rebuild's value so
+ * that a firing which finds nothing new writes nothing at all.
  *
  * Nothing at all is the point rather than an optimisation. The sweep fires every
  * quarter of an hour; a rewrite that reordered the rows each time would move the
@@ -834,7 +864,8 @@ function companyExistingAsked_(sheet) {
  */
 function companyJobsFingerprint_(postings) {
   var parts = postings.map(function (p) {
-    return p.tokens.join(' ') + (p.summer ? '|s|' : '|o|') + p.posted + '|' + p.link;
+    return p.tokens.join(' ') + (p.summer ? '|s|' : '|o|') + p.posted + '|'
+      + p.postedDay + '|' + p.link;
   });
   parts.sort();
   var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, parts.join('\n'));
@@ -862,6 +893,11 @@ function companySheet_(create) {
  */
 function companyPaintHeader_(sheet) {
   sheet.setFrozenRows(1);
+  var neededColumns = COMPANY_BLOCK_COLS[COMPANY_BLOCK_COLS.length - 1]
+    + COMPANY_BLOCK_WIDTH - 1;
+  if (sheet.getMaxColumns() < neededColumns) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), neededColumns - sheet.getMaxColumns());
+  }
   for (var b = 0; b < COMPANY_BLOCK_COLS.length; b++) {
     var col = COMPANY_BLOCK_COLS[b];
     sheet.getRange(1, col, 1, COMPANY_BLOCK_WIDTH)
@@ -872,12 +908,13 @@ function companyPaintHeader_(sheet) {
     sheet.setColumnWidth(col, 230);
     sheet.setColumnWidth(col + 1, 115);
     sheet.setColumnWidth(col + 2, 80);
-    sheet.setColumnWidth(col + 3, 60);
+    sheet.setColumnWidth(col + 3, 95);
+    sheet.setColumnWidth(col + 4, 60);
     // Clipped, so what shows is the first line and nothing spills into the block
     // beside it. Wide enough to read that first line: the subject entire, the other
     // two far enough in to tell which variant a row drew. Widen one by hand to
     // proofread a whole message; the next rebuild puts it back.
-    for (var t = 4; t < COMPANY_BLOCK_WIDTH; t++) {
+    for (var t = 5; t < COMPANY_BLOCK_WIDTH; t++) {
       sheet.setColumnWidth(col + t, companyHeaderWidth_(COMPANY_HEADERS[b][t]));
     }
   }
@@ -900,12 +937,12 @@ function companyWriteBlock_(sheet, col, rows, clearDepth) {
   if (!rows.length) return;
 
   var values = rows.map(function (r) {
-    return [r.name, r.validReferralEmails, r.label, r.asked, r.linkedin,
-      r.subject, r.body];
+    return [r.name, r.validReferralEmails, r.label, r.firstDay, r.asked,
+      r.linkedin, r.subject, r.body];
   });
   var greens = rows.map(function (r) {
     var fill = r.open ? COMPANY_OPEN_GREEN : null;
-    return [fill, null, fill, null, null, null, null];
+    return [fill, null, fill, fill, null, null, null, null];
   });
 
   var range = sheet.getRange(COMPANY_FIRST_ROW, col, rows.length, COMPANY_BLOCK_WIDTH);
@@ -916,12 +953,14 @@ function companyWriteBlock_(sheet, col, rows, clearDepth) {
   sheet.getRange(COMPANY_FIRST_ROW, col + 1, rows.length, 1)
     .setHorizontalAlignment('center');
   sheet.getRange(COMPANY_FIRST_ROW, col + 3, rows.length, 1)
+    .setHorizontalAlignment('center');
+  sheet.getRange(COMPANY_FIRST_ROW, col + 4, rows.length, 1)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
   // Clipped, not wrapped, and not overflowing either. Overflow is the Sheets
   // default and would spill a fifteen-line message across the block beside it;
   // clip cuts it at the cell border, which is what makes a 26px column legible as
   // a column rather than as a smear over its neighbours.
-  sheet.getRange(COMPANY_FIRST_ROW, col + 4, rows.length, 3)
+  sheet.getRange(COMPANY_FIRST_ROW, col + 5, rows.length, 3)
     .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP)
     .setVerticalAlignment('top');
 }

@@ -24,18 +24,21 @@ it. The `Asked` checkbox needs no handler — the sweep reads it back before eve
 
 ## The layout
 
-Two independent blocks of seven columns, back to back: **A:G** and **H:N**.
+Two independent blocks of eight columns, back to back: **A:H** and **I:P**.
 
-| | 1st col | 2nd | 3rd | 4th | 5th | 6th | 7th |
-|---|---|---|---|---|---|---|---|
-| **A:G** | 173 employers that certified a **Software Engineer H-1B in FY2025** | sendable referral emails | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
-| **H:N** | the other 70 employers on the shortlist | sendable referral emails | `Summer?` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
+| | 1st col | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th |
+|---|---|---|---|---|---|---|---|---|
+| **A:H** | 173 employers that certified a **Software Engineer H-1B in FY2025** | sendable referral emails | `Summer?` | `First` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
+| **I:P** | the other 70 employers on the shortlist | sendable referral emails | `Summer?` | `First` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
 
 The blocks are defined by `COMPANY_BLOCK_WIDTH`, not pinned to letters, so the second one moves
-right on its own when the first gains a column. It moved from `G` to `H` when the count column was added.
+right on its own when the first gains a column. It moved from `G` to `H` when the count column was added,
+and now starts at `I` after `First` was added.
 
 - **`Summer?`** says `Summer`, `Off-cycle`, or nothing. A company with any live row on `Jobs`
   is green in both its name cell and this one.
+- **`First`** is the earliest `Date Posted` day among that company's live SWE intern postings on
+  `Jobs`, shown as `YYYY-MM-DD`. It is blank when there is no qualifying live posting.
 - **`Asked`** is a checkbox, and it is the one column a person owns. Nothing in this file ever
   writes it except to carry the existing tick forward.
 - **`sendable referral emails`** is the number of unique remaining email addresses for that
@@ -216,7 +219,7 @@ to tick one.
 | `companyIsSummerRole_(role)` | Whether a title says "summer" as a whole word. |
 | `companyIsDeadIntake_(role)` | Whether a title names a closed intake, and so should not count as an opening at all. |
 | `companyJobsLayout_(header)` | Where Company, Role and Expired sit, read off the `Jobs` header row — never hard-coded. `null` when the header does not name what is needed, and the caller then leaves the tab alone. |
-| `companyLivePostings_()` | Every `Jobs` row still worth counting — not Expired, not a closed intake — as `{tokens, summer}`. |
+| `companyLivePostings_()` | Every `Jobs` row still worth counting — not Expired, not a closed intake — as `{tokens, summer, posted, postedDay}`. |
 | `companyIsTicked_(cell)` | A checkbox reads back boolean; a hand-typed one reads as text. |
 | `companyPostedTime_(cell)` | A `Date Posted` cell as a sortable number, from either a Date or an ISO string. Unparseable sorts oldest rather than throwing. |
 | `companyHeaderWidth_(text)` | How wide a template column is drawn: enough for its own header and no more. |
@@ -228,10 +231,11 @@ to tick one.
 | `companyLinkedInTemplate_(company, label, link)` | The DM. No signature block — the profile is the signature. |
 | `companyEmailSubject_(company, label)` | The subject line, alone, for its own column. |
 | `companyEmailBody_(company, label, link)` | The body, link on its own line at the foot. |
-| `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count and picks the posting whose link the templates name — a summer one if there is one. |
-| `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox three to its right, while accepting the old two-column offset during migration. |
+| `companyPostedDay_(cell)` | Returns a posting date as `YYYY-MM-DD`, preserving date-only source cells without timezone drift. |
+| `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count, its earliest live posting day, and picks the posting whose link the templates name — a summer one if there is one. |
+| `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox four to its right, while accepting the prior three- and two-column offsets during migration. |
 | `companyReferralCounts_()` | Reads the sender-maintained hidden snapshot of unique `debounce:valid` addresses across `Employees (seed)`, for every company on the referral candidate list. |
-| `companyJobsFingerprint_(postings)` | What `Jobs` says, reduced to the two things this tab reads off it. |
+| `companyJobsFingerprint_(postings)` | What `Jobs` says, reduced to the company, season, posting day and link this tab reads off it. |
 | `companySheet_(create)` | The tab, made if absent. |
 | `companyPaintHeader_(sheet)` | Header, widths, frozen row. Run on every rebuild, so a tab somebody widened comes back to itself. |
 | `companyWriteBlock_(sheet, col, rows, clearDepth)` | Values, the green, the checkbox. Clears to the tab's current depth, not the new one, so a dropped company leaves no orphan row. |
