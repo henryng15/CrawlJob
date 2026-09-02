@@ -119,9 +119,9 @@ function targetAgeDays_(postedDay, todayDay) {
 /**
  * Read live Summer roles from Jobs and classify each Target company.
  *
- * `urgent2027` wins over `hasSummer`: a Summer 2027 posting that is at least
- * five calendar days old is the red referral warning. A live Summer posting
- * otherwise leaves the company white. Companies with no live Summer posting are
+ * `urgent2027` wins over `hasSummer`: a Summer 2027 posting from the last five
+ * calendar days is the red referral warning. A live Summer posting older than
+ * five days leaves the company white. Companies with no live Summer posting are
  * green. Expired rows are ignored; a missing/unreadable Jobs tab returns null so
  * the caller can avoid falsely marking every company as not opened.
  */
@@ -159,7 +159,9 @@ function targetSummerStatuses_() {
       if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
       var status = statuses[companyTokens_(name).join(' ')];
       status.hasSummer = true;
-      if (year === '2027' && age >= TARGET_AGE_THRESHOLD_DAYS) status.urgent2027 = true;
+      if (year === '2027' && age >= 0 && age <= TARGET_AGE_THRESHOLD_DAYS) {
+        status.urgent2027 = true;
+      }
     });
   }
   return statuses;

@@ -40,8 +40,9 @@ was opened.
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild:
 
 - green means no live role whose title says `Summer`;
-- white means a live Summer role exists, but there is no urgent Summer 2027 warning;
-- red means a live `Summer 2027` role has been posted for at least five calendar days.
+- white means a live Summer role exists, but the Summer 2027 posting is older than
+  five calendar days (or there is no urgent Summer 2027 posting);
+- red means a live `Summer 2027` role was posted within the last five calendar days.
 
 Rows ticked `Expired` in `Jobs` are ignored. If the Jobs tab is unreadable, names stay
 white rather than being incorrectly marked as not opened.
