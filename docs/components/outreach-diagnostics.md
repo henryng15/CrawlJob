@@ -18,14 +18,23 @@ right now.*
 |---|---|
 | `pingOutreach()` | `'pong'`. If this fails, the failure is not in the code — it is the API or the manifest. |
 | `diagnoseOutreachAccess()` | The account the script runs as, both spreadsheet ids, whether each opens, the installed triggers, and the three effective send/draft switches. |
+| `sendRemainingAdobeReferralBatch()` | One-off, non-Queue send: skips Adobe addresses already in Sent, sends the remaining approved short-template messages one minute apart with the resume attached, and writes no queue rows. |
+| `sendMicrosoftReferralBatch()` | One-off, non-Queue send: excludes Truc Nguyen, sends four Microsoft CoreAI Boston and four Mountain View requests, and schedules the seven remaining messages two minutes apart using one-shot triggers so the batch stays within Apps Script's execution limit. It is intentionally independent of the shared hourly-sender lock, attaches the resume, and writes no queue rows. |
+| `stopMicrosoftReferralBatch()` | Cancels pending Microsoft direct-send triggers and marks the one-off batch cancelled; it does not alter messages already sent or any Queue rows. |
+| `cleanupMicrosoftReferralBatchTriggers()` | Removes completed Microsoft one-shot triggers without changing the batch state or any sent mail. |
+| `sendMicrosoftBostonLinkCorrection()` | Sends Trung Nguyen a short direct correction with the official Boston CoreAI link, without a resume or queue row; it is idempotent by recipient and subject. |
 | `refreshReferralSeedCounts()` | Recompute the hidden `Referral Seed Counts` snapshot from non-invalid `Employees (seed)` rows, deducting referral addresses already reserved or used (`Queued`, `Drafted`, `Sent`, `Replied`, `Bounced`), so the bound Company script shows what remains available without cross-account access. |
 | `auditReferralSeedGate()` | Read-only check that every active `Queued`/`Drafted` Referral row is present in the non-invalid DeBounce seed. |
 | `restoreReferralPolicyCancelledRows()` | Reopen only rows cancelled by the former risky-address gate when their current seed verdict is non-invalid, then replan them; does not send. |
 | `replaceEmployeeSeed(rows)` | Clears generated employee-seed contents while preserving formatting, then writes the supplied 10-column export. Does not touch manual contacts or Referral. |
 | `replaceEmployeeSeedChunk(rows, startRow, clearExisting)` | The same seed-only write with a starting row and optional one-time clear, so a large export can be sent in multiple Apps Script calls without exceeding clasp's argument limit. |
 | `diagnoseReferralReplan()` | What `replanReferralAsks` **would** do — budget per day, live queued/drafted rows grouped by their scheduled day, movable rows, rows it would move, first moves — computed without writing a cell. |
+| `diagnoseReferralActiveRows()` | Read-only list of active Referral rows with company, status, exact scheduled time, Priority and last error. It exposes the live two-day scheduler without recipient addresses. |
+| `diagnoseReferralRecentRows()` | Read-only recent Referral rows with selected role and cancellation reason, without recipient addresses. |
+| `diagnoseReferralCompanyRows(company)` | Read-only Referral rows for one named company, including the selected role and status. |
 | `diagnoseReferralTab()` | `maxRows`, `lastRow`, rows with a company, blank rows still holding something, which columns keep them alive, and read/parse timings. |
 | `diagnosePhantomRows()` | The statuses and error text on rows with no company, with samples. |
+| `diagnoseSpentColdContacts(offset, limit)` | Read-only: the cold-path addresses the `Email` tab has already spent, resolved by hashing the contact list rather than by unhashing the tab — the salt never leaves the script. Spends on `Queued`, `Drafted`, `Sent`, `Replied` and `Bounced`, matching `outreachPlanEnqueue_`; `Cancelled` hands the address back. Paged (150 by default) because `clasp run` prints the return through `util.inspect`, which silently stops an array at a hundred entries and a string at ten thousand characters. It is what answers "who has not been written to yet", which no reader of the tab can answer. |
 
 ## Running them
 
