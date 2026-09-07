@@ -1004,8 +1004,9 @@ console.log('the job is named in three words, not in the job board\'s words');
 console.log('reading a rejection out of the mailbox');
 {
   const msg = (from, subject, body) => ({ from, subject, body: body || '' });
-  const opening = (property, company, role) => ({
-    rowNumber: 2, property, company, role, process: 'Applied', dateApplied: day(2026, 8, 1)
+  const opening = (property, company, role, link) => ({
+    rowNumber: 2, property, company, role, process: 'Applied',
+    link: link || '', official: '', dateApplied: day(2026, 8, 1)
   });
 
   // Every body below is the real sentence from a real message in this account.
@@ -1112,12 +1113,29 @@ console.log('reading a rejection out of the mailbox');
       [opening('1', 'Stripe', 'SWE Intern')]);
     assert.strictEqual(target.app.property, '1');
   });
-  run('an application already past Applied is not rejected twice', () => {
+  run('an application already Rejected is recorded as such, not written again', () => {
+    // It still finds the row — that is what tells the scan this is a refusal it
+    // already knows about rather than one it cannot place. Only the state stops
+    // the write, and only the state keeps the thread out of the human pile.
     const row = opening('1', 'Stripe', 'SWE Intern');
     row.process = 'Rejected';
     const target = S.outreachRejectionTarget_(
       msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
-    assert.strictEqual(target.app, null);
+    assert.strictEqual(target.state, 'already');
+    assert.strictEqual(target.app.property, '1');
+  });
+  run('a rejection after an interview still closes the application', () => {
+    // outreachQualifies_ says no to both of these, because neither admits a cold
+    // email. Being un-emailable is not being closed, and reusing that gate here
+    // is what sent every post-interview refusal to Check by hand.
+    ['OA', 'Interview'].forEach((stage) => {
+      const row = opening('1', 'Stripe', 'SWE Intern');
+      row.process = stage;
+      const target = S.outreachRejectionTarget_(
+        msg('Stripe <no-reply@greenhouse.io>', 'Your application to Stripe'), [row]);
+      assert.strictEqual(target.state, 'write', stage);
+      assert.strictEqual(target.app.property, '1', stage);
+    });
   });
   run('a rejection after a finished assessment still finds its row', () => {
     // The stage that most often gets a rejection is the one just after an OA.
@@ -1171,6 +1189,85 @@ console.log('reading a rejection out of the mailbox');
       msg('Stripe <no-reply@greenhouse.io>', 'An update on your application'), rows);
     assert.strictEqual(target.app, null);
     assert.match(target.why, /names none/);
+  });
+
+  // Every case below is a real thread that sat in Tracker/Check by hand.
+  run('the requisition number outranks two rows sharing a role title', () => {
+    // IBM. Both rows say "Software Developer Intern 2027" word for word, so the
+    // role score is a tie and the old reading picked neither. The number in the
+    // mail is in one of the two links.
+    const rows = [
+      opening('80', 'IBM', 'Software Developer Intern 2027',
+              'https://jobright.ai/jobs/info/6a7ce43577d5f033c4b914c2'),
+      opening('57', 'IBM', 'Software Developer Intern 2027',
+              'https://careers.ibm.com/en_US/careers/JobDetailApplied?jobId=128497')
+    ];
+    rows[1].rowNumber = 3;
+    const target = S.outreachRejectionTarget_(
+      msg('IBM <talent@ibm.com>', 'Your IBM Application Status',
+          'Ref: 128497 - Software Developer Intern 2027\nWe regret to inform you.'), rows);
+    assert.strictEqual(target.app.property, '57');
+    assert.match(target.why, /requisition/);
+  });
+  run('a Workday tenant names the employer the sender line never spells out', () => {
+    // AeroVironment writes from avav@myworkday.com and names itself nowhere in
+    // the sender or the subject. The tenant is the first label of its own
+    // application link, which the sheet has been holding all along.
+    const target = S.outreachRejectionTarget_(
+      msg('AeroVironment <avav@myworkday.com>',
+          'Regarding your application to the position of Embedded Software Engineer Intern'),
+      [opening('1', 'AeroVironment', 'Embedded Software Engineer Intern',
+               'https://avav.wd1.myworkdayjobs.com/en-US/avav/job/Simi-Valley-CA/x_8388')]);
+    assert.strictEqual(target.app.property, '1');
+  });
+  run('a company cell with a typo is still reached through its link', () => {
+    // "Saleforce" is really in this sheet. No spelling of the company name gets
+    // there; the host of the link the row holds does.
+    const target = S.outreachRejectionTarget_(
+      msg('Salesforce <salesforce@myworkday.com>', 'Update on your application'),
+      [opening('1', 'Saleforce', 'Summer 2027 Intern - Software Engineer',
+               'https://salesforce.wd12.myworkdayjobs.com/External_Career_Site/job/x')]);
+    assert.strictEqual(target.app.property, '1');
+  });
+  run('a generic refusal does not close a specialisation of the same role', () => {
+    // The one that matters most. "Software Engineering Intern" contains every
+    // word of itself and none of "Embedded", so a one-way score called the
+    // embedded row a perfect match and would have closed a live application.
+    const rows = [
+      opening('1', 'AeroVironment', 'Embedded Software Engineer Intern'),
+      opening('2', 'AeroVironment', 'Machine Learning Intern')
+    ];
+    rows[1].rowNumber = 3;
+    const target = S.outreachRejectionTarget_(
+      msg('AeroVironment <avav@myworkday.com>', 'Regarding your application',
+          'This email is to notify you that the requisition Software Engineering Intern '
+          + 'has been filled.'), rows);
+    assert.strictEqual(target.app, null);
+    assert.strictEqual(target.state, 'unclear');
+  });
+  run('the role is read out of the frame the ATS wrote it in', () => {
+    assert.strictEqual(
+      S.outreachRolePhrase_('Regarding your application',
+        'the requisition Software Engineering Intern has been filled.'),
+      'Software Engineering Intern');
+    assert.strictEqual(
+      S.outreachRolePhrase_('Your IBM Application Status',
+        'Ref: 128497 - Software Developer Intern 2027'),
+      'Software Developer Intern 2027');
+  });
+  run('one job written two ways is one role', () => {
+    // The sheet says Engineer, the mail says Engineering, and they are one job.
+    assert.strictEqual(
+      S.outreachRoleAgreement_('Software Engineer Intern', 'Software Engineering Internship'), 1);
+    assert.ok(
+      S.outreachRoleAgreement_('Software Engineer Intern', 'Data Science Intern') < 0.6);
+  });
+  run('a refusal for a company with no row at all is not a question for a person', () => {
+    const target = S.outreachRejectionTarget_(
+      msg('SoFi <no-reply-recruiting@sofi.org>', 'An update on your SoFi application'),
+      [opening('1', 'Stripe', 'SWE Intern')]);
+    assert.strictEqual(target.state, 'none');
+    assert.match(target.why, /no application on file/);
   });
 
   run('a rejection is dated the day it was sent, not the day it was found', () => {

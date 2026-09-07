@@ -131,7 +131,47 @@ var ROLE_NOISE = [
 
 // How much of a role title has to be named before a rejection is pinned to one
 // of several open roles at the same employer.
-var ROLE_MATCH_FLOOR = 0.5;
+var ROLE_MATCH_FLOOR = 0.6;
+
+// How far clear of the runner-up the winner has to be. Without a margin, two
+// roles scoring 0.62 and 0.60 would pick one of them, and the pick would be the
+// order the rows happen to sit in.
+var ROLE_MATCH_MARGIN = 0.25;
+
+// The word endings two writers of one job title disagree on. Mirrors
+// ROLE_SYNONYMS in job_sync/sources.py: "Software Engineering Intern" in the
+// mail and "Software Engineer Intern" in the sheet are one posting.
+var REJECTION_ROLE_SYNONYMS = {
+  engineering: 'engineer', engineers: 'engineer',
+  internship: 'intern', internships: 'intern', interns: 'intern',
+  development: 'developer', developers: 'developer'
+};
+
+// Where an ATS states the role, in the frames they actually use. Read in order;
+// the first that fires wins. Taken from real mail in this account — the
+// AeroVironment "requisition ... has been filled" and the IBM "Ref: 128497 - ..."
+// lines are both here because neither one puts the role in the subject.
+var ROLE_FRAMES = [
+  /requisition\s+(.+?)\s+has been (?:filled|canceled|cancelled|closed)/i,
+  /position of\s+(.+?)(?:\s+at\b|,|\.|$)/i,
+  /interest in (?:the|our)\s+(.+?)\s+(?:position|role|opening)/i,
+  /appl(?:ication|ying) for (?:the|our)?\s*(.+?)\s+(?:position|role|opening)/i,
+  /ref:\s*[A-Za-z_]*\d+\s*[-–]\s*(.+?)(?:\n|$)/i
+];
+
+// Host labels that name the ATS rather than the employer. The employer's own
+// tenant is the *other* label: avav.wd1.myworkdayjobs.com is AeroVironment, and
+// globalhr.wd5.myworkdayjobs.com is RTX.
+var ATS_HOST_NOISE = [
+  'com', 'net', 'org', 'io', 'co', 'us', 'eu', 'uk', 'ai', 'app', 'en', 'www',
+  'careers', 'career', 'jobs', 'job', 'job-boards', 'boards', 'external',
+  'myworkday', 'myworkdayjobs', 'wd1', 'wd3', 'wd5', 'wd10', 'wd12', 'wd103',
+  'wd501', 'icims', 'talent', 'greenhouse', 'greenhouse-mail', 'greenhousemail',
+  'lever', 'hire', 'ashbyhq', 'ashby', 'eightfold', 'smartrecruiters',
+  'recruiting', 'ultipro', 'dayforce', 'successfactors', 'ns2cloud',
+  'newtonsoftware', 'echo', 'paylocity', 'applytojob', 'jobright', 'email',
+  'mail', 'apply', 'workable', 'workablemail', 'taleo', 'jobvite'
+];
 
 // How far back to look, and how many threads to judge in one firing. Both are
 // about bounding the work, not about correctness: a thread missed by the cap is
@@ -151,6 +191,20 @@ var LABEL_REJECTED = 'Tracker/Rejected';
 var LABEL_CHECK    = 'Tracker/Check by hand';
 var LABEL_IGNORED  = 'Tracker/Not a rejection';
 
+// Two verdicts that used to be filed under Check by hand and are not questions
+// for a person at all.
+//
+// On the 35 threads sitting in that pile when this was written, 10 were refusals
+// for an application the App tab already records as Rejected, and 12 named an
+// employer with no row in App whatsoever — mail for something applied to outside
+// this tracker. Neither has an action attached, and neither ever leaves the pile,
+// so together they were two thirds of a review surface that is supposed to be
+// short enough to read on a Sunday.
+//
+// Both are safe to re-judge later, because neither one writes anything.
+var LABEL_ALREADY  = 'Tracker/Already recorded';
+var LABEL_NO_APP   = 'Tracker/No application';
+
 // Bump this whenever REJECTION_PHRASES, REJECTION_PHRASES_NEEDING_SUBJECT,
 // REJECTION_SUBJECT_NOUNS, REJECTION_BLOCKERS, REJECTION_CONDITIONALS or
 // outreachIsRejection_ changes.
@@ -165,7 +219,7 @@ var LABEL_IGNORED  = 'Tracker/Not a rejection';
 // closed, so re-judging would find no open row to match and would move a correct
 // closure into the review pile. That label stays the human's to audit: it is
 // short, and every thread in it should read as a refusal at a glance.
-var REJECTION_RULES_VERSION = 3;
+var REJECTION_RULES_VERSION = 4;
 var PROP_RULES_VERSION = 'REJECTION_RULES_SEEN';
 
 // A reopen needs to remember what it has already been through, and the verdict
@@ -274,6 +328,123 @@ function outreachSenderTokens_(from) {
   });
 }
 
+/**
+ * The employer-naming labels of a URL's host.
+ *
+ * The one place the employer is written down in a form neither the sender line
+ * nor a human typo can distort: the application link the sheet already holds.
+ * `avav.wd1.myworkdayjobs.com` is AeroVironment whatever the company cell says,
+ * and matching on it is what pins a rejection to a row whose company was typed
+ * "Saleforce" — a real row in this sheet that no spelling of Salesforce reaches.
+ *
+ * Self-maintaining, which is the point: an alias list of Workday tenants would
+ * need a line adding for every new employer, and would be wrong in exactly the
+ * cases nobody thought of.
+ */
+function outreachHostTokens_(url) {
+  var host = String(url == null ? '' : url).trim();
+  var scheme = host.indexOf('//');
+  if (scheme !== -1) host = host.slice(scheme + 2);
+  host = host.split('/')[0].split('?')[0].toLowerCase().replace(/^www\./, '');
+  return host.split('.').filter(function (label) {
+    return label.length > 1 && ATS_HOST_NOISE.indexOf(label) === -1;
+  });
+}
+
+/**
+ * The requisition numbers named in a piece of text.
+ *
+ * The strongest evidence there is, and the only one that survives two employers
+ * writing one role two ways. IBM's "Ref: 128497" against a link ending
+ * `jobId=128497` is exact, where the role titles were identical across two rows
+ * and the name-based reading picked the wrong one.
+ *
+ * Leading zeros go, so RTX's `01864764` and a link's `1864764` are one number.
+ * Four digits or fewer are not taken: they collide with years and street numbers.
+ */
+function outreachReqIds_(text) {
+  var seen = {};
+  var body = String(text == null ? '' : text);
+  var patterns = [/(?:^|[^A-Za-z0-9])(?:R|JR|REQ|UNI)[-_]?(\d{5,})/gi,
+                  /(?:^|[^A-Za-z0-9.])(\d{5,})(?![A-Za-z0-9])/g];
+  patterns.forEach(function (pattern) {
+    var found;
+    while ((found = pattern.exec(body)) !== null) {
+      var id = found[1].replace(/^0+/, '');
+      if (id) seen[id] = true;
+    }
+  });
+  return Object.keys(seen);
+}
+
+/**
+ * The role the message is about, pulled out of the frame the ATS wrote it in.
+ *
+ * Reading the whole body instead is what made the old score unusable: every word
+ * of a four-word role title appears somewhere in a long enough email, so a
+ * generic refusal scored 1.0 against every specialisation open at that employer.
+ * Naming the phrase first is what lets the two sides be compared as titles.
+ *
+ * Falls back to the subject's last dash-separated part that names an intake —
+ * the shape Lever and Workday both use — and then to the subject itself.
+ */
+function outreachRolePhrase_(subject, body) {
+  var text = String(subject || '') + '\n'
+           + String(body || '').slice(0, REJECTION_BODY_CHARS);
+  text = text.replace(/[‘’]/g, "'");
+  for (var i = 0; i < ROLE_FRAMES.length; i++) {
+    var found = ROLE_FRAMES[i].exec(text);
+    if (found && found[1].length >= 2 && found[1].length <= 90) return found[1];
+  }
+  var parts = String(subject || '').split(' - ');
+  for (var j = parts.length - 1; j >= 0; j--) {
+    if (/\b(intern|internship|co-?op|new grad)\b/i.test(parts[j])) return parts[j].trim();
+  }
+  return String(subject || '');
+}
+
+/** A role title as a set of words, endings settled and filler dropped. */
+function outreachRoleFold_(role) {
+  var seen = {};
+  outreachTextTokens_(role).forEach(function (word) {
+    if (word.length < 2 || ROLE_NOISE.indexOf(word) !== -1) return;
+    seen[REJECTION_ROLE_SYNONYMS[word] || word] = true;
+  });
+  return Object.keys(seen);
+}
+
+/**
+ * How far two role titles agree, 0 to 1, counted in both directions.
+ *
+ * Two-sided on purpose. The old one-way score asked only how much of the sheet's
+ * title the email names, so "Embedded Software Engineer Intern" scored full
+ * marks against a mail about the plain "Software Engineering Intern" — every
+ * word of the shorter title is in the longer one. Measured both ways that pair
+ * falls to 0.86, and the containment guard in outreachRejectionTarget_ throws it
+ * out entirely.
+ */
+function outreachRoleAgreement_(left, right) {
+  var a = outreachRoleFold_(left), b = outreachRoleFold_(right);
+  if (!a.length || !b.length) return 0;
+  var shared = a.filter(function (word) { return b.indexOf(word) !== -1; }).length;
+  return (2 * shared) / (a.length + b.length);
+}
+
+/**
+ * Whether an application is one a refusal can still close.
+ *
+ * Deliberately *not* outreachQualifies_, which answers a different question —
+ * whether a cold email may still go out — and answers it with a shorter list.
+ * An application at OA or Interview admits no cold email and is very much still
+ * live; reusing the sending gate here meant a rejection after an interview could
+ * never find its row. Five rows in the sheet stood at OA or Interview when this
+ * was written, and a refusal for any of them would have gone to the review pile.
+ */
+function outreachRejectable_(process) {
+  return String(process == null ? '' : process).trim().toLowerCase()
+      !== STAGE_REJECTED.toLowerCase();
+}
+
 /** How much of a role title this text actually names, 0 to 1. */
 function outreachRoleScore_(role, text) {
   var wanted = outreachTextTokens_(role).filter(function (word) {
@@ -303,41 +474,95 @@ function outreachRoleScore_(role, text) {
  * "Check by hand" is the cheaper failure by a wide margin.
  */
 function outreachRejectionTarget_(message, appRows) {
-  var open = appRows.filter(function (row) {
-    return outreachQualifies_(row.process) && row.company;
-  });
-  if (!open.length) return { app: null, why: 'no application is still open' };
-
-  var pin = outreachSenderTokens_(message.from)
-    .concat(outreachTextTokens_(message.subject));
-
-  var byCompany = {};
-  open.forEach(function (row) {
-    var tokens = outreachCompanyTokens_(row.company);
-    if (!outreachSameEmployer_(tokens, pin)) return;
-    var key = tokens.join(' ');
-    if (!byCompany[key]) byCompany[key] = [];
-    byCompany[key].push(row);
-  });
-
-  var keys = Object.keys(byCompany);
-  if (!keys.length) return { app: null, why: 'no open application matches the sender' };
-  if (keys.length > 1) {
-    return { app: null, why: 'the sender matches ' + keys.length + ' different employers' };
-  }
-
-  var rows = byCompany[keys[0]];
-  if (rows.length === 1) return { app: rows[0], why: '' };
+  var known = appRows.filter(function (row) { return row.company; });
+  if (!known.length) return { app: null, state: 'none', why: 'the App tab is empty' };
 
   var text = message.subject + ' ' + String(message.body || '').slice(0, REJECTION_BODY_CHARS);
+
+  // Rows are searched whatever their stage, and the stage is read off the winner
+  // at the end. Filtering to the live ones first is what made a refusal for an
+  // application already closed look identical to one for a company nobody has
+  // heard of — and put both in the pile a person is supposed to read.
+  var verdict = function (row, why) {
+    return outreachRejectable_(row.process)
+      ? { app: row, state: 'write', why: why }
+      : { app: row, state: 'already', why: why };
+  };
+
+  // 1. The requisition number, where both sides carry one. Exact, and the only
+  //    layer that can separate two rows sharing a role title word for word.
+  var ids = outreachReqIds_(text);
+  if (ids.length) {
+    var byId = known.filter(function (row) {
+      var mine = outreachReqIds_(row.link).concat(outreachReqIds_(row.official));
+      return ids.some(function (id) { return mine.indexOf(id) !== -1; });
+    });
+    if (byId.length === 1) return verdict(byId[0], 'requisition number');
+  }
+
+  // 2. The employer, from the sender line and the subject as before — and now
+  //    also from the host of the application link the row itself holds, which is
+  //    what reads a Workday tenant nobody spelled out.
+  var sender = outreachSenderTokens_(message.from);
+  var pin = sender.concat(outreachTextTokens_(message.subject));
+  var rows = known.filter(function (row) {
+    if (outreachSameEmployer_(outreachCompanyTokens_(row.company), pin)) return true;
+    var hosts = outreachHostTokens_(row.link).concat(outreachHostTokens_(row.official));
+    return sender.some(function (word) { return hosts.indexOf(word) !== -1; });
+  });
+  if (!rows.length) {
+    return { app: null, state: 'none', why: 'no application on file matches the sender' };
+  }
+
+  // More than one employer answering to one sender is a sender that names none
+  // of them. Reading on would score roles across two companies and could close
+  // an application at the wrong one — the single worst write this file can make.
+  var byCompany = {};
+  rows.forEach(function (row) {
+    byCompany[outreachCompanyTokens_(row.company).join(' ')] = true;
+  });
+  var employers = Object.keys(byCompany).length;
+  if (employers > 1) {
+    return {
+      app: null,
+      state: 'unclear',
+      why: 'the sender matches ' + employers + ' different employers'
+    };
+  }
+  if (rows.length === 1) return verdict(rows[0], 'the only application there');
+
+  // 3. Several applications at that employer: the role has to name one of them.
+  var phrase = outreachRolePhrase_(message.subject, message.body);
+  var wanted = outreachRoleFold_(phrase);
   var scored = rows.map(function (row) {
-    return { row: row, score: outreachRoleScore_(row.role, text) };
+    return { row: row, score: outreachRoleAgreement_(row.role, phrase) };
   }).sort(function (a, b) { return b.score - a.score; });
 
-  if (scored[0].score >= ROLE_MATCH_FLOOR && scored[0].score > scored[1].score) {
-    return { app: scored[0].row, why: '' };
+  var exact = rows.filter(function (row) {
+    var mine = outreachRoleFold_(row.role);
+    return mine.length === wanted.length
+        && mine.every(function (word) { return wanted.indexOf(word) !== -1; });
+  });
+  if (exact.length === 1) return verdict(exact[0], 'employer and an exact role');
+
+  // Short of an exact title, the row's role must be *contained* in the one the
+  // email names. The email may say more than the sheet does; it must not say
+  // less. Without this a mail about "Software Engineering Intern" closes
+  // "Embedded Software Engineer Intern" — a different job at the same employer,
+  // and a live application lost with nothing downstream to question it.
+  var best = scored[0];
+  var fits = outreachRoleFold_(best.row.role).every(function (word) {
+    return wanted.indexOf(word) !== -1;
+  });
+  if (best.score >= ROLE_MATCH_FLOOR && fits
+      && (scored.length < 2 || best.score - scored[1].score >= ROLE_MATCH_MARGIN)) {
+    return verdict(best.row, 'employer and role');
   }
-  return { app: null, why: rows.length + ' roles are open there and the email names none' };
+  return {
+    app: null,
+    state: 'unclear',
+    why: rows.length + ' applications there and the email names none of them exactly'
+  };
 }
 
 // -------------------------------------------------------------------- writing
@@ -515,7 +740,8 @@ function outreachRejectionQuery_(reopen) {
             + ' -label:"' + LABEL_REJECTED + '"';
   query += reopen
     ? ' -label:"' + LABEL_REJUDGED + '"'
-    : ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"';
+    : ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"'
+      + ' -label:"' + LABEL_ALREADY + '" -label:"' + LABEL_NO_APP + '"';
   return query + ' (' + phrases + ')';
 }
 
@@ -531,7 +757,7 @@ function scanRejectionEmails() {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var app = tracker.getSheetByName(TAB_APP);
   var queue = tracker.getSheetByName(TAB_QUEUE);
-  var tally = { rejected: 0, cancelled: 0, unclear: 0, ignored: 0 };
+  var tally = { rejected: 0, cancelled: 0, unclear: 0, ignored: 0, already: 0, noApp: 0 };
 
   var appLast = app.getLastRow();
   if (appLast < 2) return tally;
@@ -545,6 +771,8 @@ function scanRejectionEmails() {
   var rejected = outreachLabel_(LABEL_REJECTED);
   var check = outreachLabel_(LABEL_CHECK);
   var ignored = outreachLabel_(LABEL_IGNORED);
+  var already = outreachLabel_(LABEL_ALREADY);
+  var noApp = outreachLabel_(LABEL_NO_APP);
   var now = new Date();
   var unclear = [];
 
@@ -562,6 +790,8 @@ function scanRejectionEmails() {
     if (reopen) {
       thread.removeLabel(check);
       thread.removeLabel(ignored);
+      thread.removeLabel(already);
+      thread.removeLabel(noApp);
       thread.addLabel(rejudged);
     }
 
@@ -588,6 +818,19 @@ function scanRejectionEmails() {
     }
 
     var target = outreachRejectionTarget_(found, appRows);
+    // A refusal for an application already closed, and one for a company with no
+    // row at all, are both answers rather than questions. Filing them as verdicts
+    // is what keeps Check by hand down to the threads that really need a person.
+    if (target.state === 'already') {
+      thread.addLabel(already);
+      tally.already++;
+      return;
+    }
+    if (target.state === 'none') {
+      thread.addLabel(noApp);
+      tally.noApp++;
+      return;
+    }
     if (!target.app) {
       thread.addLabel(check);
       tally.unclear++;
@@ -618,6 +861,7 @@ function scanRejectionEmails() {
   }
 
   Logger.log('rejected ' + tally.rejected + ' (stopping ' + tally.cancelled + ' emails), '
+           + tally.already + ' already recorded, ' + tally.noApp + ' with no application on file, '
            + tally.unclear + ' to check by hand, ' + tally.ignored + ' not rejections');
   unclear.forEach(function (line) { Logger.log('  check by hand: ' + line); });
   return tally;

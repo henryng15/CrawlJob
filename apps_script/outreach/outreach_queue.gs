@@ -95,6 +95,11 @@ function outreachParseApp_(row, index) {
     company: outreachCell_(row, APP_COMPANY),
     role: outreachCell_(row, APP_ROLE),
     process: outreachCell_(row, APP_PROCESS),
+    // Carried for outreach_rejections.gs, which reads the host and the
+    // requisition number out of them — the two things that name an application
+    // when the company cell is misspelled or the sender is a bare ATS tenant.
+    link: outreachCell_(row, APP_LINK),
+    official: outreachCell_(row, APP_OFFICIAL),
     dateApplied: dateApplied
   };
 }

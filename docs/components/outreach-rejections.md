@@ -28,8 +28,40 @@ also says "we were impressed" is still a rejection.
 |---|---|
 | `outreachTextTokens_(text)` | The distinct words in a body, broken up the way a company name is. |
 | `outreachSenderTokens_(from)` | The words in a `From` line that could name an employer. |
-| `outreachRoleScore_(a, b)` | How well two role strings agree. |
-| `outreachRejectionTarget_(...)` | **Which open application this is about, or nothing and why not.** Returning the reason is the point: an unpinnable rejection must be visible, not silently dropped. |
+| `outreachHostTokens_(url)` | The employer-naming labels of a URL's host, ATS plumbing dropped. |
+| `outreachReqIds_(text)` | The requisition numbers a piece of text names. Five digits or more, leading zeros stripped. |
+| `outreachRolePhrase_(subject, body)` | The role the message is about, cut out of the frame the ATS wrote it in. |
+| `outreachRoleFold_(role)` | A role title as a set of words, endings settled and filler dropped. |
+| `outreachRoleAgreement_(a, b)` | How far two role titles agree, counted in **both** directions. |
+| `outreachRejectable_(process)` | Whether a refusal can still close this application. Everything but `Rejected`. |
+| `outreachRoleScore_(a, b)` | How much of a role title a text names. One-way; kept for callers that want recall. |
+| `outreachRejectionTarget_(...)` | **Which application this is about, what state it is in, and why.** Returning the reason is the point: an unpinnable rejection must be visible, not silently dropped. |
+
+### The three layers, strongest first
+
+1. **The requisition number.** `outreachReqIds_` over the subject and body against the same
+   over the row's `Application Link` and `Official`. The only layer that separates two rows
+   whose role titles are identical word for word — which is exactly what IBM's `App` rows are.
+2. **The employer**, from the sender line, the subject, **and the host of the link the row
+   itself holds**. The link is the one place the employer is written down that neither an ATS
+   sender nor a typo can distort: `avav.wd1.myworkdayjobs.com` is AeroVironment however the
+   `From` line reads, and it reaches a row whose company cell says `Saleforce`.
+3. **The role**, but only where the employer has several applications. `outreachRolePhrase_`
+   names the role first, then `outreachRoleAgreement_` compares the two titles **as titles**.
+
+> **Why the role score had to become two-sided.** The old score asked only how much of the
+> sheet's title the email names, so every word of `Software Engineering Intern` appears inside
+> `Embedded Software Engineer Intern` and the embedded row scored a perfect 1.0 against a mail
+> about the generic req. Measured both ways it falls to 0.86, and a containment guard rejects
+> it outright: **the email may say more than the sheet does, never less.** Without that guard a
+> generic refusal closes a specialisation at the same employer — a live application lost, with
+> nothing downstream to question it.
+
+> **`outreachRejectable_` is not `outreachQualifies_`.** They answer different questions.
+> `outreachQualifies_` is the sending gate: may a cold email still go out, and its list is
+> `Applied` and `Completed OA`. An application at `OA` or `Interview` admits no cold email and
+> is very much still live. Reusing the sending gate here meant every refusal arriving after an
+> interview found no row and went to the review pile.
 
 ## Recording it
 
@@ -45,8 +77,30 @@ also says "we were impressed" is still a rejection.
 | `outreachLabel_()`, `outreachRejectionQuery_()` | The Gmail label and search. |
 | `scanRejectionEmails()` | Read the mailbox and act on what can be pinned down. Cycle step `rejections`. |
 
-## Gotcha
+## The five verdicts
 
 Everything the search returns leaves with exactly one Gmail label, so nothing is judged twice.
-A message that could not be pinned to an application is still labelled — it is out of the search
-but recorded as unresolved, which is why `outreachRejectionTarget_` returns a reason.
+
+| Label | Means | Writes? | Re-judged on a rules bump? |
+|---|---|---|---|
+| `Tracker/Rejected` | pinned, and `App` was written | yes | **no** — the row is closed, so a second pass would find nothing and move a correct closure into the review pile |
+| `Tracker/Already recorded` | pinned, and `App` already said `Rejected` | no | yes |
+| `Tracker/No application` | no row in `App` names this employer | no | yes |
+| `Tracker/Check by hand` | genuinely ambiguous — several applications there, none named exactly | no | yes |
+| `Tracker/Not a rejection` | the language is not a refusal | no | yes |
+
+> **Why "already recorded" and "no application" are not questions for a person.** Both used to
+> be filed as `Check by hand`, and neither has an action attached, so neither ever left the
+> pile. Of the 35 threads sitting there when this was written, 10 were refusals for an
+> application `App` already recorded as `Rejected` and 12 named an employer with no row at all —
+> mail for something applied to outside this tracker. Two thirds of a review surface that is
+> supposed to be short enough to read on a Sunday.
+
+**Measured on those same 35 threads**, the layers above turn `0 written / 0 recorded /
+35 by hand` into `4 written / 10 recorded / 21 by hand`, with no wrong write. Three tightenings
+were needed to get the wrong writes to zero: the two-sided role score, the containment guard,
+and scoring the already-`Rejected` rows alongside the live ones so a closed row that matches
+better wins over a live row that matches worse.
+
+**Bump `REJECTION_RULES_VERSION` whenever any of this changes** — it is what reopens the four
+re-judgeable piles so improved rules see the mail the old rules got wrong. It is at **4**.
