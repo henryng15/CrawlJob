@@ -27,11 +27,11 @@ here. Nothing in this file touches a sheet or Gmail.
 
 | Constant | Value | Means |
 |---|---|---|
-| `DAILY_EMAIL_BUDGET` | 47 | Everything the mailbox may send in a day, across all three paths. |
-| `EMAIL_PATH_ORDER` | `referral, cold, followup` | Priority when real queued work competes for the shared budget. Referral leads because it is scarcest; follow-up is last because it loses least by slipping a day. Idle higher-priority capacity is not reserved. |
-| `DAILY_CAP` | `[0,17,27,24,20,12,0]` | Cold path, by weekday. Sunday and Saturday are zero. |
+| `DAILY_EMAIL_BUDGET` | 30 | Everything the mailbox may send in a day. The path caps now sum to exactly this (20 cold + 10 referral + 0 follow-up), so it no longer binds and no path can displace another. |
+| `EMAIL_PATH_ORDER` | `referral, cold` | Priority when real queued work competes for the shared budget. Referral leads because it is scarcest. `followup` was removed when the path was switched off; a path absent from this list still gets a correct budget answer (the reservation loop simply never breaks early) and is stopped by its own zero cap. |
+| `DAILY_CAP` | `[0,20,20,20,20,20,0]` | Cold path, by weekday: a flat 20 on Mon-Fri, 100 a week. Saturday and Sunday stay zero because a cold email read at the weekend is read badly. Was `[0,17,27,24,20,12,0]`. |
 | `COMPANY_WEEKLY_CAP` | 5 | Cold emails per company per rolling 7 days. |
-| `REFERRAL_DAILY_CAP` | 20 | Referral asks a day. The 06:00–19:00 window has fourteen hours, so six hours may carry two asks; total mailbox volume remains capped at 47 and lower-priority paths yield as necessary. |
+| `REFERRAL_DAILY_CAP` | 10 | Hard maximum of 10 referral asks per day, one per hour inside the 06:00-19:00 window with no doubled slots. Was 15. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. There is no second attempt. |
 | `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. This is what spreads the queue across employers. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a ticked employer gets instead — the whole group in one day. Raises the cap, never removes it. |
@@ -41,7 +41,7 @@ here. Nothing in this file touches a sheet or Gmail.
 | `REFERRAL_PRIORITY_GAP_MINUTES_MIN` / `MAX` | 10 / 20 | Deterministic jitter between fast-lane sends. It looks varied but remains stable across replans. |
 | `REFERRAL_TOP_COMPANY_PROPERTY_MAX` | 70 | A non-quant employer with `App!Property` at or below this existing priority rank remains eligible after seven days. |
 | `REFERRAL_QUANT_COMPANIES` | named firms | Quant firms excluded from the Referral campaign, even for a today/yesterday application. Matching uses the shared employer normaliser. |
-| `FOLLOWUP_DAILY_CAP` | 6 | Follow-ups a day. |
+| `FOLLOWUP_DAILY_CAP` | **0** | The follow-up path is switched off. Zero rather than deleted: the planner already respects this cap, so it is the smallest switch that stops every one of the path's writes. Restoring the feature needs both a number here **and** `followup` back in `EMAIL_PATH_ORDER`. Was 6. |
 | `WAVE_SIZE` / `WAVE_GAP_DAYS` | 3 / 14 | Cold contacts per wave, and the gap before the next. |
 
 ## Timing

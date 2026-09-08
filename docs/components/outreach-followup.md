@@ -1,7 +1,7 @@
 # outreach_followup.gs — the nudge on an existing thread
 
 A follow-up is a reply posted onto the thread the cold email already made, never a new message.
-Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by slipping a day.
+**This path is currently switched off** — `FOLLOWUP_DAILY_CAP` is 0 and `followup` has been removed from `EMAIL_PATH_ORDER`, so nothing here plans or sends. The code is kept because it is correct; the intent was to stop it running, not to lose it. It was last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by slipping a day.
 
 ## Connections
 
@@ -17,7 +17,7 @@ Last in `EMAIL_PATH_ORDER` because it is the only path that loses nothing by sli
 | `FOLLOWUP_AFTER_DAYS` | 5 | Earliest a nudge may land. |
 | `FOLLOWUP_WINDOW_DAYS` | 10 | How wide the landing window is. |
 | `FOLLOWUP_LATEST_DAYS` | 21 | After this the nudge is dropped, not delayed. |
-| `FOLLOWUP_DAILY_CAP` | 6 | Per day. |
+| `FOLLOWUP_DAILY_CAP` | **0** | Per day. Zero switches the whole path off — every planning helper here takes `Math.min(FOLLOWUP_DAILY_CAP - used, ...)` or tests `count < FOLLOWUP_DAILY_CAP`, so all of them yield nothing. |
 | `FOLLOWUP_WEEKENDS` | `true` | Unlike the referral path. |
 
 ## Deciding

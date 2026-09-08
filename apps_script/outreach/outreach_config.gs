@@ -196,12 +196,15 @@ var QUEUE_DATE_FORMAT = 'mmmm d, yyyy';
 // randomness does. Tue/Wed are high because that is when a recruiter reads
 // carefully; Friday is low because Friday afternoon email dies.
 //
-// Every weekday went up by two when the drafting window gained its ninth hour.
-// The extra hour is what pays for them: 08:00 was already a firing the trigger
-// made and the writer declined to use, so the two extra recruiters a day come out
-// of an hour the account was not spending rather than out of a tighter spacing.
-// It was [0, 15, 25, 22, 18, 10, 0].
-var DAILY_CAP = [0, 17, 27, 24, 20, 12, 0];
+// Flat twenty on every weekday, by instruction, replacing the shaped week
+// [0, 17, 27, 24, 20, 12, 0] that leaned on Tuesday and tapered into Friday.
+// The shape was a guess about when a recruiter reads carefully; twenty is a
+// budget decision, and a budget decision outranks a guess.
+//
+// Saturday and Sunday stay zero. That is not part of the flattening: a cold
+// email read on a Saturday is read badly, and the first impression is worth
+// waiting a day for. Twenty on five days is a hundred a week.
+var DAILY_CAP = [0, 20, 20, 20, 20, 20, 0];
 
 var SEND_HOUR_FIRST = 9;    // inclusive, in the project's timezone
 var SEND_HOUR_LAST  = 17;   // inclusive: nine sending hours a day
@@ -236,40 +239,33 @@ var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
 
 // --------------------------------------------------- the mailbox budget
 
-// Everything this project sends in one day, all three paths counted together.
+// Everything this project sends in one day, every path counted together.
 //
-// The three paths were each given a cap and never measured against one another,
-// which meant the only thing bounding a day's total was arithmetic nobody had
-// done. The path caps deliberately need not sum under this number: the shared
-// budget and EMAIL_PATH_ORDER decide which lower-priority work yields when a
-// high-priority path needs more of the same mailbox day.
+// Thirty, and for the first time it is not a ceiling that binds: cold is capped
+// at twenty a weekday, referral at ten, follow-up at zero, so the path caps sum
+// to exactly thirty. Nothing can displace anything else, and EMAIL_PATH_ORDER
+// decides nothing until one of those numbers changes.
 //
-// Forty five is a limit on the account, not on any path. What gets a sending
-// address penalised is the volume leaving one mailbox in a day, and the mailbox
-// does not know or care which of three features asked.
+// That is a deliberate loss of a safety property, so it is worth naming. This
+// number exists because the three paths were once each given a cap and never
+// measured against one another, and the only thing bounding a day's total was
+// arithmetic nobody had done. It is a limit on the account, not on any path:
+// what penalises a sending address is the volume leaving one mailbox in a day,
+// and the mailbox neither knows nor cares which feature asked. Raise a path cap
+// without raising this and the paths start competing again, which is the
+// intended behaviour -- the budget is the reputation limit and it wins.
 //
-// The Referral cap has risen within the same account allowance. That is safe only
-// because the shared budget, rather than accidental arithmetic among path caps,
-// decides the day's total.
-//
-// Forty seven, not forty five, and the two came from the same edit. The cold
-// path's drafting window now opens at 08:00, which adds a ninth writing hour, and
-// DAILY_CAP took two rows a day for it. There was no slack to take them out of —
-// this number bound exactly at forty five — so a decision about the path was also
-// a decision about the account, which is what the paragraph above was written to
-// force. The budget remains the hard reputation limit even when the individual
-// caps overbook it; actual pending Referral work reserves first, then cold, and
-// follow-up yields only when those higher-priority rows need the room.
+// It was forty seven, over caps of [0,17,27,24,20,12,0] cold, fifteen referral
+// and six follow-up, which together overbooked it on purpose.
 //
 // Two ceilings sit above this one and neither binds. Apps Script allows a consumer
-// gmail.com account 100 recipients a day, so this is under half of what the
-// platform permits. The real ceiling is reputation: this is cold mail from a free
-// Gmail address with no domain and no dedicated IP, and what penalises such an
-// account is bounce rate and complaint rate rather than volume. Bounces are dealt
-// with upstream — every address on the employees tab passed an anymail "valid"
-// check in export_referrals.py before it was exported, and the recruiter tab drops
-// UNSENDABLE_VERIFY on the way in.
-var DAILY_EMAIL_BUDGET = 47;
+// gmail.com account 100 recipients a day, so this is well under what the platform
+// permits. The real ceiling is reputation: this is cold mail from a free Gmail
+// address with no domain and no dedicated IP, and what penalises such an account
+// is bounce rate and complaint rate rather than volume. Bounces are dealt with
+// upstream -- every address on both contact tabs now carries a DeBounce verdict,
+// and the recruiter tab drops UNSENDABLE_VERIFY on the way in.
+var DAILY_EMAIL_BUDGET = 30;
 
 // Who gets the budget when it runs short, most important first.
 //
@@ -285,7 +281,7 @@ var DAILY_EMAIL_BUDGET = 47;
 // loses nothing by slipping a day: the message it chases has already landed, and
 // the window it may land in is five to ten days wide. Being late is what it is
 // designed to be.
-var EMAIL_PATH_ORDER = ['referral', 'cold', 'followup'];
+var EMAIL_PATH_ORDER = ['referral', 'cold'];
 
 // ------------------------------------------------- referral policy
 
@@ -437,15 +433,14 @@ var REFERRAL_WEEKENDS = false;
 // buys back the part of the day that was advertising the machine.
 var REFERRAL_HOUR_FIRST = 6;
 var REFERRAL_HOUR_LAST  = 19;
-// Twenty. The 06:00–19:00 window holds fourteen actual hours, so the evenly
-// spaced schedule gives six of them two asks and the rest one. The scheduler
-// treats those as capacity slots (not one occupied-hour boolean), so twenty can
-// really be booked; no hour ever carries more than two Referral sends.
+// Ten, by instruction, down from fifteen. The 06:00–19:00 window holds fourteen
+// hours, so every referral ask now gets an hour to itself and the scheduler never
+// has to double up a slot.
 //
-// The total mailbox budget stays forty seven. Referral has first claim on it, so
-// a day with all twenty Referral asks may defer cold mail or follow-ups rather
-// than raising total daily sending volume.
-var REFERRAL_DAILY_CAP  = 20;
+// Referral still has first claim on the shared budget, but at ten plus cold's
+// twenty the two paths now sum to exactly DAILY_EMAIL_BUDGET, so neither can
+// displace the other and EMAIL_PATH_ORDER no longer decides anything in practice.
+var REFERRAL_DAILY_CAP  = 10;
 
 
 // People written to in one go, and how long the silence has to last before the
@@ -649,11 +644,16 @@ var FOLLOWUP_WINDOW_DAYS = 10;
 
 // Per calendar day, and counted separately from DAILY_CAP.
 //
-// Sharing one budget would have made every follow-up cost a cold email, and the
-// cold email is the one with the deadline attached: an application ages, a
-// follow-up does not. Six is under half the lightest sending weekday, so the two
-// streams together stay near what one of them used to be.
-var FOLLOWUP_DAILY_CAP = 6;
+// Zero: the follow-up path is switched off, by instruction, so that the account
+// sends nothing but first-contact cold email and referral asks. Zero rather than
+// deleting the path, because the code that plans and sends a nudge is correct and
+// the intent is to stop it running, not to lose it -- and a cap the planner
+// already respects is the smallest switch that stops every one of its writes.
+// Restoring the feature means putting a number back here and adding 'followup'
+// to EMAIL_PATH_ORDER; both are needed, and either alone does nothing.
+//
+// It was six, chosen as under half the lightest sending weekday.
+var FOLLOWUP_DAILY_CAP = 0;
 
 // Past this, the first email is too old to chase and the row is passed over
 // instead. Twenty-one days is inside REPLY_WINDOW_DAYS, so a reply that lands

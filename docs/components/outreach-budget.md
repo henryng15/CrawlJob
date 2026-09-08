@@ -11,29 +11,33 @@ each may have.
 
 ## The rule
 
-`EMAIL_PATH_ORDER = ['referral', 'cold', 'followup']` — Referral gets first refusal when the
-budget is tight. Its queued work reserves up to the full **20-message Referral allowance**;
-cold email and follow-up then coordinate over the remaining mailbox room. If fewer than 20
-Referral rows can use the day, the unused room remains available to the lower paths.
+`EMAIL_PATH_ORDER = ['referral', 'cold']` — Referral gets first refusal when the budget is
+tight. Its queued work reserves up to the full **10-message Referral allowance**; cold email
+then takes the remaining mailbox room. If fewer than 10 Referral rows can use the day, the
+unused room remains available to the cold path.
 
 - Referral goes first because it is the scarcest: six people per employer, no second attempt
   ever, so an ask that loses its place is one of six chances spent on nothing.
-- Follow-up goes last because it is the only path that loses nothing by slipping a day — the
-  message it chases has already landed, and its window is five to ten days wide.
 - The reservation matters because the cold path runs on an hourly trigger that has been firing
-  for weeks. It protects today's Referral allocation from a lower path that fires first, while
-  allowing Email and Reply to self-coordinate over whatever remains.
+  for weeks. It protects today's Referral allocation from a lower path that fires first.
+- **Follow-up is switched off** and is no longer in this list. A path missing from
+  `EMAIL_PATH_ORDER` still gets a correct answer from `outreachBudgetRoom_` — the reservation
+  loop simply never breaks early, so it reserves for every listed path — and its own
+  `FOLLOWUP_DAILY_CAP` of 0 then makes `own` non-positive and the room zero.
 
-Individual path caps intentionally may sum to more than `DAILY_EMAIL_BUDGET`: a Tuesday can be
-27 cold + 20 Referral + 6 follow-up = 53 against the hard 47-message budget. Referral reserves
-its pending capacity first, cold receives the remaining room, and follow-up yields last; the
-mailbox never exceeds 47 under the normal planner.
+**The caps no longer overbook the budget, and that is a change worth knowing about.** They used
+to on purpose: a Tuesday was 27 cold + 20 referral + 6 follow-up = 53 against a hard 47, and the
+reservation machinery above is what kept the mailbox under 47 anyway. Now 20 cold + 10 referral
++ 0 follow-up = exactly `DAILY_EMAIL_BUDGET`, so nothing ever competes and the ordering decides
+nothing in practice. The machinery is still correct and still the guard rail — raise any path
+cap without raising the budget and the paths start competing again, which is the intended
+behaviour.
 
 ## Functions
 
 | Function | Does |
 |---|---|
-| `outreachDaySpend_(queueRows, referralRows, day)` | How much of one day each path has already spent, as `{referral, cold, followup, total}`. |
+| `outreachDaySpend_(queueRows, referralRows, day)` | How much of one day each path has already spent, as `{referral, cold, followup, total}`. `followup` is always 0 in practice while that path is off. |
 | `outreachPathCap_(path, day)` | That path's own ceiling for that day — `REFERRAL_DAILY_CAP`, `outreachDailyCap_(day)`, or `FOLLOWUP_DAILY_CAP`. |
 | `outreachPendingPathDemand_(queueRows, referralRows, day, path)` | Count of usable queued higher-priority rows that can consume that day's allowance. |
 | `outreachBudgetRoom_(queueRows, referralRows, day, path)` | How many more messages `path` may send that day. `min(own cap − own spend, DAILY_EMAIL_BUDGET − total spend − pending reservation above)`, never below zero. |
