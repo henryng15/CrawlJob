@@ -453,44 +453,6 @@ function restoreReferralPolicyCancelledRows() {
   return {restored: restored, replan: replan};
 }
 
-/** Replace the generated Employees (seed) tab from ColdEmail's export.
- *
- * The seed tab is owned by the sending account and is intentionally separate
- * from Contacts (manual). This helper clears only generated cell contents,
- * preserves the tab's formatting, and does not touch the Referral tab.
- */
-function replaceEmployeeSeed(rows) {
-  return replaceEmployeeSeedChunk(rows, 2, true);
-}
-
-/** Chunked form for large generated exports that exceed clasp's argument limit. */
-function replaceEmployeeSeedChunk(rows, startRow, clearExisting) {
-  if (!Array.isArray(rows)) throw new Error('rows must be an array');
-  startRow = Number(startRow);
-  if (!isFinite(startRow) || startRow < 2 || Math.floor(startRow) !== startRow) {
-    throw new Error('startRow must be an integer >= 2');
-  }
-  var contactsBook = SpreadsheetApp.openById(
-    outreachProperty_(PROP_CONTACTS_ID, true));
-  var sheet = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
-  if (!sheet) throw new Error('missing tab: ' + TAB_EMPLOYEES_SEED);
-
-  if (clearExisting !== false) {
-    var last = sheet.getLastRow();
-    if (last > 1) sheet.getRange(2, 1, last - 1, E_WIDTH).clearContent();
-  }
-  if (rows.length) {
-    var values = rows.map(function (row) {
-      return [row.Company, row['Person Name'], row.Email, row.Title,
-        row.Domain, row.Seniority, row.LinkedIn, row.Angle, row.Bucket,
-        row.Verify];
-    });
-    sheet.getRange(startRow, 1, values.length, E_WIDTH).setValues(values);
-  }
-  return {tab: TAB_EMPLOYEES_SEED, rows: rows.length,
-          startRow: startRow, spreadsheet: contactsBook.getName()};
-}
-
 /**
  * What replanReferralAsks WOULD do, computed without writing a single cell.
  *

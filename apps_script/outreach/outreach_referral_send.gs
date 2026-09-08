@@ -648,6 +648,8 @@ function sendReferralAsks() {
   if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: preCancelled, failed: 0 }; }
 
   var tally = { sent: 0, cancelled: preCancelled, failed: 0 };
+  // Collected through the loop and written once at the end.
+  var sentEmails = [];
 
   due.forEach(function (row) {
     var updates = {};
@@ -688,6 +690,9 @@ function sendReferralAsks() {
       updates[R_STATUS] = STATUS_SENT;
       updates[R_SENT_AT] = now;
       updates[R_RESULT] = message.getId();
+      // Gmail has accepted it, so this person is asked for good. Six per employer
+      // for life is the rule this makes durable across a rebuilt tab.
+      if (row.email) sentEmails.push(row.email);
       tally.sent++;
     } catch (error) {
       var missing = /not found|no longer exists|Invalid draft/i.test(String(error.message || error));
@@ -702,8 +707,18 @@ function sendReferralAsks() {
     outreachWriteRow_(referral, row.index, updates);
   });
 
+  // Outside the per-row writes, because it opens the other spreadsheet. A failure
+  // here leaves the tab correct and only the durable tick missing, which the
+  // "already on the Referral tab" check still covers until that tab is cleared.
+  var ticked = 0;
+  try {
+    ticked = outreachMarkEmployeesSent_(sentEmails);
+  } catch (error) {
+    Logger.log('Sent column not updated: ' + String(error.message || error));
+  }
+
   Logger.log('referral asks sent ' + tally.sent + ', called off ' + tally.cancelled
-           + ', failed ' + tally.failed + '.');
+           + ', failed ' + tally.failed + ', employees ticked ' + ticked + '.');
   return tally;
   } finally {
     lock.releaseLock();

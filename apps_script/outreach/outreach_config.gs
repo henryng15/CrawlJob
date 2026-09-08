@@ -146,13 +146,44 @@ var Q_WIDTH = 23;
 // derived, and asking for it by hand is what stops the tab being used.
 var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
 var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
+var C_SENT = 10;
+var C_WIDTH = 10;
 
-// Employees (seed), 1-based, written by ColdEmail's export_referrals.py. Domain
-// is carried because it is what lets a link on a company's own careers site be
-// told apart from an aggregator republishing the same posting.
+// Employees (seed), 1-based, written by ColdEmail's export. Domain is carried
+// because it is what lets a link on a company's own careers site be told apart
+// from an aggregator republishing the same posting.
 var E_COMPANY = 1, E_NAME = 2, E_EMAIL = 3, E_TITLE = 4, E_DOMAIN = 5;
 var E_SENIORITY = 6, E_LINKEDIN = 7, E_ANGLE = 8, E_BUCKET = 9, E_VERIFY = 10;
-var E_WIDTH = 10;
+var E_SENT = 11;
+var E_WIDTH = 11;
+
+// `Sent` is a tick that means this person has been written to and must not be
+// written to again, ever, on either path.
+//
+// The system already had an answer to that question and it lived on the two
+// queue tabs: a salted fingerprint on Email, an address on Referral. Both are
+// records of what was planned, and they were emptied when the pipeline was
+// rebuilt -- which would have re-opened every one of the 176 people already
+// written to. This column is the durable answer. It sits beside the person on
+// the contacts tab rather than on a queue, so clearing a queue cannot lose it.
+//
+// The two mechanisms coexist rather than replace one another, and deliberately:
+// the fingerprint still stops a second send inside one season, and this stops
+// one across a rebuild. A row is skipped if either says so.
+//
+// Owned by the outreach script: the planners read it and the senders set it.
+// Nothing else may write it -- see the tab-ownership table in
+// docs/components/README.md.
+var SENT_TICK = true;
+
+/** Whether a Sent cell means "already written to". People type all of these. */
+function outreachSentTicked_(value) {
+  if (value === true) return true;
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === 'y' || text === 'x'
+    || text === 'sent' || text === '1';
+}
+
 
 // Referral tab, 1-based. Unlike the Email tab this one does hold the recipient's
 // name and address: the Email tab's rule exists because nobody needs to read a

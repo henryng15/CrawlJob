@@ -50,7 +50,7 @@ ATS boards + Markdown trackers
 | `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
-| `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export, by hand | outreach compose + planners |
+| `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export through `replaceContactSeedChunk` / `replaceEmployeeSeedChunk`; the **`Sent` column belongs to the outreach script**, which ticks it after Gmail accepts a message | outreach compose + planners |
 | `Company` | `company_tab.gs` **only** | people — who to ask for a referral next |
 | `Target` | `target_tab.gs` **only** | people — where to source the next referral contacts |
 
@@ -91,6 +91,7 @@ looser one winning every hour — see the gotcha in
 - [outreach-referral-send.md](outreach-referral-send.md) — referral drafting, sending, reconciling
 - [outreach-app-worklist.md](outreach-app-worklist.md) — the `App` worklist: which rows are waiting on a link, and where they sit
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
+- [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 
 ## The rule

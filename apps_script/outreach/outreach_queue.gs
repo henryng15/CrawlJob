@@ -243,6 +243,10 @@ function outreachCompanySendsThisWeek_(queueRows, company, today) {
  * three emails that outreachPickContact_ can only fill two of.
  */
 function outreachContactAvailable_(contact, spent, salt, season, today) {
+  // The Sent tick on the contacts tab comes first and is unconditional. It
+  // outlives the queue: `spent` is built from the Email tab, so emptying that tab
+  // makes every fingerprint look unspent, and this is what still says no.
+  if (contact.sent) return false;
   if (spent[outreachFingerprint_(contact.email, salt, season)]) return false;
   var other = spent[outreachFingerprint_(contact.email, salt, outreachOtherSeason_(season))];
   if (!other) return true;

@@ -163,6 +163,9 @@ function sendPreparedDrafts() {
     ? outreachReadReferralRows_(referral) : [];
 
   var tally = { sent: 0, cancelled: 0, failed: 0, retired: 0 };
+  // Collected through the loop and written once at the end, so a batch of twenty
+  // sends is one write to the contacts tab rather than twenty.
+  var sentFingerprints = [];
 
   // Do not let a cold draft created before Referral was planned consume its
   // reserved room. Referral is sent first, and any remaining cold/follow-up
@@ -188,6 +191,8 @@ function sendPreparedDrafts() {
       updates[Q_MESSAGE_ID] = message.getId();
       updates[Q_SENT_AT] = new Date();
       updates[Q_RESULT] = 'Sent: ' + (row.template || 'application');
+      // Gmail has accepted it, so this person is written to for good.
+      if (row.fingerprint) sentFingerprints.push(row.fingerprint);
       tally.sent++;
     } catch (error) {
       var missing = /not found|no longer exists|Invalid draft/i.test(String(error.message || error));
@@ -209,8 +214,19 @@ function sendPreparedDrafts() {
     tally.retired++;
   });
 
+  // Last, and outside the per-row writes, because it opens the other spreadsheet.
+  // A failure here leaves the queue correct and only the durable tick missing,
+  // which the fingerprint still covers for this season.
+  var ticked = 0;
+  try {
+    ticked = outreachMarkColdContactsSent_(sentFingerprints);
+  } catch (error) {
+    Logger.log('Sent column not updated: ' + String(error.message || error));
+  }
+
   Logger.log('sent ' + tally.sent + ', called off ' + tally.cancelled
-           + ', failed ' + tally.failed + ', priorities retired ' + tally.retired);
+           + ', failed ' + tally.failed + ', priorities retired ' + tally.retired
+           + ', contacts ticked ' + ticked);
   return tally;
   } finally {
     lock.releaseLock();

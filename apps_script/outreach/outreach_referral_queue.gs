@@ -265,7 +265,7 @@ function outreachReadEmployees_(contactsSpreadsheet) {
   if (last < 2) return [];
 
   var out = [], seen = {};
-  sheet.getRange(2, 1, last - 1, E_WIDTH).getValues().forEach(function (row) {
+  sheet.getRange(2, 1, last - 1, E_WIDTH).getValues().forEach(function (row, index) {
     var email = outreachCell_(row, E_EMAIL).toLowerCase();
     var company = outreachCell_(row, E_COMPANY);
     if (!email || email.indexOf('@') === -1 || !company) return;
@@ -275,6 +275,11 @@ function outreachReadEmployees_(contactsSpreadsheet) {
     // must not become sendable merely because it has an address.
     var verify = outreachCell_(row, E_VERIFY).toLowerCase();
     if (verify.indexOf(REFERRAL_VERIFY_PREFIX) !== 0 || verify === REFERRAL_REJECTED_VERIFY) return;
+    // Already asked, on any earlier run or before the rebuild. Dropped here
+    // rather than in the planner so that every count of "people available at
+    // this employer" agrees -- the referral cap is six per company for life, and
+    // a person counted but never bookable would silently shrink that to five.
+    if (outreachSentTicked_(row[E_SENT - 1])) return;
     if (seen[email]) return;
     seen[email] = true;
     out.push({
@@ -286,7 +291,8 @@ function outreachReadEmployees_(contactsSpreadsheet) {
       domain: outreachCell_(row, E_DOMAIN).toLowerCase(),
       seniority: outreachCell_(row, E_SENIORITY),
       angle: outreachCell_(row, E_ANGLE),
-      bucket: outreachCell_(row, E_BUCKET)
+      bucket: outreachCell_(row, E_BUCKET),
+      rowNumber: index + 2
     });
   });
   return out;

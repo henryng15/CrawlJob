@@ -96,9 +96,11 @@ function outreachReadContacts_(contactsSpreadsheet) {
     if (!sheet) return;
     var last = sheet.getLastRow();
     if (last < 2) return;
-    var rows = sheet.getRange(2, 1, last - 1, C_BUCKET).getValues();
+    // C_WIDTH, not C_BUCKET: the Sent tick sits one past the last column this
+    // used to read, and a row read too narrow reports every contact as unwritten.
+    var rows = sheet.getRange(2, 1, last - 1, C_WIDTH).getValues();
 
-    rows.forEach(function (row) {
+    rows.forEach(function (row, index) {
       var email = outreachCell_(row, C_EMAIL).toLowerCase();
       var company = outreachCell_(row, C_COMPANY);
       if (!email || email.indexOf('@') === -1 || !company) return;
@@ -125,8 +127,14 @@ function outreachReadContacts_(contactsSpreadsheet) {
         hook: outreachCell_(row, C_HOOK),
         angle: outreachCell_(row, C_ANGLE),
         bucket: outreachCell_(row, C_BUCKET),
+        // Already written to, on any earlier run or before the rebuild. The
+        // planner drops these; nothing downstream has to remember why.
+        sent: outreachSentTicked_(row[C_SENT - 1]),
+        rowNumber: 0,
+        tab: pair[0],
         source: pair[1]
       };
+      contact.rowNumber = index + 2;
       byEmail[email] = contact;
       out.push(contact);
     });
