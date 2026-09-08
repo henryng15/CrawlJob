@@ -2,9 +2,9 @@
 
 ## Sources
 
-[`sources.toml`](../sources.toml) lists the public trackers, each one a raw
-Markdown file on GitHub. Adding a `[[sources]]` block is the whole job — no code
-change needed.
+[`sources.toml`](../sources.toml) lists the public trackers and RSS feeds. Adding a
+`[[sources]]` block is the whole job — `format = "rss"` selects the RSS parser;
+Markdown remains the default.
 
 | Tracker | Notes |
 |---|---|
@@ -13,11 +13,12 @@ change needed.
 | speedyapply — 2027 SWE College Jobs | |
 | zshah101 — 2027 / Fall 2026 Tech Internships | |
 | Jobright — 2026 Software Engineer Internship | no separate Apply column; the link sits inside the Job Title cell and is a `jobright.ai` redirect, not the company's own board URL |
+| Startup Jobs — Engineering RSS | global engineering RSS; the employer is parsed from the title and the canonical `guid` is preferred over the tracked link |
 
 This is a baseline list; there is no reliable way to claim it covers *every*
 tracker repo on GitHub.
 
-One broken tracker does not kill the whole sync run: errors are caught per source,
+One broken tracker/feed does not kill the whole sync run: errors are caught per source,
 printed as `WARNING`, and the remaining sources still run. Only when **no source at
 all** parses out a job does that run fail.
 
@@ -33,6 +34,13 @@ use to receive applications, over public JSON endpoints that need no key.
 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{slug}/jobs` | `first_published` |
 | Lever | `api.lever.co/v0/postings/{slug}?mode=json` | `createdAt` (epoch ms) |
 | Ashby | `api.ashbyhq.com/posting-api/job-board/{slug}` | `publishedAt` |
+| SmartRecruiters | `api.smartrecruiters.com/v1/companies/{id}/postings` | `releasedDate` |
+| Personio | `{company}.jobs.personio.de/xml?language=en` | sync date; feed has no reliable publication timestamp |
+| Recruitee | `{company}.recruitee.com/api/offers` | `created_at` when supplied |
+
+Optional company-scoped feeds are listed in `job_sync/data/public_feeds.toml`. Adzuna and
+USAJOBS are opt-in credentialed feeds; Startup Jobs runs without credentials. Feed failures
+are isolated, so they cannot erase jobs from the core sources.
 
 The boards are read **before** the trackers, and that order means something:
 `dedupe_jobs` keeps the first copy of each link it meets, so whichever side comes

@@ -5,6 +5,7 @@ from job_sync.sources import (
     clean_text,
     company_tokens,
     dedupe_jobs,
+    is_aggregator_link,
     normalize_link,
     parse_jobs,
     posted_date,
@@ -137,6 +138,13 @@ def test_normalize_link_ignores_host_case_www_and_trailing_slash() -> None:
         "https://jobs.example/a?utm_medium=email",
     ]
     assert len({normalize_link(v) for v in variants}) == 1
+
+
+def test_aggregator_links_lose_to_a_verified_employer_board() -> None:
+    assert is_aggregator_link("https://jobright.ai/jobs/info/1")
+    assert is_aggregator_link("https://startup.jobs/software-engineer-intern-1")
+    assert is_aggregator_link("https://www.adzuna.com/details/1")
+    assert not is_aggregator_link("https://careers.smartrecruiters.com/acme/1")
 
 
 def test_link_comes_from_the_title_when_there_is_no_apply_column() -> None:

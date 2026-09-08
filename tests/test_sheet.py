@@ -155,6 +155,22 @@ def test_one_row_survives_per_company_and_role() -> None:
     assert removed == 1
 
 
+def test_dedup_ignores_only_a_company_legal_suffix_and_role_acronym() -> None:
+    rows = [
+        ["Acme LLC", "Software Engineer Intern", "https://jobs.example/a", "2026-08-01"],
+        ["Acme", "SWE Internship", "https://jobs.example/b", "2026-08-02"],
+        ["Acme Robotics", "SWE Internship", "https://jobs.example/c", "2026-08-03"],
+    ]
+
+    unique, removed = _drop_duplicate_identities(rows)
+
+    assert [(row[0], row[2]) for row in unique] == [
+        ("Acme LLC", "https://jobs.example/a"),
+        ("Acme Robotics", "https://jobs.example/c"),
+    ]
+    assert removed == 1
+
+
 def test_punctuation_between_trackers_does_not_make_two_rows() -> None:
     """Observed live: RTX, Figma and Zipline each reached the sheet twice, once
     with a dash and once in parentheses. Medtronic used an en dash, Amazon a comma."""

@@ -18,11 +18,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["job_sync"]
 
-# The recruiter company list and the ATS board shortlist ship with the code.
+# The recruiter company list, ATS board shortlist, and optional feed registry ship with the code.
 # Without this the wheel carries only .py files, and both features go quiet on a
 # runner while every test still passes locally off the checkout.
 [tool.setuptools.package-data]
-job_sync = ["data/*.txt", "data/*.json"]
+job_sync = ["data/*.txt", "data/*.json", "data/*.toml"]
 
 [project.scripts]
 internship-sync = "job_sync.main:main"

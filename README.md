@@ -1,7 +1,8 @@
 # Internship Sheet Sync
 
-Reads the public GitHub internship trackers **and the ATS job boards the companies
-themselves run** (Greenhouse, Lever, Ashby), keeps the SWE roles that are relevant, merges
+Reads the public GitHub internship trackers, the ATS job boards the companies
+themselves run (Greenhouse, Lever, Ashby, SmartRecruiters, Personio, Recruitee), and
+optional public job feeds, keeps the SWE roles that are relevant, merges
 the duplicate copies of one posting, then appends them to the `Jobs` tab of a Google Sheet.
 Tick one checkbox and the row moves itself to the `App` tab; the other way round, a job
 already applied to is ticked for you.
@@ -69,8 +70,9 @@ Needs a Google service account that has been shared into the spreadsheet. Detail
 job_sync/          Python package
   main.py          CLI, the run-time window, prints the results
   config.py        the five settings, read from the environment
-  sources.py       fetch + parse the trackers, normalize links, canonicalise role names
+  sources.py       fetch + parse trackers/RSS, normalize links, canonicalise role names
   boards.py        asks the Greenhouse / Lever / Ashby job boards
+  feeds.py         optional SmartRecruiters / Personio / Recruitee / Adzuna / USAJOBS feeds
   roles.py         the regexes that decide which roles are kept
   places.py        reads the location, decides whether a job is in the US
   sheet.py         reads/writes the Google Sheet, merges duplicates, ticks Applied, audits

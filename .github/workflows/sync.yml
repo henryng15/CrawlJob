@@ -70,3 +70,8 @@ jobs:
           GOOGLE_SHEET_APP_TAB: ${{ secrets.GOOGLE_SHEET_APP_TAB }}
           GOOGLE_SHEET_ALUMNI_TAB: ${{ secrets.GOOGLE_SHEET_ALUMNI_TAB }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # Optional: these feeds are skipped when their secrets are empty.
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+          USAJOBS_USER_AGENT: ${{ secrets.USAJOBS_USER_AGENT }}

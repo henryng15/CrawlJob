@@ -6,7 +6,7 @@ The entry point and the three filters that decide whether a posting belongs in t
 
 ## Connections
 
-- **In:** `sources.py` and `boards.py` supply postings; environment variables supply credentials.
+- **In:** `sources.py`, `boards.py`, and optional `feeds.py` supply postings; environment variables supply credentials.
 - **Out:** `sheet.append_new_jobs` writes the `Jobs` tab; `highlight.highlight` paints `App`.
 - **Runs:** `.github/workflows/sync.yml`, **dispatched from outside GitHub** — four cron-job.org
   jobs created by `scripts/setup_cron_job_org.sh` fire it every 45 minutes from 09:00 to 21:00 ET,
@@ -19,7 +19,7 @@ The entry point and the three filters that decide whether a posting belongs in t
 | Function | Does |
 |---|---|
 | `in_working_window(now)` | True when the local ET hour is in 08:00–22:59. A *window*, not a slot list — a late cron would otherwise be dropped for missing its exact hour. |
-| `main()` | Parse flags, fetch sources and boards, dedupe, filter, write. |
+| `main()` | Parse flags, fetch trackers, ATS boards, and optional feeds; dedupe, filter, write. |
 
 **Flags:** `--skip-link-check` (no liveness probe), `--no-boards` (Markdown trackers only),
 `--rebuild` (discard existing rows), `--audit-app` (report `App` problems and sync nothing).
@@ -41,6 +41,10 @@ the trackers carry a decade of history and the first sync would otherwise pour a
 
 Tab names use `os.getenv(...) or "Jobs"`, not a getenv default: an Actions secret that was
 never set arrives as an empty string, which would name a tab that cannot exist.
+
+Optional feed credentials are opt-in: `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` enable Adzuna,
+and `USAJOBS_API_KEY` enables USAJOBS. Company-scoped SmartRecruiters, Personio, and
+Recruitee identifiers live in `data/public_feeds.toml`.
 
 ## `roles.py`
 

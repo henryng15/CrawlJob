@@ -14,11 +14,12 @@ from job_sync.config import Settings
 from job_sync.liveness import dead_links
 from job_sync.sources import (
     Job,
+    company_identity,
     is_aggregator_link,
     is_blocked_company,
     name_key,
     normalize_link,
-    role_key,
+    role_identity,
     role_tokens,
 )
 
@@ -302,11 +303,11 @@ def _drop_duplicate_rows(rows: list[list[str]]) -> list[list[str]]:
     return unique
 
 
-def _identity(row: list[str]) -> tuple[str, str]:
+def _identity(row: list[str]) -> tuple[str, tuple[tuple[str, ...], tuple[str, ...]]]:
     """One posting, for deciding what leaves the sheet. Strict on purpose: merging
     two rows here deletes an opening, so the intake stays part of the role."""
-    company = name_key(row[0]) if row else ""
-    role = role_key(row[1]) if len(row) > 1 else ""
+    company = company_identity(row[0]) if row else ""
+    role = role_identity(row[1]) if len(row) > 1 else ((), ())
     return (company, role)
 
 
@@ -377,7 +378,7 @@ def _drop_duplicate_identities(rows: list[list[str]]) -> tuple[list[list[str]], 
     unjudgeable: list[int] = []
     for position, row in enumerate(rows):
         company, role = _identity(row)
-        if not company or not role:
+        if not company or not role[1]:
             unjudgeable.append(position)
             continue
         held = best.get((company, role))
