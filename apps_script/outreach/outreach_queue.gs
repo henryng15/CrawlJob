@@ -274,9 +274,65 @@ function outreachPickContact_(companyContacts, spent, salt, season, today) {
 }
 
 /**
+ * The employers on the Target tab, as company-token lists.
+ *
+ * Target is maintained by the bound tracker script; the sender owns the decision
+ * about who may be written to. Read here so that a name added to Target by hand
+ * becomes a hard exclusion on the next cold cycle.
+ *
+ * Returns null when the tab cannot be read, and the planner treats that as a
+ * reason to send nothing rather than as permission to send to everybody.
+ *
+ * NOTE: the referral path grew its own reader of this tab in work that is not
+ * committed yet. When that lands, these two must be collapsed into one -- two
+ * readers of one tab is how the two paths end up disagreeing about which
+ * companies are hand-written, and the referral tab spent months with two
+ * schedulers for exactly that kind of reason.
+ */
+var COLD_TARGET_BLOCK_COLS = [1, 7, 13, 19];
+var COLD_TARGET_READ_WIDTH = 23;
+
+function outreachColdTargetCompanies_(tracker) {
+  var target = tracker.getSheetByName('Target');
+  if (!target) return null;
+  var last = target.getLastRow();
+  if (last < 2) return {};
+  var values;
+  try {
+    values = target.getRange(2, 1, last - 1, COLD_TARGET_READ_WIDTH).getValues();
+  } catch (error) {
+    Logger.log('Target could not be read; cold planning is held: '
+      + String(error.message || error));
+    return null;
+  }
+  var companies = {};
+  values.forEach(function (row) {
+    COLD_TARGET_BLOCK_COLS.forEach(function (column) {
+      var name = outreachCell_(row, column);
+      if (!name) return;
+      var tokens = outreachCompanyTokens_(name);
+      if (tokens.length) companies[tokens.join('\u0000')] = tokens;
+    });
+  });
+  return companies;
+}
+
+function outreachCompanyOnTarget_(company, targetCompanies) {
+  if (!targetCompanies) return false;
+  var tokens = outreachCompanyTokens_(company);
+  if (!tokens.length) return false;
+  return Object.keys(targetCompanies).some(function (key) {
+    return outreachSameEmployer_(tokens, targetCompanies[key]);
+  });
+}
+
+/**
  * Build the rows to append. Pure: hand it data, get back rows and reasons.
  */
-function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
+/**
+ * Build the rows to append. Pure: hand it data, get back rows and reasons.
+ */
+function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt, targetCompanies) {
   var byProperty = {};
   // Fingerprint to what is known about it: whether anything has actually gone, and
   // when. A boolean was enough while a person could only ever be written to once;
@@ -361,6 +417,25 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
     // single run must share the allowance, not each be told it is free.
     var headroom = COMPANY_WEEKLY_CAP
       - outreachCompanySendsThisWeek_(pretendSent, app.company, today);
+
+    // Target companies are written to by hand, on both paths. The referral path
+    // has excluded them since it was built (outreachReferralAdmission_ answers
+    // 'target-company'); this is the cold path catching up.
+    //
+    // `null` means the tab could not be read, and that holds planning rather than
+    // opening it: the referral path already treats an unreadable Target as
+    // 'target-unavailable' and books nothing, and a cold path that guessed the
+    // other way would email a company the moment the tab was renamed.
+    if (!targetCompanies) {
+      skipped.push({ property: app.property, company: app.company,
+                     why: 'the Target tab could not be read' });
+      return;
+    }
+    if (outreachCompanyOnTarget_(app.company, targetCompanies)) {
+      skipped.push({ property: app.property, company: app.company,
+                     why: 'a Target company, written to by hand' });
+      return;
+    }
 
     var tokens = outreachCompanyTokens_(app.company);
     var role = outreachRoleTokens_(app.role);
@@ -735,7 +810,9 @@ function enqueueOutreach() {
       : queue.getRange(2, 1, queueLast - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
 
     var contacts = outreachReadContacts_(contactsBook);
-    var plan = outreachPlanEnqueue_(appRows, queueRows, contacts, new Date(), salt);
+    var targetCompanies = outreachColdTargetCompanies_(tracker);
+    var plan = outreachPlanEnqueue_(appRows, queueRows, contacts, new Date(), salt,
+                                    targetCompanies);
 
     // Appending only. Nothing here edits a row that already exists, so a run
     // that dies halfway leaves a shorter table rather than a corrupted one.
