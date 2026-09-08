@@ -197,7 +197,6 @@ function outreachSentTicked_(value) {
     || text === 'sent' || text === '1';
 }
 
-
 // Referral tab, 1-based. Unlike the Email tab this one does hold the recipient's
 // name and address: the Email tab's rule exists because nobody needs to read a
 // recruiter's address off the tracker, and here the whole purpose of the tab is
@@ -253,7 +252,8 @@ var DAILY_CAP = [0, 20, 20, 20, 20, 20, 0];
 var SEND_HOUR_FIRST = 9;    // inclusive, in the project's timezone
 var SEND_HOUR_LAST  = 17;   // inclusive: nine sending hours a day
 
-// How long a finished message sits in Drafts before it goes.
+// Referral keeps a one-hour review window. Cold email has its own shorter
+// lead time because the minute sender can prepare it close to departure.
 //
 // Every email is written one firing before it leaves, so there is always an hour
 // in which it exists, addressed and complete, and can be read. Deleting the draft
@@ -261,10 +261,10 @@ var SEND_HOUR_LAST  = 17;   // inclusive: nine sending hours a day
 // Cancelled. That makes the review a thing you do when you feel like it rather
 // than a mode you have to remember to be in.
 var DRAFT_LEAD_HOURS = 1;
+var COLD_DRAFT_LEAD_MINUTES = 20;
 
-// The first and last firings that write anything. A draft waits DRAFT_LEAD_HOURS,
-// so the writing window is the sending window shifted one hour earlier at both
-// ends: drafts are made 08:00-16:00 and go out 09:00-17:00.
+// Compatibility bounds for the cold writer's fallback pacing. Projected cold
+// drafts are actually placed twenty minutes before their send-hour slot.
 //
 // The first hour is derived rather than typed, because the two ends answer the
 // same question from opposite sides. Writing at 17:00 would produce a message
@@ -275,8 +275,8 @@ var DRAFT_LEAD_HOURS = 1;
 //
 // This also gives the day a ninth drafting hour, which is where the two extra
 // rows in DAILY_CAP go.
-var DRAFT_HOUR_FIRST = SEND_HOUR_FIRST - DRAFT_LEAD_HOURS;
-var DRAFT_HOUR_LAST  = SEND_HOUR_LAST - DRAFT_LEAD_HOURS;
+var DRAFT_HOUR_FIRST = SEND_HOUR_FIRST - 1;
+var DRAFT_HOUR_LAST  = SEND_HOUR_LAST - 1;
 
 var ELIGIBLE_AFTER_DAYS = 2;   // after Date Applied, before anything may go
 var COMPANY_WEEKLY_CAP  = 5;   // emails per company per rolling 7 days
@@ -332,8 +332,9 @@ var EMAIL_PATH_ORDER = ['referral', 'cold'];
 // A referral is timely only while the application is still recognisably fresh.
 // `Property` is the user's existing company-priority rank on App: the first
 // seventy are strategic enough to remain eligible after that seven-day window.
-var REFERRAL_RECENT_APPLICATION_DAYS = 7;
-var REFERRAL_TOP_COMPANY_PROPERTY_MAX = 70;
+var REFERRAL_RECENT_APPLICATION_DAYS = 1;
+// Retained for diagnostics compatibility; Target membership is now the company gate.
+var REFERRAL_TOP_COMPANY_PROPERTY_MAX = 0;
 // An application is hottest on the day it was submitted and the following
 // calendar day. Those rows use the Priority fast lane; older applications remain
 // eligible for seven days but take the ordinary Referral schedule.
@@ -391,7 +392,7 @@ var REFERRAL_PER_COMPANY = 6;
 // Ticking Priority lifts this cap for that one company and role — see
 // outreachReferralSlot_. Breadth is the default because it is right most of the
 // time; depth is a decision somebody makes about one employer on one day.
-var REFERRAL_COMPANY_DAILY_CAP = 1;
+var REFERRAL_COMPANY_DAILY_CAP = REFERRAL_PER_COMPANY;
 
 // And what a ticked ask gets instead: the whole group in one day if the day holds
 // it. REFERRAL_PER_COMPANY rather than a number of its own, because the natural
@@ -497,7 +498,7 @@ var REFERRAL_DAILY_CAP  = 10;
 // because by then there is a person to talk to and three more cold emails to
 // their colleagues would be talking past them.
 var WAVE_SIZE      = 3;
-var WAVE_GAP_DAYS  = 14;
+var WAVE_GAP_DAYS  = 5;
 
 // How alike two roles at one employer have to read before they are treated as one
 // posting, as the share of words they have in common.
@@ -627,12 +628,12 @@ function outreachQualifies_(process) {
   return false;
 }
 
-// Unverified addresses were never actually checked, and risky addresses are not
-// safe enough for a referral ask. The export's exact value is the sender gate.
+// Referral accepts every Employees (seed) row except the explicit invalid
+// DeBounce verdict. Blank, risky, pattern-calibrated and other non-invalid
+// values are intentionally allowed by the current policy.
 var UNSENDABLE_VERIFY = 'local:Unknown';
-var REFERRAL_VERIFY_PREFIX = 'debounce:';
 var REFERRAL_REJECTED_VERIFY = 'debounce:invalid';
-var REFERRAL_INELIGIBLE_ERROR = 'Recipient is not in the verified, non-invalid Employees (seed) export.';
+var REFERRAL_INELIGIBLE_ERROR = 'Recipient is missing from Employees (seed) or is marked debounce:invalid.';
 var REFERRAL_LEGACY_INELIGIBLE_ERROR = 'Recipient is not in the verified, non-risky Employees (seed) export.';
 
 // Past this, the email stops naming the application date. Pointing a recruiter
@@ -664,6 +665,24 @@ function pauseReferralPath() {
   PropertiesService.getScriptProperties().setProperty(PROP_REFERRAL_MODE, MODE_PAUSE);
   return {referral: MODE_PAUSE, cold: outreachProperty_(PROP_MODE, false),
           followUp: outreachProperty_(PROP_FOLLOWUP_MODE, false)};
+}
+
+/** Pause every outreach path: cold, follow-up and referral. */
+function pauseAllOutreach() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(PROP_MODE, MODE_PAUSE);
+  props.setProperty(PROP_FOLLOWUP_MODE, MODE_PAUSE);
+  props.setProperty(PROP_REFERRAL_MODE, MODE_PAUSE);
+  return {outreach: MODE_PAUSE, referral: MODE_PAUSE, followUp: MODE_PAUSE};
+}
+
+/** Resume every outreach path after a full-system pause. */
+function resumeAllOutreach() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty(PROP_MODE);
+  props.deleteProperty(PROP_FOLLOWUP_MODE);
+  props.deleteProperty(PROP_REFERRAL_MODE);
+  return {outreach: MODE_SEND, referral: MODE_SEND, followUp: MODE_SEND};
 }
 
 /** Resume the referral path after a pause, restoring its normal Send/Draft behaviour. */
@@ -987,8 +1006,8 @@ function outreachDailyCap_(date) {
  * left), which spreads fifteen emails as 2,2,2,2,2,2,2,1 across eight hours
  * instead of emptying the day's allowance at nine in the morning.
  *
- * These are drafting hours, not sending hours. Add DRAFT_LEAD_HOURS for the hour
- * a row actually leaves at.
+ * These are sending-hour slots. Cold drafts are projected twenty minutes before
+ * these slots; Referral keeps its separate one-hour draft lead.
  *
  * `firstHour` is the earliest hour still available. It defaults to the start of
  * the day, which is right for every day but today: an hour that has already gone
@@ -998,9 +1017,9 @@ function outreachDailyCap_(date) {
  * Datadog sat at 09:00 above an Anduril row really written at 10:21.
  */
 function outreachDraftHoursForDay_(count, firstHour) {
-  var first = firstHour === undefined ? DRAFT_HOUR_FIRST
-                                      : Math.max(DRAFT_HOUR_FIRST, firstHour);
-  return outreachSpreadHours_(count, first, DRAFT_HOUR_LAST);
+  var first = firstHour === undefined ? SEND_HOUR_FIRST
+                                      : Math.max(SEND_HOUR_FIRST, firstHour);
+  return outreachSpreadHours_(count, first, SEND_HOUR_LAST);
 }
 
 /**
@@ -1109,10 +1128,8 @@ function outreachThreadVerdict_(messages, ourId) {
  * Shared by both paths because both had the same shape of bug. The referral path
  * gets turn-taking free from its per-employer daily cap, except on ticked rows
  * where that cap is raised — six ticked rows then took the first six hours in a
- * row. The cold path never had a daily per-employer cap at all: COMPANY_WEEKLY_CAP
- * bounds a week, so a wave of three at one company sorted adjacent by Date Applied
- * and went out back to back, three near-identical notes into one office inside a
- * morning.
+ * row. The cold path has no additional rolling-week company cap: wave size,
+ * wave gap and the daily/mailbox caps are its limits.
  *
  * Order inside one company is preserved, so a re-plan tightens the line rather
  * than reshuffling who is next at any given employer.

@@ -201,6 +201,11 @@ function planReferralAsks() {
             });
 
     var referralRows = outreachReadReferralRows_(referral);
+    var targetCompanies = outreachReferralTargetCompanies_(tracker);
+    if (!targetCompanies) {
+      Logger.log('Target is unavailable, so no referral asks were planned.');
+      return { booked: 0, skipped: 0, ready: false, targetUnavailable: true };
+    }
     // The Email tab, read so the planner can ask what each day has left across all
     // three paths rather than only what this queue has taken. A day the cold path
     // has filled is a day to skip, not one to book into and discover at sending.
@@ -211,7 +216,8 @@ function planReferralAsks() {
         .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
     }
     var plan = outreachReferralPlan_(appRows, referralRows, employees, new Date(),
-                                     outreachReferralRoomOn_(queueRows, referralRows));
+                                     outreachReferralRoomOn_(queueRows, referralRows),
+                                     targetCompanies);
 
     // One setValues for the whole block. A write per row on a tab that can gain
     // a dozen rows in a run is a dozen round trips, and a run interrupted in the
@@ -233,7 +239,7 @@ function planReferralAsks() {
         });
         var currentReferralRows = outreachReadReferralRows_(referral);
         var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(
-          currentReferralRows, appRows, new Date());
+          currentReferralRows, appRows, new Date(), targetCompanies);
         var fastPriorityIndexes = {};
         currentReferralRows.forEach(function (row) {
           if (freshPriority[String(row.email || '').toLowerCase()]) {
@@ -254,6 +260,56 @@ function planReferralAsks() {
     Logger.log('referral asks booked ' + plan.booked.length + ', already written to '
              + plan.skipped + '.');
     return { booked: plan.booked.length, skipped: plan.skipped, reprioritized: reprioritized };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Safely clear the unsent Referral plan before a policy change.
+ *
+ * Sent, Replied and Bounced rows are immutable history and remain in the tab so
+ * the one-send-only rule survives. Queued and Drafted rows are soft-cancelled;
+ * any Gmail draft is deleted, and the recipient becomes eligible for the fresh
+ * plan because no message actually left the mailbox.
+ */
+function resetReferralQueueForFreshPlan() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) return { reset: 0, draftsDeleted: 0, preservedSentHistory: 0 };
+    var rows = outreachReadReferralRows_(referral);
+    var reset = 0, draftsDeleted = 0, preserved = 0;
+    rows.forEach(function (row) {
+      if (STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) {
+        if (row.status === STATUS_SENT || row.status === STATUS_REPLIED
+            || row.status === STATUS_BOUNCED) preserved++;
+        if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
+      } else {
+        return;
+      }
+      if (row.status === STATUS_DRAFTED && row.draftId) {
+        try {
+          GmailApp.getDraft(row.draftId).deleteDraft();
+          draftsDeleted++;
+        } catch (error) { /* already gone; the row is still reset */ }
+      }
+      var updates = {};
+      updates[R_STATUS] = STATUS_CANCELLED;
+      updates[R_CANCEL] = true;
+      updates[R_SCHEDULED] = '';
+      updates[R_DRAFTED_AT] = '';
+      updates[R_DRAFT_ID] = '';
+      updates[R_ERROR] = 'Reset for fresh Target-based referral plan; no email was sent.';
+      outreachWriteRow_(referral, row.index, updates);
+      reset++;
+    });
+    outreachSortReferralByTime_(referral);
+    Logger.log('Referral fresh-plan reset: ' + reset + ' unsent row(s), '
+      + draftsDeleted + ' Gmail draft(s) deleted; sent history preserved: ' + preserved + '.');
+    return { reset: reset, draftsDeleted: draftsDeleted, preservedSentHistory: preserved };
   } finally {
     lock.releaseLock();
   }
@@ -371,11 +427,11 @@ function outreachReferralPersonFor_(employees, email) {
 }
 
 /**
- * Cancel queued/drafted rows whose recipient is no longer in the strict seed.
+ * Cancel queued/drafted rows whose recipient is no longer in the allowed seed.
  *
  * This is deliberately run before drafting, sending, and replanning. Tightening
  * the admission rule must also protect rows booked under the old rule; otherwise
- * an already queued risky or pattern-calibrated address could still reach Gmail.
+ * an already queued address removed from Employees (seed) could still reach Gmail.
  */
 function outreachReferralCancelIneligible_(referral, rows, employees) {
   var allowed = {};
@@ -406,8 +462,37 @@ function outreachReferralCancelIneligible_(referral, rows, employees) {
   return cancelled;
 }
 
+/** Cancel unsent rows that missed the same-day/next-day application window. */
+function outreachReferralCancelOutsideWindow_(referral, rows, applications,
+                                              targetCompanies, today) {
+  if (!targetCompanies) return 0; // fail closed while Target is unavailable
+  var cancelled = 0;
+  rows.forEach(function (row) {
+    if (row.status !== STATUS_QUEUED && row.status !== STATUS_DRAFTED) return;
+    var problem = outreachReferralWindowProblem_(row, applications, targetCompanies, today);
+    if (!problem || problem === 'target-unavailable') return;
+    if (row.draftId) {
+      try { GmailApp.getDraft(row.draftId).deleteDraft(); } catch (error) { /* already gone */ }
+    }
+    var updates = {};
+    updates[R_STATUS] = STATUS_CANCELLED;
+    updates[R_CANCEL] = true;
+    updates[R_SCHEDULED] = '';
+    updates[R_DRAFTED_AT] = '';
+    updates[R_DRAFT_ID] = '';
+    updates[R_ERROR] = problem + '; cancelled before sending.';
+    outreachWriteRow_(referral, row.index, updates);
+    row.status = STATUS_CANCELLED;
+    row.cancel = true;
+    row.scheduled = null;
+    row.draftId = '';
+    cancelled++;
+  });
+  return cancelled;
+}
+
 /**
- * Write the next hour's referral asks into Drafts, addressed and complete.
+ * Write Referral asks one hour before their scheduled slot, addressed and complete.
  *
  * Nothing leaves here. Each row picked becomes a real draft to a real engineer,
  * with the resume attached — the same file, from the same property, through the
@@ -444,6 +529,23 @@ function draftReferralAsks() {
     var rows = outreachReadReferralRows_(referral);
     var employees = outreachReadEmployees_(contactsBook);
     var preCancelled = outreachReferralCancelIneligible_(referral, rows, employees);
+    var targetCompanies = outreachReferralTargetCompanies_(tracker);
+    var apps = tracker.getSheetByName(TAB_APP);
+    if (!targetCompanies || !apps) {
+      Logger.log('Target or App is unavailable; Referral drafting is held.');
+      return { drafted: 0, failed: 0, cancelled: preCancelled,
+               targetUnavailable: true };
+    }
+    if (apps.getLastRow() < 2) {
+      Logger.log('No applications are available; Referral drafting is held.');
+      return { drafted: 0, failed: 0, cancelled: preCancelled };
+    }
+    var applications = apps && apps.getLastRow() > 1
+      ? apps.getRange(2, 1, apps.getLastRow() - 1, APP_READ_WIDTH).getValues()
+          .map(function (row, index) { return outreachParseApplication_(row, index + 2); })
+      : [];
+    preCancelled += outreachReferralCancelOutsideWindow_(
+      referral, rows, applications, targetCompanies, now);
     var due = outreachReferralToDraft_(rows, now);
     if (!due.length) {
       Logger.log('No referral ask is close enough to its hour to be written.');
@@ -636,6 +738,11 @@ function sendReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   var employees = outreachReadEmployees_(contactsBook);
   var preCancelled = outreachReferralCancelIneligible_(referral, rows, employees);
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+  if (!targetCompanies) {
+    Logger.log('Target is unavailable; Referral sending is held.');
+    return { sent: 0, cancelled: preCancelled, failed: 0, targetUnavailable: true };
+  }
   var appLast = apps.getLastRow();
   if (appLast < 2) {
     Logger.log('No applications are available; Referral sending is held.');
@@ -643,7 +750,10 @@ function sendReferralAsks() {
   }
   var applications = apps.getRange(2, 1, appLast - 1, APP_READ_WIDTH).getValues()
     .map(function (row, index) { return outreachParseApplication_(row, index + 2); });
-  var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(rows, applications, now);
+  preCancelled += outreachReferralCancelOutsideWindow_(
+    referral, rows, applications, targetCompanies, now);
+  var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(
+    rows, applications, now, targetCompanies);
   var due = outreachReferralToSend_(rows, now, globalMode, queueRows, automaticPriorityDays);
   if (!due.length) { Logger.log('No referral ask is due this firing.'); return { sent: 0, cancelled: preCancelled, failed: 0 }; }
 
@@ -1152,11 +1262,25 @@ function replanReferralAsks() {
   var rows = outreachReadReferralRows_(referral);
   if (!rows.length) return { discarded: 0, moved: 0, cancelled: 0, ready: true };
   var employees = outreachReadEmployees_(contactsBook);
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+  var apps = tracker.getSheetByName(TAB_APP);
+  if (!targetCompanies || !apps || apps.getLastRow() < 2) {
+    Logger.log('Target or App is unavailable; Referral replan is held.');
+    return { discarded: 0, moved: 0, cancelled: 0, ready: false,
+             targetUnavailable: true };
+  }
+  var domainFor = outreachReferralDomainFor_(employees);
+  var applications = apps.getRange(2, 1, apps.getLastRow() - 1, APP_READ_WIDTH).getValues()
+    .map(function (row, index) {
+      return outreachParseApplication_(row, index + 2, domainFor);
+    });
 
   var tally = { discarded: 0, moved: 0, cancelled: 0, promoted: 0, repointed: 0, retired: 0,
                 sorted: 0, ready: true };
 
   tally.cancelled = outreachReferralCancelIneligible_(referral, rows, employees);
+  tally.cancelled += outreachReferralCancelOutsideWindow_(
+    referral, rows, applications, targetCompanies, new Date());
   tally.cancelled += outreachApplyReferralCancels_(referral, rows);
 
   outreachReferralAbandoned_(rows).forEach(function (row) {
@@ -1182,20 +1306,14 @@ function replanReferralAsks() {
   // should be about the newer one: it is the application still moving, and its
   // posting is the one most likely still open. A drafted row loses its draft with
   // its link, because a draft naming the old posting is worse than no draft.
-  var apps = tracker.getSheetByName(TAB_APP);
   if (apps && apps.getLastRow() > 1) {
-    var domainFor = outreachReferralDomainFor_(employees);
-    var applications = apps.getRange(2, 1, apps.getLastRow() - 1, APP_READ_WIDTH).getValues()
-      .map(function (row, index) {
-        return outreachParseApplication_(row, index + 2, domainFor);
-      });
     // A queued ask that predates a same-day/yesterday application must not miss
     // the fast lane merely because no new row needs appending. Drafted and Sent
     // rows remain fixed inside outreachReferralAutomaticPriorities_.
     var automaticPriorityDays = outreachReferralAutomaticPriorityDays_(
-      rows, applications, new Date());
+      rows, applications, new Date(), targetCompanies);
     var fastPriorityIndexes = {};
-    outreachReferralAutomaticPriorities_(rows, applications, new Date()).forEach(function (index) {
+    outreachReferralAutomaticPriorities_(rows, applications, new Date(), targetCompanies).forEach(function (index) {
       var updates = {};
       updates[R_PRIORITY] = true;
       outreachWriteRow_(referral, index, updates);
@@ -1204,7 +1322,7 @@ function replanReferralAsks() {
       fastPriorityIndexes[index] = true;
       tally.promoted++;
     });
-    var seen = outreachReferralReconcile_(rows, applications);
+    var seen = outreachReferralReconcile_(rows, applications, targetCompanies);
 
     seen.repoint.forEach(function (change) {
       var updates = {};

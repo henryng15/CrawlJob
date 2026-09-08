@@ -1,7 +1,9 @@
 # outreach_queue.gs — the Email tab
 
 The cold path's planner: which applications earn an email, who at that employer gets it, in what
-order, and what the tab should look like. 45 functions, most of them pure.
+order, and what the tab should look like. A wave contains up to three contacts; the next wave may
+open after 5 days of silence, and there is no per-company rolling-7-day cap. 45 functions, most
+of them pure.
 
 ## Connections
 
@@ -18,8 +20,7 @@ order, and what the tab should look like. 45 functions, most of them pure.
 | `outreachRoleTokens_(title)` | A role as the bag of words that say what the job is. |
 | `outreachSameRole_(a, b)` | Whether two roles at one employer are one posting written twice. Threshold `ROLE_MATCH = 0.6`. |
 | `outreachRankApplications_(rows)` | Which application at an employer leads. |
-| `outreachAttemptsWanted_(...)` | How many more people at this employer this application should reach. |
-| `outreachCompanySendsThisWeek_(...)` | What the company is already committed to, against `COMPANY_WEEKLY_CAP`. |
+| `outreachAttemptsWanted_(...)` | How many people the current wave can use; the former per-company rolling-week cap no longer applies. |
 | `outreachContactAvailable_(...)` | Whether this person may be written to about this intake today. |
 | `outreachPickContact_(...)` | The first contact who may be. |
 | `outreachPlanEnqueue_(...)` | **Pure planner:** data in, rows and reasons out. It counts non-cancelled templates already committed in `Email`, then gives each new row the least-used cold base and copy form; company relevance only breaks ties. |

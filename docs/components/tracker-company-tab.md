@@ -178,7 +178,7 @@ to tick one.
 | `companyPostedDay_(cell)` | Returns a posting date as `YYYY-MM-DD`, preserving date-only source cells without timezone drift. |
 | `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count, and its earliest live posting day. It no longer picks a posting link: nothing on the tab quotes one now. |
 | `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox four to its right, while accepting the prior three- and two-column offsets during migration. |
-| `companyReferralCounts_()` | Reads the sender-maintained hidden snapshot of unique `debounce:valid` addresses across `Employees (seed)`, for every company on the referral candidate list. |
+| `companyReferralCounts_()` | Reads the sender-maintained hidden snapshot of unique non-invalid addresses across `Employees (seed)`, for every company on the referral candidate list. |
 | `companyJobsFingerprint_(postings)` | What `Jobs` says, reduced to the company, season, posting day and link this tab reads off it. |
 | `companySheet_(create)` | The tab, made if absent. |
 | `companyPaintHeader_(sheet)` | Header, widths, frozen row. Run on every rebuild, so a tab somebody widened comes back to itself. |

@@ -329,9 +329,6 @@ function outreachCompanyOnTarget_(company, targetCompanies) {
 /**
  * Build the rows to append. Pure: hand it data, get back rows and reasons.
  */
-/**
- * Build the rows to append. Pure: hand it data, get back rows and reasons.
- */
 function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt, targetCompanies) {
   var byProperty = {};
   // Fingerprint to what is known about it: whether anything has actually gone, and

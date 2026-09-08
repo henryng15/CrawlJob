@@ -36,7 +36,7 @@ Two rules shape it:
 | Function | Does |
 |---|---|
 | `runOutreachCycle()` | The above. Returns `summary`; throws at the end if any step failed, so the run shows red in Executions. |
-| `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts, then creates any Referral draft now inside its lead window. The latter closes the gap after a Priority/cancellation replan late in an hour; send still comes first, so a draft cannot be created and sent in one tick. It does not plan or scan. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
+| `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts, then creates any cold draft inside its 20-minute lead window and any Referral draft inside its one-hour lead window. Send still comes first, so a draft cannot be created and sent in one tick. It does not plan or scan. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
 | `outreachHealthStart_(tracker, runId)` | Stamps `Cycle Health` **before** the fatal schema step, newest row first, trimmed to 240 rows. |
 | `outreachHealthFinish_(sheet, runId, summary, failures)` | Closes that row with `ok`/`failed`, the failed step names, and the summary. |
 | `installOutreachTriggers()` | Hourly `runOutreachCycle`, one-minute `runOutreachSendTick`, plus the `onEdit` trigger. Clears existing ones first. |
@@ -51,10 +51,10 @@ leaves behind.** That is why there are two stamps rather than one — see
 
 | Function | Does |
 |---|---|
-| `prepareOutreachDrafts()` | Write the next hour's emails into Drafts, addressed and complete. It passes the Referral rows into the shared budget so the Referral allocation is reserved before cold drafting uses the remainder. |
+| `prepareOutreachDrafts()` | Write cold emails into Drafts twenty minutes before their projected send slot, addressed and complete. It passes the Referral rows into the shared budget so the Referral allocation is reserved before cold drafting uses the remainder. |
 | `outreachDraftsToSend_(rows, now)` | The drafts whose hour has come. |
-| `sendPreparedDrafts()` | Send what was written an hour ago. **Re-reads `App` for every draft**, so a rejection recorded by any route still stops it. |
-| `outreachSendHourAfter_(now)` | The hour a draft written now leaves in — the top of it, not the minute. |
+| `sendPreparedDrafts()` | Send what was written at least twenty minutes ago. **Re-reads `App` for every draft**, so a rejection recorded by any route still stops it. |
+| `outreachSendHourAfter_(now)` | The twenty-minute fallback send time for a newly queued cold row without a projected slot. |
 | `outreachStillQualifies_(row)` | Re-read the application this row was built from. |
 | `outreachDiscardDraft_(id)` | Throw away a draft that must not go. |
 | `outreachWriteRow_(sheet, index, updates)` | Write named columns of one row. **One API call per row.** |

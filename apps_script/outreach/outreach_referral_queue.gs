@@ -269,12 +269,12 @@ function outreachReadEmployees_(contactsSpreadsheet) {
     var email = outreachCell_(row, E_EMAIL).toLowerCase();
     var company = outreachCell_(row, E_COMPANY);
     if (!email || email.indexOf('@') === -1 || !company) return;
-    // Referral seed rows are admitted only by ColdEmail's final DeBounce gate.
-    // Keep the exact value here as a second line of defence: the seed is a
-    // generated handoff between projects, and an old or manually edited row
-    // must not become sendable merely because it has an address.
+    // Every verdict is admitted except the explicit DeBounce invalid verdict.
+    // This is the user's broad referral policy: valid, risky,
+    // pattern-calibrated, Hunter/Anymail, blank and other non-invalid verdicts
+    // may be used; only an explicit invalid result is blocked.
     var verify = outreachCell_(row, E_VERIFY).toLowerCase();
-    if (verify.indexOf(REFERRAL_VERIFY_PREFIX) !== 0 || verify === REFERRAL_REJECTED_VERIFY) return;
+    if (verify === REFERRAL_REJECTED_VERIFY) return;
     // Already asked, on any earlier run or before the rebuild. Dropped here
     // rather than in the planner so that every count of "people available at
     // this employer" agrees -- the referral cap is six per company for life, and
@@ -355,6 +355,78 @@ function outreachReferralIsQuantFirm_(company) {
   });
 }
 
+// Target is maintained by the bound tracker script, but the sender owns the
+// Referral decision. Read the four five-column blocks directly so a manual
+// addition on Target becomes a hard exclusion on the next referral cycle.
+var REFERRAL_TARGET_BLOCK_COLS = [1, 7, 13, 19];
+var REFERRAL_TARGET_BLOCK_WIDTH = 5;
+var REFERRAL_TARGET_READ_WIDTH = 23;
+
+function outreachReferralTargetCompanies_(tracker) {
+  var target = tracker.getSheetByName('Target');
+  if (!target) return null;
+  var last = target.getLastRow();
+  if (last < 2) return {};
+  var values;
+  try {
+    values = target.getRange(2, 1, last - 1, REFERRAL_TARGET_READ_WIDTH).getValues();
+  } catch (error) {
+    Logger.log('Target could not be read; Referral planning is held: '
+      + String(error.message || error));
+    return null;
+  }
+  var names = [];
+  values.forEach(function (row) {
+    REFERRAL_TARGET_BLOCK_COLS.forEach(function (column) {
+      var name = outreachCell_(row, column);
+      if (name) names.push(name);
+    });
+  });
+  var companies = {};
+  names.forEach(function (name) {
+    var tokens = outreachCompanyTokens_(name);
+    if (tokens.length) companies[tokens.join('\u0000')] = tokens;
+  });
+  return companies;
+}
+
+function outreachReferralCompanyIsTarget_(company, targetCompanies) {
+  if (!targetCompanies) return false;
+  var tokens = outreachCompanyTokens_(company);
+  if (!tokens.length) return false;
+  return Object.keys(targetCompanies).some(function (key) {
+    return outreachSameEmployer_(tokens, targetCompanies[key]);
+  });
+}
+
+function outreachReferralApplicationAge_(application, today) {
+  var applied = application && application.dateApplied;
+  if (!applied) return Infinity;
+  return outreachDaysBetween_(outreachMidnight_(applied), outreachMidnight_(today));
+}
+
+/** Why an unsent Referral row is no longer inside the fresh-application gate. */
+function outreachReferralWindowProblem_(referralRow, applications, targetCompanies, today) {
+  if (!targetCompanies) return 'target-unavailable';
+  if (outreachReferralCompanyIsTarget_(referralRow.company, targetCompanies)) {
+    return 'Target company';
+  }
+  var companyTokens = outreachCompanyTokens_(referralRow.company);
+  var roleKey = outreachNameKey_(referralRow.role);
+  var candidates = (applications || []).filter(function (application) {
+    if (!application.company || !outreachReferralLive_(application)) return false;
+    if (!outreachSameEmployer_(companyTokens, outreachCompanyTokens_(application.company))) {
+      return false;
+    }
+    return !roleKey || outreachNameKey_(application.role) === roleKey;
+  });
+  if (!candidates.length) return 'No matching live application';
+  var fresh = candidates.some(function (application) {
+    return outreachReferralAdmission_(application, today, targetCompanies).eligible;
+  });
+  return fresh ? '' : 'Application referral window expired';
+}
+
 /**
  * The admission rule for a new Referral row.
  *
@@ -362,22 +434,22 @@ function outreachReferralIsQuantFirm_(company) {
  * drafted ask is already a commitment with a scheduled hour (and perhaps a
  * Gmail draft); changing eligibility must never silently withdraw it.
  */
-function outreachReferralAdmission_(application, today) {
+function outreachReferralAdmission_(application, today, targetCompanies) {
   if (outreachReferralIsQuantFirm_(application.company)) {
     return { eligible: false, priority: false, reason: 'quant' };
   }
-  var applied = application.dateApplied;
-  var days = applied ? outreachDaysBetween_(outreachMidnight_(applied),
-                                            outreachMidnight_(today)) : Infinity;
+  if (!targetCompanies) {
+    return { eligible: false, priority: false, reason: 'target-unavailable' };
+  }
+  if (outreachReferralCompanyIsTarget_(application.company, targetCompanies)) {
+    return { eligible: false, priority: false, reason: 'target-company' };
+  }
+  var days = outreachReferralApplicationAge_(application, today);
   if (days >= 0 && days <= REFERRAL_RECENT_APPLICATION_DAYS) {
     return { eligible: true, priority: days <= REFERRAL_PRIORITY_APPLICATION_DAYS,
-             reason: 'recent', days: days };
+             reason: 'outside-target-fresh-application', days: days };
   }
-  if (application.property > 0
-      && application.property <= REFERRAL_TOP_COMPANY_PROPERTY_MAX) {
-    return { eligible: true, priority: false, reason: 'top-company', days: days };
-  }
-  return { eligible: false, priority: false, reason: 'stale-or-outside-top', days: days };
+  return { eligible: false, priority: false, reason: 'outside-target-window', days: days };
 }
 
 /**
@@ -390,9 +462,9 @@ function outreachReferralAdmission_(application, today) {
  * to urgency after it exists breaks the review promise. The result is just the
  * row indexes; the sender owns the actual sheet writes.
  */
-function outreachReferralAutomaticPriorities_(referralRows, applications, today) {
+function outreachReferralAutomaticPriorities_(referralRows, applications, today, targetCompanies) {
   var priorityDaysByIndex = outreachReferralAutomaticPriorityDays_(
-    referralRows, applications, today);
+    referralRows, applications, today, targetCompanies);
   return referralRows.filter(function (row) {
     return row.status === STATUS_QUEUED && !row.cancel && !row.priority
       && priorityDaysByIndex[row.index] !== undefined;
@@ -408,11 +480,11 @@ function outreachReferralAutomaticPriorities_(referralRows, applications, today)
  * Priority checkbox would leave whichever row happened to be scheduled first
  * in front forever.
  */
-function outreachReferralAutomaticPriorityDays_(referralRows, applications, today) {
+function outreachReferralAutomaticPriorityDays_(referralRows, applications, today, targetCompanies) {
   var hot = {};
   (applications || []).forEach(function (application) {
     if (!application.company) return;
-    var admission = outreachReferralAdmission_(application, today);
+    var admission = outreachReferralAdmission_(application, today, targetCompanies);
     if (!admission.priority || typeof admission.days !== 'number'
         || !isFinite(admission.days)) return;
     var key = outreachNameKey_(application.company);
@@ -471,11 +543,11 @@ function outreachReferralRejectedFor_(referralRow, applications) {
  * notes, as somebody applying to everything rather than to something. One
  * application is chosen and everybody there is asked about that one.
  *
- * Ordered, and every tie broken so the answer does not move between runs: a role
- * the shortener recognises as a software engineering internship first, because
- * that is the job actually wanted and the rest are near misses; then the most
- * recently applied to, because that is the one still moving and the one the
- * writer can speak about; then the role text, which settles whatever is left.
+ * Ordered, and every tie broken so the answer does not move between runs: a
+ * Software Engineer/Engineering Intern first; then a role naming Technology;
+ * then the remaining usable roles. Within one tier the most recently applied
+ * role wins, because that is the one still moving and the one the writer can
+ * speak about; role text settles whatever is left.
  *
  * An application with no usable link is never the one chosen, so a single
  * aggregator row cannot hide a company's good link behind it. Nor is a rejected
@@ -487,22 +559,19 @@ function outreachPickReferralRole_(applications) {
   });
   if (!usable.length) return null;
   var rank = function (one) {
-    return outreachShortRole_(one.role) === DEFAULT_SHORT_ROLE ? 0 : 1;
+    var tokens = outreachRoleTokens_(one.role);
+    var softwareEngineerIntern = tokens.indexOf('software') !== -1
+      && tokens.indexOf('engineer') !== -1
+      && tokens.indexOf('intern') !== -1;
+    if (softwareEngineerIntern) return 0;
+    if (tokens.indexOf('technology') !== -1) return 1;
+    return 2;
   };
   usable.sort(function (left, right) {
-    // The most recent application first, and this is the ordering that was wrong.
-    // It used to rank by how squarely the title read as a software engineering
-    // internship and only then by date, which meant a company that gained a newer
-    // application kept being asked about the older one: Intuit's "Intern, Software
-    // Engineering" outranked its "Summer 2027: Software Engineering Intern - Full
-    // Stack" purely because the shortener recognised the first heading and not the
-    // second. The newer application is the one still moving, the one the writer
-    // can speak to, and the one whose posting is likeliest still open.
+    if (rank(left) !== rank(right)) return rank(left) - rank(right);
     var leftAt = left.dateApplied ? left.dateApplied.getTime() : 0;
     var rightAt = right.dateApplied ? right.dateApplied.getTime() : 0;
     if (leftAt !== rightAt) return rightAt - leftAt;
-    // Only then how well the title reads, for two applications made the same day.
-    if (rank(left) !== rank(right)) return rank(left) - rank(right);
     return left.role < right.role ? -1 : (left.role > right.role ? 1 : 0);
   });
   return usable[0];
@@ -577,31 +646,32 @@ function outreachParseReferral_(row, index) {
  * is no second attempt in this design, because the thing being asked for is a
  * favour and asking twice for a favour that was not granted is not persistence.
  *
- * Cancelled rows count as written to. The row was made, the person was chosen,
- * and somebody decided against it; putting them back in the queue on the next
- * run would undo that decision every hour.
+ * Cancelled and Failed rows do not count as written: no message reached that
+ * person. This lets a fresh-plan reset safely return unsent recipients to the
+ * pool while Sent, Replied and Bounced remain permanent history.
  */
 function outreachReferralAsked_(referralRows) {
   var asked = {};
   referralRows.forEach(function (row) {
-    if (row.email) asked[row.email] = true;
+    if (row.email && STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) {
+      asked[row.email] = true;
+    }
   });
   return asked;
 }
 
 /**
- * How many people at one employer already have a row, whatever became of it.
+ * How many people at one employer already have an active or sent row.
  *
- * Failed rows are counted. A message that could not be sent still consumed one
- * of the three people at that company, because the reason it failed is almost
- * never the person: retrying by choosing somebody else spends the employer's
- * remaining names on one broken run.
+ * Cancelled and Failed rows are free. They never reached a person, so an
+ * operational reset or a transient Gmail failure does not lose a valid contact.
  */
 function outreachReferralSpent_(referralRows, company) {
   var tokens = outreachCompanyTokens_(company);
   if (!tokens.length) return 0;
   return referralRows.filter(function (row) {
-    return outreachSameEmployer_(tokens, row.tokens);
+    return STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1
+      && outreachSameEmployer_(tokens, row.tokens);
   }).length;
 }
 
@@ -713,11 +783,12 @@ function outreachReferralPrioritySlot_(company, today, used) {
  * both. There is no ceiling: unlike a follow up, a referral ask has no window it
  * can miss, so a backlog is spread rather than dropped.
  */
-function outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority) {
+function outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority, latestDay) {
   var hours = outreachSpaceHours_(REFERRAL_DAILY_CAP, REFERRAL_HOUR_FIRST, REFERRAL_HOUR_LAST);
   var name = outreachNameKey_(company);
   for (var ahead = 0; ahead < 180; ahead++) {
     var day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + ahead);
+    if (latestDay && day > outreachMidnight_(latestDay)) break;
     var key = outreachDayKey_(day);
     // Saturday and Sunday are skipped whole. A first message to a stranger asking
     // for a favour, arriving on a Saturday morning, says the sender either did not
@@ -802,12 +873,12 @@ function outreachReferralSlot_(company, today, load, roomOn, priority, fastPrior
  * bar on the live tab against two under the old rule.
  *
  * New rows have a short admission window instead of an unbounded backlog: an
- * application stays eligible for seven days, unless its non-quant employer is
- * in the existing top-70 Property ranks. An application made today or yesterday
- * is Priority, because the file is still near the top of somebody's queue. The
- * gate is new-row-only; it does not withdraw an ask already in the pipeline.
+ * application at a non-Target, non-quant employer is eligible only on the day it
+ * was made or the following calendar day. Both ages are Priority, because the
+ * referral has to be acted on while the application is still fresh.
  */
-function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) {
+function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn, targetCompanies) {
+  if (!targetCompanies) return { booked: [], skipped: 0, ready: false };
   var asked = outreachReferralAsked_(referralRows);
   var load = outreachReferralLoad_(referralRows, null);
   // Body templates are balanced independently per seniority tier. A template
@@ -862,7 +933,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
     // fresh app and one stale low-priority app, the stale one must not win merely
     // because it happens to be newer than another row in the group.
     var admitted = byCompany[key].filter(function (one) {
-      return outreachReferralAdmission_(one, today).eligible;
+      return outreachReferralAdmission_(one, today, targetCompanies).eligible;
     });
     var job = outreachPickReferralRole_(admitted);
     if (!job) return;
@@ -874,7 +945,7 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
     var spent = outreachReferralSpent_(referralRows, job.company);
     if (REFERRAL_PER_COMPANY - spent <= 0) return;
 
-    var admission = outreachReferralAdmission_(job, today);
+    var admission = outreachReferralAdmission_(job, today, targetCompanies);
     plans.push({ job: job, people: people, at: 0, taken: 0,
                  spent: spent, room: REFERRAL_PER_COMPANY - spent,
                  priority: admission.priority, days: admission.days,
@@ -898,51 +969,25 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
     return left.order - right.order;
   });
 
-  // Round by round rather than company by company, and this is the change that
-  // makes REFERRAL_COMPANY_DAILY_CAP mean what it says.
-  //
-  // The loop used to take one employer and book all six of its people before
-  // looking at the next. Capping the day at one person per company spread those
-  // six across six days, which is what the cap is for — but it did nothing about
-  // the order of the companies, so the first twenty employers filled the first
-  // six days between them and the two hundredth waited a quarter of a year to hear
-  // anything at all. The cap spread the six; it did not spread the 221.
-  //
-  // Inverted, the outer loop is the attempt number and the inner one is the
-  // companies, so every employer gets its first ask before any employer gets its
-  // second. A full pass over the live dataset is about three weeks rather than
-  // five months, and the first ask is the one that has to land near the date
-  // applied — the sixth is a message about an application the reader will have to
-  // look up either way.
-  //
-  // It costs nothing in volume. 221 employers at six people is the same 1,326
-  // messages in either order, over the same ninety five working days; what changes
-  // is which of them go first. 221 employers heard from once beats 37 worked to
-  // exhaustion, because the five extra notes at a company that was never going to
-  // answer are the cheapest thing on the tab to give up.
-  //
-  // openFirst still orders the companies inside each round, so an employer already
-  // part-way through is served before one nobody has opened. That rule was written
-  // against the old loop and survives the inversion unchanged: it decides who goes
-  // first within a round, where it used to decide who was finished first.
-  for (var round = 0; round < REFERRAL_PER_COMPANY; round++) {
-    var placed = 0;
-    plans.forEach(function (plan) {
-      if (plan.room <= 0) return;
-
+  // Work one company cluster at a time. This keeps the six contacts for one
+  // application together in the schedule, while the 15-message daily cap still
+  // limits the total cluster size that can be sent on any day.
+  plans.forEach(function (plan) {
+    while (plan.room > 0) {
       // The next person here nobody has been written to. Walking the skips rather
-      // than filtering them up front keeps the count honest: an address is counted
-      // once, on the round that first steps over it.
+      // than filtering them up front keeps the count honest.
       while (plan.at < plan.people.length && asked[plan.people[plan.at].email]) {
         skipped++;
         plan.at++;
       }
-      if (plan.at >= plan.people.length) { plan.room = 0; return; }
+      if (plan.at >= plan.people.length) { plan.room = 0; break; }
       var person = plan.people[plan.at];
 
       var slot = outreachReferralSlot_(plan.job.company, today, load, roomOn,
-                                       plan.priority, plan.priority);
-      if (!slot) return;
+                                       plan.priority, plan.priority,
+                                       new Date(today.getFullYear(), today.getMonth(),
+                                                today.getDate() + (plan.days === 0 ? 1 : 0)));
+      if (!slot) break;
 
       var attempt = plan.spent + plan.taken + 1;
       var tier = outreachReferralTier_(person.title, person.seniority);
@@ -966,15 +1011,10 @@ function outreachReferralPlan_(appRows, referralRows, employees, today, roomOn) 
       plan.at++;
       plan.taken++;
       plan.room--;
-      placed++;
 
       outreachReferralLoadAdd_(load, slot, plan.job.company);
-    });
-    // Nothing placed anywhere means no later round will place anything either:
-    // every company is either finished or out of people, and the days ahead are
-    // not going to get emptier by being asked about again.
-    if (!placed) break;
-  }
+    }
+  });
 
   return { booked: booked, skipped: skipped };
 }
@@ -1108,14 +1148,8 @@ function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexe
   // Two lines, not one, and the ticked one is served whole before the other is
   // looked at. A tick that only lifted a row above the rows due at the same minute
   // would mean "slightly sooner"; ahead of everything unticked is what it was
-  // asked to mean.
-  //
-  // Each line is then interleaved so employers take turns within it. Sorting by
-  // hour alone kept a company's rows adjacent — they were booked together — and
-  // for ordinary rows the per-employer daily cap breaks that up anyway, so nobody
-  // noticed. A ticked company raises that cap, so its six rows took the first six
-  // hours in a row: the group arrived at the front, which was right, and arrived
-  // as a block, which was not.
+  // asked to mean. Within either line, preserve company clusters so a fresh
+  // application is handled as one coherent referral ask.
   var byTime = function (left, right) {
     var a = left.scheduled ? left.scheduled.getTime() : Infinity;
     var b = right.scheduled ? right.scheduled.getTime() : Infinity;
@@ -1138,13 +1172,25 @@ function outreachReferralReplan_(referralRows, today, roomOn, fastPriorityIndexe
   var ticked = movable.filter(function (row) { return urgent[row.index]; })
     .sort(byPriorityThenTime);
   var rest = movable.filter(function (row) { return !urgent[row.index]; }).sort(byTime);
-  movable = outreachInterleaveByCompany_(ticked)
-    .concat(outreachInterleaveByCompany_(rest));
+  var clusterRows = function (rows) {
+    var groups = {}, order = [];
+    rows.forEach(function (row) {
+      var key = outreachNameKey_(row.company);
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(row);
+    });
+    return order.reduce(function (all, key) { return all.concat(groups[key]); }, []);
+  };
+  movable = clusterRows(ticked).concat(clusterRows(rest));
 
   var moved = [];
   movable.forEach(function (row) {
+    var age = priorityDaysByIndex[row.index];
+    var latestDay = new Date(today.getFullYear(), today.getMonth(),
+                             today.getDate() + (age === 0 ? 1 : 0));
     var slot = outreachReferralSlot_(row.company, today, fixed, roomOn,
-                                     urgent[row.index], fastPriorityIndexes[row.index] === true);
+                                     urgent[row.index], fastPriorityIndexes[row.index] === true,
+                                     latestDay);
     // A row with nowhere to go keeps the hour it already had, so the hour has to
     // go on being counted. Returning without it let the next row be placed on top
     // of an hour the tab still shows as taken — the day's arithmetic quietly
@@ -1482,7 +1528,7 @@ function outreachReferralToCancel_(referralRows) {
  * draft goes with them, because a draft naming a posting the writer has moved on
  * from is worse than no draft at all.
  */
-function outreachReferralReconcile_(referralRows, applications) {
+function outreachReferralReconcile_(referralRows, applications, targetCompanies) {
   var best = {}, byCompany = {};
   applications.forEach(function (one) {
     if (!one.company) return;
@@ -1491,7 +1537,10 @@ function outreachReferralReconcile_(referralRows, applications) {
     byCompany[key].push(one);
   });
   Object.keys(byCompany).forEach(function (key) {
-    var pick = outreachPickReferralRole_(byCompany[key]);
+    var current = byCompany[key].filter(function (application) {
+      return outreachReferralAdmission_(application, new Date(), targetCompanies).eligible;
+    });
+    var pick = outreachPickReferralRole_(current);
     if (pick) best[key] = pick;
   });
 

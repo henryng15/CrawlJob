@@ -1,15 +1,14 @@
 # outreach_referral_queue.gs — the Referral tab
 
 Decides which applications are worth asking a favour about, who to ask, on what day and at what
-hour, and in what order. A **new** row is admitted only for a non-quant employer whose application
-is at most seven calendar days old or whose `App!Property` rank is in the top 70. An application
-made today or yesterday is marked `Priority`; **today is ordered before yesterday**, and the
-overall mailbox cap still applies. Referral is planned before the other paths and reserves up to
-its full 20-message daily allowance; Email and Reply coordinate over the remainder. Existing
-Referral rows are normally never removed by the application admission rule. A separate recipient
-safety gate cancels any queued or drafted row whose email is not present in the strict
-`Employees (seed)` export: only `debounce:valid` rows survive, so pattern-calibrated, risky,
-invalid, and unverified addresses cannot reach Gmail.
+hour, and in what order. A **new** row is admitted only for a non-quant employer that is **not** in
+the live `Target` tab and whose application was made today or yesterday. Referral is planned before
+the other paths, capped at 15 asks per day, and the remainder goes to Email and Reply. Contacts are
+booked by company/application cluster so one employer's asks stay together. Unsent rows that enter
+the Target list or miss the two-day window are automatically cancelled. A separate recipient
+safety gate cancels any queued or drafted row whose email is missing from `Employees (seed)` or
+whose Verify value is the explicit `debounce:invalid`; blank and all other verification verdicts,
+including pattern-calibrated and risky, may reach Gmail.
 Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach-referral-send.md).
 
 ## Connections
@@ -17,15 +16,16 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 - **Reads:** `App` (every row is an application already made), `Employees (seed)` in the contacts
   spreadsheet, and the `Referral` tab itself.
 - **Budget:** `outreachReferralRoomOn_` wraps `outreachBudgetRoom_`.
-- **Shares:** `outreachInterleaveByCompany_` with the cold planner.
+- **Shares:** the employer normaliser with the cold planner; Referral scheduling keeps each
+  application/company cluster together.
 
 ## The three caps
 
 | Cap | Value | Why |
 |---|---|---|
-| `REFERRAL_DAILY_CAP` | 20 | What the mailbox will carry. Six of the fourteen 06:00–19:00 hours have capacity for two asks; no hour receives more than two. The shared 47-message mailbox cap remains authoritative. |
+| `REFERRAL_DAILY_CAP` | 15 | Hard referral maximum per day. The shared 47-message mailbox cap remains authoritative. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. No second attempt, ever. |
-| `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. A full day reaches up to twenty employers rather than repeatedly concentrating on two, and the second ask at a company is still unwritten when the first is read — which is what gives a reply something to stop. |
+| `REFERRAL_COMPANY_DAILY_CAP` | **6** | People per employer/application cluster per day. This keeps a fresh company's ask together without exceeding the six-person lifetime cap. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a **ticked** employer gets: the whole group in one day if the day holds it. Raises the per-employer cap; the mailbox's own cap is never lifted, so ticking everything changes who goes first, not how many go. |
 
 ## Which link, which posting
@@ -42,21 +42,22 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 | `outreachReferralSeason_(role)` | Whether a posting names the intake being asked about. `REFERRAL_REQUIRE_SEASON` is `false`: of 327 live `App` rows only 81 say "summer", and having applied is a far stronger signal than a word in a title. |
 | `outreachReferralLive_(app)` | Whether this application is still worth asking a favour about. |
 | `outreachReferralIsQuantFirm_(company)` | Whether the company matches the maintained quant-firm exclusion list. |
-| `outreachReferralAdmission_(app, today)` | The new-row gate: rejects quant firms, admits a ≤7-day application or a non-quant top-70 `Property` company, and marks applications from today or yesterday as automatic `Priority`. Does not alter existing Referral rows. |
-| `outreachReferralAutomaticPriorities_(rows, apps, today)` | Finds existing **Queued** Referral rows at an employer with a today/yesterday application so the sender can persist Priority before re-timing. Drafted and Sent rows remain fixed. |
-| `outreachReferralAutomaticPriorityDays_(rows, apps, today)` | Maps queued automatic-Priority rows to application age (`0` today, `1` yesterday), so an existing queue is re-timed in fresh-application order rather than by its old scheduled hour. |
-| `outreachPickReferralRole_(apps)` | Which of a company's applications to ask about. |
+| `outreachReferralTargetCompanies_(tracker)` | Reads the four live Target blocks and returns the normalized company set used as the authoritative exclusion list. If Target cannot be read, planning is held. |
+| `outreachReferralAdmission_(app, today, targetCompanies)` | The new-row gate: rejects quant firms and Target companies, and admits only an application made today or yesterday. Both ages are automatic `Priority`. |
+| `outreachReferralAutomaticPriorities_(rows, apps, today, targetCompanies)` | Finds existing **Queued** Referral rows at a non-Target employer with a today/yesterday application so the sender can persist Priority before re-timing. Drafted and Sent rows remain fixed. |
+| `outreachReferralAutomaticPriorityDays_(rows, apps, today, targetCompanies)` | Maps queued automatic-Priority rows to application age (`0` today, `1` yesterday), so an existing queue is re-timed inside its deadline. |
+| `outreachPickReferralRole_(apps)` | Chooses one role per company: Software Engineer/Engineering Intern first, then a Technology role, then the remaining usable role by newest application and stable title order. |
 
 ## People
 
 | Function | Does |
 |---|---|
-| `outreachReadEmployees_(sheet)` | Employees by employer, from the tab ColdEmail exports; admits only rows whose `Verify` cell is exactly `debounce:valid`. |
+| `outreachReadEmployees_(sheet)` | Employees by employer, from the tab ColdEmail exports; admits every `Verify` value except `debounce:invalid`, including blank values. |
 | `outreachEmployeesFor_(employees, company)` | The people at one employer. |
 | `outreachParseApplication_(row, index, domainFor)` | One `App` row as the fields this path reads. |
 | `outreachParseReferral_(row, index)` | One `Referral` row. Checkboxes read `=== true`: an untouched box reads as `''`, not `false`. |
-| `outreachReferralAsked_(rows)` | Everyone this path has written to or is about to — **by address only**. A person is asked once and never again; asking twice for a favour is not persistence. Cancelled rows count as asked. |
-| `outreachReferralSpent_(rows, company)` | How many people at one employer already have a row, whatever became of it. |
+| `outreachReferralAsked_(rows)` | Everyone in an active or sent row — **by address only**. Sent/Replied/Bounced are permanent; Cancelled/Failed rows are reusable because no message reached that person. |
+| `outreachReferralSpent_(rows, company)` | How many people at one employer have an active or sent row; Cancelled/Failed rows do not consume the six-person allowance. |
 
 ## Scheduling
 
@@ -64,10 +65,10 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 |---|---|
 | `outreachReferralLoad_(rows, upTo)` | Rows already booked per day, in total, per employer, by occupied hour and by exact timestamp for the Priority fast lane. |
 | `outreachReferralPriorityGapMinutes_(...)` / `outreachReferralPrioritySlot_(...)` | Stable 10–20 minute jitter and the Priority slot finder. It uses the next two hours, avoids any Referral already within ten minutes, and returns no fast slot rather than bursting. |
-| `outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority)` | **The first slot this person can have.** A newly automatic Priority row first tries the two-hour fast lane, including a weekend or after the normal cutoff; otherwise it walks forward a day at a time, skipping weekends, checking the day's mailbox room, Referral cap and per-employer cap. Priority remains first in the normal queue after that one fast-lane pass, so an overloaded burst stays stable rather than re-timing hourly. At 20/day six ordinary hours may take two asks; no hour takes more than two. |
-| `outreachReferralPlan_(...)` | **Which rows to add.** Applies the new-row admission gate before choosing a role, orders today's applications first, yesterday's second, then older eligible work, and runs round-robin within each group. |
+| `outreachReferralSlot_(company, today, load, roomOn, priority, fastPriority, latestDay)` | **The first slot this person can have**, never later than the application's same-day/next-day deadline. It checks mailbox room, the 15-message Referral cap and the per-company cluster cap. |
+| `outreachReferralPlan_(...)` | **Which rows to add.** Applies Target + freshness admission, orders today before yesterday, and books each company cluster contiguously. |
 | `outreachReferralRoomOn_(queueRows, rows)` | Returns a *function* of day, because the planner asks about days it has not thought of yet. Referral's 20 slots are considered before lower paths; unused Referral room can still be used by Email and Reply. |
-| `outreachReferralReplan_(rows, today, roomOn, fastPriorityIndexes, priorityDaysByIndex)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Manual Priority first, then automatic Priority applications from today and yesterday in that order, then the rest; each half is interleaved by company. `fastPriorityIndexes` is a one-run map for applications just recognised as today/yesterday Priority; only those rows use the two-hour lane. `priorityDaysByIndex` keeps already queued automatic rows in fresh-application order even when their old hours disagree. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
+| `outreachReferralReplan_(rows, today, roomOn, fastPriorityIndexes, priorityDaysByIndex)` | **Re-times still-`Queued` rows whose drafting window has not opened.** Manual Priority first, then automatic Priority applications from today and yesterday in that order, then the rest; each half remains grouped by company cluster. `fastPriorityIndexes` is a one-run map for applications just recognised as today/yesterday Priority; only those rows use the two-hour lane. `priorityDaysByIndex` keeps already queued automatic rows in fresh-application order even when their old hours disagree. A queued row already due to be drafted keeps its hour so a transient dependency failure retries rather than being deferred every hour. `Drafted` rows have an addressed message against a particular hour, and `Sent` rows are history. All three occupy their day. |
 | `outreachReferralDueNow_(rows, now, queueRows, priorityDaysByIndex)` | Rows whose hour has come, `Drafted` and due, priority ahead of the clock; automatic Priority due today is selected before yesterday when a firing has limited room. |
 | `outreachReferralAbandoned_(rows)` | Rows whose Gmail draft now points at a message nobody wants sent. |
 

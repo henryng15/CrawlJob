@@ -252,10 +252,15 @@ function targetAgeDays_(postedDay, todayDay) {
   return Math.floor((todayUtc - postedUtc) / 86400000);
 }
 
-/** Whether a title belongs to the software-engineering role family. */
+/** Whether a title is in scope for Target opening classification. */
 function targetIsSoftwareEngineerRole_(role) {
   var title = String(role == null ? '' : role).trim();
-  return /\b(?:software\s+(?:engineer(?:ing)?|developer)|swe|application\s+development)\b/i.test(title);
+  return /\b(?:software|technology|engineering)\b/i.test(title);
+}
+
+/** Titles that must never count as a Target opening. */
+function targetIsExcludedRole_(role) {
+  return /\b(?:phd|graduate|master|2026)\b/i.test(String(role == null ? '' : role));
 }
 
 /** Whether a title explicitly names a Summer intake. */
@@ -263,35 +268,87 @@ function targetIsExplicitSummerRole_(role) {
   return /\bsummer\b/i.test(String(role == null ? '' : role));
 }
 
-/** Whether a title explicitly names an off-cycle intake. */
+/** Whether a title explicitly names a non-Summer intake. */
 function targetIsExplicitOffCycleRole_(role) {
   return /\b(?:winter|spring|fall)\b/i.test(String(role == null ? '' : role));
 }
 
+/** Stable company/role identity that does not depend on the application URL. */
+function targetRoleKey_(role) {
+  return String(role == null ? '' : role)
+    .toLowerCase()
+    .replace(/\b(?:summer|winter|spring|fall)\b/g, ' ')
+    .replace(/\b20\d{2}\b/g, ' ')
+    .replace(/\b(?:intern(?:ship)?|co[- ]?op)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Locate the App columns without trusting a historical fixed position. */
+function targetAppLayout_(header) {
+  var want = { company: -1, role: -1, applied: -1 };
+  for (var i = 0; i < header.length; i++) {
+    var cell = String(header[i] == null ? '' : header[i]).trim().toLowerCase();
+    if (cell === 'company' && want.company < 0) want.company = i;
+    else if (cell === 'role' && want.role < 0) want.role = i;
+    else if (cell === 'date applied' && want.applied < 0) want.applied = i;
+  }
+  return (want.company < 0 || want.role < 0 || want.applied < 0) ? null : want;
+}
+
+/** Add one Jobs/App row to the already-initialised Target statuses. */
+function targetAddSourceRow_(statuses, targetNames, row, at, source, today) {
+  var role = String(row[at.role] == null ? '' : row[at.role]).trim();
+  if (!role || targetIsExcludedRole_(role) || !targetIsSoftwareEngineerRole_(role)) return;
+  var company = companyTokens_(row[at.company]);
+  if (!company.length) return;
+  var evidenceDay = companyPostedDay_(row[source === 'jobs' ? at.posted : at.applied]);
+  if (targetAgeDays_(TARGET_OPENING_START_DAY, evidenceDay) < 0) return;
+  var roleKey = targetRoleKey_(role);
+  if (!roleKey) return;
+  var age = targetAgeDays_(evidenceDay, today);
+
+  targetNames.forEach(function (name) {
+    if (!companyNameMatches_(companyTokens_(name), company)) return;
+    var status = statuses[companyTokens_(name).join(' ')];
+    // Jobs is the first pass and wins for a duplicate role, even when App has
+    // a different aggregator/employer URL or a later application date.
+    if (source === 'app' && status.jobRoleKeys[roleKey]) return;
+    if (status.allRoleKeys[roleKey]) return;
+    status.allRoleKeys[roleKey] = true;
+    if (source === 'jobs') status.jobRoleKeys[roleKey] = true;
+    status.roleRows.push({
+      summer: targetIsExplicitSummerRole_(role),
+      offCycle: targetIsExplicitOffCycleRole_(role),
+      evidenceDay: evidenceDay,
+      evidenceAge: age,
+      source: source
+    });
+  });
+}
+
 /**
- * Read live SWE roles from Jobs and classify each Target company for Summer.
+ * Read live in-scope roles from Jobs, then use App as a fallback evidence pass.
  *
- * An explicit Summer row counts for a company with any number of SWE rows. If
- * there are no season words across the company's SWE rows, infer Summer even if
+ * An explicit Summer row counts for a company with any number of in-scope rows.
+ * If there are no season words across the company's in-scope rows, infer Summer even if
  * there are multiple rows. Winter, Spring and Fall rows without Summer are
  * evidence that the company has not opened Summer yet. `urgentOpening` wins over
  * `hasOpening`: any recognized Summer row from the last five calendar days
- * is the red referral warning. An older recognized Summer row leaves the company
- * white. Companies with no recognized Summer row are green.
- * Applied and Expired are deliberately ignored: either flag may describe an
- * application choice, a duplicate, or a stale row, but the user's rule is that
- * appearance in Jobs is enough evidence. A missing/unreadable Jobs tab returns
- * null so the caller can avoid falsely marking every company as not opened.
+ * is the red referral warning. When several qualifying rows remain, the most
+ * recently dated row is the one that decides whether the company is red or white.
+ * Companies with no recognized Summer row are green.
+ * Applied and Expired are deliberately ignored in Jobs. An App-only row uses
+ * Date Applied as recent-activity evidence for the color only; it does not
+ * populate Date open, because Date Applied is not Date Posted. A missing or
+ * unreadable source tab returns null so the caller can avoid falsely marking
+ * every company as not opened.
  */
 function targetOpeningStatuses_() {
   var jobs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANY_JOBS_TAB);
-  if (!jobs) return null;
-  var lastRow = jobs.getLastRow(), lastCol = jobs.getLastColumn();
-  if (lastRow < 2 || lastCol < 2) return {};
-  var values = jobs.getRange(1, 1, lastRow, lastCol).getValues();
-  var at = companyJobsLayout_(values[0]);
-  if (!at) return null;
-
+  var app = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('App');
+  if (!jobs && !app) return null;
   var targetNames = TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3);
   var statuses = {};
   targetNames.forEach(function (name) {
@@ -299,7 +356,9 @@ function targetOpeningStatuses_() {
       hasOpening: false,
       urgentOpening: false,
       latestOpeningDay: '',
-      roleRows: []
+      roleRows: [],
+      jobRoleKeys: {},
+      allRoleKeys: {}
     };
   });
   var today = Utilities.formatDate(
@@ -308,45 +367,58 @@ function targetOpeningStatuses_() {
     'yyyy-MM-dd'
   );
 
-  for (var r = 1; r < values.length; r++) {
-    var role = String(values[r][at.role] == null ? '' : values[r][at.role]).trim();
-    if (!role || !targetIsSoftwareEngineerRole_(role)) continue;
-    var postingTokens = companyTokens_(values[r][at.company]);
-    if (!postingTokens.length) continue;
-    var postedDay = at.posted < 0 ? '' : companyPostedDay_(values[r][at.posted]);
-    if (targetAgeDays_(TARGET_OPENING_START_DAY, postedDay) < 0) continue;
-    var age = targetAgeDays_(postedDay, today);
+  // Pass 1: Jobs, whose Date Posted is authoritative.
+  if (jobs) {
+    var lastRow = jobs.getLastRow(), lastCol = jobs.getLastColumn();
+    if (lastRow >= 2 && lastCol >= 2) {
+      var values = jobs.getRange(1, 1, lastRow, lastCol).getValues();
+      var at = companyJobsLayout_(values[0]);
+      if (!at || at.posted < 0) return null;
+      for (var r = 1; r < values.length; r++) {
+        targetAddSourceRow_(statuses, targetNames, values[r], at, 'jobs', today);
+      }
+    }
+  }
 
-    targetNames.forEach(function (name) {
-      if (!companyNameMatches_(companyTokens_(name), postingTokens)) return;
-      var status = statuses[companyTokens_(name).join(' ')];
-      status.roleRows.push({
-        summer: targetIsExplicitSummerRole_(role),
-        offCycle: targetIsExplicitOffCycleRole_(role),
-        postedDay: postedDay,
-        age: age
-      });
-    });
+  // Pass 2: App, only for a company/role not already supplied by Jobs.
+  if (app) {
+    var appLastRow = app.getLastRow(), appLastCol = app.getLastColumn();
+    if (appLastRow >= 2 && appLastCol >= 2) {
+      var appValues = app.getRange(1, 1, appLastRow, appLastCol).getValues();
+      var appAt = targetAppLayout_(appValues[0]);
+      if (!appAt) return null;
+      for (var a = 1; a < appValues.length; a++) {
+        targetAddSourceRow_(statuses, targetNames, appValues[a], appAt, 'app', today);
+      }
+    }
   }
 
   targetNames.forEach(function (name) {
     var status = statuses[companyTokens_(name).join(' ')];
     var summerRows = status.roleRows.filter(function (row) { return row.summer; });
     var offCycleRows = status.roleRows.filter(function (row) { return row.offCycle; });
-    // Explicit Summer wins; otherwise a completely unlabelled SWE set is
+    // Explicit Summer wins; otherwise a completely unlabelled in-scope set is
     // inferred as Summer, whether it has one row or several. Any off-cycle
     // label blocks that inference.
     var openingRows = summerRows.length ? summerRows : (offCycleRows.length ? [] : status.roleRows);
     status.hasOpening = openingRows.length > 0;
+    var latestOpeningRow = null;
     openingRows.forEach(function (row) {
-      if (!status.latestOpeningDay || row.postedDay > status.latestOpeningDay) {
-        status.latestOpeningDay = row.postedDay;
+      // Keep Date open honest: App contributes color evidence, but only Jobs
+      // can supply an actual posting date for that column.
+      if (row.source === 'jobs' && (!status.latestOpeningDay || row.evidenceDay > status.latestOpeningDay)) {
+        status.latestOpeningDay = row.evidenceDay;
       }
-      if (row.age >= 0 && row.age <= TARGET_AGE_THRESHOLD_DAYS) {
-        status.urgentOpening = true;
+      if (!latestOpeningRow || row.evidenceDay > latestOpeningRow.evidenceDay) {
+        latestOpeningRow = row;
       }
     });
+    status.urgentOpening = !!latestOpeningRow &&
+      latestOpeningRow.evidenceAge >= 0 &&
+      latestOpeningRow.evidenceAge <= TARGET_AGE_THRESHOLD_DAYS;
     delete status.roleRows;
+    delete status.jobRoleKeys;
+    delete status.allRoleKeys;
   });
   return statuses;
 }

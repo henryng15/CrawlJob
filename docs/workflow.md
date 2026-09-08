@@ -123,9 +123,9 @@ path reserves against everything below it and subtracts everything above it.
 | Asks | a recruiter to look at an application | an engineer for a referral | the same recruiter again, on the same thread |
 | Starts from | an `App` row | an `App` row | a sent cold email |
 | Per day | `[0,17,27,24,20,12,0]` Sun→Sat | 14 | 6 |
-| Per company | 5 per rolling 7 days | **1 per day**, 6 ever | — |
-| Per application | 3 at once, one day apart; 14 days of silence opens the next 3 | — | one |
-| Hours | drafts 08:00–16:00, sends 09:00–17:00 | 06:00–19:00, weekdays only | 08:00–19:00 |
+| Per company | no rolling-7-day cap | **1 per day**, 6 ever | — |
+| Per application | 3 at once, one day apart; 5 days of silence opens the next 3 | — | one |
+| Hours | drafts 08:40–16:40, sends 09:00–17:00 | 06:00–19:00, weekdays only | 08:00–19:00 |
 | Order | ticked first, then employers take turns, oldest application first | ticked first, then employers take turns | by window |
 
 Referral leads because it is the scarcest: six people per employer and **no second attempt ever**,

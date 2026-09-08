@@ -75,22 +75,15 @@ function outreachDiscardDraft_(draftId) {
 }
 
 /**
- * The hour a draft written now leaves in — the top of it, not the minute.
+ * The send time for a cold draft written now.
  *
- * A time-driven trigger fires at a minute Google picks and drifts a few either
- * way, so `now + one hour` produces a target the next firing can arrive *before*.
- * A draft written at 12:05 scheduled for exactly 13:05 is passed over by a 13:03
- * firing and waits until 14:03 — an hour late, on a row whose Scheduled At says
- * 13:05 and whose Error column is empty, which is the least debuggable shape a
- * delay can have.
- *
- * Anchoring to the top of the hour also makes the row agree with the projection
- * it replaces: outreachProjectSchedule_ has always promised whole hours, and a
- * drafted row is the same fact after the event.
+ * A newly queued row has no projected slot yet, so it receives a precise
+ * twenty-minute fallback. Rows with a projected slot keep that slot so the
+ * queue's hourly distribution remains visible in the sheet.
  */
 function outreachSendHourAfter_(now) {
-  var goesAt = new Date(now.getTime() + DRAFT_LEAD_HOURS * 3600000);
-  goesAt.setMinutes(0, 0, 0);
+  var goesAt = new Date(now.getTime() + COLD_DRAFT_LEAD_MINUTES * 60000);
+  goesAt.setSeconds(0, 0);
   return goesAt;
 }
 
@@ -119,7 +112,7 @@ function outreachDraftsToSend_(queueRows, now, globalMode) {
 }
 
 /**
- * Send what was written an hour ago.
+ * Send what was written in the 20-minute lead window.
  *
  * A draft that is gone was deleted on purpose, and that is the whole point of
  * writing an hour early: reading it in Gmail and deleting it is how you call one
@@ -145,12 +138,12 @@ function sendPreparedDrafts() {
   var now = new Date();
   var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
 
-  // App is re-read here as well as at drafting time, because an hour passes in
-  // between and it is an hour in which the answer can change. The rejection scan
+  // App is re-read here as well as at drafting time, because the review window
+  // passes in between and the answer can change. The rejection scan
   // catches the ones that arrive by email; this catches every other way an
   // application closes — a Process moved by hand, or a rejection that landed in
-  // the other mailbox. Without it, a draft written at 08:00 goes out at 09:00
-  // whatever happened at 08:30.
+  // the other mailbox. Without it, a draft written twenty minutes before its slot
+  // could go out whatever happened in that review window.
   var appLast = app.getLastRow();
   var byProperty = {};
   if (appLast >= 2) {
@@ -255,10 +248,11 @@ function outreachPrioritiesToRetire_(rows) {
 }
 
 /**
- * Write the next hour's emails into Drafts, addressed and complete.
+ * Write cold emails into Drafts twenty minutes before their send slot,
+ * addressed and complete.
  *
  * Nothing leaves here. Each row picked becomes a real Gmail draft to the real
- * recruiter, and its Scheduled At is set to the hour it will go, an hour from now.
+ * recruiter, and its Scheduled At is set to the projected send-hour slot.
  */
 function prepareOutreachDrafts() {
   var lock = LockService.getScriptLock();
@@ -344,7 +338,8 @@ function prepareOutreachDrafts() {
 
       try {
         var draft = GmailApp.createDraft(contact.email, mail.subject, mail.plain, options);
-        var goesAt = outreachSendHourAfter_(now);
+        var goesAt = item.scheduledAt && item.scheduledAt.getTime() > now.getTime()
+          ? item.scheduledAt : outreachSendHourAfter_(now);
         var updates = {};
         updates[Q_STATUS] = STATUS_DRAFTED;
         updates[Q_DRAFT_ID] = draft.getId();
@@ -667,8 +662,8 @@ function previewOutreachEmail() {
  *   1. what came back      a reply seen now stops an attempt being created below
  *   2. who said no         rejections in the mailbox, closing App rows and drafts
  *   3. what is new         applications ticked Applied since the last firing
- *   4. what goes out       the drafts written an hour ago, unless one was deleted
- *   5. what is written     this hour's share of the cap, into Drafts, to sit an hour
+ *   4. what goes out       the drafts whose send slot has arrived, unless deleted
+ *   5. what is written     this hour's share of the cap, into Drafts, 20m early
  *   6. what happens next   the projection, recomputed over everything that is left
  *
  * Reversing any pair of these produces a table that is one firing out of date:
@@ -882,12 +877,12 @@ function runOutreachCycle() {
  * Send only what is already due, every minute.
  *
  * Planning and scanning deliberately remain hourly: their quota and fair-share
- * arithmetic assume one pass per hour. Sending runs first every minute. Referral
- * drafting follows it because a Priority edit or a cancellation replan can put a
- * previously unprepared row in the very next hour after the hourly drafting pass;
- * without this retry, that row waits for the next hourly cycle and misses its
- * promised hour. Sending first preserves the reading hour: a newly created draft
- * is seen by the following tick, never sent in the same one.
+ * arithmetic assume one pass per hour. Sending runs first every minute. Cold and
+ * Referral drafting follows it because a replan can put a previously unprepared
+ * row inside its lead window after the hourly drafting pass; without this retry,
+ * that row waits for the next hourly cycle. Sending first preserves the review
+ * window: a newly created draft is seen by the following tick, never sent in the
+ * same one.
  */
 function runOutreachSendTick() {
   var summary = {}, failures = [];
@@ -902,6 +897,7 @@ function runOutreachSendTick() {
   step('cold', sendPreparedDrafts);
   step('followUp', sendFollowUpReplies);
   step('referralDrafted', draftReferralAsks);
+  step('coldDrafted', prepareOutreachDrafts);
   Logger.log('send tick ' + JSON.stringify(summary));
   if (failures.length) throw new Error('Outreach send tick failed: ' + failures.join(', '));
   return summary;

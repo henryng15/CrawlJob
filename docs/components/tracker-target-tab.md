@@ -16,7 +16,8 @@ it, was already on P3.
 ## Connections
 
 - **Reads:** the hidden `Referral Seed Counts` snapshot through the shared
-  `companyReferralCounts_()` function in `company_tab.gs`.
+  `companyReferralCounts_()` function in `company_tab.gs`, plus the live `Jobs`
+  and `App` tabs for opening evidence.
 - **Writes:** the `Target` tab, and nothing else.
 - **Runs:** through `syncCompanyTab()` every 15 minutes, and manually through
   `rebuildTargetTab()`.
@@ -65,35 +66,52 @@ claims at once — researched and unverifiable, researched and nothing found, or
 researched — and only the note distinguishes them.
 
 `Date open` is the latest `Date Posted` found in live `Jobs` for a recognized Summer
-software-engineering role posted on or after `2026-07-20`. It is independent of the
-`Applied` and `Expired` flags; a blank means no qualifying row was found after the
-cutoff.
+in-scope role posted on or after `2026-07-20`. It is independent of the
+`Applied` and `Expired` flags; a blank means no qualifying `Jobs` row was found after
+the cutoff. `App` is scanned after `Jobs` as a fallback: an App-only role can make
+the company red using its `Date Applied` as recent-activity evidence, but that date
+is never written into `Date open` because it is not a posting date.
 
 `Asked` is a manual checkbox only. It has no sending or filtering logic, and its
 state is preserved when the Target tab is rebuilt or its blocks are refreshed.
 
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
-role must first be a software-engineering role: its title must contain `Software
-Engineer`, `Software Engineering`, `Software Developer`, `SWE`, or `Application
-Development` as whole-word phrases.
-Summer inference is then done per company using all SWE rows after the cutoff:
+role is in scope when its title contains the whole word `software`, `technology` or
+`engineering`. Application-development and generic SWE titles without one of those
+words are excluded. Summer inference is then done per company using all in-scope
+rows after the cutoff:
 
-- if there is at least one SWE role with `Summer`, count those Summer rows;
-- if there are no explicit season words in any SWE role, infer Summer from all of those rows, whether there is one role or several;
+- if there is at least one in-scope role with `Summer`, count those Summer rows;
+- if there are no explicit season words in any in-scope role, infer Summer from all of those rows, whether there is one role or several;
 - `Winter`, `Spring`, or `Fall` without a `Summer` role does not count as a Summer opening.
 
-Only rows with `Date Posted` on or after `2026-07-20` are considered. Older Jobs
-rows do not affect the Target color, even if they otherwise match the role rule.
+Only `Jobs` rows with `Date Posted` on or after `2026-07-20` and `App` rows with
+`Date Applied` on or after that cutoff are considered. Older rows do not affect the
+Target color, even if they otherwise match the role rule.
 
-- green means no recognized Summer SWE opening exists for the company in `Jobs`;
-- white means a recognized Summer SWE opening exists, but its posting is older than five calendar days;
-- red means a recognized Summer SWE opening was posted within the last five calendar days.
+Titles containing `PhD`, `Graduate`, `Master`, or `2026` are excluded before the
+role test, so graduate/research listings and prior-cycle `2026` listings cannot
+make a company look like a qualifying opening.
+
+- `Jobs` is always scanned first. An `App` row for the same company and normalized
+  role is ignored when `Jobs` already supplied that role; this remains true when
+  the two links differ. Role identity ignores punctuation, season labels, intake
+  years and the generic intern/co-op suffix.
+- green means no recognized Summer opening exists in either source;
+- white means a recognized Summer opening exists, but its source evidence is
+  older than five calendar days;
+- red means the latest recognized Summer role was posted in `Jobs`, or was applied
+  to in `App` when `Jobs` has no matching role, within the last five calendar days.
+  Older qualifying rows do not override the latest row's status. Thus, if a company
+  first has an `Engineering` role and later adds a `Software` role, the later role's
+  date is used for the live status; it also becomes `Date open` when that later role
+  is in `Jobs` (App-only dates remain color evidence only).
 
 `Applied` and `Expired` are ignored for this color logic. Either flag may mean the
-role was applied to, expired, duplicated, or simply not worth pursuing, but the rule
-here is that appearance in `Jobs` is enough to count it. Green is reserved for
-companies with no recognized Summer row at all. If the Jobs tab is unreadable,
-names stay white rather than being incorrectly marked as not opened.
+role was applied to, expired, duplicated, or simply not worth pursuing. Green is
+reserved for companies with no recognized Summer row in either source. If both
+source tabs are unreadable, names stay white rather than being incorrectly marked
+as not opened.
 
 ## Functions
 
@@ -102,10 +120,14 @@ names stay white rather than being incorrectly marked as not opened.
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
 | `targetRows_(names, referralCounts, statuses, askedStates)` | Pairs each target company with its current sendable count, researched posting date, latest live `Date open` and manual `Asked` state. |
 | `targetAskedStates_(sheet)` | Reads manual `Asked` checkbox states so they survive a Target rebuild. |
-| `targetIsSoftwareEngineerRole_(role)` | Recognizes Software Engineer, Software Engineering, Software Developer, SWE and Application Development titles. |
+| `targetIsSoftwareEngineerRole_(role)` | Recognizes titles containing the whole word `software`, `technology` or `engineering`. |
+| `targetIsExcludedRole_(role)` | Rejects titles containing `PhD`, `Graduate`, `Master`, or `2026` before Target opening classification. |
 | `targetIsExplicitSummerRole_(role)` | Detects an explicit `Summer` intake. |
 | `targetIsExplicitOffCycleRole_(role)` | Detects an explicit `Winter`, `Spring` or `Fall` intake. |
-| `targetOpeningStatuses_()` | Groups SWE rows from `Jobs` posted on or after `2026-07-20`, infers Summer per company, tracks the latest recognized opening date, and classifies each Target company for the three-state color rule. |
+| `targetRoleKey_(role)` | Normalizes company-role identity so different links for the same role do not create duplicate evidence. |
+| `targetAppLayout_(header)` | Locates the App company, Date Applied and Role columns by header. |
+| `targetAddSourceRow_(...)` | Adds one Jobs/App row in source-priority order, deduplicating App against Jobs by normalized role. |
+| `targetOpeningStatuses_()` | Groups recognized rows from `Jobs`, then fallback rows from `App`, infers Summer per company, tracks the latest Jobs opening date, and classifies each company from its latest qualifying role for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
 | `targetPaintHeader_(sheet)` | Writes the five headers, freezes row 1 and sizes the blocks and gutters. |

@@ -70,6 +70,7 @@ looser one winning every hour — see the gotcha in
 **job_sync**
 - [job-sync-pipeline.md](job-sync-pipeline.md) — `main.py`, `config.py`, `roles.py`, `places.py`, `liveness.py`
 - [job-sync-sources.md](job-sync-sources.md) — `sources.py`, `boards.py`
+- [job-sync-feeds.md](job-sync-feeds.md) — `feeds.py`, `data/public_feeds.toml`
 - [job-sync-sheet.md](job-sync-sheet.md) — `sheet.py`
 - [job-sync-highlight.md](job-sync-highlight.md) — `highlight.py`
 
@@ -91,8 +92,8 @@ looser one winning every hour — see the gotcha in
 - [outreach-referral-send.md](outreach-referral-send.md) — referral drafting, sending, reconciling
 - [outreach-app-worklist.md](outreach-app-worklist.md) — the `App` worklist: which rows are waiting on a link, and where they sit
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
-- [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
+- [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
 
 ## The rule
 

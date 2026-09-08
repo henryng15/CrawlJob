@@ -130,16 +130,13 @@ Fixed beats random on two counts: there is nothing to debug when the number look
 the shape is more human than randomness is. Tuesday and Wednesday are high because that is when
 a recruiter reads carefully; Friday is low because Friday afternoon email dies.
 
-The trigger fires hourly on weekdays: **drafting runs 08:00–16:00 and sending 09:00–17:00** —
-nine firings either way, offset by the hour a draft waits. Each one writes
+The scheduler projects sending into **09:00–17:00** and the minute tick creates each draft
+**20 minutes before its send slot** (08:40–16:40). Each firing writes
 `ceil(remaining ÷ firings left)`, which spreads the day evenly without any `sleep`, and
 self-corrects if a firing is missed.
 
-The drafting window used to start at 09:00, which meant the first message of the day could not
-leave until 10:00 — the writer spent the best hour of a recruiter's morning composing in it.
-Opening at 08:00 costs nothing (`everyHours(1)` was already firing then) and buys back 09:00 as a
-sending hour. That ninth writing hour is also where the two extra rows a weekday in `DAILY_CAP`
-went.
+The draft lead used to be one hour. A 20-minute lead keeps a short review window while allowing
+the first send to leave at 09:00 and the last at 17:00.
 
 Gmail allows a consumer account 100 recipients a day through Apps Script. The busiest day here
 asks for a quarter of that.
@@ -153,8 +150,8 @@ read it, so they cannot disagree about who is next.
 It used to sort by ticked-first, then Date Applied, then row number. A wave of three shares one
 application and therefore one Date Applied, so those three rows sorted adjacent and went out **back
 to back** — three near-identical notes into one office inside a morning, while other employers
-waited a day. `COMPANY_WEEKLY_CAP` bounds a week and had nothing to say about an afternoon, and the
-referral path's per-employer *daily* cap has no equivalent here.
+waited a day. The current path has no per-company rolling-week cap; wave size, wave gap and the
+daily/mailbox caps are the applicable limits.
 
 It now builds two lines exactly as the referral re-plan does — ticked first, served whole — and runs
 `outreachInterleaveByCompany_` over each:
@@ -173,8 +170,8 @@ Three things this does *not* change:
   on, and where a day fills, which day.
 - **Sent rows never reach it.** Both callers hand over rows that are still `Queued`: the projection
   filters on status, the sender on what is due. Ordering only ever concerns what has yet to go.
-- **A tick still grants nothing.** It does not make a row eligible early, raise the day's cap, or
-  lift `COMPANY_WEEKLY_CAP`. It decides which rows get slots that already existed.
+- **A tick still grants nothing.** It does not make a row eligible early or raise the day's cap.
+  It decides which rows get slots that already existed.
 
 The key is `outreachCompanyTokens_`, not `outreachNameKey_`: the legal form has to come off, or
 "Stripe" and "Stripe Inc." take two turns each and that office is written to twice as fast as the
@@ -266,7 +263,7 @@ Aug 3   recruiter #1
 Aug 4   recruiter #2
 Aug 5   recruiter #3
         ...
-Aug 19  silence for 14 days -> recruiters #4, #5, #6
+Aug 10  silence for 5 days -> recruiters #4, #5, #6
 ```
 
 One day apart rather than one morning, because three near-identical emails landing on one team
@@ -281,7 +278,7 @@ is three different emails, not three copies.
 Three is the right number to send *together*. It was the wrong number to stop at: a company with
 five contacts held two nobody was ever going to write to.
 
-After a wave, **fourteen days of silence opens the next one** — the next three people, and so on
+After a wave, **five days of silence opens the next one** — the next three people, and so on
 until the contacts run out. Within a wave a reply changes nothing, because those emails were
 already committed. A reply *before* the next wave calls it off: by then there is a person to
 talk to, and three more cold emails to their colleagues would be talking past them.
@@ -309,30 +306,20 @@ written to twice about the same intake, across every application. It is scoped b
 than by address alone, so one recruiter can hear about Winter once and Summer once; see
 [Two intakes, two waves](#two-intakes-two-waves).
 
-That is not enough on its own. Apply to the same company three times and the queue treats those
-as three unrelated applications, working through its contacts three attempts at a time. So a
-second cap: **a company receives at most 5 emails in any rolling 7 days**, counted across every
-application. Rolling rather than calendar, so nothing resets in a burst on Monday morning. With
-oldest-first ordering, the oldest application at that company spends the allowance.
-
-> **What counts against it.** Everything sent in the window *and everything still queued*. An
-> earlier version counted only sends, which made the cap do nothing on the one run where it
-> matters most: on a first run nothing has been sent at all, so every company reads as having its
-> whole allowance free, and three applications to one employer with ten contacts queue nine
-> emails in a single pass. A queued row is an email that company is going to get. `Cancelled` and
-> `Failed` rows do not count — nothing is going to arrive from those.
+That is not enough on its own. Apply to the same company three times and the queue still treats
+those as one intake when the role fingerprint matches, and as separate intake waves otherwise.
+There is no additional rolling-7-day company cap: a queued wave is limited by its three-person
+size, the **5-day gap** before the next wave, available contacts and the daily/mailbox caps.
 
 ### One posting, one wave
 
 Before either cap is consulted, an application is skipped if a **sibling application for the same
 posting at the same employer** already owns a wave.
 
-This exists because the cap alone was the wrong instrument. American Express advertised one
-programme in three cities and three applications went in; each asked for three emails to three
-different recruiters. The cap held the week to five, which is five of American Express's five
-contacts spent on one job, with nobody left for the next posting. IBM was worse: ten applications
-against eight contacts, so a single employer consumed the entire list. Across the sheet, 21
-employers carried more than one open application — 48 emails where 23 were meant.
+This exists because the wave unit alone is the wrong instrument. American Express advertised one
+programme in three cities and three applications went in; the matching posting rule keeps those
+from becoming three separate waves. The same rule prevents one employer from consuming its
+whole contact list on duplicate applications.
 
 Two roles at one employer are the same posting when they share at least `ROLE_MATCH` (0.6) of
 their words, after the city and state are dropped. Equality is the wrong test: the three American
@@ -498,18 +485,11 @@ It is a loose cap on purpose, because the contact list is the tighter one almost
 | 5 | 54 | **22.6%** |
 | 10 | 10 | 1.5% |
 
-2,098 sendable contacts across 650 companies, averaging 3.23. The weekly cap can only ever bind
-on the 147 companies holding five or more — for the other three quarters the list runs out
-first. **At 178 companies there is exactly one person to write to**, so the attempt 1→2→3 cycle
+2,098 sendable contacts across 650 companies, averaging 3.23. The contact list and daily/mailbox
+caps are the practical limits — for most employers the list runs out first.
+**At 178 companies there is exactly one person to write to**, so the attempt 1→2→3 cycle
 cannot complete at better than a quarter of them, and that is a property of the data rather than
 something to fix here.
-
-> **Why there is no lifetime cap per company as well.** The worst case the weekly cap allows is
-> ten emails to one company across two weeks, and the only companies with ten contacts are
-> Meta, OpenAI, Palantir, Citadel and their size — where ten recruiters is a rounding error. A
-> five-person startup cannot reach that ceiling because it does not have five recruiters in the
-> list. Contact count tracks company size, so the cap is self-limiting and a second mechanism
-> would only add a way to be wrong.
 
 ## Reply and bounce
 
@@ -790,9 +770,9 @@ health stamp: started
  6 referralReplanned cancellations settled, hours handed back, the queue tightened
  7 referralPlanned   new asks appended
  8 referralSent      referral drafts whose hour has come
- 9 referralDrafted   the next hour's referral asks written into Drafts
+ 9 referralDrafted   Referral asks written one hour before their slot
 10 queued            applications ticked Applied since the last firing
-11 sent              cold drafts written an hour ago
+11 sent              cold drafts whose send slot has arrived
 12 written           this hour's share of the day's cap, into Drafts
 13 followUpPlanned   follow-ups booked onto a day, and bookings taken back off
 14 followUpSent      the follow-ups whose day has come
@@ -1008,12 +988,9 @@ system runs, read them and there is always a window to stop one.
 It costs nothing on the free tier. The same hourly firing, the same Gmail send quota — a draft
 is not a send until it is sent — and at most two or three drafts standing at any moment.
 
-One consequence: the writing window is the sending window shifted an hour earlier at **both** ends.
-Drafts are made 08:00–16:00 and go out 09:00–17:00 — a message written at 17:00 would have no hour
-left to wait in, and one written no earlier than 09:00 could not leave until 10:00, which spent the
-best hour of the morning composing. `DRAFT_HOUR_FIRST` and `DRAFT_HOUR_LAST` are both
-`SEND_HOUR_* ∓ DRAFT_LEAD_HOURS`, and they are the nine firings the projection divides the day's cap
-across.
+One consequence: the writing window is the sending window shifted **20 minutes earlier** at both
+ends. Drafts are made 08:40–16:40 and go out 09:00–17:00. `COLD_DRAFT_LEAD_MINUTES` controls this
+cold-email lead; Referral keeps its separate one-hour review window.
 
 | Question | Where it is answered |
 |---|---|
@@ -1101,7 +1078,7 @@ And three filter views, which are a built-in Sheets feature and do not disturb t
 ### `Drafted At` and `Scheduled At` — when it is written, and when it goes
 
 `Eligible At` says the earliest day a row *may* go. It does not say when it will: forty rows
-eligible today still have a fortnight of weekday caps ahead of them, and the question worth
+eligible today still have several days of weekday caps ahead of them, and the question worth
 asking of a queue is which day each row actually lands on.
 
 Both columns carry **an hour, not just a day** — `Aug 24, 8:00 AM` and `Aug 24, 9:00 AM`. A
@@ -1667,7 +1644,7 @@ point:
 | | |
 |---|---|
 | `planReferralAsks` | reads `App`, `Referral` and the employee export, and appends the rows the planner booked. Touches no mailbox, so it is safe at any hour and from any button |
-| `draftReferralAsks` | writes the message `DRAFT_LEAD_HOURS` before its slot — resume attached, real address in the `To` field — and leaves it in Drafts |
+| `draftReferralAsks` | writes the message `DRAFT_LEAD_HOURS` (1 hour) before its Referral slot — resume attached, real address in the `To` field — and leaves it in Drafts |
 | `sendReferralAsks` | sends whatever is still there when the hour arrives |
 
 The hour in the middle is the entire review mechanism, exactly as it is for a cold email:

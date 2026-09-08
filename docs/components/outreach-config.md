@@ -10,7 +10,7 @@ here. Nothing in this file touches a sheet or Gmail.
   describes `Referral` (20), `APP_*` describes `App`, `C_*`/`E_*` the contacts spreadsheet.
   Layout migrations live in [tracker-sync.md](tracker-sync.md); this file only names positions.
 - The referral sender's cross-project handoff is `Employees (seed)` plus the hidden tracker tab
-  `Referral Seed Counts`; only `Verify = debounce:valid` is sendable.
+  `Referral Seed Counts`; every Verify value except `debounce:invalid` is sendable, including blank.
 
 ## Script properties
 
@@ -21,7 +21,7 @@ here. Nothing in this file touches a sheet or Gmail.
 | `RESUME_FILE_ID` | The resume PDF in Drive. It must point to `OFFICIAL_RESUME_FILE_ID`, the stable Drive file that the Resume repository's GitHub workflow overwrites on every `main` push changing `official/henryng_swe.pdf`. |
 | `FINGERPRINT_SALT` | Salts the contact fingerprint. Changing it re-opens every past contact. |
 | `OUTREACH_MODE`, `FOLLOWUP_MODE`, `REFERRAL_MODE` | `Draft` holds messages in Drafts; blank sends them. `REFERRAL_MODE = Pause` stops referral planning, drafting, sending and reply scanning only. |
-| `REFERRAL_REQUIRED_VERIFY` | `debounce:valid` — the exact seed verdict required before a referral row can be drafted or sent. |
+| `REFERRAL_REJECTED_VERIFY` | `debounce:invalid` — the only Verify verdict that blocks a referral recipient; blank and all other verdicts are accepted. |
 
 ## The caps that decide volume
 
@@ -30,29 +30,29 @@ here. Nothing in this file touches a sheet or Gmail.
 | `DAILY_EMAIL_BUDGET` | 30 | Everything the mailbox may send in a day. The path caps now sum to exactly this (20 cold + 10 referral + 0 follow-up), so it no longer binds and no path can displace another. |
 | `EMAIL_PATH_ORDER` | `referral, cold` | Priority when real queued work competes for the shared budget. Referral leads because it is scarcest. `followup` was removed when the path was switched off; a path absent from this list still gets a correct budget answer (the reservation loop simply never breaks early) and is stopped by its own zero cap. |
 | `DAILY_CAP` | `[0,20,20,20,20,20,0]` | Cold path, by weekday: a flat 20 on Mon-Fri, 100 a week. Saturday and Sunday stay zero because a cold email read at the weekend is read badly. Was `[0,17,27,24,20,12,0]`. |
-| `COMPANY_WEEKLY_CAP` | 5 | Cold emails per company per rolling 7 days. |
 | `REFERRAL_DAILY_CAP` | 10 | Hard maximum of 10 referral asks per day, one per hour inside the 06:00-19:00 window with no doubled slots. Was 15. |
 | `REFERRAL_PER_COMPANY` | 6 | People ever asked at one employer. There is no second attempt. |
-| `REFERRAL_COMPANY_DAILY_CAP` | **1** | People per employer per day. This is what spreads the queue across employers. |
+| `REFERRAL_COMPANY_DAILY_CAP` | **6** | Contacts per employer cluster per day, capped by the six-person lifetime allowance. A cluster stays together while the application is fresh. |
 | `REFERRAL_PRIORITY_COMPANY_CAP` | 6 | What a ticked employer gets instead — the whole group in one day. Raises the cap, never removes it. |
-| `REFERRAL_RECENT_APPLICATION_DAYS` | 7 | New Referral asks may be created for an application made in the last seven calendar days. |
+| `REFERRAL_RECENT_APPLICATION_DAYS` | 1 | New Referral asks may be created only on the application day or the following calendar day. Out-of-window unsent rows are cancelled automatically. |
 | `REFERRAL_PRIORITY_APPLICATION_DAYS` | 1 | Applications made today or yesterday are automatically marked `Priority`. |
 | `REFERRAL_PRIORITY_WINDOW_MINUTES` | 120 | A Priority ask uses the fast lane and is scheduled within two hours when that lane has room. |
 | `REFERRAL_PRIORITY_GAP_MINUTES_MIN` / `MAX` | 10 / 20 | Deterministic jitter between fast-lane sends. It looks varied but remains stable across replans. |
-| `REFERRAL_TOP_COMPANY_PROPERTY_MAX` | 70 | A non-quant employer with `App!Property` at or below this existing priority rank remains eligible after seven days. |
+| `REFERRAL_TOP_COMPANY_PROPERTY_MAX` | 0 | Retained for compatibility only; Target membership, not `App!Property`, decides the company gate. |
 | `REFERRAL_QUANT_COMPANIES` | named firms | Quant firms excluded from the Referral campaign, even for a today/yesterday application. Matching uses the shared employer normaliser. |
 | `FOLLOWUP_DAILY_CAP` | **0** | The follow-up path is switched off. Zero rather than deleted: the planner already respects this cap, so it is the smallest switch that stops every one of the path's writes. Restoring the feature needs both a number here **and** `followup` back in `EMAIL_PATH_ORDER`. Was 6. |
-| `WAVE_SIZE` / `WAVE_GAP_DAYS` | 3 / 14 | Cold contacts per wave, and the gap before the next. |
+| `WAVE_SIZE` / `WAVE_GAP_DAYS` | 3 / 5 | Cold contacts per wave, and the gap before the next. |
 
 ## Timing
 
 | Constant | Value |
 |---|---|
 | `SEND_HOUR_FIRST` / `SEND_HOUR_LAST` | 9 / 17 — nine sending hours a day |
-| `DRAFT_HOUR_FIRST` / `DRAFT_HOUR_LAST` | 8 / 16 — the same window shifted back by `DRAFT_LEAD_HOURS`, derived not typed |
+| `DRAFT_HOUR_FIRST` / `DRAFT_HOUR_LAST` | 8 / 16 — compatibility bounds for the cold writer's fallback pacing |
 | `REFERRAL_HOUR_FIRST` / `REFERRAL_HOUR_LAST` | 6 / 19 |
 | `FOLLOWUP_HOUR_FIRST` / `FOLLOWUP_HOUR_LAST` | 8 / 19 |
-| `DRAFT_LEAD_HOURS` | 1 — a message is written one hour before it goes, so the hour it could have been read always exists |
+| `COLD_DRAFT_LEAD_MINUTES` | 20 — a cold message is written twenty minutes before it goes |
+| `DRAFT_LEAD_HOURS` | 1 — Referral retains a one-hour review window |
 | `ELIGIBLE_AFTER_DAYS` | 2 — after `Date Applied` before anything may go |
 | `FOLLOWUP_AFTER_DAYS` / `FOLLOWUP_WINDOW_DAYS` / `FOLLOWUP_LATEST_DAYS` | 5 / 10 / 21 |
 | `REFERRAL_WEEKENDS` | `false` — a favour asked on a Saturday reads badly |
@@ -78,6 +78,9 @@ becomes — it must still count as ticked.
 | `outreachProperty_(name, required)` | One script property, throwing if a required one is unset. |
 | `outreachReferralPaused_()` | Whether the referral path is paused without affecting cold email or follow-ups. |
 | `pauseReferralPath()` / `resumeReferralPath()` | Run by hand to pause or resume referral automation while returning the three active modes. |
+| `pauseAllOutreach()` | Set cold, follow-up and referral modes to `Pause`, preventing every outreach path from drafting or sending. |
+| `resumeAllOutreach()` | Clear the three global mode overrides and restore all paths to their normal `Send` behavior. |
+| `resetReferralQueueForFreshPlan()` | Soft-cancel unsent Queued/Drafted referral rows, delete their Gmail drafts, and preserve Sent/Replied/Bounced history for one-send-only deduplication. |
 | `setupOutreachProperties()` | Run by hand: report which properties are still missing. |
 | `diagnoseOutreachResume()` | Read the Drive resume configured for attachment and return its name, MIME type, size, update time and SHA-256 checksum, without returning the Drive id. Used to prove that the sender's attachment matches the local PDF. |
 | `useOfficialResumeAttachment()` | Validate the stable, GitHub-synchronised official Drive PDF and set `RESUME_FILE_ID` to it. Run once to repair a stale sender pointer; subsequent official-resume pushes update the same Drive file automatically. |

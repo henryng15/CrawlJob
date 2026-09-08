@@ -23,17 +23,17 @@ appending rows, writing drafts, sending, scanning replies, applying ticks.
 
 ## Drafting and sending
 
-Drafting happens `DRAFT_LEAD_HOURS` (1) **ahead** of the slot, not at it, so the hour a message
-could have been read always exists.
+Drafting happens `DRAFT_LEAD_HOURS` (1) **ahead** of the Referral slot, not at it, so the hour a
+message could have been read always exists. Cold Email uses its separate 20-minute lead time.
 
 | Function | Does |
 |---|---|
 | `outreachReferralDraftHour_(scheduled)` | The hour a row's message is due to be written. |
 | `outreachReferralToDraft_(rows, now)` | Rows whose message should exist by now. |
-| `draftReferralAsks()` | Cancel queued/drafted recipients absent from the verified, non-invalid seed, then write eligible asks into Drafts. Sets `STATUS_DRAFTED`; returns without work while referral is paused. |
+| `draftReferralAsks()` | Cancel queued/drafted recipients absent from the non-invalid seed, then write eligible asks into Drafts. Sets `STATUS_DRAFTED`; returns without work while referral is paused. |
 | `refreshReferralDraftsForTemplateChange()` | Run after an approved wording change: delete every unsent referral draft, return its row to `Queued`, and leave its scheduled hour intact so the next draft pass recreates it from the current template. |
 | `outreachReferralToSend_(rows, now, globalMode, queueRows, priorityDaysByIndex)` | The drafted rows whose hour has arrived, after the shared budget and today/yesterday Priority ordering are applied. |
-| `sendReferralAsks()` | Re-check the verified, non-invalid seed before sending. Ineligible queued/drafted rows have their unsent draft deleted and are cancelled before Gmail is touched; rejected applications are handled the same way. Returns without work while referral is paused. |
+| `sendReferralAsks()` | Re-check the non-invalid seed before sending. Ineligible queued/drafted rows have their unsent draft deleted and are cancelled before Gmail is touched; rejected applications are handled the same way. Returns without work while referral is paused. |
 | `scanReferralReplies()` | Mark the asks that have been answered; returns without opening Gmail while referral is paused. |
 | `repairMisreadReferralBounces()` | Run by hand: undo a bounce recorded as a reply. |
 
@@ -44,7 +44,8 @@ could have been read always exists.
 | `outreachApplyReferralCancels_(sheet, rows)` | Settle every `Cancel` tick, expanded to whole asks. |
 | `outreachApplyReferralTimes_(tracker, sheet, rows, fastPriorityIndexes, priorityDaysByIndex)` | **Re-time everything still queued** against what the whole mailbox has left. Passes the one-run newly-promoted Priority map and today/yesterday application-age map to `outreachReferralReplan_`, then writes each move with `outreachWriteRow_`. |
 | `settleReferralTab_(tracker)` | Everything a tick means, done at once: cancel → re-time → refile. Sheet-only, so it is quick enough to hang off a keystroke. |
-| `replanReferralAsks()` | The hourly version: first cancels queued/drafted recipients no longer in the verified, non-invalid seed, then cancels, discards orphaned drafts, promotes eligible existing `Queued` rows for today/yesterday applications, repoints rows onto newer applications, retires rows nothing qualifies for, re-times, refiles. Returns without work while referral is paused. |
+| `replanReferralAsks()` | The hourly version: first cancels queued/drafted recipients no longer in the non-invalid seed or outside the live Target/freshness gate, then cancels, discards orphaned drafts, promotes eligible existing `Queued` rows for today/yesterday applications, repoints rows onto newer applications, retires rows nothing qualifies for, re-times within the deadline, and refiles. Returns without work while referral is paused. |
+| `resetReferralQueueForFreshPlan()` | Soft-cancel and clear all unsent Queued/Drafted rows, delete their Gmail drafts, and preserve sent history so a fresh Target-based plan can be created without duplicate sends. |
 | `sortReferralTab()` | Run by hand: file the tab in time order. |
 | `checkReferralService()` | Run by hand: whether this path could work, without doing any of it. |
 | `outreachReferralNotSetUp_()`, `outreachReferralIdle_()` | The one place the three entry points share their "tab is missing" wording. |
@@ -70,9 +71,7 @@ A fourth caller that writes a status or an hour outside the cycle belongs in the
 - `sendReferralAsks` repeats the rejection check immediately before sending because the
   one-minute trigger can run between hourly reconciliation passes. A rejected application is
   cancelled and its draft removed instead of being used for a referral request.
-- The same one-minute boundary re-checks `Employees (seed)`: a row is sendable only when its
-  email is present there with `Verify = debounce:valid`. Source provenance is enforced upstream;
-  `pattern_calibrated` rows never enter the seed, and risky/invalid/unverified rows are removed
-  before drafting or sending.
+- The same one-minute boundary re-checks `Employees (seed)`: a row is sendable when its email is
+  present there with any Verify value other than `debounce:invalid`, including blank values.
 - `outreachApplyReferralTimes_` writes **one row at a time**. That is fine at 172 rows and was
   not fine at 499 — see [outreach-diagnostics.md](outreach-diagnostics.md).
