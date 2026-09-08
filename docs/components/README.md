@@ -50,7 +50,7 @@ ATS boards + Markdown trackers
 | `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
-| `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export through `replaceContactSeedChunk` / `replaceEmployeeSeedChunk`; the **`Sent` column belongs to the outreach script**, which ticks it after Gmail accepts a message | outreach compose + planners |
+| `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export through `replaceContactSeedChunk` / `replaceEmployeeSeedChunk`; the **`Sent` column belongs to the outreach script**, which ticks it after Gmail accepts a message; `From` records which sourcing pass found the row and nothing reads it | outreach compose + planners |
 | `Company` | `company_tab.gs` **only** | people — who to ask for a referral next |
 | `Target` | `target_tab.gs` **only** | people — where to source the next referral contacts |
 

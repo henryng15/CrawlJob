@@ -67,7 +67,7 @@ function replaceContactSeedChunk(rows, startRow, clearExisting) {
   if (clearExisting !== false) {
     sheet.getRange(1, 1, 1, C_WIDTH).setValues([[
       'Company', 'Recruiter Name', 'Email', 'Role', 'Focus', 'Hook', 'Angle',
-      'Verify', 'Bucket', 'Sent'
+      'Verify', 'Bucket', 'Sent', 'From'
     ]]);
     var last = sheet.getLastRow();
     if (last > 1) sheet.getRange(2, 1, last - 1, C_WIDTH).clearContent();
@@ -77,7 +77,8 @@ function replaceContactSeedChunk(rows, startRow, clearExisting) {
       var email = String(row.Email || '').trim().toLowerCase();
       return [row.Company, row['Recruiter Name'], email, row.Role, row.Focus,
         row.Hook, row.Angle, row.Verify, row.Bucket,
-        (ticks[email] || outreachSentTicked_(row.Sent)) ? SENT_TICK : ''];
+        (ticks[email] || outreachSentTicked_(row.Sent)) ? SENT_TICK : '',
+        Number(row.From) || FROM_SEED];
     });
     sheet.getRange(startRow, 1, values.length, C_WIDTH).setValues(values);
   }
@@ -100,7 +101,7 @@ function replaceEmployeeSeedChunk(rows, startRow, clearExisting) {
   if (clearExisting !== false) {
     sheet.getRange(1, 1, 1, E_WIDTH).setValues([[
       'Company', 'Person Name', 'Email', 'Title', 'Domain', 'Seniority',
-      'LinkedIn', 'Angle', 'Bucket', 'Verify', 'Sent'
+      'LinkedIn', 'Angle', 'Bucket', 'Verify', 'Sent', 'From'
     ]]);
     var last = sheet.getLastRow();
     if (last > 1) sheet.getRange(2, 1, last - 1, E_WIDTH).clearContent();
@@ -110,7 +111,8 @@ function replaceEmployeeSeedChunk(rows, startRow, clearExisting) {
       var email = String(row.Email || '').trim().toLowerCase();
       return [row.Company, row['Person Name'], email, row.Title, row.Domain,
         row.Seniority, row.LinkedIn, row.Angle, row.Bucket, row.Verify,
-        (ticks[email] || outreachSentTicked_(row.Sent)) ? SENT_TICK : ''];
+        (ticks[email] || outreachSentTicked_(row.Sent)) ? SENT_TICK : '',
+        Number(row.From) || FROM_SEED];
     });
     sheet.getRange(startRow, 1, values.length, E_WIDTH).setValues(values);
   }

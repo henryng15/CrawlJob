@@ -147,7 +147,8 @@ var Q_WIDTH = 23;
 var C_COMPANY = 1, C_NAME = 2, C_EMAIL = 3;
 var C_ROLE = 4, C_FOCUS = 5, C_HOOK = 6, C_ANGLE = 7, C_VERIFY = 8, C_BUCKET = 9;
 var C_SENT = 10;
-var C_WIDTH = 10;
+var C_FROM = 11;
+var C_WIDTH = 11;
 
 // Employees (seed), 1-based, written by ColdEmail's export. Domain is carried
 // because it is what lets a link on a company's own careers site be told apart
@@ -155,7 +156,8 @@ var C_WIDTH = 10;
 var E_COMPANY = 1, E_NAME = 2, E_EMAIL = 3, E_TITLE = 4, E_DOMAIN = 5;
 var E_SENIORITY = 6, E_LINKEDIN = 7, E_ANGLE = 8, E_BUCKET = 9, E_VERIFY = 10;
 var E_SENT = 11;
-var E_WIDTH = 11;
+var E_FROM = 12;
+var E_WIDTH = 12;
 
 // `Sent` is a tick that means this person has been written to and must not be
 // written to again, ever, on either path.
@@ -175,6 +177,17 @@ var E_WIDTH = 11;
 // Nothing else may write it -- see the tab-ownership table in
 // docs/components/README.md.
 var SENT_TICK = true;
+
+// `From` says which sourcing pass found this person: 1 the original ColdEmail
+// pipeline, 2 the treg run. Nothing in this project reads it -- it is written by
+// the export and kept so the tab can answer "where did this row come from?"
+// without anyone having to diff two CSVs.
+//
+// It sits after Sent rather than before it, deliberately: Sent was already
+// deployed and already held 314 ticks, and inserting a column ahead of it would
+// have moved every one of them by one position.
+var FROM_SEED = 1;
+var FROM_TREG = 2;
 
 /** Whether a Sent cell means "already written to". People type all of these. */
 function outreachSentTicked_(value) {
