@@ -302,9 +302,10 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
   var planned = [];
   var skipped = [];
   var pretendSent = queueRows.slice();
-  // Existing rows keep the template the tab already promised. New rows fill the
-  // least-used base and copy-form slots, with company relevance as the tie-breaker.
-  var templateLoad = outreachVariantTemplateLoad_(queueRows);
+  // Existing rows keep the template the tab already promised. New rows take the
+  // least-used of the ten, so several people at one employer do not all read the
+  // same message.
+  var templateLoad = outreachColdTemplateLoad_(queueRows);
 
   // One posting gets one wave, however many times it was applied to.
   //
@@ -390,9 +391,8 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
       if (n === 0) {
         waves.push({ property: app.property, tokens: tokens, role: role, season: season });
       }
-      var variant = outreachBalancedVariantFor_(attempt, pick.contact.focus, bucket,
-                                                templateLoad.bases);
-      var form = outreachCopyFormFor_(variant, templateLoad.forms);
+      var template = outreachColdTemplateFor_(templateLoad);
+      templateLoad[template] = (templateLoad[template] || 0) + 1;
       planned.push({
         id: 'P' + app.property + '-A' + attempt,
         recruiters: companyContacts.length,
@@ -402,9 +402,9 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
         role: app.role,
         dateApplied: app.dateApplied,
         attempt: attempt,
-        // Decided here rather than at send time, so the tab says which copy form
+        // Decided here rather than at send time, so the tab says which of the ten
         // is coming before it goes rather than after.
-        template: outreachVariantKey_(variant, form),
+        template: template,
         eligibleAt: outreachEligibleDay_(app.dateApplied, attempt),
         fingerprint: pick.fingerprint,
         contact: pick.contact,

@@ -6,7 +6,7 @@ outreach script, and `runOutreachSendTick`, the one-minute delivery entry point.
 ## Connections
 
 - **In:** rows booked by [outreach-queue.md](outreach-queue.md); words from
-  [outreach-compose.md](outreach-compose.md).
+  [outreach-templates.md](outreach-templates.md).
 - **Out:** Gmail drafts and sends; status written back to `Email`.
 - **Drives:** every other outreach file, through `runOutreachCycle`.
 

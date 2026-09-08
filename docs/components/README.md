@@ -83,16 +83,15 @@ looser one winning every hour — see the gotcha in
 - [outreach-config.md](outreach-config.md) — constants, seasons, the shared interleaver
 - [outreach-contacts.md](outreach-contacts.md) — who counts as the same employer
 - [outreach-budget.md](outreach-budget.md) — how three paths share one mailbox
-- [outreach-compose.md](outreach-compose.md) — cold email wording
 - [outreach-queue.md](outreach-queue.md) — the `Email` tab: planning and ordering
 - [outreach-send.md](outreach-send.md) — drafting, sending, the cycle, health
 - [outreach-followup.md](outreach-followup.md) — the nudge on an existing thread
 - [outreach-rejections.md](outreach-rejections.md) — reading rejections out of the mailbox
-- [outreach-referral-templates.md](outreach-referral-templates.md) — referral wording
 - [outreach-referral-queue.md](outreach-referral-queue.md) — the `Referral` tab: planning and ordering
 - [outreach-referral-send.md](outreach-referral-send.md) — referral drafting, sending, reconciling
 - [outreach-app-worklist.md](outreach-app-worklist.md) — the `App` worklist: which rows are waiting on a link, and where they sit
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
+- [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 
 ## The rule
 

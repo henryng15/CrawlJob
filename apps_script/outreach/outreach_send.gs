@@ -314,18 +314,10 @@ function prepareOutreachDrafts() {
       var mail = outreachCompose_({
         // The tab already names which of the ten this row is getting, and that is
         // what you read before it went. Recomputing here could quietly disagree.
-        variant: item.template
-          || outreachVariantFor_(item.attempt, contact.focus, outreachBucketFor_(companyContacts)),
+        template: item.template,
         company: item.company,
         role: appRow.role,
-        recruiterName: contact.name,
-        dateApplied: appRow.dateApplied,
-        // Read now, not when the row was queued. Days pass in between, and an
-        // application that cleared its assessment in that time should say so.
-        process: appRow.process,
-        today: now,
-        hook: contact.hook,
-        angle: outreachAngleFor_(companyContacts)
+        recruiterName: contact.name
       });
 
       var options = {
@@ -632,16 +624,10 @@ function previewOutreachEmail() {
     if (!contact) return;
 
     var mail = outreachCompose_({
-      variant: item.template
-        || outreachVariantFor_(item.attempt, contact.focus, outreachBucketFor_(companyContacts)),
+      template: item.template,
       company: item.company,
       role: appRow.role || item.role,
-      recruiterName: contact.name,
-      dateApplied: appRow.dateApplied || item.dateApplied,
-      process: appRow.process,
-      today: now,
-      hook: contact.hook,
-      angle: outreachAngleFor_(companyContacts)
+      recruiterName: contact.name
     });
 
     GmailApp.createDraft(me, mail.subject, mail.plain, {

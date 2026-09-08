@@ -16,7 +16,7 @@ Two tabs make that impossible rather than merely unlikely.
 
 - **Reads:** `CONTACTS_SHEET_ID` — both contact tabs, and `Employees (seed)` for the referral path.
 - **Read by:** [outreach-queue.md](outreach-queue.md) (who to cold-email),
-  [outreach-compose.md](outreach-compose.md) (angle, bucket),
+  [outreach-templates.md](outreach-templates.md),
   [outreach-referral-queue.md](outreach-referral-queue.md) (employees).
 - **`COMPANY_NOISE` mirrors `job_sync/sources.py`.** The two lists must agree or the tracker and
   the queue disagree about what one employer is.

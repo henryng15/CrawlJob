@@ -471,13 +471,12 @@ function draftReferralAsks() {
           // and the application already has a row of its own two tabs away that
           // stays right when it is corrected there.
           //
-          // The composed message prints no day: outreachReferralIntro_ says the
-          // application has already been made and stops there, because the
-          // engineer being asked a favour is not going to check a date. What this
-          // lookup is good for is the claim underneath that sentence. Every row on
-          // this tab comes from an application actually made, and a row this
-          // lookup cannot match is one whose company and role have drifted from
-          // the App row they were queued off.
+          // The composed message prints no day, and now cannot: the ten fixed
+          // templates have no placeholder for one. What this lookup is still
+          // good for is the claim underneath that sentence. Every row on this
+          // tab comes from an application actually made, and a row this lookup
+          // cannot match is one whose company and role have drifted from the App
+          // row they were queued off.
           dateApplied: appliedOn[outreachReferralAppKey_(row.company, row.role)] || null,
           today: now,
           jobLink: row.jobLink,

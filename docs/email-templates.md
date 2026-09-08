@@ -616,7 +616,7 @@ which is the only thing anybody ever does with it. A row without a usable link i
 
 > These tables document the superseded copybook. Production now composes each body from ten
 > tracked forms and ten tier asks, with ids such as `mid:5`; see
-> [the component document](components/outreach-referral-templates.md) and
+> [the component document](components/outreach-templates.md) and
 > `apps_script/outreach/outreach_referral.gs` for the live source.
 
 Four tiers of ten. The **tier** is how far above the writer the reader sits, resolved by

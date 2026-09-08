@@ -6,7 +6,7 @@ appending rows, writing drafts, sending, scanning replies, applying ticks.
 ## Connections
 
 - **In:** the planners in [outreach-referral-queue.md](outreach-referral-queue.md); wording from
-  [outreach-referral-templates.md](outreach-referral-templates.md).
+  [outreach-templates.md](outreach-templates.md).
 - **Out:** the `Referral` tab and Gmail.
 - **Called by:** `runOutreachCycle` — steps `referralScan`, `referralReplanned`,
   `referralPlanned`, `referralSent`, `referralDrafted`.
