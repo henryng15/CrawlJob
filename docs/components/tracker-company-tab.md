@@ -24,12 +24,20 @@ it. The `Asked` checkbox needs no handler — the sweep reads it back before eve
 
 ## The layout
 
-Two independent blocks of eight columns, back to back: **A:H** and **I:P**.
+Two independent blocks of five columns, back to back: **A:E** and **F:J**.
+
+It was eight and eight (**A:H**, **I:P**), ending in `LinkedIn`, `Email subject` and
+`Email body` — three columns holding a generated message each, to be pasted into
+LinkedIn or Gmail by hand. Those are gone, along with every other template in this
+project. This tab says which employers are worth writing to and which have been asked;
+the words live in ColdEmail's `henry_cold_email_templates_10.md` and `henry_referral.md`
+and reach the sender through `outreach_templates.gs`. A second, differently worded set
+of them here was exactly the drift a single source is meant to prevent.
 
 | | 1st col | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th |
 |---|---|---|---|---|---|---|---|---|
-| **A:H** | 173 employers that certified a **Software Engineer H-1B in FY2025** | sendable referral emails | `Summer?` | `First` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
-| **I:P** | the other 70 employers on the shortlist | sendable referral emails | `Summer?` | `First` | `Asked` | `LinkedIn` | `Email subject` | `Email body` |
+| **A:E** | 173 employers that certified a **Software Engineer H-1B in FY2025** | sendable referral emails | `Summer?` | `First` | `Asked` |
+| **F:J** | the other 70 employers on the shortlist | sendable referral emails | `Summer?` | `First` | `Asked` |
 
 The blocks are defined by `COMPANY_BLOCK_WIDTH`, not pinned to letters, so the second one moves
 right on its own when the first gains a column. It moved from `G` to `H` when the count column was added,
@@ -47,14 +55,6 @@ and now starts at `I` after `First` was added.
   queued rows. Addresses already in Referral with `Queued`, `Drafted`, `Sent`, `Replied`, or
   `Bounced` status are deducted; `Cancelled` and `Failed` rows are not. Pattern-calibrated,
   upstream-invalid, inactive/former, and blank addresses never enter the seed.
-- **`LinkedIn`**, **`Email subject`** and **`Email body`** hold that company's messages, with its
-  name and its real posting link already in them. The only thing left to fill is `[Name]`.
-
-The subject is its own column because pasting an email means pasting two things into two fields,
-and a body that starts with `Subject:` makes that a manual edit every single time.
-
-The three are drawn **to fit their own header and nothing more** — 84, 122 and 99px, from
-`companyHeaderWidth_`. Their contents are a whole message each and no width short of absurd would
 show one, so the width is spent on the only thing worth reading in place: which column you are
 looking at. It is derived from the header text rather than written down as three numbers, so
 renaming a header cannot leave it clipped by a width nobody thought to update — and a header
@@ -68,9 +68,11 @@ proofread a whole message; the next rebuild puts it back.
 comments and this document keep theirs.
 
 Both are needed, and the second is the one that is easy to miss. **`CLIP` stops a long line
-overflowing sideways; it does not stop a newline.** The templates carry real `\n` characters, so
-without a pinned row height Sheets grows each row to the ten or fifteen lines the message needs
-and the tab becomes a wall of text. The height clips it vertically the way `CLIP` clips it
+overflowing sideways; it does not stop a newline.** This mattered when three columns held a whole
+message each: without a pinned height Sheets grew every row to the fifteen lines a message needed
+and the tab became a wall of text. Nothing on the tab carries a newline any more, so the pinning is
+now belt and braces rather than load-bearing — kept because a long company name that wrapped would
+still push a row tall. The height clips it vertically the way `CLIP` clips it
 horizontally.
 
 **It has to be `setRowHeightsForced`, not `setRowHeights`.** The plain one sets a height that
@@ -90,55 +92,6 @@ what it destroys is the thing it was called to preserve.
 The height is set **after** the writes, over both blocks at once: row height belongs to the row
 rather than to either block, and pinning it before writing a multi-line cell lets Sheets grow the
 row again.
-
-## The templates
-
-Every message, email and LinkedIn alike, follows the same **eight beats in the same order**.
-The substantive wording is deliberately consistent: a stranger deserves a clear explanation and
-a direct but respectful request, not a different rhetorical strategy for every company.
-
-1. a greeting
-2. who is writing: the name and the subject read
-3. we have never met, and I saw that you are at this company
-4. the open SWE role and why Henry's software-engineering background is relevant
-5. the ask: review the resume, then refer only if Henry seems like a fit
-6. appreciation for an opportunity to move forward, with the resume and application link below
-7. it is completely all right to decline
-8. thank you for the time it took to read this
-
-The register is deliberately **clear, courteous and professional**. This is writing to an engineer
-who owes the reader nothing and is being asked to spend their own credibility, so it identifies
-Henry first, acknowledges there was no prior connection, asks for a resume review before the
-referral, and makes the referral conditional on genuine fit. It gives the reader an easy way out
-without repeatedly apologising for the message.
-
-Beats 3 to 7 live in `companyMiddleBeats_` and are shared, so the email and the LinkedIn message
-can never drift into saying different things.
-
-**The LinkedIn cell is a DM, not a connection note.** Carrying the whole structure puts it far
-past the 300 characters a connection note allows. It differs from the email only in dropping the
-subject, the signature block and the paragraph breaks.
-
-**The template does not claim that an application has already been submitted.** The Company tab
-knows that a posting exists, not whether Henry has applied. It instead gives the recipient the
-resume and direct application link, so the sender can apply at the appropriate point without the
-message making a false claim.
-
-A company with no opening cannot be asked for a referral against a req that does not exist, and
-cannot have been applied to either. Beats 4 to 6 are replaced there by one saying no posting has
-appeared and asking whether one is expected.
-
-The company name, role season and direct link make every row specific. Greetings and closings are
-still drawn deterministically by company name, so a rebuild gives back the exact message that was
-reviewed. That stability matters because this tab is copied from by hand.
-
-**No variant may carry an em dash, and none may repeat another in its own array.** Both are
-asserted where the arrays are generated. Comments and this document keep their em dashes; nothing
-that reaches the sheet does.
-
-**No variant puts an article in front of the company name.** "a {C} referral" produces *a Amazon
-referral*, and the article cannot be chosen without knowing the name, so the subjects that had one
-say "a referral at {C}" instead of a rule being written to guess.
 
 ## Where the two lists come from
 
@@ -222,17 +175,8 @@ to tick one.
 | `companyLivePostings_()` | Every `Jobs` row still worth counting — not Expired, not a closed intake — as `{tokens, summer, posted, postedDay}`. |
 | `companyIsTicked_(cell)` | A checkbox reads back boolean; a hand-typed one reads as text. |
 | `companyPostedTime_(cell)` | A `Date Posted` cell as a sortable number, from either a Date or an ISO string. Unparseable sorts oldest rather than throwing. |
-| `companyHeaderWidth_(text)` | How wide a template column is drawn: enough for its own header and no more. |
-| `companyHash_(text)` | A stable unsigned djb2 hash — enough to spread a few hundred names, four lines rather than a dependency. |
-| `companyPick_(company, salt, list)` | One beat, drawn for this company. The salt is what decorrelates the beats. |
-| `companyMiddleBeats_(company, label)` | Beats 3 to 6, shared by both messages so they cannot drift apart. |
-| `companyIntro_(study)` | Beat 2, the one fixed sentence in the message. |
-| `companyFill_(text, company, label)` | Substitutes `{C}` and `{S}` in a variant. |
-| `companyLinkedInTemplate_(company, label, link)` | The DM. No signature block — the profile is the signature. |
-| `companyEmailSubject_(company, label)` | The subject line, alone, for its own column. |
-| `companyEmailBody_(company, label, link)` | The body, link on its own line at the foot. |
 | `companyPostedDay_(cell)` | Returns a posting date as `YYYY-MM-DD`, preserving date-only source cells without timezone drift. |
-| `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count, its earliest live posting day, and picks the posting whose link the templates name — a summer one if there is one. |
+| `companyBlockRows_(names, postings, asked, referralCounts)` | One block, ordered: open first, Summer before Off-cycle, alphabetical inside each group. Adds each company's exact DeBounce-valid referral count, and its earliest live posting day. It no longer picks a posting link: nothing on the tab quotes one now. |
 | `companyExistingAsked_(sheet)` | The ticks now on the tab, keyed by company rather than by row, so rows can move underneath them. Scans every column and pairs a name cell with the checkbox four to its right, while accepting the prior three- and two-column offsets during migration. |
 | `companyReferralCounts_()` | Reads the sender-maintained hidden snapshot of unique `debounce:valid` addresses across `Employees (seed)`, for every company on the referral candidate list. |
 | `companyJobsFingerprint_(postings)` | What `Jobs` says, reduced to the company, season, posting day and link this tab reads off it. |

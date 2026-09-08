@@ -28,55 +28,32 @@ var COMPANY_JOBS_TAB = 'Jobs';
 var COMPANY_REFERRAL_SEED_COUNTS_TAB = 'Referral Seed Counts';
 
 // Where each block starts. The valid-email count sits beside the company name,
-// and First sits beside Summer?, so each block is eight columns wide and the
-// second starts at I.
-var COMPANY_BLOCK_COLS = [1, 9];
-var COMPANY_BLOCK_WIDTH = 8;   // company | valid count | Summer? | First | Asked | LinkedIn | subject | body
+// and First sits beside Summer?, so each block is five columns wide and the
+// second starts at F.
+//
+// It was eight, ending in LinkedIn, Email subject and Email body: three columns
+// holding a generated message each, for pasting into LinkedIn or Gmail by hand.
+// Those are gone with every other template in this project. This tab's job is to
+// say which employers are worth writing to and which have been asked; the words
+// come from ColdEmail's two Markdown files, and a second, differently worded set
+// of them here was the drift those files exist to prevent.
+var COMPANY_BLOCK_COLS = [1, 6];
+var COMPANY_BLOCK_WIDTH = 5;   // company | valid count | Summer? | First | Asked
 var COMPANY_FIRST_ROW = 2;     // row 1 is the header
 
 var COMPANY_HEADERS = [
   ['Company - sponsors SWE H-1B, FY2025', 'Sendable referral emails', 'Summer?',
-   'First', 'Asked', 'LinkedIn', 'Email subject', 'Email body'],
-  ['Company - everyone else', 'Sendable referral emails', 'Summer?', 'First', 'Asked',
-   'LinkedIn', 'Email subject', 'Email body']
+   'First', 'Asked'],
+  ['Company - everyone else', 'Sendable referral emails', 'Summer?', 'First', 'Asked']
 ];
-
-// Who the templates are from. Lifted from docs/email-templates.md rather than
-// written again here, so the tab and the sender introduce the same person.
-var COMPANY_SENDER = 'Henry Nguyen';
-var COMPANY_SENDER_STUDY = 'a Math and Computer Science student at Kenyon College';
-// Shorter, for LinkedIn, where every character is one closer to the 300 a connection
-// note allows.
-var COMPANY_SENDER_STUDY_SHORT = 'a Math and CS student at Kenyon College';
-var COMPANY_SENDER_CONTACT =
-  'hoanng15.work@gmail.com · linkedin.com/in/hoanng15 · github.com/henryng15';
-
-// How wide the three template columns are drawn. One number each, so changing
-// your mind is changing it here — see companyPaintHeader_.
-// The three template columns are drawn to fit their own header and nothing more.
-// Their contents are a whole message each and no width short of absurd would show
-// one, so the width is spent on the only thing worth reading in place: which
-// column you are looking at.
-//
-// Derived from the header text rather than written down as three numbers, so that
-// renaming a header cannot leave it clipped by a width nobody thought to update.
-// The header row cannot overflow into its neighbour the way a lone cell can —
-// the cell beside it is another header — so a column too narrow for its title
-// silently cuts the title off.
-var COMPANY_HEADER_CHAR_PX = 7.5;   // bold 10pt, near enough
-var COMPANY_HEADER_PADDING_PX = 24;
-
-function companyHeaderWidth_(text) {
-  return Math.round(String(text).length * COMPANY_HEADER_CHAR_PX) + COMPANY_HEADER_PADDING_PX;
-}
 
 // And how tall every data row is pinned. 21px is the Sheets default — one line.
 //
-// This has to be set, not left alone, and the reason is easy to miss: CLIP stops a
-// long line overflowing sideways, it does not stop a newline. The templates carry
-// real '\n' characters, so without an explicit height Sheets grows each row to the
-// ten or fifteen lines the message needs and the tab becomes a wall. Pinning the
-// height clips it vertically the way CLIP clips it horizontally.
+// This mattered most when three columns held a whole message each: without an
+// explicit height Sheets grew every row to the fifteen lines a message needed and
+// the tab became a wall. Those columns are gone, so nothing here carries a newline
+// any more and the pinning is now belt and braces rather than load-bearing. It is
+// kept because a company name long enough to wrap would still push a row tall.
 //
 // It must be setRowHeightsForced, not setRowHeights. The plain one sets a height
 // that rows are still free to grow past to fit their contents, which against a
@@ -114,6 +91,7 @@ var COMPANY_SUMMER_WORD = 'summer';
 // It is a list rather than a constant so that rolling the year forward is adding
 // '2027' here, in one place, rather than hunting for a hard-coded number.
 var COMPANY_DEAD_INTAKE_WORDS = ['2026'];
+
 
 // Legal-form noise, dropped before two names are compared. Same list the ColdEmail
 // exporter normalises with, so a company classified as a sponsor there is the same
@@ -285,338 +263,6 @@ function companyIsDeadIntake_(role) {
 //   7. an easy, respectful way to decline
 //   8. thank you for the time it took to read this
 //
-// The register is deliberately humble and a little formal. An earlier draft of
-// these was written closer to the sender's cold-email voice, which is brisk
-// because it is writing to recruiters, whose job is to read applications. This is
-// writing to an engineer who owes the reader nothing and is being asked to spend
-// their own credibility. It therefore asks for a resume review before a referral,
-// makes the referral conditional on genuine fit, and gives the reader an easy way
-// out before thanking them either way.
-//
-// Both messages carry the whole structure. The LinkedIn one is therefore not a
-// connection note - it is far past the 300-character cap and is meant to be sent
-// as a DM. It differs from the email only in dropping the subject, the signature
-// block and the paragraph breaks.
-//
-// The tab knows only that a posting exists, not whether an application was made.
-// It must therefore never claim that the application is already in. The direct
-// link at the foot is useful precisely because it leaves that decision honest.
-//
-// A company with no opening cannot be asked for a referral against a req that does
-// not exist, and cannot have been applied to either. Beats 4 to 6 are replaced
-// there by one that says no posting has appeared and asks whether one is expected.
-//
-// The company, role season and application link make every message specific. The
-// greeting and sign-off are drawn deterministically by company name, so a rebuild
-// gives back exactly what was reviewed and copied by hand.
-
-var COMPANY_GREETINGS = [
-  'I hope this message finds you well.', 'I hope this note finds you at a good time.',
-  'I hope your week has been going well.', 'I hope this finds you well.',
-  'I hope I am not catching you at a busy moment.',
-  'I hope the week is treating you kindly.', 'I hope this reaches you well.',
-  'I hope you are doing well.', 'I hope all is well with you.',
-  'I hope this message reaches you at a good moment.',
-  'I hope things are going well for you.', 'I hope you are keeping well.',
-  'I hope this finds you in good spirits.', 'I hope your day is going well.',
-  'I hope I find you at a quiet moment.', 'I hope this note reaches you well.',
-  'I hope you are well.', 'I hope this finds you having a good week.',
-  'I hope the day is going kindly for you.', 'I hope this finds you at a reasonable hour.'
-];
-
-var COMPANY_MET_LINES = [
-  'We have never met or spoken, but I came across your profile and saw that you are at {C}.',
-  'You and I have not met, though I noticed from your profile that you are with {C}.',
-  'We have not spoken before, and I found your profile while reading about {C}.',
-  'I hope you will forgive a message from a stranger; I saw that you are part of the team at {C}.',
-  'We are not acquainted, but your profile came up as I was looking into {C}.',
-  'I realise we have never been introduced. I noticed that you are working at {C}.',
-  'We have never corresponded, though I saw from your profile that you are at {C}.',
-  'This is the first time I am writing to you. I came across your name while reading about {C}.',
-  'You do not know me, and I saw from your profile that you are with {C}.',
-  'We have not had the chance to meet, but I noticed you are on the team at {C}.',
-  'I am writing without an introduction. Your profile showed me that you are at {C}.',
-  'We have never spoken, and I hope you do not mind my writing; I saw that you are at {C}.',
-  'I have not had the pleasure of meeting you, though I noticed you work at {C}.',
-  'We are strangers, I know. I came across your profile and saw that you are with {C}.',
-  'I hope it is all right to write to you unannounced. I saw that you are at {C}.',
-  'We have not met, and I found my way to your profile while looking into {C}.',
-  'I am reaching out without any prior introduction, having seen that you are at {C}.',
-  'You have not heard from me before. I noticed from your profile that you are with {C}.',
-  'We have never been in touch, though I saw that you are part of {C}.',
-  'I hope you will excuse an unexpected message. Your profile told me that you are at {C}.'
-];
-
-var COMPANY_FIT_LINES = [
-  'Having read about the role and about {C}, I believe my background and skills would genuinely fit, and it is work I would care about doing well.',
-  'From what I have read of the role and of {C}, my background feels like a real fit.',
-  'I have spent some time with the posting, and I think my skills line up with what the role asks for.',
-  'Looking at the role and at what {C} builds, I feel my background and skills would suit it.',
-  'The more I read about {C}, the more I felt my background might be a genuine match for the role.',
-  'I believe the experience I have built lines up honestly with what this role is asking for.',
-  'My coursework and projects have pointed me in this direction, and the role at {C} looks like a real fit.',
-  'Having studied the posting, I think my skills and background would serve the role well.',
-  'I would not write if I did not think the fit was real; the role and my background line up closely.',
-  'What {C} is building is close to the work I have been preparing myself for.',
-  'I have looked carefully at the role, and I believe my background gives me something useful to offer.',
-  'From the posting, the role seems to ask for the things I have spent my time learning.',
-  'I think my skills fit the role, and {C} is a place I would be proud to learn at.',
-  'The role reads like a close match for the background I have built so far.',
-  'Reading the posting, I felt my skills and my direction line up with what is wanted.',
-  'I believe I could do this work well, and I would very much like the chance to try.',
-  'My background sits close to the role, and {C} is somewhere I would genuinely like to be.',
-  'Having considered the role honestly, I think my skills would be a good fit for it.',
-  'The work described is the work I have been building toward, and I think the fit is real.',
-  'I feel that my background and what the role asks for meet quite closely.'
-];
-
-var COMPANY_APPLIED_LINES = [
-  'I applied as soon as the posting went up, though I know an application on its own can go unseen, and I would like to give it the best chance I can.',
-  'My application went in the day it opened. I am writing because I would like it to have the fairest look it can get.',
-  'I submitted my application as soon as the role appeared, and I am reaching out in the hope of giving it a better chance of being read.',
-  'I have already applied, on the day the posting went live. I know how many applications a req collects, and I would like mine to have a real look.',
-  'I put my application in the moment the role opened. I am writing because I would like the chance to be considered properly.',
-  'I applied straight away when the posting appeared, and I am reaching out to give the application the best chance I can.',
-  'My application is already in, sent the day the role opened, and I hoped a word from someone inside might help it be seen.',
-  'I applied as soon as it was posted. I am asking because I would like the application to reach someone rather than sit in a queue.',
-  'I submitted my application on the day the role went up, and I would like to do what I can to give it a fair hearing.',
-  'I have applied already, as soon as the posting appeared, and I am writing in the hope of improving its chances of being read.',
-  'The application went in the day the role opened. I am reaching out because I would like it to have every chance it deserves.',
-  'I applied the moment I saw the posting, and I am writing because I would like to give myself the best chance of being considered.',
-  'My application has been in since the day the role opened, and I am asking in the hope that it might be looked at properly.',
-  'I applied as soon as the role opened. I know the form alone is often not enough, and I would like to give it a better chance.',
-  'I sent my application in on the first day the posting was up, and I am reaching out to help it stand a fairer chance.',
-  'I have already applied, straight after the role appeared, and I would like to do what I can so that it is genuinely considered.',
-  'My application went in immediately when the posting opened, and I am writing to give it the best chance of a real look.',
-  'I applied the day the role was listed. I am reaching out because I would like the chance to show what I can actually do.',
-  'I submitted my application as soon as it opened, and I am asking so that it might have a better chance of reaching someone.',
-  'I applied right away when the posting went live, and I am writing in the hope of giving it a fairer chance of being seen.'
-];
-
-var COMPANY_ASK_LINES = [
-  'I wanted to ask, with respect, whether you might be willing to refer me.',
-  'Might I ask whether you would consider referring me?',
-  'I hope it is not too much to ask whether you would be open to referring me.',
-  'Would you consider putting a referral in for me? I ask knowing it is a favour.',
-  'If it is not an imposition, might you be willing to refer me?',
-  'I would be grateful if you would consider referring me.',
-  'May I ask whether a referral is something you would feel comfortable giving?',
-  'I wondered whether you might be willing to refer me for it.',
-  'Would you be open to referring me? I know it is a real ask.',
-  'I hope you will not mind my asking whether you could refer me.',
-  'If you felt it were warranted, would you consider referring me?',
-  'I would be very grateful for a referral, if that is something you would consider.',
-  'Might you be willing to put my name forward?',
-  'Could I ask, respectfully, for your referral?',
-  'I wanted to ask whether a referral from you might be possible.',
-  'Would you consider recommending me for the role?',
-  'If you thought it appropriate, would you be willing to refer me?',
-  'I hope I may ask whether you would consider referring me.',
-  'Might a referral be something you would be willing to give?',
-  'I would be honoured if you felt able to refer me.'
-];
-
-var COMPANY_OKAY_LINES = [
-  'It is completely all right if not, and I will understand entirely.',
-  'Please do say no if it is not something you are comfortable with; I will understand.',
-  'If that is not something you can do, that is entirely fine.',
-  'It is perfectly all right to say no.',
-  'Please feel free to decline; I know I am a stranger asking a favour.',
-  'If not, I completely understand, and there is no need to reply.',
-  'A no is entirely fine, and I would rather you felt free to give one.',
-  'Please do not feel any obligation; it is quite all right either way.',
-  'If you would rather not, that is completely understandable.',
-  'It is genuinely fine if the answer is no.',
-  'Please say no freely if that is the honest answer.',
-  'I will understand completely if this is not something you can do.',
-  'There is no obligation at all, and no is a perfectly good answer.',
-  'If it is not possible, I quite understand.',
-  'Please do not feel bad about declining; I know what I am asking.',
-  'It is entirely all right if you would rather not.',
-  'I would not want you to feel pressed; no is completely fine.',
-  'If the answer is no, that is genuinely all right.',
-  'Please feel no obligation whatsoever.', 'And if not, that is entirely understandable.'
-];
-
-var COMPANY_THANKS_LINES = [
-  'Either way, thank you for taking the time to read this. I am grateful for it.',
-  'Thank you sincerely for reading this far; I know your time is not free.',
-  'I am genuinely grateful that you read this at all. Thank you.',
-  'Thank you for the time it took to read this. I do not take it for granted.',
-  'However you answer, thank you for reading; I appreciate it more than I can say.',
-  'I am thankful for the minutes this took of your day.',
-  'Thank you for reading a message you did not ask for. I am grateful.',
-  'Whatever you decide, I am grateful that you gave this your attention.',
-  'Thank you for your time and your attention; both are worth more than this ask.',
-  'I appreciate you reading this, truly, and I thank you for it.',
-  'Thank you for hearing me out. It means a great deal.',
-  'I am grateful for the time you have already given this.',
-  'Thank you for reading, and I am sorry for the intrusion on your day.',
-  'Either way, I am thankful that you took the time.',
-  'Thank you very much for reading this through.',
-  'I know this took time you had not planned to give. Thank you.',
-  'Thank you for your patience with a message from a stranger.',
-  'I am grateful for your time, whatever comes of this.',
-  'Thank you for considering it, and for reading this at all.',
-  'I appreciate your time, and I thank you sincerely for it.'
-];
-
-var COMPANY_EMAIL_CLOSES = [
-  'With gratitude,', 'Respectfully,', 'With thanks,', 'Sincerely,', 'With appreciation,',
-  'Gratefully,', 'With respect,', 'Thank you,', 'Warm regards,', 'Kind regards,',
-  'With sincere thanks,', 'Respectfully yours,', 'All the best,', 'With much appreciation,',
-  'Yours sincerely,', 'In gratitude,', 'With my thanks,', 'Best regards,',
-  'Sincerely and with thanks,', 'With genuine thanks,'
-];
-
-var COMPANY_EMAIL_SUBJECTS = [
-  'A referral request for the {C} {S}SWE intern role',
-  'Kenyon student asking respectfully about a {C} referral',
-  'May I ask you about a referral at {C}?',
-  'A humble ask about the {C} {S}software engineering internship',
-  'Referral request: {C} {S}SWE intern',
-  'Kenyon student, {C} {S}SWE intern - a small request',
-  'Asking respectfully about a referral at {C}',
-  'A request regarding the {C} {S}SWE intern opening',
-  '{C} {S}SWE intern - may I ask for your referral?',
-  'A referral ask for {C}, from a Kenyon student',
-  'Regarding the {C} {S}software engineering internship',
-  'A short and respectful ask about {C}',
-  'Kenyon undergraduate asking about a {C} referral',
-  '{C} {S}SWE internship - a referral request', 'May I ask for a referral at {C}?',
-  'A request for your consideration - {C} {S}SWE intern',
-  'Referral ask regarding {C}\'s {S}SWE intern role',
-  'Kenyon student hoping for a referral at {C}',
-  'About the {C} {S}SWE intern opening, and a small request',
-  'A respectful ask about a {C} referral'
-];
-
-var COMPANY_NO_ROLE_ASKS = [
-  'I do not see an opening posted at the moment, and I wondered whether {C} is likely to take interns this cycle.',
-  'There does not seem to be a posting just now, and I wanted to ask whether one is expected at {C} this cycle.',
-  'I could not find an opening yet, and I hoped you might know whether {C} plans to post one.',
-  'No role is listed at present, and I wondered whether {C} takes interns this cycle.',
-  'I have not seen a posting yet, and I wanted to ask whether one is likely at {C}.',
-  'There is nothing listed at the moment, and I hoped you might know if {C} is hiring interns this cycle.',
-  'I could not find a req open just now, and I wondered whether one is coming at {C}.',
-  'Nothing appears to be posted yet, and I wanted to ask whether {C} expects to open something.',
-  'I have not found an opening, and I hoped you could tell me whether {C} takes interns.',
-  'No posting has appeared so far, and I wondered whether one is planned at {C} this cycle.',
-  'I could not see a role listed, and I wanted to ask whether {C} is likely to open one.',
-  'There is no opening I can find yet, and I hoped you might know {C}\'s plans for this cycle.'
-];
-
-
-/**
- * A stable unsigned hash of a string. djb2, which is enough to spread a couple of
- * hundred company names evenly and is four lines rather than a dependency.
- */
-function companyHash_(text) {
-  var h = 5381;
-  for (var i = 0; i < text.length; i++) {
-    h = ((h << 5) + h + text.charCodeAt(i)) | 0;
-  }
-  return h >>> 0;
-}
-
-/** One beat, drawn for this company. The salt is what decorrelates the beats. */
-function companyPick_(company, salt, list) {
-  return list[companyHash_(company + '|' + salt) % list.length];
-}
-
-/** {C} is the company, {S} is "summer " or nothing. */
-function companyFill_(text, company, label) {
-  return text.replace(/\{C\}/g, company)
-             .replace(/\{S\}/g, label === COMPANY_SUMMER ? 'summer ' : '');
-}
-
-/**
- * The substantive beats, shared by email and LinkedIn so the two cannot drift.
- *
- * The Company tab cannot prove that a person has applied, so it never claims an
- * application is already in. It gives the reader the actual application link and
- * leaves the decision to apply before or after a referral to the sender.
- */
-function companyMiddleBeats_(company, label) {
-  var met = 'We have not met before, but I came across your profile and saw that you work at '
-    + company + '.';
-  if (!label) {
-    return [met,
-            'I do not see an open software engineering internship at ' + company
-              + ' right now, but I wanted to ask whether one may be expected this cycle.',
-            'If you have a moment, I would appreciate any guidance on the right team or time to apply.'
-              + ' I have attached my resume and included my contact details below.'];
-  }
-  return [met,
-          'I noticed that ' + company + ' currently has an open '
-            + (label === COMPANY_SUMMER ? 'summer ' : '')
-            + 'software engineering internship. My software engineering background aligns with'
-            + ' the kind of work the role describes, so I wanted to reach out.',
-          'If you have a moment, would you be willing to review my resume? If you feel I could'
-            + ' be a fit, I would be very grateful if you would consider referring me for the role.',
-          'I would appreciate any opportunity to move forward in the process. I have attached my'
-            + ' resume and included the application link below. I completely understand if a referral'
-            + ' is not something you can offer.'];
-}
-
-/** Beat 2, the one fixed sentence in the message. */
-function companyIntro_(study) {
-  return 'My name is ' + COMPANY_SENDER + '. I am ' + study
-    + ' with a background in software engineering.';
-}
-
-/**
- * The LinkedIn message. A DM: it carries the full structure and so runs well past
- * the 300 characters a connection note allows. No signature block, because the
- * profile is the signature.
- */
-function companyLinkedInTemplate_(company, label, link) {
-  var beats = companyMiddleBeats_(company, label);
-  return 'Hi [Name], ' + companyPick_(company, 'greet', COMPANY_GREETINGS) + ' '
-    + companyIntro_(COMPANY_SENDER_STUDY_SHORT) + '\n\n'
-    + beats.join(' ') + '\n\n'
-    + companyPick_(company, 'thanks', COMPANY_THANKS_LINES)
-    + (link ? '\n\n' + link : '');
-}
-
-/**
- * The email's subject line, on its own so it can live in its own column. Kept
- * apart from the body because pasting an email means pasting two things into two
- * fields, and a body cell that starts with "Subject:" makes that a manual edit
- * every single time.
- */
-function companyEmailSubject_(company, label) {
-  if (!label) return 'Question about software engineering internships at ' + company;
-  return 'Resume review and referral request for the ' + company + ' '
-    + (label === COMPANY_SUMMER ? 'summer ' : '') + 'software engineering internship';
-}
-
-/**
- * The email body: the same respectful sequence, in paragraphs.
- *
- * The link sits on its own line at the foot, not inside the sentence naming the
- * role, for the reason docs/email-templates.md gives: a link inside a sentence
- * asking for a favour reads as a demand to click.
- */
-function companyEmailBody_(company, label, link) {
-  var beats = companyMiddleBeats_(company, label);
-  // The last two beats - the ask and the leave-it-freely - open their own
-  // paragraph, so that the ask is never buried mid-block. What is left in front of
-  // them is beat 3 alone when there is no role, and beats 3 and 4 when there is.
-  var okay = beats.pop();
-  var ask = beats.pop();
-  return 'Hi [Name],\n\n'
-    + companyPick_(company, 'greet', COMPANY_GREETINGS) + ' '
-    + companyIntro_(COMPANY_SENDER_STUDY) + '\n\n'
-    + beats.join(' ') + '\n\n'
-    + ask + ' ' + okay + '\n\n'
-    + companyPick_(company, 'thanks', COMPANY_THANKS_LINES) + '\n\n'
-    + companyPick_(company, 'em-close', COMPANY_EMAIL_CLOSES) + '\n'
-    + COMPANY_SENDER + '\n' + COMPANY_SENDER_CONTACT
-    + (link ? '\n\nApplication link: ' + link : '');
-}
-
-
 // ------------------------------------------------------------- reading the Jobs tab
 
 /**
@@ -769,8 +415,7 @@ function companyReferralCounts_() {
 function companyBlockRows_(names, postings, asked, referralCounts) {
   var rows = names.map(function (name) {
     var tokens = companyTokens_(name);
-    var open = false, summer = false, link = '', posted = 0, first = 0,
-      firstDay = '', linkTime = -1;
+    var open = false, summer = false, posted = 0, first = 0, firstDay = '';
     for (var i = 0; i < postings.length; i++) {
       var p = postings[i];
       if (!companyNameMatches_(tokens, p.tokens)) continue;
@@ -780,15 +425,7 @@ function companyBlockRows_(names, postings, asked, referralCounts) {
         first = p.posted;
         firstDay = p.postedDay;
       }
-      // Which posting the templates name. The newest, except that once anything
-      // summer has been seen only a summer posting may supply it — otherwise the
-      // message says "summer opening" over a link to an off-cycle req.
-      if (p.summer) {
-        if (!summer || p.posted > linkTime) { link = p.link; linkTime = p.posted; }
-        summer = true;
-      } else if (!summer && p.posted > linkTime) {
-        link = p.link; linkTime = p.posted;
-      }
+      if (p.summer) summer = true;
     }
     var label = open ? (summer ? COMPANY_SUMMER : COMPANY_OFFCYCLE) : '';
     return {
@@ -799,10 +436,7 @@ function companyBlockRows_(names, postings, asked, referralCounts) {
       posted: posted,
       firstDay: firstDay,
       tier: open ? (summer ? 0 : 1) : 2,
-      asked: asked[tokens.join(' ')] === true,
-      linkedin: companyLinkedInTemplate_(name, label, link),
-      subject: companyEmailSubject_(name, label),
-      body: companyEmailBody_(name, label, link)
+      asked: asked[tokens.join(' ')] === true
     };
   });
   rows.sort(function (a, b) {
@@ -910,13 +544,6 @@ function companyPaintHeader_(sheet) {
     sheet.setColumnWidth(col + 2, 80);
     sheet.setColumnWidth(col + 3, 95);
     sheet.setColumnWidth(col + 4, 60);
-    // Clipped, so what shows is the first line and nothing spills into the block
-    // beside it. Wide enough to read that first line: the subject entire, the other
-    // two far enough in to tell which variant a row drew. Widen one by hand to
-    // proofread a whole message; the next rebuild puts it back.
-    for (var t = 5; t < COMPANY_BLOCK_WIDTH; t++) {
-      sheet.setColumnWidth(col + t, companyHeaderWidth_(COMPANY_HEADERS[b][t]));
-    }
   }
 }
 
@@ -937,12 +564,11 @@ function companyWriteBlock_(sheet, col, rows, clearDepth) {
   if (!rows.length) return;
 
   var values = rows.map(function (r) {
-    return [r.name, r.validReferralEmails, r.label, r.firstDay, r.asked,
-      r.linkedin, r.subject, r.body];
+    return [r.name, r.validReferralEmails, r.label, r.firstDay, r.asked];
   });
   var greens = rows.map(function (r) {
     var fill = r.open ? COMPANY_OPEN_GREEN : null;
-    return [fill, null, fill, fill, null, null, null, null];
+    return [fill, null, fill, fill, null];
   });
 
   var range = sheet.getRange(COMPANY_FIRST_ROW, col, rows.length, COMPANY_BLOCK_WIDTH);
@@ -956,13 +582,6 @@ function companyWriteBlock_(sheet, col, rows, clearDepth) {
     .setHorizontalAlignment('center');
   sheet.getRange(COMPANY_FIRST_ROW, col + 4, rows.length, 1)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
-  // Clipped, not wrapped, and not overflowing either. Overflow is the Sheets
-  // default and would spill a fifteen-line message across the block beside it;
-  // clip cuts it at the cell border, which is what makes a 26px column legible as
-  // a column rather than as a smear over its neighbours.
-  sheet.getRange(COMPANY_FIRST_ROW, col + 5, rows.length, 3)
-    .setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP)
-    .setVerticalAlignment('top');
 }
 
 /**
