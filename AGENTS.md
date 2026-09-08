@@ -82,6 +82,24 @@ before anybody looked. See `docs/components/outreach-referral-queue.md`.
 column.** Two things writing one column is the failure mode this codebase is most prone to,
 because the two projects cannot see each other and neither one looks wrong on its own.
 
+## Read the last day's note, and leave one
+
+`update/` holds one short Markdown file per day of work, named `YYYY-MM-DD.md`.
+
+**Before starting, read the most recent one.** It is the only place that records what was
+changed today-ish and what was deliberately left undone — the things a diff shows but does not
+explain, and that `docs/components/` does not carry because they are about the work rather than
+about the system.
+
+**Before finishing, write or extend the file for today's date.** A new file each day; append to
+it if the day is already open. Keep it short — what changed, why, what is still open, and
+anything the next person would otherwise have to rediscover. It is a log, not a second set of
+component docs: if a fact belongs to the system rather than to the day, it belongs in
+`docs/components/` and the note should link to it instead of repeating it.
+
+This exists because a working tree with a month of half-finished changes in it, and no note
+saying which are half-finished, costs more to read than the code does.
+
 ## Read the component docs first
 
 `docs/components/` holds one document per source file: what it owns, what it connects to, and
