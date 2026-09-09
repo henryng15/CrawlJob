@@ -74,6 +74,11 @@ var TAB_ALPHABET       = 'Alphabet_Order';
 // Mixed into one table neither can be scanned: the recruiter rows outnumber the
 // referral rows and both would have to carry the other's columns as blanks.
 var TAB_REFERRAL       = 'Referral';
+// Explicit Target campaigns are kept in their own read-only mirrors. The normal
+// workers deliberately read only TAB_QUEUE and TAB_REFERRAL, so these tabs can
+// show the direct-send schedule without becoming a second send queue.
+var TAB_EMAIL_TARGET    = 'Email_target';
+var TAB_REFERRAL_TARGET = 'Referral_target';
 // Where a run says it started and, if it got that far, that it finished. Its own
 // tab rather than Logger, because a step that has been failing for days is only
 // worth anything if it is visible where somebody actually looks. See

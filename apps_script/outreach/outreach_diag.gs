@@ -1158,6 +1158,8 @@ function scheduleTargetReferralCampaign_(config) {
       props.deleteProperty(propertyKey);
       throw error;
     }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
     return {
       scheduled: entries.map(function (entry) {
         return {company: entry.company, name: entry.name, email: entry.email,
@@ -1225,6 +1227,8 @@ function runTargetReferralCampaignTickFor_(config) {
       due.status = 'already-sent';
       due.completedAt = new Date().toISOString();
       props.setProperty(propertyKey, JSON.stringify(state));
+      try { refreshTargetQueueTabs_(); }
+      catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
       return {skippedAlreadySent: true, email: due.email};
     }
 
@@ -1281,6 +1285,8 @@ function runTargetReferralCampaignTickFor_(config) {
       });
     }
     props.setProperty(propertyKey, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
     return {sent: true, company: due.company, name: due.name, email: due.email,
             template: due.template, pending: state.entries.filter(function (e) { return e.status === 'pending'; }).length};
   } catch (error) {
@@ -1300,6 +1306,8 @@ function runTargetReferralCampaignTickFor_(config) {
           failedDue.status = 'failed';
           failedDue.error = text.slice(0, 250);
           props.setProperty(propertyKey, JSON.stringify(state));
+          try { refreshTargetQueueTabs_(); }
+          catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
         }
       } catch (ignored) {}
     }
@@ -1583,6 +1591,8 @@ function scheduleTargetRecruiterCampaign_(config) {
       props.deleteProperty(propertyKey);
       throw error;
     }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
     return {
       scheduled: entries.length,
       byCompany: summarizeTargetCampaignState_(state, label).byCompany,
@@ -1695,6 +1705,8 @@ function runTargetRecruiterCampaignTickFor_(config) {
       });
     }
     props.setProperty(propertyKey, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
     return {sent: due.status === 'sent', skippedAlreadySent: due.status === 'already-sent',
             company: due.company, name: due.name,
             pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
@@ -1715,6 +1727,8 @@ function runTargetRecruiterCampaignTickFor_(config) {
           failedDue.status = 'failed';
           failedDue.error = errorText.slice(0, 250);
           props.setProperty(propertyKey, JSON.stringify(state));
+          try { refreshTargetQueueTabs_(); }
+          catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
         }
       } catch (ignored) {}
     }
@@ -1722,4 +1736,219 @@ function runTargetRecruiterCampaignTickFor_(config) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ------------------------------------------------------------------- Target queue mirrors
+
+// These headers intentionally mirror the operational queue schemas. Keeping the
+// same order means a reviewer can compare a direct Target campaign with the
+// normal queue without learning a second layout, while the separate tab name
+// keeps the normal workers from treating a mirror as a send instruction.
+var TARGET_REFERRAL_HEADERS_ = [
+  'Company', 'Role', 'Person', 'Email', 'Title', 'Tier', 'Template', 'Drafted At',
+  'Scheduled At', 'Priority', 'Status', 'Mode', 'Cancel', 'Job Link',
+  'Gmail Draft ID', 'Sent At', 'Result', 'Last Error', 'Queue ID', 'Version'
+];
+var TARGET_EMAIL_HEADERS_ = [
+  'Company', 'Role', 'Date Applied', 'Property', 'Recruiters', 'Attempt',
+  'Template', 'Drafted At', 'Scheduled At', 'Priority', 'Status', 'Mode',
+  'Follow Up', 'Follow Up Template', 'Follow Up Status',
+  'Contact Fingerprint', 'Gmail Draft ID', 'Gmail Message ID', 'Sent At',
+  'Result', 'Last Error', 'Queue ID', 'Version'
+];
+
+/**
+ * Initialize or refresh the two visible mirrors of explicit Target campaigns.
+ * This writes no Gmail messages and does not add rows to the operational Email
+ * or Referral tabs. The script-property campaign state remains authoritative.
+ */
+function initializeTargetQueueTabs() {
+  return refreshTargetQueueTabs_();
+}
+
+/** Refresh Target mirrors after scheduling or a direct-send state transition. */
+function refreshTargetQueueTabs_() {
+  var referralKeys = [
+    'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
+    'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'
+  ];
+  var recruiterKeys = [
+    'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
+    'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'
+  ];
+  var referralEntries = targetMirrorCampaignEntries_(referralKeys);
+  var recruiterEntries = targetMirrorCampaignEntries_(recruiterKeys);
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var apps = targetMirrorApplications_(tracker);
+  var referralRows = referralEntries.map(targetMirrorReferralRow_);
+  var emailRows = recruiterEntries.map(function (entry, index) {
+    return targetMirrorEmailRow_(entry, index, apps);
+  });
+  targetMirrorWrite_(tracker, TAB_REFERRAL_TARGET, TARGET_REFERRAL_HEADERS_,
+    R_WIDTH, referralRows, 'referral');
+  targetMirrorWrite_(tracker, TAB_EMAIL_TARGET, TARGET_EMAIL_HEADERS_,
+    Q_WIDTH, emailRows, 'email');
+  return {
+    referralTarget: {tab: TAB_REFERRAL_TARGET, rows: referralRows.length,
+                     byCompany: targetMirrorCounts_(referralEntries)},
+    emailTarget: {tab: TAB_EMAIL_TARGET, rows: emailRows.length,
+                  byCompany: targetMirrorCounts_(recruiterEntries)}
+  };
+}
+
+/** Read all entries from the explicit campaign properties, hiding no state. */
+function targetMirrorCampaignEntries_(propertyKeys) {
+  var entries = [];
+  propertyKeys.forEach(function (propertyKey) {
+    var text = PropertiesService.getScriptProperties().getProperty(propertyKey);
+    if (!text) return;
+    var state = JSON.parse(text);
+    (state.entries || []).forEach(function (entry, index) {
+      var copy = {};
+      Object.keys(entry).forEach(function (key) { copy[key] = entry[key]; });
+      copy.campaignKey = propertyKey;
+      copy.campaignIndex = index + 1;
+      entries.push(copy);
+    });
+  });
+  return entries.sort(function (left, right) {
+    return Number(left.atMs || 0) - Number(right.atMs || 0);
+  });
+}
+
+function targetMirrorStatus_(status) {
+  if (status === 'sent' || status === 'already-sent') return STATUS_SENT;
+  if (status === 'failed') return STATUS_FAILED;
+  if (status === 'cancelled' || status === 'skipped') return STATUS_CANCELLED;
+  return STATUS_QUEUED;
+}
+
+function targetMirrorReferralRow_(entry) {
+  var row = new Array(R_WIDTH).fill('');
+  row[R_COMPANY - 1] = entry.company || '';
+  row[R_ROLE - 1] = entry.role || '';
+  row[R_PERSON - 1] = entry.name || '';
+  row[R_EMAIL - 1] = entry.email || '';
+  row[R_TITLE - 1] = entry.title || '';
+  row[R_TIER - 1] = outreachReferralTier_(entry.title || '', entry.seniority || '');
+  row[R_TEMPLATE - 1] = entry.template || '';
+  row[R_SCHEDULED - 1] = entry.atMs ? new Date(entry.atMs) : '';
+  row[R_STATUS - 1] = targetMirrorStatus_(entry.status);
+  row[R_MODE - 1] = MODE_SEND;
+  row[R_CANCEL - 1] = false;
+  row[R_JOB_LINK - 1] = entry.jobLink || '';
+  row[R_SENT_AT - 1] = entry.completedAt ? new Date(entry.completedAt) : '';
+  row[R_RESULT - 1] = entry.messageId || '';
+  row[R_ERROR - 1] = entry.error || entry.historyError || entry.targetSyncError || '';
+  row[R_ID - 1] = 'TARGET-REF-' + String(entry.campaignKey || '').slice(-8)
+    + '-' + String(entry.campaignIndex || '');
+  row[R_VERSION - 1] = 1;
+  return row;
+}
+
+function targetMirrorApplications_(tracker) {
+  var app = tracker.getSheetByName(TAB_APP);
+  if (!app || app.getLastRow() < 2) return [];
+  var width = Math.min(APP_READ_WIDTH, app.getMaxColumns());
+  return app.getRange(2, 1, app.getLastRow() - 1, width).getValues()
+    .map(function (row, index) { return outreachParseApp_(row, index); })
+    .filter(function (row) { return row.company || row.role; });
+}
+
+function targetMirrorApplicationFor_(apps, entry) {
+  var companyKey = outreachNameKey_(entry.company);
+  var roleKey = outreachNameKey_(entry.role);
+  var exact = apps.filter(function (app) {
+    return outreachNameKey_(app.company) === companyKey
+      && outreachNameKey_(app.role) === roleKey;
+  });
+  if (exact.length) return exact[0];
+  var sameCompany = apps.filter(function (app) {
+    return outreachNameKey_(app.company) === companyKey
+      || outreachSameEmployer_(outreachCompanyTokens_(app.company),
+                               outreachCompanyTokens_(entry.company));
+  });
+  return sameCompany.length ? sameCompany[0] : null;
+}
+
+function targetMirrorEmailRow_(entry, index, apps) {
+  var app = targetMirrorApplicationFor_(apps, entry);
+  var row = new Array(Q_WIDTH).fill('');
+  row[Q_COMPANY - 1] = entry.company || '';
+  row[Q_ROLE - 1] = entry.role || '';
+  row[Q_DATE_APPLIED - 1] = app && app.dateApplied ? app.dateApplied : '';
+  row[Q_PROPERTY - 1] = app ? app.property : '';
+  row[Q_RECRUITERS - 1] = 1;
+  row[Q_ATTEMPT - 1] = 1;
+  row[Q_TEMPLATE - 1] = entry.template || '';
+  row[Q_SCHEDULED - 1] = entry.atMs ? new Date(entry.atMs) : '';
+  row[Q_PRIORITY - 1] = false;
+  row[Q_STATUS - 1] = targetMirrorStatus_(entry.status);
+  row[Q_MODE - 1] = MODE_SEND;
+  row[Q_SENT_AT - 1] = entry.completedAt ? new Date(entry.completedAt) : '';
+  row[Q_RESULT - 1] = entry.messageId || '';
+  row[Q_ERROR - 1] = entry.error || '';
+  row[Q_ID - 1] = 'TARGET-EMAIL-' + String(entry.campaignKey || '').slice(-8)
+    + '-' + String(index + 1);
+  row[Q_VERSION - 1] = 1;
+  return row;
+}
+
+function targetMirrorCounts_(entries) {
+  var counts = {};
+  entries.forEach(function (entry) {
+    if (!counts[entry.company]) counts[entry.company] = {total: 0, queued: 0, sent: 0, failed: 0};
+    counts[entry.company].total++;
+    var status = targetMirrorStatus_(entry.status);
+    if (status === STATUS_QUEUED) counts[entry.company].queued++;
+    else if (status === STATUS_SENT) counts[entry.company].sent++;
+    else if (status === STATUS_FAILED) counts[entry.company].failed++;
+  });
+  return counts;
+}
+
+/** Write one generated mirror while preserving its existing formatting. */
+function targetMirrorWrite_(tracker, tabName, headers, width, rows, kind) {
+  var sheet = tracker.getSheetByName(tabName);
+  var created = false;
+  if (!sheet) {
+    sheet = tracker.insertSheet(tabName);
+    created = true;
+  }
+  if (sheet.getMaxColumns() < width) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+  } else if (created && sheet.getMaxColumns() > width) {
+    sheet.deleteColumns(width + 1, sheet.getMaxColumns() - width);
+  }
+  if (sheet.getMaxRows() > 1) {
+    sheet.getRange(2, 1, sheet.getMaxRows() - 1, width).clearContent()
+      .clearDataValidations();
+  }
+  sheet.getRange(1, 1, 1, width).setValues([headers])
+    .setFontWeight('bold').setBackground('#d9eaf7')
+    .setHorizontalAlignment('center').setWrap(true);
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, width).setValues(rows);
+    var timestampColumns = kind === 'referral'
+      ? [R_DRAFTED_AT, R_SCHEDULED, R_SENT_AT]
+      : [Q_DRAFTED_AT, Q_SCHEDULED, Q_FOLLOWUP_AT, Q_SENT_AT];
+    timestampColumns.forEach(function (column) {
+      sheet.getRange(2, column, rows.length, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
+    });
+    if (kind === 'email') {
+      sheet.getRange(2, Q_DATE_APPLIED, rows.length, 1).setNumberFormat(QUEUE_DATE_FORMAT);
+    }
+    var statusColumn = kind === 'referral' ? R_STATUS : Q_STATUS;
+    var modeColumn = kind === 'referral' ? R_MODE : Q_MODE;
+    sheet.getRange(2, statusColumn, rows.length, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(
+        [STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED,
+         STATUS_BOUNCED, STATUS_CANCELLED, STATUS_FAILED], true)
+        .setAllowInvalid(false).build());
+    sheet.getRange(2, modeColumn, rows.length, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList([MODE_DRAFT, MODE_SEND], true)
+        .setAllowInvalid(false).build());
+  }
+  sheet.setFrozenRows(1);
 }
