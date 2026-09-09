@@ -787,6 +787,7 @@ function runOutreachCycle() {
   step('layout', function () {
     return outreachRepairQueueLayout_(tracker.getSheetByName(TAB_QUEUE));
   });
+  step('targetDeliveryFailures', scanTargetDeliveryFailures);
   step('scan', scanOutreachReplies);
   step('rejections', scanRejectionEmails);
   // After the scanner, which closes applications of its own, and before enqueue,
@@ -1033,6 +1034,7 @@ function installOutreachTriggers() {
 function removeOutreachTriggers() {
   var mine = ['runOutreachCycle', 'runOutreachSendTick', 'prepareOutreachDrafts', 'sendPreparedDrafts',
               'enqueueOutreach', 'refreshOutreachSchedule', 'scanOutreachReplies',
+              'scanTargetDeliveryFailures',
               'scanRejectionEmails', 'onOutreachQueueEdit',
               'planFollowUpReplies', 'sendFollowUpReplies', 'replanOutreachFollowUps',
               // The referral path's three. A kill switch that misses a handler is

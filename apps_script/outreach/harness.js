@@ -5549,6 +5549,27 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   });
 }
 
+{
+  console.log('\ntarget campaigns: recording delayed delivery failures');
+
+  run('a direct Target send changes to Bounced only after a matching notice', () => {
+    const entries = [
+      { email: 'dead@example.com', status: 'sent' },
+      { email: 'waiting@example.com', status: 'pending' },
+      { email: 'already@example.com', status: 'already-sent' }
+    ];
+    const changed = S.targetApplyDeliveryFailures_(entries, {
+      'dead@example.com': '2026-09-09T14:00:00.000Z',
+      'waiting@example.com': '2026-09-09T14:01:00.000Z'
+    });
+    assert.strictEqual(changed, 1);
+    assert.strictEqual(entries[0].status, 'bounced');
+    assert.strictEqual(entries[0].bouncedAt, '2026-09-09T14:00:00.000Z');
+    assert.strictEqual(entries[1].status, 'pending');
+    assert.strictEqual(entries[2].status, 'already-sent');
+  });
+}
+
 
 {
   console.log('\nreferral: the edits the tab has to answer at once');

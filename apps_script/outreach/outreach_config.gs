@@ -1123,6 +1123,21 @@ function outreachThreadVerdict_(messages, ourId) {
   return bounced ? STATUS_BOUNCED : '';
 }
 
+/** Mark only previously accepted direct-campaign sends whose address later bounced. */
+function targetApplyDeliveryFailures_(entries, bounced) {
+  var changed = 0;
+  (entries || []).forEach(function (entry) {
+    var email = String(entry.email || '').trim().toLowerCase();
+    if (!email || !bounced[email]) return;
+    if (entry.status !== 'sent' && entry.status !== 'already-sent') return;
+    entry.status = 'bounced';
+    entry.bouncedAt = bounced[email];
+    entry.error = 'Delivery failed; this address does not exist.';
+    changed++;
+  });
+  return changed;
+}
+
 /**
  * Rows reordered so that employers take turns, one each per pass.
  *

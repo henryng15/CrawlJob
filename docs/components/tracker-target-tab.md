@@ -49,9 +49,11 @@ Samsara's [2025/2026 workforce disclosure](https://www.samsara.com/support/moder
 and Squarespace's [company profile](https://www.squarespace.com/about/company).
 
 `Sendable referral emails` is the current per-company count from the sender's seed
-snapshot. It uses the same non-invalid referral pool as `Company`, after addresses
-already reserved or used by Referral have been deducted. The Target tab does not
-create or reserve email addresses; it only reports where more sourcing is useful.
+snapshot. It uses the same non-invalid referral pool as `Company`, after permanently
+`Sent`-ticked addresses and addresses already reserved or used by Referral have been
+deducted. A later delivery bounce remains deducted because that address is known to be
+unusable. The Target tab does not create or reserve email addresses; it only reports
+where more sourcing is useful.
 
 `Summer 2026 first posted` is the earliest concrete 2025 date found in the research
 sources recorded in `target_tab.gs`. Dates are ISO strings (`YYYY-MM-DD`) and each

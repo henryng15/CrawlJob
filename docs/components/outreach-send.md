@@ -17,7 +17,7 @@ Steps, in order. Order is load-bearing; the comments in the file say why for eac
 ```
 schema migration          ← OUTSIDE step(); fatal by design
 health stamp: started
-layout → scan → rejections → stale
+layout → targetDeliveryFailures → scan → rejections → stale
 referralScan → referralReplanned → referralPlanned → referralSent → referralDrafted
 queued → sent → written
 followUpPlanned → followUpSent
@@ -36,6 +36,8 @@ Two rules shape it:
 | Function | Does |
 |---|---|
 | `runOutreachCycle()` | The above. Returns `summary`; throws at the end if any step failed, so the run shows red in Executions. |
+| `scanTargetDeliveryFailures()` | Reads recent mailer-daemon and postmaster notices for direct Target campaigns, marks the matching campaign entries `Bounced`, refreshes both sendable-count snapshots, and rebuilds the two Target mirrors. It never makes a bounced address available again. |
+| `installTargetDeliveryFailureScanner()` | Installs only the 15-minute bounce scanner. It does not enable drafting, planning, or sending. |
 | `refreshRecruiterSeedCounts()` | Refreshes the hidden recruiter-availability snapshot consumed by Target after the queue/send steps have settled. |
 | `runOutreachSendTick()` | Every minute, sends already-due referral, cold and follow-up drafts, then creates any cold draft inside its 20-minute lead window and any Referral draft inside its one-hour lead window. Send still comes first, so a draft cannot be created and sent in one tick. It does not plan or scan. The path send locks prevent it racing the hourly cycle into a duplicate Gmail send. |
 | `outreachHealthStart_(tracker, runId)` | Stamps `Cycle Health` **before** the fatal schema step, newest row first, trimmed to 240 rows. |

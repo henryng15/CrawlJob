@@ -368,12 +368,17 @@ function refreshReferralSeedCounts() {
 
   var values = seed.getRange(2, 1, seed.getLastRow() - 1, E_WIDTH).getValues();
   var addresses = {};
+  var sentAddresses = {};
+  values.forEach(function (row) {
+    var email = String(row[E_EMAIL - 1] || '').trim().toLowerCase();
+    if (email && outreachSentTicked_(row[E_SENT - 1])) sentAddresses[email] = true;
+  });
   values.forEach(function (row) {
     var verify = String(row[E_VERIFY - 1] || '').trim().toLowerCase();
     if (verify === 'debounce:invalid') return;
     var company = String(row[E_COMPANY - 1] || '').trim();
     var email = String(row[E_EMAIL - 1] || '').trim().toLowerCase();
-    if (!company || !email || email.indexOf('@') < 1) return;
+    if (!company || !email || email.indexOf('@') < 1 || sentAddresses[email]) return;
     var key = outreachCompanyTokens_(company).join(' ');
     if (!addresses[key]) addresses[key] = {name: company, emails: {}};
     addresses[key].emails[email] = true;
@@ -405,6 +410,7 @@ function refreshReferralSeedCounts() {
   sheet.hideSheet();
   return {tab: TAB_REFERRAL_SEED_COUNTS, companies: rows.length - 1,
           deducted: deducted,
+          sentTickDeducted: Object.keys(sentAddresses).length,
           emails: rows.slice(1).reduce(function (sum, row) { return sum + row[1]; }, 0),
           spreadsheet: tracker.getName()};
 }
@@ -496,6 +502,75 @@ function syncTargetAfterSend_(company, kind) {
     Logger.log('Post-send Target sync failed: ' + String(error.message || error));
     return null;
   }
+}
+
+var TARGET_DELIVERY_FAILURE_CAMPAIGNS_ = [
+  {key: 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD', kind: 'referral'},
+  {key: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI', kind: 'referral'},
+  {key: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT', kind: 'referral'},
+  {key: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA', kind: 'recruiter'},
+  {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA', kind: 'recruiter'},
+  {key: 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909', kind: 'recruiter'}
+];
+
+/** Read recent delivery-failure notices into an address-to-received-time map. */
+function targetDeliveryFailureAddresses_() {
+  var bounced = {};
+  GmailApp.search('{from:mailer-daemon from:postmaster} newer_than:30d', 0, 100)
+    .forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        if (!OUTREACH_BOUNCE_SENDER.test(String(message.getFrom() || ''))) return;
+        var text = (message.getPlainBody() || '') + '\n' + (message.getSubject() || '');
+        (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).forEach(function (address) {
+          bounced[String(address).trim().toLowerCase()] = message.getDate().toISOString();
+        });
+      });
+    });
+  return bounced;
+}
+
+/**
+ * Reconcile delivery failures for every direct Target campaign.
+ *
+ * Gmail accepting a message only proves that it left this mailbox. A later
+ * mailer-daemon or postmaster response is the final delivery result, so this
+ * scanner updates the campaign state and its visible Target mirror without
+ * making an invalid address sendable again.
+ */
+function scanTargetDeliveryFailures() {
+  var bounced = targetDeliveryFailureAddresses_();
+  var props = PropertiesService.getScriptProperties();
+  var tally = {bounced: 0, referral: 0, recruiter: 0, notices: Object.keys(bounced).length};
+
+  TARGET_DELIVERY_FAILURE_CAMPAIGNS_.forEach(function (campaign) {
+    var text = props.getProperty(campaign.key);
+    if (!text) return;
+    var state = JSON.parse(text);
+    var changed = targetApplyDeliveryFailures_(state.entries, bounced);
+    if (!changed) return;
+    props.setProperty(campaign.key, JSON.stringify(state));
+    tally.bounced += changed;
+    tally[campaign.kind] += changed;
+  });
+
+  if (tally.bounced) {
+    refreshTargetSendableCounts_();
+    refreshTargetQueueTabs_();
+  }
+  Logger.log('Target delivery failures: ' + tally.bounced
+           + ' bounced across ' + tally.notices + ' notice address(es).');
+  return tally;
+}
+
+/** Install the safe 15-minute delivery-failure scanner without enabling sends. */
+function installTargetDeliveryFailureScanner() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === 'scanTargetDeliveryFailures') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  ScriptApp.newTrigger('scanTargetDeliveryFailures').timeBased().everyMinutes(15).create();
+  return {installed: true, handler: 'scanTargetDeliveryFailures', everyMinutes: 15};
 }
 
 /** Read-only proof that every active Referral row is in the non-invalid seed. */
@@ -1406,11 +1481,12 @@ function summarizeTargetCampaignState_(state, label) {
   (state.entries || []).forEach(function (entry) {
     var key = entry.company || 'Unknown';
     if (!byCompany[key]) {
-      byCompany[key] = {total: 0, pending: 0, sent: 0, failed: 0, skipped: 0};
+      byCompany[key] = {total: 0, pending: 0, sent: 0, bounced: 0, failed: 0, skipped: 0};
     }
     byCompany[key].total++;
     if (entry.status === 'pending') byCompany[key].pending++;
     else if (entry.status === 'sent') byCompany[key].sent++;
+    else if (entry.status === 'bounced') byCompany[key].bounced++;
     else if (entry.status === 'failed') byCompany[key].failed++;
     else byCompany[key].skipped++;
   });
@@ -1918,6 +1994,7 @@ function microsoftColdDraftApplicationForBody_(apps, body) {
 
 function targetMirrorStatus_(status) {
   if (status === 'sent' || status === 'already-sent') return STATUS_SENT;
+  if (status === 'bounced') return STATUS_BOUNCED;
   if (status === 'failed') return STATUS_FAILED;
   if (status === 'cancelled' || status === 'skipped') return STATUS_CANCELLED;
   return STATUS_QUEUED;
@@ -1997,11 +2074,14 @@ function targetMirrorEmailRow_(entry, index, apps) {
 function targetMirrorCounts_(entries) {
   var counts = {};
   entries.forEach(function (entry) {
-    if (!counts[entry.company]) counts[entry.company] = {total: 0, queued: 0, sent: 0, failed: 0};
+    if (!counts[entry.company]) {
+      counts[entry.company] = {total: 0, queued: 0, sent: 0, bounced: 0, failed: 0};
+    }
     counts[entry.company].total++;
     var status = targetMirrorStatus_(entry.status);
     if (status === STATUS_QUEUED) counts[entry.company].queued++;
     else if (status === STATUS_SENT) counts[entry.company].sent++;
+    else if (status === STATUS_BOUNCED) counts[entry.company].bounced++;
     else if (status === STATUS_FAILED) counts[entry.company].failed++;
   });
   return counts;

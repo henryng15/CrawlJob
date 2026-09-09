@@ -90,6 +90,7 @@ becomes — it must still count as ticked.
 | `outreachDailyCap_(day)`, `outreachDraftHoursForDay_(day)` | The cold path's shape for one day. |
 | `outreachFromAddress_(header)` | The address out of a `From` line. |
 | `outreachThreadVerdict_(thread)` | What came back: a reply, a delivery failure (`OUTREACH_BOUNCE_SENDER`), or nothing yet. |
+| `targetApplyDeliveryFailures_(entries, bounced)` | Pure direct-Target campaign helper: changes only an already accepted entry with a matching delivery-failure address to `bounced`; queued entries remain untouched. |
 | **`outreachInterleaveByCompany_(rows)`** | **Rows reordered so employers take turns: A,B,C,A,B,C rather than A,A,B,B.** Shared by the cold and referral planners because both had the same bug. Keys on `outreachCompanyTokens_`, not `outreachNameKey_`, or "Stripe" and "Stripe Inc." take two turns each. Orders only; it does not schedule. |
 | `outreachSpaceHours_(n, first, last)` | `n` hours spread evenly across a window. |
 | `outreachSpreadHours_(...)` | The cold path's variant. |
