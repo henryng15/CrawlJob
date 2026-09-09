@@ -148,3 +148,12 @@ trap, not a note.
 
 **Verify before you document.** State what you ran and what came back. Do not describe behaviour
 you have not observed — the tests passing is not evidence that the code ran against the sheet.
+
+## Manual outreach requests
+
+For any user-requested recruiter, cold-email, follow-up or referral-email work, read
+[`docs/manual-outreach-trigger.md`](docs/manual-outreach-trigger.md) first. Email planning,
+drafting and sending are manual-triggered actions only; do not run them merely because an
+automatic queue or trigger exists. Use the correct recruiter/referral template documents named
+there. Every final response must report the planned messages for the local day, including Target
+and hypothetical automatic work, and must warn the user when the total is greater than 55.
