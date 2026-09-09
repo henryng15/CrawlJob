@@ -520,7 +520,11 @@ function targetDeliveryFailureAddresses_() {
     .forEach(function (thread) {
       thread.getMessages().forEach(function (message) {
         if (!OUTREACH_BOUNCE_SENDER.test(String(message.getFrom() || ''))) return;
-        var text = (message.getPlainBody() || '') + '\n' + (message.getSubject() || '');
+        // Gmail providers disagree about where the rejected recipient lives.
+        // Google commonly puts it in the body; Microsoft can place it only in
+        // an X-Failed-Recipients header, exposed by the raw source.
+        var text = (message.getPlainBody() || '') + '\n' + (message.getSubject() || '')
+          + '\n' + (message.getRawContent() || '');
         (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || []).forEach(function (address) {
           bounced[String(address).trim().toLowerCase()] = message.getDate().toISOString();
         });
