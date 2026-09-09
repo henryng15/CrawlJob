@@ -42,7 +42,7 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 | `outreachReferralSeason_(role)` | Whether a posting names the intake being asked about. `REFERRAL_REQUIRE_SEASON` is `false`: of 327 live `App` rows only 81 say "summer", and having applied is a far stronger signal than a word in a title. |
 | `outreachReferralLive_(app)` | Whether this application is still worth asking a favour about. |
 | `outreachReferralIsQuantFirm_(company)` | Whether the company matches the maintained quant-firm exclusion list. |
-| `outreachReferralTargetCompanies_(tracker)` | Reads the four live Target blocks and returns the normalized company set used as the authoritative exclusion list. If Target cannot be read, planning is held. |
+| `outreachReferralTargetCompanies_(tracker)` | Reads the four live seven-column Target blocks and returns the normalized company set used as the authoritative exclusion list. If Target cannot be read, planning is held. |
 | `outreachReferralAdmission_(app, today, targetCompanies)` | The new-row gate: rejects quant firms and Target companies, and admits only an application made today or yesterday. Both ages are automatic `Priority`. |
 | `outreachReferralAutomaticPriorities_(rows, apps, today, targetCompanies)` | Finds existing **Queued** Referral rows at a non-Target employer with a today/yesterday application so the sender can persist Priority before re-timing. Drafted and Sent rows remain fixed. |
 | `outreachReferralAutomaticPriorityDays_(rows, apps, today, targetCompanies)` | Maps queued automatic-Priority rows to application age (`0` today, `1` yesterday), so an existing queue is re-timed inside its deadline. |

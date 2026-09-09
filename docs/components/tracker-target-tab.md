@@ -16,27 +16,28 @@ it, was already on P3.
 ## Connections
 
 - **Reads:** the hidden `Referral Seed Counts` snapshot through the shared
-  `companyReferralCounts_()` function in `company_tab.gs`, plus the live `Jobs`
-  and `App` tabs for opening evidence.
+  `companyReferralCounts_()` function in `company_tab.gs`, the hidden
+  `Recruiter Seed Counts` and `Target Outreach Status` snapshots from the sender,
+  plus the live `Jobs` and `App` tabs for opening evidence.
 - **Writes:** the `Target` tab, and nothing else.
 - **Runs:** through `syncCompanyTab()` every 15 minutes, and manually through
   `rebuildTargetTab()`.
 
 ## The layout
 
-The tab has four compact five-column blocks, separated by gutters:
+The tab has four compact seven-column blocks, separated by gutters:
 
-| Columns | Group | First column | Second column | Third column | Fourth column | Fifth column |
-|---|---|---|---|---|---|---|
-| `A:E` | P0 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
-| `G:K` | P1 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
-| `M:Q` | P2 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
-| `S:W` | P3 | company name | `Sendable referral emails` | `Summer 2026 first posted` | `Date open` | `Asked` |
+| Columns | Group | First column | Second column | Third column | Fourth column | Fifth column | Sixth column | Seventh column |
+|---|---|---|---|---|---|---|---|---|
+| `A:G` | P0 | company name | `Sendable referral emails` | `Sendable recruiter email` | `Summer 2026 first posted` | `Date open` | `Refer` | `Recruiter?` |
+| `I:O` | P1 | company name | `Sendable referral emails` | `Sendable recruiter email` | `Summer 2026 first posted` | `Date open` | `Refer` | `Recruiter?` |
+| `Q:W` | P2 | company name | `Sendable referral emails` | `Sendable recruiter email` | `Summer 2026 first posted` | `Date open` | `Refer` | `Recruiter?` |
+| `Y:AE` | P3 | company name | `Sendable referral emails` | `Sendable recruiter email` | `Summer 2026 first posted` | `Date open` | `Refer` | `Recruiter?` |
 
 P0 contains 34 companies, P1 contains 50, P2 contains 30, and P3 contains 49 after adding Toast and five
 similar-size peers, the non-quant research additions, and the 25 sponsorship-filtered additions
 (17 software employers into P1, 8 payments, telecom, data and infrastructure employers into P3). The company columns are 125px wide, the count
-columns are 105px wide, the research date columns are 100px wide, the live `Date open` columns are 85px wide, and `Asked` columns are 55px wide; headers wrap to keep
+columns are 105px wide, recruiter-count columns are 105px wide, the research date columns are 100px wide, the live `Date open` columns are 85px wide, `Refer` columns are 55px wide, and `Recruiter?` columns are 65px wide; headers wrap to keep
 the four-block layout compact.
 
 The added cohort is a broad sourcing analogue, not an exact headcount match: Toast's
@@ -72,8 +73,17 @@ the cutoff. `App` is scanned after `Jobs` as a fallback: an App-only role can ma
 the company red using its `Date Applied` as recent-activity evidence, but that date
 is never written into `Date open` because it is not a posting date.
 
-`Asked` is a manual checkbox only. It has no sending or filtering logic, and its
-state is preserved when the Target tab is rebuilt or its blocks are refreshed.
+`Refer` is the renamed manual `Asked` checkbox and is also ticked automatically
+from the hidden `Target Outreach Status` snapshot after a successful referral
+send. `Recruiter?` is the corresponding recruiter-send checkbox. Both states are
+preserved when the Target tab is rebuilt or its blocks are refreshed; old `Asked`
+ticks migrate to `Refer`. Drafted, failed, cancelled, and merely planned rows do
+not tick either checkbox.
+
+`Sendable recruiter email` is the current per-company count from the sender's
+hidden `Recruiter Seed Counts` snapshot. It counts unique non-invalid recruiter
+contacts that are not `Sent`-ticked and are not already committed in the cold
+queue. The Target tab only reports the snapshot; it does not reserve addresses.
 
 The company-name cell is refreshed from live `Jobs` data on every Target rebuild. A
 role is in scope when its title contains the whole word `software`, `technology` or
@@ -118,8 +128,9 @@ as not opened.
 | Function | Does |
 |---|---|
 | `targetSheet_(create)` | Returns or creates the `Target` tab. |
-| `targetRows_(names, referralCounts, statuses, askedStates)` | Pairs each target company with its current sendable count, researched posting date, latest live `Date open` and manual `Asked` state. |
-| `targetAskedStates_(sheet)` | Reads manual `Asked` checkbox states so they survive a Target rebuild. |
+| `targetRows_(names, referralCounts, recruiterCounts, statuses, checkboxStates)` | Pairs each target company with referral/recruiter counts, researched posting date, latest live `Date open` and both manual checkbox states. |
+| `targetCheckboxStates_(sheet)` | Reads `Refer` and `Recruiter?` states; migrates the old five-column `Asked` state to `Refer`. |
+| `targetRecruiterCounts_()` | Reads the hidden sender-maintained recruiter availability snapshot. |
 | `targetIsSoftwareEngineerRole_(role)` | Recognizes titles containing the whole word `software`, `technology` or `engineering`. |
 | `targetIsExcludedRole_(role)` | Rejects titles containing `PhD`, `Graduate`, `Master`, or `2026` before Target opening classification. |
 | `targetIsExplicitSummerRole_(role)` | Detects an explicit `Summer` intake. |
@@ -130,7 +141,13 @@ as not opened.
 | `targetOpeningStatuses_()` | Groups recognized rows from `Jobs`, then fallback rows from `App`, infers Summer per company, tracks the latest Jobs opening date, and classifies each company from its latest qualifying role for the three-state color rule. |
 | `targetAgeDays_(postedDay, todayDay)` | Calculates calendar-day posting age without timezone drift. |
 | `targetCompanyFill_(name, statuses)` | Converts the live Target status into green, white or red. |
-| `targetPaintHeader_(sheet)` | Writes the five headers, freezes row 1 and sizes the blocks and gutters. |
-| `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, resets count/date number formats, adds notes and company-name colors, and clears stale rows. |
+| `targetPaintHeader_(sheet)` | Writes the seven headers, freezes row 1, grows the sheet to `AE` when needed, and sizes the blocks and gutters. |
+| `targetWriteBlock_(sheet, col, rows, clearDepth, statuses)` | Replaces one block's values, resets both count/date number formats, adds notes and company-name colors, and applies both checkboxes. |
 | `targetRebuild_()` | Rebuilds all current Target companies across the four blocks and logs the result. |
 | `rebuildTargetTab()` | Manual wrapper that rebuilds Target and shows a toast. |
+| `scheduleTargetReferralRefresh0909()` | One-off bound-script trigger scheduled for 13:45 America/New_York on 2026-09-09, after the Sierra/Waymo/Mastercard campaign, so the refreshed `Referral Seed Counts` snapshot is written into the visible Target counts. |
+| `runTargetReferralRefresh0909_()` | Internal one-shot handler that rebuilds Target from the sender's refreshed snapshot and deletes its own trigger. |
+| `scheduleTargetReferralRefresh0910()` | One-off bound-script trigger scheduled for 13:45 America/New_York on 2026-09-10, after the PayPal/Dropbox/Scale AI campaign, so the refreshed `Referral Seed Counts` snapshot is written into the visible Target counts. |
+| `runTargetReferralRefresh0910_()` | Internal one-shot handler that rebuilds Target from the sender's refreshed snapshot and deletes its own trigger. |
+| `scheduleTargetReferralRefresh0911()` | One-off bound-script trigger scheduled for 13:30 America/New_York on 2026-09-11, after the Datadog/Vercel/Coinbase/Red Hat campaign, so the refreshed `Referral Seed Counts` snapshot is written into the visible Target counts. |
+| `runTargetReferralRefresh0911_()` | Internal one-shot handler that rebuilds Target from the sender's refreshed snapshot and deletes its own trigger. |

@@ -358,9 +358,9 @@ function outreachReferralIsQuantFirm_(company) {
 // Target is maintained by the bound tracker script, but the sender owns the
 // Referral decision. Read the four five-column blocks directly so a manual
 // addition on Target becomes a hard exclusion on the next referral cycle.
-var REFERRAL_TARGET_BLOCK_COLS = [1, 7, 13, 19];
-var REFERRAL_TARGET_BLOCK_WIDTH = 5;
-var REFERRAL_TARGET_READ_WIDTH = 23;
+var REFERRAL_TARGET_BLOCK_COLS = [1, 9, 17, 25];
+var REFERRAL_TARGET_BLOCK_WIDTH = 7;
+var REFERRAL_TARGET_READ_WIDTH = 31;
 
 function outreachReferralTargetCompanies_(tracker) {
   var target = tracker.getSheetByName('Target');

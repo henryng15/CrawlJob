@@ -38,6 +38,7 @@ of them pure.
 | `outreachDueNow_(...)` | The rows allowed out on this firing, against the shared budget. |
 | `outreachProjectSchedule_(rows)` | The date each queued row is expected to go. |
 | `refreshOutreachSchedule()`, `outreachWriteProjection_(...)` | Rewrite the derived columns, and only those. |
+| `outreachColdTargetCompanies_(tracker)` | Reads the four seven-column Target blocks at `A:G`, `I:O`, `Q:W`, `Y:AE` and returns the normalized company set used to exclude Target companies from automatic cold planning. |
 | `outreachRowTime_`, `outreachTimeOrder_`, `outreachSortQueueByTime_` | File the tab: earliest hour first, cancelled sunk. Sorting *values* rather than calling `Range.sort` is what makes it testable. |
 
 ## Tab shape

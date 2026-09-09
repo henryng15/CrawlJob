@@ -82,6 +82,14 @@ before anybody looked. See `docs/components/outreach-referral-queue.md`.
 column.** Two things writing one column is the failure mode this codebase is most prone to,
 because the two projects cannot see each other and neither one looks wrong on its own.
 
+**Target outreach state and counts are synchronized after every successful send.** A referral
+send must refresh `Referral Seed Counts` and record the company in the hidden `Target Outreach
+Status` snapshot; a recruiter send must refresh `Recruiter Seed Counts` and record the company
+there as well. The bound tracker (`target_tab.gs`) is the only writer to visible `Target` cells:
+on its next rebuild it ticks `Refer` for a successful referral send and `Recruiter?` for a
+successful recruiter send, while repainting both sendable counts. Never mark either checkbox
+for a draft, failed send, cancelled send, or merely planned row.
+
 ## Read the last day's note, and leave one
 
 `update/` holds one short Markdown file per day of work, named `YYYY-MM-DD.md`.

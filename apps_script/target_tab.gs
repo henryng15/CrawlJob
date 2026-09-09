@@ -7,14 +7,16 @@
  * contact-sourcing effort. It reads the same sender-maintained Referral Seed Counts
  * snapshot through companyReferralCounts_(), and writes only Target.
  *
- * The four blocks are A:E, G:K, M:Q and S:W. Columns F, L and R are gutters so
+ * The four blocks are A:G, I:O, Q:W and Y:AE. Columns H, P and X are gutters so
  * the lists remain visually separate.
  */
 
 var TARGET_TAB = 'Target';
-var TARGET_BLOCK_COLS = [1, 7, 13, 19];
-var TARGET_BLOCK_WIDTH = 5;
-var TARGET_RENDER_WIDTH = 23;
+var TARGET_RECRUITER_SEED_COUNTS_TAB = 'Recruiter Seed Counts';
+var TARGET_OUTREACH_STATUS_TAB = 'Target Outreach Status';
+var TARGET_BLOCK_COLS = [1, 9, 17, 25];
+var TARGET_BLOCK_WIDTH = 7;
+var TARGET_RENDER_WIDTH = 31;
 var TARGET_FIRST_ROW = 2;
 var TARGET_AGE_THRESHOLD_DAYS = 5;
 var TARGET_OPENING_START_DAY = '2026-07-20';
@@ -22,10 +24,10 @@ var TARGET_NOT_OPEN_GREEN = '#D9EAD3';
 var TARGET_OPEN_WHITE = '#FFFFFF';
 var TARGET_URGENT_RED = '#F4CCCC';
 var TARGET_HEADERS = [
-  ['P0 - Core targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
-  ['P1 - Strong targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
-  ['P2 - AI/startup targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked'],
-  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Summer 2026 first posted', 'Date open', 'Asked']
+  ['P0 - Core targets', 'Sendable referral emails', 'Sendable recruiter email', 'Summer 2026 first posted', 'Date open', 'Refer', 'Recruiter?'],
+  ['P1 - Strong targets', 'Sendable referral emails', 'Sendable recruiter email', 'Summer 2026 first posted', 'Date open', 'Refer', 'Recruiter?'],
+  ['P2 - AI/startup targets', 'Sendable referral emails', 'Sendable recruiter email', 'Summer 2026 first posted', 'Date open', 'Refer', 'Recruiter?'],
+  ['P3 - Tech adjacent targets', 'Sendable referral emails', 'Sendable recruiter email', 'Summer 2026 first posted', 'Date open', 'Refer', 'Recruiter?']
 ];
 
 // Earliest date on which a US Summer 2026 software-engineering INTERN
@@ -208,7 +210,7 @@ function targetSheet_(create) {
   return sheet;
 }
 
-function targetRows_(names, referralCounts, statuses, askedStates) {
+function targetRows_(names, referralCounts, recruiterCounts, statuses, checkboxStates) {
   return names.map(function (name) {
     var key = companyTokens_(name).join(' ');
     var evidence = TARGET_OPENING_EVIDENCE[name];
@@ -216,30 +218,74 @@ function targetRows_(names, referralCounts, statuses, askedStates) {
     return [
       name,
       Number(referralCounts[key] || 0),
+      Number(recruiterCounts[key] || 0),
       evidence ? evidence.date : '',
       status && status.latestOpeningDay ? status.latestOpeningDay : '',
-      askedStates && askedStates[key] === true
+      checkboxStates && checkboxStates.refer[key] === true,
+      checkboxStates && checkboxStates.recruiter[key] === true
     ];
   });
 }
 
-/** Read manual Asked checkbox states before Target is rebuilt or repositioned. */
-function targetAskedStates_(sheet) {
-  var states = {};
+/** Read Refer and Recruiter? checkbox states before Target is rebuilt or repositioned. */
+function targetCheckboxStates_(sheet) {
+  var states = {refer: {}, recruiter: {}};
   var lastRow = sheet.getLastRow();
   if (lastRow < TARGET_FIRST_ROW) return states;
   var width = Math.max(sheet.getLastColumn(), TARGET_RENDER_WIDTH);
+  if (sheet.getMaxColumns() < width) width = sheet.getMaxColumns();
   var values = sheet.getRange(1, 1, lastRow, width).getValues();
-  for (var b = 0; b < TARGET_BLOCK_COLS.length; b++) {
-    var companyCol = TARGET_BLOCK_COLS[b] - 1;
-    var askedCol = companyCol + 4;
-    for (var r = 1; r < values.length; r++) {
-      var name = String(values[r][companyCol] == null ? '' : values[r][companyCol]).trim();
-      if (!name) continue;
-      states[companyTokens_(name).join(' ')] = companyIsTicked_(values[r][askedCol]);
+  var known = {};
+  TARGET_P0.concat(TARGET_P1, TARGET_P2, TARGET_P3).forEach(function (name) {
+    known[companyTokens_(name).join(' ')] = true;
+  });
+  for (var r = 1; r < values.length; r++) {
+    for (var c = 0; c < values[r].length; c++) {
+      var name = String(values[r][c] == null ? '' : values[r][c]).trim();
+      var key = companyTokens_(name).join(' ');
+      if (!name || !known[key]) continue;
+      // New layout: Refer and Recruiter? are five and six cells to the right.
+      if (c + 6 < values[r].length) {
+        states.refer[key] = companyIsTicked_(values[r][c + 5]);
+        states.recruiter[key] = companyIsTicked_(values[r][c + 6]);
+      }
+      // Migration from the old layout: Asked becomes Refer.
+      if (c + 4 < values[r].length && states.refer[key] !== true) {
+        states.refer[key] = companyIsTicked_(values[r][c + 4]);
+      }
     }
   }
+
+  // Successful sends are recorded by the sender in a hidden cross-account
+  // snapshot. The bound tracker remains the only writer to the visible Target
+  // checkboxes, so a sender and a refresh trigger can never race on Target.
+  var statusSheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(TARGET_OUTREACH_STATUS_TAB);
+  if (statusSheet && statusSheet.getLastRow() >= 2 && statusSheet.getLastColumn() >= 3) {
+    statusSheet.getRange(2, 1, statusSheet.getLastRow() - 1, 3).getValues()
+      .forEach(function (row) {
+        var key = companyTokens_(String(row[0] == null ? '' : row[0]).trim()).join(' ');
+        if (!key || !known[key]) return;
+        if (companyIsTicked_(row[1])) states.refer[key] = true;
+        if (companyIsTicked_(row[2])) states.recruiter[key] = true;
+      });
+  }
   return states;
+}
+
+/** Read the sender-maintained recruiter count snapshot. */
+function targetRecruiterCounts_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(TARGET_RECRUITER_SEED_COUNTS_TAB);
+  if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 2) return {};
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  var counts = {};
+  values.forEach(function (row) {
+    var name = String(row[0] == null ? '' : row[0]).trim();
+    var count = Number(row[1]) || 0;
+    if (name && count > 0) counts[companyTokens_(name).join(' ')] = count;
+  });
+  return counts;
 }
 
 /** Calendar-day age in the spreadsheet timezone, avoiding UTC/date-only drift. */
@@ -433,6 +479,10 @@ function targetCompanyFill_(name, statuses) {
 
 function targetPaintHeader_(sheet) {
   sheet.setFrozenRows(1);
+  if (sheet.getMaxColumns() < TARGET_RENDER_WIDTH) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(),
+      TARGET_RENDER_WIDTH - sheet.getMaxColumns());
+  }
   for (var b = 0; b < TARGET_BLOCK_COLS.length; b++) {
     var col = TARGET_BLOCK_COLS[b];
     sheet.getRange(1, col, 1, TARGET_BLOCK_WIDTH)
@@ -444,14 +494,16 @@ function targetPaintHeader_(sheet) {
       .setVerticalAlignment('middle');
     sheet.setColumnWidth(col, 125);
     sheet.setColumnWidth(col + 1, 105);
-    sheet.setColumnWidth(col + 2, 100);
-    sheet.setColumnWidth(col + 3, 85);
-    sheet.setColumnWidth(col + 4, 55);
+    sheet.setColumnWidth(col + 2, 105);
+    sheet.setColumnWidth(col + 3, 100);
+    sheet.setColumnWidth(col + 4, 85);
+    sheet.setColumnWidth(col + 5, 55);
+    sheet.setColumnWidth(col + 6, 65);
   }
   sheet.setRowHeight(1, 42);
-  sheet.setColumnWidth(6, 18);
-  sheet.setColumnWidth(12, 18);
-  sheet.setColumnWidth(18, 18);
+  sheet.setColumnWidth(8, 18);
+  sheet.setColumnWidth(16, 18);
+  sheet.setColumnWidth(24, 18);
 }
 
 function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
@@ -460,25 +512,25 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
       .clearContent().clearDataValidations().clearNote().setBackground(null);
   }
   if (!rows.length) return;
-  // The old three-column layout left DATE formatting behind in some columns;
+  // The prior five-column layout left DATE formatting behind in some columns;
   // reset each new block's types before writing values so counts cannot display
   // as dates and both date columns stay consistent.
-  sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1).setNumberFormat('0');
-  sheet.getRange(TARGET_FIRST_ROW, col + 2, rows.length, 2).setNumberFormat('yyyy-mm-dd');
-  sheet.getRange(TARGET_FIRST_ROW, col + 4, rows.length, 1).setNumberFormat('General');
+  sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 2).setNumberFormat('0');
+  sheet.getRange(TARGET_FIRST_ROW, col + 3, rows.length, 2).setNumberFormat('yyyy-mm-dd');
+  sheet.getRange(TARGET_FIRST_ROW, col + 5, rows.length, 2).setNumberFormat('General');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, TARGET_BLOCK_WIDTH)
     .setValues(rows);
-  sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 1)
+  sheet.getRange(TARGET_FIRST_ROW, col + 1, rows.length, 2)
     .setHorizontalAlignment('center');
-  sheet.getRange(TARGET_FIRST_ROW, col + 2, rows.length, 1)
+  sheet.getRange(TARGET_FIRST_ROW, col + 3, rows.length, 1)
     .setHorizontalAlignment('center')
     .setNotes(rows.map(function (row) {
       var evidence = TARGET_OPENING_EVIDENCE[row[0]];
       return [evidence ? evidence.note : 'No exact public 2025 opening date found in the sources checked. Unknown does not mean the company did not open a role; it means the date was not sufficiently verifiable.'];
     }));
-  sheet.getRange(TARGET_FIRST_ROW, col + 3, rows.length, 1)
-    .setHorizontalAlignment('center');
   sheet.getRange(TARGET_FIRST_ROW, col + 4, rows.length, 1)
+    .setHorizontalAlignment('center');
+  sheet.getRange(TARGET_FIRST_ROW, col + 5, rows.length, 2)
     .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build())
     .setHorizontalAlignment('center');
   sheet.getRange(TARGET_FIRST_ROW, col, rows.length, 1)
@@ -489,18 +541,19 @@ function targetWriteBlock_(sheet, col, rows, clearDepth, statuses) {
 
 function targetRebuild_() {
   var sheet = targetSheet_(true);
-  var askedStates = targetAskedStates_(sheet);
+  var checkboxStates = targetCheckboxStates_(sheet);
   var referralCounts = companyReferralCounts_();
+  var recruiterCounts = targetRecruiterCounts_();
   var statuses = targetOpeningStatuses_();
   var blocks = [
-    targetRows_(TARGET_P0, referralCounts, statuses, askedStates),
-    targetRows_(TARGET_P1, referralCounts, statuses, askedStates),
-    targetRows_(TARGET_P2, referralCounts, statuses, askedStates),
-    targetRows_(TARGET_P3, referralCounts, statuses, askedStates)
+    targetRows_(TARGET_P0, referralCounts, recruiterCounts, statuses, checkboxStates),
+    targetRows_(TARGET_P1, referralCounts, recruiterCounts, statuses, checkboxStates),
+    targetRows_(TARGET_P2, referralCounts, recruiterCounts, statuses, checkboxStates),
+    targetRows_(TARGET_P3, referralCounts, recruiterCounts, statuses, checkboxStates)
   ];
   var clearDepth = Math.max(1, sheet.getLastRow());
 
-  // Clear stale values/notes from the prior A:B / D:E / G:H / J:K layout.
+  // Clear stale values/notes from the prior five-column block layout.
   sheet.getRange(1, 1, clearDepth, TARGET_RENDER_WIDTH)
     .clearContent().clearDataValidations().clearNote().setBackground(null);
 
@@ -520,4 +573,163 @@ function rebuildTargetTab() {
   var what = targetRebuild_();
   SpreadsheetApp.getActiveSpreadsheet().toast(what, 'Target', 8);
   return what;
+}
+
+/** One-off post-campaign rebuild after the 2026-09-09 Target referral wave. */
+function scheduleTargetReferralRefresh0909() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260909';
+  var handler = 'runTargetReferralRefresh0909_';
+  var at = new Date('2026-09-09T13:45:00-04:00');
+  if (at.getTime() <= new Date().getTime()) {
+    throw new Error('The scheduled Target refresh time has passed.');
+  }
+  var props = PropertiesService.getScriptProperties();
+  var existingText = props.getProperty(propertyKey);
+  if (existingText) {
+    var existing = JSON.parse(existingText);
+    if (existing.status === 'scheduled' || existing.status === 'complete') {
+      return {alreadyStarted: true, state: existing};
+    }
+  }
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+  var state = {status: 'scheduled', timezone: 'America/New_York',
+               scheduledAt: at.toISOString(), createdAt: new Date().toISOString()};
+  props.setProperty(propertyKey, JSON.stringify(state));
+  try {
+    ScriptApp.newTrigger(handler).timeBased().at(at).create();
+  } catch (error) {
+    props.deleteProperty(propertyKey);
+    throw error;
+  }
+  return state;
+}
+
+/** Rebuild Target after the sender has refreshed Referral Seed Counts. */
+function runTargetReferralRefresh0909_() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260909';
+  var handler = 'runTargetReferralRefresh0909_';
+  var props = PropertiesService.getScriptProperties();
+  var stateText = props.getProperty(propertyKey);
+  if (!stateText) return {skipped: true, reason: 'state absent'};
+  var state = JSON.parse(stateText);
+  if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+  try {
+    state.result = rebuildTargetTab();
+    state.status = 'complete';
+    state.completedAt = new Date().toISOString();
+    props.setProperty(propertyKey, JSON.stringify(state));
+    return state;
+  } finally {
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+  }
+}
+
+/** One-off post-campaign rebuild after the 2026-09-10 Target referral wave. */
+function scheduleTargetReferralRefresh0910() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260910';
+  var handler = 'runTargetReferralRefresh0910_';
+  var at = new Date('2026-09-10T13:45:00-04:00');
+  if (at.getTime() <= new Date().getTime()) {
+    throw new Error('The scheduled Target refresh time has passed.');
+  }
+  var props = PropertiesService.getScriptProperties();
+  var existingText = props.getProperty(propertyKey);
+  if (existingText) {
+    var existing = JSON.parse(existingText);
+    if (existing.status === 'scheduled' || existing.status === 'complete') {
+      return {alreadyStarted: true, state: existing};
+    }
+  }
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+  var state = {status: 'scheduled', timezone: 'America/New_York',
+               scheduledAt: at.toISOString(), createdAt: new Date().toISOString()};
+  props.setProperty(propertyKey, JSON.stringify(state));
+  try {
+    ScriptApp.newTrigger(handler).timeBased().at(at).create();
+  } catch (error) {
+    props.deleteProperty(propertyKey);
+    throw error;
+  }
+  return state;
+}
+
+/** Rebuild Target after the 2026-09-10 sender campaign refresh. */
+function runTargetReferralRefresh0910_() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260910';
+  var handler = 'runTargetReferralRefresh0910_';
+  var props = PropertiesService.getScriptProperties();
+  var stateText = props.getProperty(propertyKey);
+  if (!stateText) return {skipped: true, reason: 'state absent'};
+  var state = JSON.parse(stateText);
+  if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+  try {
+    state.result = rebuildTargetTab();
+    state.status = 'complete';
+    state.completedAt = new Date().toISOString();
+    props.setProperty(propertyKey, JSON.stringify(state));
+    return state;
+  } finally {
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+  }
+}
+
+/** One-off post-campaign rebuild after the 2026-09-11 Target referral wave. */
+function scheduleTargetReferralRefresh0911() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260911';
+  var handler = 'runTargetReferralRefresh0911_';
+  var at = new Date('2026-09-11T13:30:00-04:00');
+  if (at.getTime() <= new Date().getTime()) {
+    throw new Error('The scheduled Target refresh time has passed.');
+  }
+  var props = PropertiesService.getScriptProperties();
+  var existingText = props.getProperty(propertyKey);
+  if (existingText) {
+    var existing = JSON.parse(existingText);
+    if (existing.status === 'scheduled' || existing.status === 'complete') {
+      return {alreadyStarted: true, state: existing};
+    }
+  }
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+  });
+  var state = {status: 'scheduled', timezone: 'America/New_York',
+               scheduledAt: at.toISOString(), createdAt: new Date().toISOString()};
+  props.setProperty(propertyKey, JSON.stringify(state));
+  try {
+    ScriptApp.newTrigger(handler).timeBased().at(at).create();
+  } catch (error) {
+    props.deleteProperty(propertyKey);
+    throw error;
+  }
+  return state;
+}
+
+/** Rebuild Target after the 2026-09-11 sender campaign refresh. */
+function runTargetReferralRefresh0911_() {
+  var propertyKey = 'TARGET_REFERRAL_REFRESH_20260911';
+  var handler = 'runTargetReferralRefresh0911_';
+  var props = PropertiesService.getScriptProperties();
+  var stateText = props.getProperty(propertyKey);
+  if (!stateText) return {skipped: true, reason: 'state absent'};
+  var state = JSON.parse(stateText);
+  if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+  try {
+    state.result = rebuildTargetTab();
+    state.status = 'complete';
+    state.completedAt = new Date().toISOString();
+    props.setProperty(propertyKey, JSON.stringify(state));
+    return state;
+  } finally {
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+  }
 }

@@ -289,8 +289,8 @@ function outreachPickContact_(companyContacts, spent, salt, season, today) {
  * companies are hand-written, and the referral tab spent months with two
  * schedulers for exactly that kind of reason.
  */
-var COLD_TARGET_BLOCK_COLS = [1, 7, 13, 19];
-var COLD_TARGET_READ_WIDTH = 23;
+var COLD_TARGET_BLOCK_COLS = [1, 9, 17, 25];
+var COLD_TARGET_READ_WIDTH = 31;
 
 function outreachColdTargetCompanies_(tracker) {
   var target = tracker.getSheetByName('Target');
