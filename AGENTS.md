@@ -82,13 +82,16 @@ before anybody looked. See `docs/components/outreach-referral-queue.md`.
 column.** Two things writing one column is the failure mode this codebase is most prone to,
 because the two projects cannot see each other and neither one looks wrong on its own.
 
-**Target outreach state and counts are synchronized after every successful send.** A referral
-send must refresh `Referral Seed Counts` and record the company in the hidden `Target Outreach
-Status` snapshot; a recruiter send must refresh `Recruiter Seed Counts` and record the company
-there as well. The bound tracker (`target_tab.gs`) is the only writer to visible `Target` cells:
-on its next rebuild it ticks `Refer` for a successful referral send and `Recruiter?` for a
-successful recruiter send, while repainting both sendable counts. Never mark either checkbox
-for a draft, failed send, cancelled send, or merely planned row.
+**Target outreach state and counts are synchronized after every successful send.** Once Gmail
+accepts any email, whether it went to a referral contact or a recruiter, the sender must refresh
+both `Referral Seed Counts` and `Recruiter Seed Counts` through
+`refreshTargetSendableCounts_()`. The two counts come from separate databases and must never be
+merged: the referral count comes from `Employees (seed)` and the recruiter count comes from
+`Contacts (seed)`. A referral send records the company as `Refer` in the hidden `Target Outreach
+Status` snapshot; a recruiter send records it as `Recruiter?`. The bound tracker
+(`target_tab.gs`) is the only writer to visible `Target` cells: on its next rebuild it applies
+the matching checkbox and repaints both sendable counts. Never mark either checkbox for a draft,
+failed send, cancelled send, or merely planned row.
 
 **`Referral_target` and `Email_target` are sender-owned Target campaign mirrors.** They are
 generated from the explicit campaign Script Properties so queued dates and state remain visible
