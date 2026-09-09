@@ -14,6 +14,11 @@ The decision logic is built and tested: `apps_script/outreach/`, with every rule
 harness, which runs on a laptop with no Google account and nothing that can send. What is not done
 is installing it — that needs the sending account, and is the last section here.
 
+For assistant-requested email work, the operating policy is [`manual-outreach-trigger.md`](manual-outreach-trigger.md):
+the assistant must not plan, draft or send through the automatic path unless the user explicitly
+triggers that action. The runtime design below documents what the automatic planner would do; the
+manual policy also requires its hypothetical daily volume to be included in the final summary.
+
 ## What this is not
 
 It does not open-track, it does not rewrite links to bounce through a redirector, and it does
