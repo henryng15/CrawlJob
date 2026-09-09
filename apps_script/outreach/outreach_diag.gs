@@ -901,6 +901,32 @@ function scheduleMicrosoftColdDrafts0909() {
   }
 }
 
+/** Read-only status for the seven scheduled Microsoft recruiter drafts. */
+function diagnoseMicrosoftColdDrafts0909() {
+  var text = PropertiesService.getScriptProperties()
+    .getProperty('MICROSOFT_COLD_DRAFT_SCHEDULE_20260909');
+  if (!text) return {status: 'not-scheduled', entries: []};
+  var state = JSON.parse(text);
+  var counts = {pending: 0, sent: 0, failed: 0, skipped: 0};
+  var entries = (state.entries || []).map(function (entry) {
+    if (entry.status === 'pending') counts.pending++;
+    else if (entry.status === 'sent') counts.sent++;
+    else if (entry.status === 'failed') counts.failed++;
+    else counts.skipped++;
+    return {
+      email: entry.email,
+      subject: entry.subject,
+      at: entry.at,
+      status: entry.status,
+      completedAt: entry.completedAt || '',
+      messageId: entry.messageId || '',
+      error: entry.error || ''
+    };
+  });
+  return {status: state.status, timezone: state.timezone || 'America/New_York',
+          createdAt: state.createdAt || '', counts: counts, entries: entries};
+}
+
 function sendMicrosoftColdDraftSlot1_() { return sendMicrosoftColdDraftSlot_(0); }
 function sendMicrosoftColdDraftSlot2_() { return sendMicrosoftColdDraftSlot_(1); }
 function sendMicrosoftColdDraftSlot3_() { return sendMicrosoftColdDraftSlot_(2); }
@@ -936,6 +962,8 @@ function sendMicrosoftColdDraftSlot_(index) {
       entry.completedAt = new Date().toISOString();
       state.status = state.entries.every(function (item) { return item.status !== 'pending'; }) ? 'complete' : 'scheduled';
       props.setProperty(propertyKey, JSON.stringify(state));
+      try { refreshTargetQueueTabs_(); }
+      catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
       return {skippedAlreadySent: true, email: entry.email};
     }
     var matching = GmailApp.getDrafts().filter(function (draft) {
@@ -956,6 +984,8 @@ function sendMicrosoftColdDraftSlot_(index) {
     syncTargetAfterSend_('Microsoft', 'recruiter');
     state.status = state.entries.every(function (item) { return item.status !== 'pending'; }) ? 'complete' : 'scheduled';
     props.setProperty(propertyKey, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
     if (state.status === 'complete') {
       ScriptApp.getProjectTriggers().forEach(function (trigger) {
         if (handlers[trigger.getHandlerFunction()]) ScriptApp.deleteTrigger(trigger);
@@ -1777,10 +1807,12 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
     'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'
   ];
-  var referralEntries = targetMirrorCampaignEntries_(referralKeys);
-  var recruiterEntries = targetMirrorCampaignEntries_(recruiterKeys);
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
+  var referralEntries = targetMirrorCampaignEntries_(referralKeys);
+  var recruiterEntries = targetMirrorCampaignEntries_(recruiterKeys)
+    .concat(microsoftColdDraftMirrorEntries_(apps))
+    .sort(function (left, right) { return Number(left.atMs || 0) - Number(right.atMs || 0); });
   var referralRows = referralEntries.map(targetMirrorReferralRow_);
   var emailRows = recruiterEntries.map(function (entry, index) {
     return targetMirrorEmailRow_(entry, index, apps);
@@ -1815,6 +1847,73 @@ function targetMirrorCampaignEntries_(propertyKeys) {
   return entries.sort(function (left, right) {
     return Number(left.atMs || 0) - Number(right.atMs || 0);
   });
+}
+
+/**
+ * Include the separately scheduled Microsoft recruiter drafts in Email_target.
+ * This pre-dates the Target mirror, so the matching draft body is used once to
+ * recover its applied role and persist it in the campaign state.
+ */
+function microsoftColdDraftMirrorEntries_(apps) {
+  var propertyKey = 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909';
+  var props = PropertiesService.getScriptProperties();
+  var text = props.getProperty(propertyKey);
+  if (!text) return [];
+  var state = JSON.parse(text);
+  var changed = false;
+  var entries = (state.entries || []).map(function (entry, index) {
+    if (!entry.role) {
+      var app = microsoftColdDraftApplicationForBody_(apps,
+        microsoftColdDraftMessageBody_(entry));
+      if (app) {
+        entry.role = app.role;
+        changed = true;
+      }
+    }
+    entry.company = 'Microsoft';
+    entry.template = entry.template || ('Microsoft draft ' + String(index + 1));
+    entry.campaignKey = propertyKey;
+    entry.campaignIndex = index + 1;
+    return entry;
+  });
+  if (changed) props.setProperty(propertyKey, JSON.stringify(state));
+  return entries;
+}
+
+/** Find a draft first, then its sent counterpart after a slot has run. */
+function microsoftColdDraftMessageBody_(entry) {
+  var recipient = String(entry.email || '').toLowerCase();
+  var subject = String(entry.subject || '');
+  var drafts = GmailApp.getDrafts().filter(function (draft) {
+    var message = draft.getMessage();
+    return String(message.getTo() || '').toLowerCase().indexOf(recipient) >= 0
+      && message.getSubject() === subject;
+  });
+  if (drafts.length) return drafts[0].getMessage().getPlainBody();
+  var sent = GmailApp.search('in:sent to:' + recipient + ' subject:"' + subject + '"', 0, 1);
+  return sent.length && sent[0].getMessages().length
+    ? sent[0].getMessages()[0].getPlainBody() : '';
+}
+
+/** Match a Microsoft draft's wording to one active Microsoft application. */
+function microsoftColdDraftApplicationForBody_(apps, body) {
+  var text = outreachNameKey_(body);
+  var best = null;
+  apps.filter(function (app) {
+    return outreachNameKey_(app.company) === 'microsoft'
+      && app.process !== STAGE_REJECTED;
+  }).forEach(function (app) {
+    var role = outreachNameKey_(app.role);
+    var score = 0;
+    if (text.indexOf('coreai') >= 0 && role.indexOf('coreai') >= 0) score += 20;
+    if (text.indexOf('boston') >= 0 && role.indexOf('boston') >= 0) score += 30;
+    if (text.indexOf('mountain view') >= 0 && role.indexOf('mountain view') >= 0) score += 30;
+    if (text.indexOf('edge') >= 0 && role.indexOf('edge') >= 0) score += 30;
+    if (text.indexOf('ai software engineering') >= 0
+        && role.indexOf('ai software engineering') >= 0) score += 15;
+    if (!best || score > best.score) best = {app: app, score: score};
+  });
+  return best && best.score ? best.app : null;
 }
 
 function targetMirrorStatus_(status) {
@@ -1890,7 +1989,7 @@ function targetMirrorEmailRow_(entry, index, apps) {
   row[Q_RESULT - 1] = entry.messageId || '';
   row[Q_ERROR - 1] = entry.error || '';
   row[Q_ID - 1] = 'TARGET-EMAIL-' + String(entry.campaignKey || '').slice(-8)
-    + '-' + String(index + 1);
+    + '-' + String(entry.campaignIndex || (index + 1));
   row[Q_VERSION - 1] = 1;
   return row;
 }
