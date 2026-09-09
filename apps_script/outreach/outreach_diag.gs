@@ -1876,6 +1876,23 @@ var TARGET_EMAIL_HEADERS_ = [
   'Result', 'Last Error', 'Queue ID', 'Version'
 ];
 
+// Target mirrors are campaign reports, not editable working queues. Keep their
+// choices short and make every displayed outcome visibly distinct. A campaign
+// entry that was skipped or cancelled did not leave the mailbox, so it reads as
+// Failed here rather than exposing a separate Cancelled option.
+var TARGET_MIRROR_STATUSES = [
+  STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED,
+  STATUS_BOUNCED, STATUS_FAILED
+];
+var TARGET_MIRROR_STATUS_COLOURS = [
+  { name: STATUS_QUEUED,  bg: '#EDEDED', fg: '#4A4A4A' },
+  { name: STATUS_DRAFTED, bg: '#FFF2CC', fg: '#BF9000' },
+  { name: STATUS_SENT,    bg: '#CFE2F3', fg: '#1155CC' },
+  { name: STATUS_REPLIED, bg: '#D9EAD3', fg: '#38761D' },
+  { name: STATUS_BOUNCED, bg: '#F4CCCC', fg: '#CC0000' },
+  { name: STATUS_FAILED,  bg: '#FCE5CD', fg: '#B45F06' }
+];
+
 /**
  * Initialize or refresh the two visible mirrors of explicit Target campaigns.
  * This writes no Gmail messages and does not add rows to the operational Email
@@ -2008,8 +2025,9 @@ function microsoftColdDraftApplicationForBody_(apps, body) {
 function targetMirrorStatus_(status) {
   if (status === 'sent' || status === 'already-sent') return STATUS_SENT;
   if (status === 'bounced') return STATUS_BOUNCED;
-  if (status === 'failed') return STATUS_FAILED;
-  if (status === 'cancelled' || status === 'skipped') return STATUS_CANCELLED;
+  if (status === 'failed' || status === 'cancelled' || status === 'skipped') {
+    return STATUS_FAILED;
+  }
   return STATUS_QUEUED;
 }
 
@@ -2135,12 +2153,12 @@ function targetMirrorWrite_(tracker, tabName, headers, width, rows, kind) {
     var modeColumn = kind === 'referral' ? R_MODE : Q_MODE;
     sheet.getRange(2, statusColumn, rows.length, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(
-        [STATUS_QUEUED, STATUS_DRAFTED, STATUS_SENT, STATUS_REPLIED,
-         STATUS_BOUNCED, STATUS_CANCELLED, STATUS_FAILED], true)
+        TARGET_MIRROR_STATUSES, true)
         .setAllowInvalid(false).build());
     sheet.getRange(2, modeColumn, rows.length, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList([MODE_DRAFT, MODE_SEND], true)
         .setAllowInvalid(false).build());
+    outreachColourQueueColumn_(sheet, statusColumn, TARGET_MIRROR_STATUS_COLOURS, rows.length);
   }
   sheet.setFrozenRows(1);
 }
