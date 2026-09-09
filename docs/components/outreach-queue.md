@@ -47,13 +47,14 @@ The live `Email` tab is trimmed to its owned schema `A:W` (23 columns). The colu
 `Version` were empty grid space and were removed; the queue keeps its operational timestamps in
 `Drafted At`, `Scheduled At`, `Follow Up`, and `Sent At` rather than adding a second schedule area.
 
-`Email_target` is a separate sender-owned mirror for explicit Target recruiter campaigns. It uses
-the same `A:W` shape and records the campaign's company, role, application/property lookup,
-template, scheduled time and current state. It is a reportable schedule, not an operational queue:
-normal planners, budget checks and senders read `Email` only. `initializeTargetQueueTabs()` creates
-or refreshes it from the sender's Target campaign Script Properties, and direct-send ticks refresh it
-after a state transition. Recipient names and addresses remain out of this mirror, matching the
-privacy rule of `Email`.
+`Email_target` is a separate sender-owned mirror for explicit Target recruiter campaigns, including
+the seven independently scheduled Microsoft recruiter drafts. It uses the same `A:W` shape and
+records the campaign's company, role, application/property lookup, template, scheduled time and
+current state. It is a reportable schedule, not an operational queue: normal planners, budget checks
+and senders read `Email` only. `initializeTargetQueueTabs()` creates or refreshes it from the sender's
+Target campaign Script Properties; a Microsoft role is recovered once from its existing draft body,
+then retained in campaign state. Direct-send ticks refresh the mirror after a state transition.
+Recipient names and addresses remain out of this mirror, matching the privacy rule of `Email`.
 
 | Function | Does |
 |---|---|
