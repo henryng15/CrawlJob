@@ -34,7 +34,7 @@ Two tabs make that impossible rather than merely unlikely.
 | `outreachContactsFor_(contacts, company)` | The contacts at one employer. |
 | `outreachBucketFor_(contacts, company)` | The industry this employer sits in, borrowed from whichever contact carries one. |
 | `outreachAngleFor_(contacts, company)` | The company's opening line, borrowed the same way. |
-| `outreachRecruiterCount_(contacts, company)` | How many recruiters are on file. |
+| `outreachRecruiterCount_(contacts, company)` | How many recruiters are on file. The Target availability snapshot further removes `Sent`-ticked and cold-queue-committed contacts. |
 
 Also defines the campus-title regex `CAMPUS_TITLE`: whole words, so `intern` must not match
 `internal` — a different job and a different address.

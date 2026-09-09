@@ -32,8 +32,9 @@ Two consequences worth knowing:
 ## The shape
 
 Every template, in both sets: a subject, one opening paragraph, three headed sections — the first
-four bullets, the other two a short paragraph each — one or more closing paragraphs, and a
-sign-off. `**bold**` survives into both halves through `outreachBoldHtml_` / `outreachBoldPlain_`.
+four bullets, the other two a short paragraph each — one or more closing paragraphs, a sign-off,
+and the shared Kenyon business-card footer. `**bold**` survives into both halves through
+`outreachBoldHtml_` / `outreachBoldPlain_`.
 
 Only three placeholders exist: `[Name]`, `[Company]`, `[Role Name]`. The generator refuses any
 other, because a placeholder nothing fills reaches a recruiter as square brackets. Each falls back
@@ -47,7 +48,10 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachLeastUsedTemplate_(load, count)` | The least-used number, ties to the lowest. |
 | `outreachColdTemplateFor_(load)` | Which of the ten a new cold row gets. |
 | `outreachFillTemplate_(text, values)` | Substitutes the three placeholders. |
-| `outreachRenderTemplate_(template, values)` | One template plus one recipient as `{subject, html, plain}`. Shared by both paths. |
+| `outreachRenderTemplate_(template, values)` | One template plus one recipient as `{subject, html, plain, inlineImages}`. Shared by both paths. |
+| `outreachBusinessCardHtml_()` | The compact latest footer: Kenyon logo, labeled full Email/LinkedIn/GitHub links, and the soft Trebuchet MS styling. |
+| `outreachBusinessCardPlain_()` | The three labeled contact lines for the plain-text alternative. |
+| `outreachBusinessCardInlineImages_()` | Supplies the embedded Kenyon logo as `cid:kenyonlogo` to Gmail's `inlineImages` option. |
 | `outreachCompose_(options)` | One cold email, from `template`, `company`, `role`, `recruiterName`. |
 | `outreachReferralTemplateLoad_(referralRows)` | The same count for the Referral tab. |
 | `outreachReferralIndex_(company, attempt)` | A stable per-employer place in the ten, so six people at one company walk the list in a fixed order. |

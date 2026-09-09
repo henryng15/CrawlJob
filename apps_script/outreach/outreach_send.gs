@@ -159,6 +159,7 @@ function sendPreparedDrafts() {
   // Collected through the loop and written once at the end, so a batch of twenty
   // sends is one write to the contacts tab rather than twenty.
   var sentFingerprints = [];
+  var sentCompanies = {};
 
   // Do not let a cold draft created before Referral was planned consume its
   // reserved room. Referral is sent first, and any remaining cold/follow-up
@@ -186,6 +187,7 @@ function sendPreparedDrafts() {
       updates[Q_RESULT] = 'Sent: ' + (row.template || 'application');
       // Gmail has accepted it, so this person is written to for good.
       if (row.fingerprint) sentFingerprints.push(row.fingerprint);
+      sentCompanies[row.company] = true;
       tally.sent++;
     } catch (error) {
       var missing = /not found|no longer exists|Invalid draft/i.test(String(error.message || error));
@@ -215,6 +217,14 @@ function sendPreparedDrafts() {
     ticked = outreachMarkColdContactsSent_(sentFingerprints);
   } catch (error) {
     Logger.log('Sent column not updated: ' + String(error.message || error));
+  }
+  try {
+    Object.keys(sentCompanies).forEach(function (company) {
+      markTargetOutreachStatus_(company, 'recruiter');
+    });
+    if (tally.sent) refreshTargetSendableCounts_();
+  } catch (error) {
+    Logger.log('Post-send Target sync failed: ' + String(error.message || error));
   }
 
   Logger.log('sent ' + tally.sent + ', called off ' + tally.cancelled
@@ -333,6 +343,7 @@ function prepareOutreachDrafts() {
       var options = {
         htmlBody: mail.html,
         name: SENDER_NAME,
+        inlineImages: mail.inlineImages,
         attachments: [resume]
       };
 
@@ -644,6 +655,7 @@ function previewOutreachEmail() {
     GmailApp.createDraft(me, mail.subject, mail.plain, {
       htmlBody: mail.html,
       name: SENDER_NAME,
+      inlineImages: mail.inlineImages,
       attachments: [resume]
     });
     made.push(item.company + ' / ' + mail.variant + ' — would have gone to ' + contact.name);
@@ -836,6 +848,7 @@ function runOutreachCycle() {
   step('followUpPlanned', planFollowUpReplies);
   step('followUpSent', sendFollowUpReplies);
   step('projected', refreshOutreachSchedule);
+  step('recruiterCounts', refreshRecruiterSeedCounts);
   // A report, so it goes after everything that could change what it reports on.
   // Rebuilt every firing rather than stamped once, for the reason the Recruiters
   // column is: a list of two-intake employers from three weeks ago is worse than

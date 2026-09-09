@@ -218,6 +218,7 @@ function outreachReferralCompose_(options) {
     subject: rendered.subject,
     html: rendered.html,
     plain: rendered.plain,
+    inlineImages: rendered.inlineImages,
     tier: tier,
     template: n
   };

@@ -592,6 +592,7 @@ function draftReferralAsks() {
         var draft = GmailApp.createDraft(row.email, mail.subject, mail.plain, {
           htmlBody: mail.html,
           name: SENDER_NAME,
+          inlineImages: mail.inlineImages,
           attachments: [resume]
         });
 
@@ -760,6 +761,7 @@ function sendReferralAsks() {
   var tally = { sent: 0, cancelled: preCancelled, failed: 0 };
   // Collected through the loop and written once at the end.
   var sentEmails = [];
+  var sentCompanies = {};
 
   due.forEach(function (row) {
     var updates = {};
@@ -803,6 +805,7 @@ function sendReferralAsks() {
       // Gmail has accepted it, so this person is asked for good. Six per employer
       // for life is the rule this makes durable across a rebuilt tab.
       if (row.email) sentEmails.push(row.email);
+      sentCompanies[row.company] = true;
       tally.sent++;
     } catch (error) {
       var missing = /not found|no longer exists|Invalid draft/i.test(String(error.message || error));
@@ -825,6 +828,14 @@ function sendReferralAsks() {
     ticked = outreachMarkEmployeesSent_(sentEmails);
   } catch (error) {
     Logger.log('Sent column not updated: ' + String(error.message || error));
+  }
+  try {
+    Object.keys(sentCompanies).forEach(function (company) {
+      markTargetOutreachStatus_(company, 'refer');
+    });
+    if (tally.sent) refreshTargetSendableCounts_();
+  } catch (error) {
+    Logger.log('Post-send Target sync failed: ' + String(error.message || error));
   }
 
   Logger.log('referral asks sent ' + tally.sent + ', called off ' + tally.cancelled

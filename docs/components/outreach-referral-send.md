@@ -30,10 +30,10 @@ message could have been read always exists. Cold Email uses its separate 20-minu
 |---|---|
 | `outreachReferralDraftHour_(scheduled)` | The hour a row's message is due to be written. |
 | `outreachReferralToDraft_(rows, now)` | Rows whose message should exist by now. |
-| `draftReferralAsks()` | Cancel queued/drafted recipients absent from the non-invalid seed, then write eligible asks into Drafts. Sets `STATUS_DRAFTED`; returns without work while referral is paused. |
+| `draftReferralAsks()` | Cancel queued/drafted recipients absent from the non-invalid seed, then write eligible asks into Drafts with the shared Kenyon business-card footer through `htmlBody` and `inlineImages`. Sets `STATUS_DRAFTED`; returns without work while referral is paused. |
 | `refreshReferralDraftsForTemplateChange()` | Run after an approved wording change: delete every unsent referral draft, return its row to `Queued`, and leave its scheduled hour intact so the next draft pass recreates it from the current template. |
 | `outreachReferralToSend_(rows, now, globalMode, queueRows, priorityDaysByIndex)` | The drafted rows whose hour has arrived, after the shared budget and today/yesterday Priority ordering are applied. |
-| `sendReferralAsks()` | Re-check the non-invalid seed before sending. Ineligible queued/drafted rows have their unsent draft deleted and are cancelled before Gmail is touched; rejected applications are handled the same way. Returns without work while referral is paused. |
+| `sendReferralAsks()` | Re-check the non-invalid seed before sending. Ineligible queued/drafted rows have their unsent draft deleted and are cancelled before Gmail is touched; rejected applications are handled the same way. After Gmail accepts a referral, records the company-level `Refer` status and refreshes both Target count snapshots. Direct referral campaigns use the same post-send rule. Returns without work while referral is paused. |
 | `scanReferralReplies()` | Mark the asks that have been answered; returns without opening Gmail while referral is paused. |
 | `repairMisreadReferralBounces()` | Run by hand: undo a bounce recorded as a reply. |
 
