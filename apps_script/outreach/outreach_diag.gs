@@ -566,6 +566,14 @@ function scanTargetDeliveryFailures() {
   return tally;
 }
 
+/** Safely reconcile delayed delivery results, counts, and Target mirrors on demand. */
+function reconcileTargetDeliveryState() {
+  var delivery = scanTargetDeliveryFailures();
+  var counts = refreshTargetSendableCounts_();
+  var mirrors = refreshTargetQueueTabs_();
+  return {delivery: delivery, counts: counts, mirrors: mirrors};
+}
+
 /** Install the safe 15-minute delivery-failure scanner without enabling sends. */
 function installTargetDeliveryFailureScanner() {
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
