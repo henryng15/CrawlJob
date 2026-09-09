@@ -132,6 +132,7 @@ function sendRemainingAdobeReferralBatch() {
         htmlBody: html,
         attachments: [resume]
       });
+      syncTargetAfterSend_('Adobe', 'refer');
       sent.push({name: person.name, email: person.email, subject: subjects[index % subjects.length]});
       if (index < recipients.length - 1) Utilities.sleep(60000);
     });
@@ -285,6 +286,7 @@ function sendMicrosoftBostonLinkCorrection() {
     + '<p>Thanks,<br><b>Henry Nguyen</b></p>';
   var plain = html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
   GmailApp.sendEmail(recipient, subject, plain, {htmlBody: html});
+  syncTargetAfterSend_('Microsoft', 'recruiter');
   Logger.log('Microsoft Boston link correction sent to ' + recipient + '.');
   return {sent: true, email: recipient, subject: subject, link: link};
 }
@@ -353,6 +355,7 @@ function sendMicrosoftReferralPerson_(person) {
   var resume = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID).getBlob()
     .setName('Henry_Nguyen_Resume.pdf');
   GmailApp.sendEmail(person.email, subject, plain, {htmlBody: html, attachments: [resume]});
+  syncTargetAfterSend_('Microsoft', 'refer');
   Logger.log('Microsoft referral sent to ' + person.email + ' for ' + person.city + '.');
   return {sent: true, name: person.name, email: person.email, city: person.city};
 }
@@ -404,6 +407,95 @@ function refreshReferralSeedCounts() {
           deducted: deducted,
           emails: rows.slice(1).reduce(function (sum, row) { return sum + row[1]; }, 0),
           spreadsheet: tracker.getName()};
+}
+
+/** Refresh the hidden tracker snapshot used by Target for recruiter availability. */
+function refreshRecruiterSeedCounts() {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var contacts = outreachReadContacts_(contactsBook);
+  var salt = outreachProperty_(PROP_SALT, true);
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var spent = {};
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (queue && queue.getLastRow() > 1) {
+    queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index + 2); })
+      .forEach(function (row) {
+        if (row.fingerprint && STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) {
+          spent[row.fingerprint] = true;
+        }
+      });
+  }
+
+  var addresses = {};
+  contacts.forEach(function (contact) {
+    if (contact.sent) return;
+    var summer = outreachFingerprint_(contact.email, salt, SEASON_SUMMER);
+    var offcycle = outreachFingerprint_(contact.email, salt, SEASON_OFFCYCLE);
+    if (spent[summer] || spent[offcycle]) return;
+    var key = outreachCompanyTokens_(contact.company).join(' ');
+    if (!key) return;
+    if (!addresses[key]) addresses[key] = {name: contact.company, emails: {}};
+    addresses[key].emails[contact.email] = true;
+  });
+
+  var sheet = tracker.getSheetByName('Recruiter Seed Counts')
+    || tracker.insertSheet('Recruiter Seed Counts');
+  var rows = [['Company', 'Sendable recruiter email']];
+  Object.keys(addresses).sort().forEach(function (key) {
+    rows.push([addresses[key].name, Object.keys(addresses[key].emails).length]);
+  });
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.hideSheet();
+  return {tab: 'Recruiter Seed Counts', companies: rows.length - 1,
+          emails: rows.slice(1).reduce(function (sum, row) { return sum + row[1]; }, 0),
+          spreadsheet: tracker.getName()};
+}
+
+/** Record a successful Target referral/recruiter send for the bound renderer. */
+function markTargetOutreachStatus_(company, kind) {
+  if (!company || (kind !== 'refer' && kind !== 'recruiter')) return false;
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var sheet = tracker.getSheetByName('Target Outreach Status')
+    || tracker.insertSheet('Target Outreach Status');
+  var rows = sheet.getLastRow() >= 2 && sheet.getLastColumn() >= 3
+    ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues() : [];
+  var target = outreachCompanyTokens_(company);
+  var found = false;
+  rows.forEach(function (row) {
+    if (!outreachSameEmployer_(target, outreachCompanyTokens_(row[0]))) return;
+    found = true;
+    row[1] = row[1] === true || String(row[1]).toLowerCase() === 'true';
+    row[2] = row[2] === true || String(row[2]).toLowerCase() === 'true';
+    if (kind === 'refer') row[1] = true;
+    if (kind === 'recruiter') row[2] = true;
+  });
+  if (!found) rows.push([company, kind === 'refer', kind === 'recruiter']);
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length + 1, 3)
+    .setValues([['Company', 'Refer', 'Recruiter?']].concat(rows));
+  sheet.hideSheet();
+  return true;
+}
+
+/** Refresh both Target count snapshots after a successful Target send. */
+function refreshTargetSendableCounts_() {
+  return {
+    referral: refreshReferralSeedCounts(),
+    recruiter: refreshRecruiterSeedCounts()
+  };
+}
+
+/** Best-effort Target sync used by direct sends outside the normal queue. */
+function syncTargetAfterSend_(company, kind) {
+  try {
+    markTargetOutreachStatus_(company, kind);
+    return refreshTargetSendableCounts_();
+  } catch (error) {
+    Logger.log('Post-send Target sync failed: ' + String(error.message || error));
+    return null;
+  }
 }
 
 /** Read-only proof that every active Referral row is in the non-invalid seed. */
@@ -724,4 +816,910 @@ function diagnoseSpentColdContacts(offset, limit) {
     spentAddresses: page.join('\n'),
     unresolved: unresolved
   };
+}
+
+/** One-off schedule for the seven existing Microsoft recruiter drafts on 2026-09-09. */
+function scheduleMicrosoftColdDrafts0909() {
+  var propertyKey = 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909';
+  var handlers = [
+    'sendMicrosoftColdDraftSlot1_', 'sendMicrosoftColdDraftSlot2_',
+    'sendMicrosoftColdDraftSlot3_', 'sendMicrosoftColdDraftSlot4_',
+    'sendMicrosoftColdDraftSlot5_', 'sendMicrosoftColdDraftSlot6_',
+    'sendMicrosoftColdDraftSlot7_'
+  ];
+  var slots = [
+    {email: 'recowheatley@microsoft.com', subject: 'Student SWE working across AI tooling, cloud, and backend infrastructure', at: '2026-09-09T07:00:00-04:00'},
+    {email: 'sharif@microsoft.com', subject: 'Student SWE who turned a 30-minute analyst workflow into 1 minute', at: '2026-09-09T07:10:00-04:00'},
+    {email: 'tpulliam@microsoft.com', subject: 'Student SWE with hands-on MCP, AWS, and Kubernetes experience', at: '2026-09-09T07:20:00-04:00'},
+    {email: 'jessicaa@microsoft.com', subject: 'Student SWE who handled 500 concurrent requests with no overbooking', at: '2026-09-09T07:30:00-04:00'},
+    {email: 'charlest@microsoft.com', subject: 'Kenyon SWE student building across MCP, AWS, and Kubernetes', at: '2026-09-09T07:40:00-04:00'},
+    {email: 'djamison@microsoft.com', subject: 'Math & CS student building production systems across AWS and Kubernetes', at: '2026-09-09T07:50:00-04:00'},
+    {email: 'evalarson@microsoft.com', subject: 'Student engineer focused on backend reliability at scale', at: '2026-09-09T08:00:00-04:00'}
+  ];
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: existing};
+      }
+    }
+    handlers.forEach(function (handler) {
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+      });
+    });
+
+    var drafts = {};
+    GmailApp.getDrafts().forEach(function (draft) {
+      var message = draft.getMessage();
+      var to = String(message.getTo() || '').toLowerCase();
+      slots.forEach(function (slot) {
+        if (to.indexOf(slot.email) >= 0 && message.getSubject() === slot.subject) {
+          if (drafts[slot.email]) throw new Error('Duplicate matching draft for ' + slot.email);
+          drafts[slot.email] = draft;
+        }
+      });
+    });
+    var missing = slots.filter(function (slot) { return !drafts[slot.email]; })
+      .map(function (slot) { return slot.email; });
+    if (missing.length) throw new Error('Missing Microsoft draft(s): ' + missing.join(', '));
+    var alreadySent = slots.filter(function (slot) {
+      return GmailApp.search('in:sent to:' + slot.email + ' subject:"' + slot.subject + '"', 0, 1).length > 0;
+    }).map(function (slot) { return slot.email; });
+    if (alreadySent.length) throw new Error('Already sent; refusing to schedule duplicate(s): ' + alreadySent.join(', '));
+
+    var state = {
+      status: 'scheduled',
+      timezone: 'America/New_York',
+      createdAt: new Date().toISOString(),
+      entries: slots.map(function (slot) {
+        return {email: slot.email, subject: slot.subject, at: slot.at,
+                atMs: new Date(slot.at).getTime(), status: 'pending'};
+      })
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    var created = [];
+    try {
+      handlers.forEach(function (handler, index) {
+        created.push(ScriptApp.newTrigger(handler).timeBased()
+          .at(new Date(state.entries[index].atMs)).create());
+      });
+    } catch (error) {
+      created.forEach(function (trigger) { ScriptApp.deleteTrigger(trigger); });
+      props.deleteProperty(propertyKey);
+      throw error;
+    }
+    return {scheduled: state.entries.map(function (entry) {
+      return {email: entry.email, at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+    }), triggerCount: created.length};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function sendMicrosoftColdDraftSlot1_() { return sendMicrosoftColdDraftSlot_(0); }
+function sendMicrosoftColdDraftSlot2_() { return sendMicrosoftColdDraftSlot_(1); }
+function sendMicrosoftColdDraftSlot3_() { return sendMicrosoftColdDraftSlot_(2); }
+function sendMicrosoftColdDraftSlot4_() { return sendMicrosoftColdDraftSlot_(3); }
+function sendMicrosoftColdDraftSlot5_() { return sendMicrosoftColdDraftSlot_(4); }
+function sendMicrosoftColdDraftSlot6_() { return sendMicrosoftColdDraftSlot_(5); }
+function sendMicrosoftColdDraftSlot7_() { return sendMicrosoftColdDraftSlot_(6); }
+
+/** Send one scheduled Microsoft draft and retire all seven one-shot triggers when done. */
+function sendMicrosoftColdDraftSlot_(index) {
+  var propertyKey = 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909';
+  var handlers = {
+    sendMicrosoftColdDraftSlot1_: true, sendMicrosoftColdDraftSlot2_: true,
+    sendMicrosoftColdDraftSlot3_: true, sendMicrosoftColdDraftSlot4_: true,
+    sendMicrosoftColdDraftSlot5_: true, sendMicrosoftColdDraftSlot6_: true,
+    sendMicrosoftColdDraftSlot7_: true
+  };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var stateText = props.getProperty(propertyKey);
+    if (!stateText) return {skipped: true, reason: 'schedule state is absent'};
+    var state = JSON.parse(stateText);
+    if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+    var entry = state.entries[index];
+    if (!entry || entry.status !== 'pending') return {skipped: true, reason: 'slot is not pending'};
+    if (new Date().getTime() + 60000 < entry.atMs) {
+      return {skipped: true, reason: 'trigger fired early', email: entry.email};
+    }
+    if (GmailApp.search('in:sent to:' + entry.email + ' subject:"' + entry.subject + '"', 0, 1).length) {
+      entry.status = 'already-sent';
+      entry.completedAt = new Date().toISOString();
+      state.status = state.entries.every(function (item) { return item.status !== 'pending'; }) ? 'complete' : 'scheduled';
+      props.setProperty(propertyKey, JSON.stringify(state));
+      return {skippedAlreadySent: true, email: entry.email};
+    }
+    var matching = GmailApp.getDrafts().filter(function (draft) {
+      var message = draft.getMessage();
+      return String(message.getTo() || '').toLowerCase().indexOf(entry.email) >= 0
+        && message.getSubject() === entry.subject;
+    });
+    if (matching.length !== 1) {
+      entry.status = 'failed';
+      entry.error = 'Expected one matching draft, found ' + matching.length;
+      props.setProperty(propertyKey, JSON.stringify(state));
+      throw new Error(entry.error + ' for ' + entry.email);
+    }
+    var sent = matching[0].send();
+    entry.status = 'sent';
+    entry.completedAt = new Date().toISOString();
+    entry.messageId = sent.getId();
+    syncTargetAfterSend_('Microsoft', 'recruiter');
+    state.status = state.entries.every(function (item) { return item.status !== 'pending'; }) ? 'complete' : 'scheduled';
+    props.setProperty(propertyKey, JSON.stringify(state));
+    if (state.status === 'complete') {
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (handlers[trigger.getHandlerFunction()]) ScriptApp.deleteTrigger(trigger);
+      });
+    }
+    return {sent: true, email: entry.email, subject: entry.subject};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * One-off Target referral campaign for the three companies that were urgent on
+ * 2026-09-09. This intentionally sits outside the normal Referral planner:
+ * Target companies are a deliberate exclusion from that automatic path, while
+ * this campaign was explicitly requested by the owner of the mailbox.
+ *
+ * It schedules at most ten unsent Employees (seed) contacts per company, one
+ * every nine minutes from 09:00 through 13:21 America/New_York. A single
+ * every-minute trigger sends only the next due entry, with an eight-minute
+ * minimum gap so a late trigger cannot burst the whole campaign. Each successful
+ * send is recorded as Sent on Referral and ticks Employees (seed), allowing the
+ * final seed-count refresh to flow into Target.
+ */
+function scheduleTargetReferralCampaign0909() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
+    handler: 'runTargetReferralCampaignTick_',
+    startIso: '2026-09-09T09:00:00-04:00',
+    companies: [
+      {
+        company: 'Sierra',
+        role: 'Intern, Agent Development (Summer 2027)',
+        jobLink: 'https://jobs.ashbyhq.com/Sierra/34b31b67-268c-4270-b48f-72e59064c96e?embed=true&utm_source=Simplify&ref=Simplify'
+      },
+      {
+        company: 'Waymo',
+        role: '2027 Summer Intern, BS, SysEng Software Engineer',
+        jobLink: 'https://careers.withwaymo.com/jobs?gh_jid=8174099'
+      },
+      {
+        company: 'Mastercard',
+        role: 'Software Engineer Intern, Summer 2027 – United States',
+        jobLink: 'https://mastercard.wd1.myworkdayjobs.com/campusapplyonly/job/OFallon-Missouri/Software-Engineer-Intern--Summer-2027---United-States_R-287618?jr_id=6a889bbdd34f700f87fc97ff'
+      }
+    ]
+  });
+}
+
+/** One-off Target referral campaign for the next requested companies. */
+function scheduleTargetReferralCampaign0910() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
+    handler: 'runTargetReferralCampaignTick0910_',
+    startIso: '2026-09-10T09:00:00-04:00',
+    companies: [
+      {
+        company: 'PayPal',
+        role: 'Software Engineer Intern',
+        jobLink: 'https://paypal.wd1.myworkdayjobs.com/en-US/jobs/job/Software-Engineer-Intern_R0137285'
+      },
+      {
+        company: 'Dropbox',
+        role: 'Software Engineering Intern (Summer 2027)',
+        jobLink: 'https://www.dropbox.jobs/en/jobs/apply/?id=8106224'
+      },
+      {
+        company: 'Scale AI',
+        role: 'Software Engineering Intern (Summer 2027)',
+        jobLink: 'https://job-boards.greenhouse.io/scaleai/jobs/4730845005/'
+      }
+    ]
+  });
+}
+
+/** One-off Target referral campaign for the next requested companies. */
+function scheduleTargetReferralCampaign0911() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
+    handler: 'runTargetReferralCampaignTick0911_',
+    startIso: '2026-09-11T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [
+      {
+        company: 'Datadog',
+        role: 'Software Engineering Intern',
+        jobLink: 'https://careers.datadoghq.com/detail/8052118/?gh_jid=8052118'
+      },
+      {
+        company: 'Vercel',
+        role: 'Software Engineering Intern - Summer 27',
+        jobLink: 'https://job-boards.greenhouse.io/vercel/jobs/6181759004?gh_src=Simplify'
+      },
+      {
+        company: 'Coinbase',
+        role: 'Software Engineer Intern',
+        jobLink: 'https://job-boards.greenhouse.io/embed/job_app?token=8168315&for=coinbase&utm_source=Simplify&gh_src=Simplify'
+      },
+      {
+        company: 'Red Hat',
+        role: 'Software Engineer Intern',
+        jobLink: 'https://jobright.ai/jobs/info/6aa053623b5aa83237b08639?utm_campaign=1079&utm_source=git'
+      }
+    ]
+  });
+}
+
+/** Schedule one Target campaign with ten templates and one-minute polling. */
+function scheduleTargetReferralCampaign_(config) {
+  var propertyKey = config.propertyKey;
+  var handler = config.handler;
+  var startMs = new Date(config.startIso).getTime();
+  var spacingMinutes = Number(config.spacingMinutes || 9);
+  var minGapMinutes = Number(config.minGapMinutes || Math.max(1, spacingMinutes - 1));
+  var now = new Date().getTime();
+  if (now >= startMs) throw new Error('The 09:00 campaign start time has passed.');
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: existing};
+      }
+    }
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var employees = outreachReadEmployees_(contactsBook);
+    if (!employees.length) throw new Error('Employees (seed) is empty.');
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) throw new Error('Referral tab is missing.');
+    var existingRows = outreachReadReferralRows_(referral);
+    var used = {};
+    existingRows.forEach(function (row) {
+      if (row.email) used[row.email.toLowerCase()] = true;
+    });
+
+    var entries = [], skipped = [];
+    config.companies.forEach(function (spec) {
+      var people = outreachEmployeesFor_(employees, spec.company)
+        .filter(function (person) {
+          var email = person.email.toLowerCase();
+          if (used[email]) return false;
+          // This is intentionally broad: a person written to by any earlier
+          // campaign must not receive a second unsolicited message.
+          if (GmailApp.search('from:me to:' + email, 0, 1).length) {
+            skipped.push({company: spec.company, email: email, reason: 'already-sent'});
+            return false;
+          }
+          used[email] = true;
+          return true;
+        })
+        .sort(function (left, right) {
+          return (left.name || left.email).localeCompare(right.name || right.email);
+        })
+        .slice(0, 10);
+
+      people.forEach(function (person, index) {
+        entries.push({
+          company: spec.company,
+          role: spec.role,
+          jobLink: spec.jobLink,
+          name: person.name,
+          email: person.email,
+          title: person.title,
+          seniority: person.seniority || '',
+          angle: person.angle || '',
+          bucket: person.bucket || '',
+          template: index + 1,
+          atMs: startMs + entries.length * spacingMinutes * 60000,
+          status: 'pending'
+        });
+      });
+    });
+    if (!entries.length) {
+      var emptyState = {status: 'complete', timezone: 'America/New_York',
+                        createdAt: new Date().toISOString(), entries: [], skipped: skipped};
+      props.setProperty(propertyKey, JSON.stringify(emptyState));
+      return {scheduled: [], skipped: skipped, state: emptyState};
+    }
+
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York',
+      createdAt: new Date().toISOString(), lastSentAtMs: 0,
+      spacingMinutes: spacingMinutes, minGapMinutes: minGapMinutes,
+      entries: entries, skipped: skipped
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try {
+      ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
+    } catch (error) {
+      props.deleteProperty(propertyKey);
+      throw error;
+    }
+    return {
+      scheduled: entries.map(function (entry) {
+        return {company: entry.company, name: entry.name, email: entry.email,
+                template: entry.template,
+                at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }),
+      skipped: skipped, trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Send one due 09/09 Target referral entry and finalize its seed snapshot. */
+function runTargetReferralCampaignTick_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
+    handler: 'runTargetReferralCampaignTick_'
+  });
+}
+
+/** Send one due 09/10 Target referral entry and finalize its seed snapshot. */
+function runTargetReferralCampaignTick0910_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
+    handler: 'runTargetReferralCampaignTick0910_'
+  });
+}
+
+/** Send one due 09/11 Target referral entry and finalize its seed snapshot. */
+function runTargetReferralCampaignTick0911_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
+    handler: 'runTargetReferralCampaignTick0911_'
+  });
+}
+
+/** Send one due Target referral entry and finalize the seed snapshot. */
+function runTargetReferralCampaignTickFor_(config) {
+  var propertyKey = config.propertyKey;
+  var handler = config.handler;
+  var stateText = '';
+  var state = null;
+  var due = null;
+  var messageWasSent = false;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return {skipped: true, reason: 'lock busy'};
+  try {
+    var props = PropertiesService.getScriptProperties();
+    stateText = props.getProperty(propertyKey);
+    if (!stateText) return {skipped: true, reason: 'state absent'};
+    state = JSON.parse(stateText);
+    if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+    var now = new Date().getTime();
+    due = state.entries.filter(function (entry) {
+      return entry.status === 'pending' && entry.atMs <= now;
+    }).sort(function (left, right) { return left.atMs - right.atMs; })[0];
+    if (!due) return {skipped: true, reason: 'nothing due'};
+    var minGapMinutes = Number(state.minGapMinutes || 8);
+    if (state.lastSentAtMs && now - state.lastSentAtMs < minGapMinutes * 60000) {
+      return {skipped: true, reason: 'minimum gap', next: due.email};
+    }
+
+    if (GmailApp.search('from:me to:' + due.email, 0, 1).length) {
+      due.status = 'already-sent';
+      due.completedAt = new Date().toISOString();
+      props.setProperty(propertyKey, JSON.stringify(state));
+      return {skippedAlreadySent: true, email: due.email};
+    }
+
+    var mail = outreachReferralCompose_({
+      personName: due.name, personTitle: due.title, seniority: due.seniority,
+      company: due.company, angle: due.angle, bucket: due.bucket,
+      role: due.role, jobLink: due.jobLink, template: due.template,
+      today: new Date()
+    });
+    var resume = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID).getBlob()
+      .setName('Henry_Nguyen_Resume.pdf');
+    GmailApp.sendEmail(due.email, mail.subject, mail.plain, {
+      htmlBody: mail.html, inlineImages: mail.inlineImages,
+      attachments: [resume], name: SENDER_NAME
+    });
+
+    // GmailApp.sendEmail returns void. The search is only for an audit id; the
+    // send itself is considered accepted once sendEmail returns successfully.
+    messageWasSent = true;
+    var sentMatches = GmailApp.search(
+      'in:sent to:' + due.email + ' subject:"' + mail.subject + '"', 0, 1);
+    var messageId = sentMatches.length && sentMatches[0].getMessages().length
+      ? sentMatches[0].getMessages()[0].getId() : '';
+    due.status = 'sent';
+    due.completedAt = new Date().toISOString();
+    due.messageId = messageId;
+    state.lastSentAtMs = now;
+    try {
+      appendTargetReferralHistory_(due, messageId);
+      outreachMarkEmployeesSent_([due.email]);
+    } catch (historyError) {
+      due.historyError = String(historyError.message || historyError).slice(0, 250);
+    }
+    try {
+      markTargetOutreachStatus_(due.company, 'refer');
+      refreshTargetSendableCounts_();
+    } catch (targetSyncError) {
+      due.targetSyncError = String(targetSyncError.message || targetSyncError).slice(0, 250);
+    }
+    var pending = state.entries.some(function (entry) { return entry.status === 'pending'; });
+    if (!pending) {
+      var historyErrors = ensureTargetReferralHistories_(state);
+      if (historyErrors.length) {
+        state.finalizationError = historyErrors.join(' | ').slice(0, 500);
+        props.setProperty(propertyKey, JSON.stringify(state));
+        return {sent: true, company: due.company, name: due.name, email: due.email,
+                template: due.template, pending: 0, historyPending: historyErrors};
+      }
+      state.status = 'complete';
+      state.completedAt = new Date().toISOString();
+      state.seedRefresh = refreshReferralSeedCounts();
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+      });
+    }
+    props.setProperty(propertyKey, JSON.stringify(state));
+    return {sent: true, company: due.company, name: due.name, email: due.email,
+            template: due.template, pending: state.entries.filter(function (e) { return e.status === 'pending'; }).length};
+  } catch (error) {
+    var text = String(error.message || error);
+    if (messageWasSent && state && due) {
+      due.status = 'sent';
+      due.error = text.slice(0, 250);
+      state.lastSentAtMs = new Date().getTime();
+      try { PropertiesService.getScriptProperties().setProperty(propertyKey, JSON.stringify(state)); }
+      catch (ignoredSent) {}
+    } else if (stateText && state) {
+      try {
+        var failedDue = state.entries.filter(function (entry) {
+          return entry.status === 'pending' && entry.atMs <= new Date().getTime();
+        }).sort(function (left, right) { return left.atMs - right.atMs; })[0];
+        if (failedDue) {
+          failedDue.status = 'failed';
+          failedDue.error = text.slice(0, 250);
+          props.setProperty(propertyKey, JSON.stringify(state));
+        }
+      } catch (ignored) {}
+    }
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Retry history rows before the final seed-count refresh. */
+function ensureTargetReferralHistories_(state) {
+  var errors = [];
+  (state.entries || []).filter(function (entry) { return entry.status === 'sent'; })
+    .forEach(function (entry) {
+      try { appendTargetReferralHistory_(entry, entry.messageId || ''); }
+      catch (error) { errors.push(entry.email + ': ' + String(error.message || error)); }
+    });
+  return errors;
+}
+
+/** Persist one successful direct ask so the sender's count snapshot deducts it. */
+function appendTargetReferralHistory_(entry, messageId) {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) throw new Error('Referral tab is missing while recording ' + entry.email);
+  var rows = outreachReadReferralRows_(referral);
+  if (rows.some(function (row) { return row.email.toLowerCase() === entry.email.toLowerCase(); })) return;
+  var row = new Array(R_WIDTH).fill('');
+  row[R_COMPANY - 1] = entry.company;
+  row[R_ROLE - 1] = entry.role;
+  row[R_PERSON - 1] = entry.name;
+  row[R_EMAIL - 1] = entry.email;
+  row[R_TITLE - 1] = entry.title;
+  row[R_TIER - 1] = outreachReferralTier_(entry.title, entry.seniority);
+  row[R_TEMPLATE - 1] = entry.template;
+  row[R_SCHEDULED - 1] = new Date(entry.atMs);
+  row[R_STATUS - 1] = STATUS_SENT;
+  row[R_JOB_LINK - 1] = entry.jobLink;
+  row[R_SENT_AT - 1] = new Date();
+  row[R_RESULT - 1] = messageId;
+  row[R_ID - 1] = 'R-' + entry.email;
+  row[R_VERSION - 1] = 1;
+  referral.getRange(referral.getLastRow() + 1, 1, 1, R_WIDTH).setValues([row]);
+}
+
+/**
+ * Read-only status for the explicit Target referral waves. The normal referral
+ * planner is paused, so these script-property campaigns are the authoritative
+ * live schedule for the three waves requested by the owner.
+ */
+function diagnoseTargetReferralCampaigns() {
+  return [
+    ['Sierra, Waymo, Mastercard', 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD'],
+    ['PayPal, Dropbox, Scale AI', 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI'],
+    ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT']
+  ].map(function (spec) {
+    var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
+    if (!text) return {companies: spec[0], status: 'not-scheduled'};
+    return summarizeTargetCampaignState_(JSON.parse(text), spec[0]);
+  });
+}
+
+/** Summarize a campaign without returning recruiter/employee addresses. */
+function summarizeTargetCampaignState_(state, label) {
+  var byCompany = {};
+  (state.entries || []).forEach(function (entry) {
+    var key = entry.company || 'Unknown';
+    if (!byCompany[key]) {
+      byCompany[key] = {total: 0, pending: 0, sent: 0, failed: 0, skipped: 0};
+    }
+    byCompany[key].total++;
+    if (entry.status === 'pending') byCompany[key].pending++;
+    else if (entry.status === 'sent') byCompany[key].sent++;
+    else if (entry.status === 'failed') byCompany[key].failed++;
+    else byCompany[key].skipped++;
+  });
+  var entries = (state.entries || []).slice().sort(function (left, right) {
+    return Number(left.atMs || 0) - Number(right.atMs || 0);
+  });
+  return {
+    companies: label,
+    status: state.status,
+    timezone: state.timezone || 'America/New_York',
+    createdAt: state.createdAt || '',
+    completedAt: state.completedAt || '',
+    byCompany: byCompany,
+    firstAt: entries.length ? Utilities.formatDate(
+      new Date(entries[0].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z') : '',
+    lastAt: entries.length ? Utilities.formatDate(
+      new Date(entries[entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z') : ''
+  };
+}
+
+/** Explicit Target recruiter campaign for Replit and five NVIDIA contacts on 2026-09-09. */
+function scheduleTargetRecruiterCampaign0909() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
+    handler: 'runTargetRecruiterCampaignTick0909_',
+    label: 'Replit, NVIDIA',
+    startIso: '2026-09-09T13:30:00-04:00',
+    spacingMinutes: 10,
+    minGapMinutes: 9,
+    companies: [
+      {
+        company: 'Replit',
+        maxContacts: 10,
+        role: 'Software Engineering Intern (Summer 2027)',
+        jobLink: 'https://jobs.ashbyhq.com/replit/7e0dafe8-3eec-442e-aa76-a4d84d779fb1/application'
+      },
+      {
+        company: 'NVIDIA',
+        maxContacts: 5,
+        role: 'Software Engineering Intern',
+        jobLink: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/NVIDIA-2027-Internships--Software-Engineering_JR2023495?utm_source=Simplify&ref=Simplify'
+      }
+    ]
+  });
+}
+
+/** Explicit Target recruiter campaign for the remaining five NVIDIA contacts on 2026-09-10. */
+function scheduleTargetRecruiterCampaign0910() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA',
+    handler: 'runTargetRecruiterCampaignTick0910_',
+    label: 'NVIDIA',
+    startIso: '2026-09-10T13:30:00-04:00',
+    spacingMinutes: 10,
+    minGapMinutes: 9,
+    excludeEmails: targetRecruiterCampaignEmails_('TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA'),
+    companies: [
+      {
+        company: 'NVIDIA',
+        maxContacts: 5,
+        role: 'Software Engineering Intern',
+        jobLink: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/NVIDIA-2027-Internships--Software-Engineering_JR2023495?utm_source=Simplify&ref=Simplify'
+      }
+    ]
+  });
+}
+
+/** Replace the original unsplit 09/10 schedule with the requested two-day split. */
+function rescheduleTargetRecruiterCampaignSplit0909() {
+  var keys = [
+    'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
+    'TARGET_RECRUITER_CAMPAIGN_20260910_REPLIT_NVIDIA',
+    'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'
+  ];
+  var handlers = ['runTargetRecruiterCampaignTick0909_', 'runTargetRecruiterCampaignTick0910_'];
+  var props = PropertiesService.getScriptProperties();
+  keys.forEach(function (key) { props.deleteProperty(key); });
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (handlers.indexOf(trigger.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(trigger);
+  });
+  return {
+    september9: scheduleTargetRecruiterCampaign0909(),
+    september10: scheduleTargetRecruiterCampaign0910()
+  };
+}
+
+/** Read-only status for both halves of the explicit Target recruiter campaign. */
+function diagnoseTargetRecruiterCampaign0910() {
+  return [
+    ['09/09 — Replit + 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA'],
+    ['09/10 — 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA']
+  ].map(function (spec) {
+    var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
+    if (!text) return {companies: spec[0], status: 'not-scheduled'};
+    return summarizeTargetCampaignState_(JSON.parse(text), spec[0]);
+  });
+}
+
+/** Addresses reserved by an already-scheduled half, without exposing them in diagnostics. */
+function targetRecruiterCampaignEmails_(propertyKey) {
+  var text = PropertiesService.getScriptProperties().getProperty(propertyKey);
+  if (!text) return [];
+  return (JSON.parse(text).entries || []).map(function (entry) {
+    return String(entry.email || '').toLowerCase();
+  });
+}
+
+/** Build and install one explicit Target recruiter campaign. */
+function scheduleTargetRecruiterCampaign_(config) {
+  var propertyKey = config.propertyKey;
+  var handler = config.handler;
+  var label = config.label || 'Target recruiter';
+  var startMs = new Date(config.startIso).getTime();
+  var spacingMinutes = Number(config.spacingMinutes || 10);
+  var minGapMinutes = Number(config.minGapMinutes || Math.max(1, spacingMinutes - 1));
+  if (new Date().getTime() >= startMs) {
+    throw new Error('The recruiter campaign start time has passed.');
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, label)};
+      }
+    }
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var contacts = outreachReadContacts_(contactsBook);
+    var spent = targetRecruiterSpentFingerprints_(tracker);
+    var salt = outreachProperty_(PROP_SALT, true);
+    var excluded = {};
+    (config.excludeEmails || []).forEach(function (email) {
+      excluded[String(email || '').toLowerCase()] = true;
+    });
+    var selected = config.companies.map(function (spec) {
+      var companyContacts = outreachContactsFor_(contacts, spec.company)
+        .filter(function (contact) {
+          if (contact.sent) return false;
+          if (excluded[contact.email]) return false;
+          var summer = outreachFingerprint_(contact.email, salt, SEASON_SUMMER);
+          var offcycle = outreachFingerprint_(contact.email, salt, SEASON_OFFCYCLE);
+          if (spent[summer] || spent[offcycle]) return false;
+          return !GmailApp.search('from:me to:' + contact.email, 0, 1).length;
+        })
+        .sort(function (left, right) {
+          return (left.name || left.email).localeCompare(right.name || right.email);
+        });
+      return {spec: spec, people: companyContacts.slice(0, Number(spec.maxContacts || 10))};
+    });
+
+    // A recruiter appearing in both company exports still receives one message.
+    var used = {};
+    selected.forEach(function (group) {
+      group.people = group.people.filter(function (person) {
+        if (used[person.email]) return false;
+        used[person.email] = true;
+        return true;
+      });
+    });
+
+    var entries = [], position = 0, index = 0;
+    while (selected.some(function (group) { return index < group.people.length; })) {
+      selected.forEach(function (group) {
+        if (index >= group.people.length) return;
+        var person = group.people[index];
+        entries.push({
+          company: group.spec.company,
+          role: group.spec.role,
+          jobLink: group.spec.jobLink,
+          name: person.name,
+          email: person.email,
+          title: person.role || '',
+          template: (index % COLD_TEMPLATES.length) + 1,
+          atMs: startMs + position * spacingMinutes * 60000,
+          status: 'pending'
+        });
+        position++;
+      });
+      index++;
+    }
+
+    if (!entries.length) {
+      var empty = {status: 'complete', timezone: 'America/New_York',
+                   createdAt: new Date().toISOString(), entries: []};
+      props.setProperty(propertyKey, JSON.stringify(empty));
+      return {scheduled: 0, state: summarizeTargetCampaignState_(empty, label)};
+    }
+
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York',
+      createdAt: new Date().toISOString(), lastSentAtMs: 0,
+      spacingMinutes: spacingMinutes, minGapMinutes: minGapMinutes,
+      entries: entries
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try {
+      ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
+    } catch (error) {
+      props.deleteProperty(propertyKey);
+      throw error;
+    }
+    return {
+      scheduled: entries.length,
+      byCompany: summarizeTargetCampaignState_(state, label).byCompany,
+      firstAt: Utilities.formatDate(new Date(entries[0].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+      lastAt: Utilities.formatDate(new Date(entries[entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+      trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Fingerprints already committed by the normal cold queue. */
+function targetRecruiterSpentFingerprints_(tracker) {
+  var spent = {};
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue || queue.getLastRow() < 2) return spent;
+  queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+    .map(function (row, index) { return outreachParseQueue_(row, index + 2); })
+    .forEach(function (row) {
+      if (row.fingerprint && STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) {
+        spent[row.fingerprint] = true;
+      }
+    });
+  return spent;
+}
+
+/** Public wrapper for the 09/09 Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0909_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
+    handler: 'runTargetRecruiterCampaignTick0909_'
+  });
+}
+
+/** Public wrapper for the 09/10 Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0910_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA',
+    handler: 'runTargetRecruiterCampaignTick0910_'
+  });
+}
+
+/** Send one due Target recruiter entry and update the Target snapshots. */
+function runTargetRecruiterCampaignTickFor_(config) {
+  var propertyKey = config.propertyKey;
+  var handler = config.handler;
+  var stateText = '';
+  var state = null;
+  var due = null;
+  var messageWasSent = false;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return {skipped: true, reason: 'lock busy'};
+  try {
+    var props = PropertiesService.getScriptProperties();
+    stateText = props.getProperty(propertyKey);
+    if (!stateText) return {skipped: true, reason: 'state absent'};
+    state = JSON.parse(stateText);
+    if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+    var now = new Date().getTime();
+    due = state.entries.filter(function (entry) {
+      return entry.status === 'pending' && entry.atMs <= now;
+    }).sort(function (left, right) { return left.atMs - right.atMs; })[0];
+    if (!due) return {skipped: true, reason: 'nothing due'};
+    var minGapMinutes = Number(state.minGapMinutes || 9);
+    if (state.lastSentAtMs && now - state.lastSentAtMs < minGapMinutes * 60000) {
+      return {skipped: true, reason: 'minimum gap', next: due.email};
+    }
+
+    var salt = outreachProperty_(PROP_SALT, true);
+    var fingerprints = [
+      outreachFingerprint_(due.email, salt, SEASON_SUMMER),
+      outreachFingerprint_(due.email, salt, SEASON_OFFCYCLE)
+    ];
+    if (GmailApp.search('from:me to:' + due.email, 0, 1).length) {
+      due.status = 'already-sent';
+      due.completedAt = new Date().toISOString();
+      outreachMarkColdContactsSent_(fingerprints);
+      syncTargetAfterSend_(due.company, 'recruiter');
+      state.lastSentAtMs = now;
+    } else {
+      var mail = outreachCompose_({
+        template: due.template, company: due.company,
+        role: due.role, recruiterName: due.name
+      });
+      var resume = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID).getBlob()
+        .setName('Henry_Nguyen_Resume.pdf');
+      GmailApp.sendEmail(due.email, mail.subject, mail.plain, {
+        htmlBody: mail.html, inlineImages: mail.inlineImages,
+        attachments: [resume], name: SENDER_NAME
+      });
+      messageWasSent = true;
+      var sentMatches = GmailApp.search(
+        'in:sent to:' + due.email + ' subject:"' + mail.subject + '"', 0, 1);
+      due.messageId = sentMatches.length && sentMatches[0].getMessages().length
+        ? sentMatches[0].getMessages()[0].getId() : '';
+      due.status = 'sent';
+      due.completedAt = new Date().toISOString();
+      state.lastSentAtMs = now;
+      // Gmail accepted the message; these are best-effort bookkeeping steps.
+      outreachMarkColdContactsSent_(fingerprints);
+      syncTargetAfterSend_(due.company, 'recruiter');
+    }
+
+    if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
+      state.status = 'complete';
+      state.completedAt = new Date().toISOString();
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+      });
+    }
+    props.setProperty(propertyKey, JSON.stringify(state));
+    return {sent: due.status === 'sent', skippedAlreadySent: due.status === 'already-sent',
+            company: due.company, name: due.name,
+            pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
+  } catch (error) {
+    var errorText = String(error.message || error);
+    if (messageWasSent && state && due) {
+      due.status = 'sent';
+      due.error = errorText.slice(0, 250);
+      state.lastSentAtMs = new Date().getTime();
+      try { PropertiesService.getScriptProperties().setProperty(propertyKey, JSON.stringify(state)); }
+      catch (ignoredSent) {}
+    } else if (stateText && state) {
+      try {
+        var failedDue = state.entries.filter(function (entry) {
+          return entry.status === 'pending' && entry.atMs <= new Date().getTime();
+        }).sort(function (left, right) { return left.atMs - right.atMs; })[0];
+        if (failedDue) {
+          failedDue.status = 'failed';
+          failedDue.error = errorText.slice(0, 250);
+          props.setProperty(propertyKey, JSON.stringify(state));
+        }
+      } catch (ignored) {}
+    }
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
 }
