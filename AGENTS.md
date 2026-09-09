@@ -90,6 +90,14 @@ on its next rebuild it ticks `Refer` for a successful referral send and `Recruit
 successful recruiter send, while repainting both sendable counts. Never mark either checkbox
 for a draft, failed send, cancelled send, or merely planned row.
 
+**`Referral_target` and `Email_target` are sender-owned Target campaign mirrors.** They are
+generated from the explicit campaign Script Properties so queued dates and state remain visible
+even though direct Target campaigns intentionally do not enter the normal `Referral`/`Email`
+queues. The normal planners, budget checks and send workers must never read these two tabs.
+`initializeTargetQueueTabs()` is the safe initializer/repair entry point; scheduling and direct-send
+state transitions refresh the mirrors automatically. `Referral_target` may show referral recipient
+details; `Email_target` follows the recruiter queue's privacy rule and omits recipient details.
+
 ## Read the last day's note, and leave one
 
 `update/` holds one short Markdown file per day of work, named `YYYY-MM-DD.md`.

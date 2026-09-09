@@ -11,6 +11,13 @@ whose Verify value is the explicit `debounce:invalid`; blank and all other verif
 including pattern-calibrated and risky, may reach Gmail.
 Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach-referral-send.md).
 
+`Referral_target` is a separate sender-owned mirror for explicit Target referral campaigns. It uses
+the same `A:T` shape as `Referral`, including recipient name/address, template, job link, scheduled
+time and current state. It is a visible schedule/history report only; the normal referral planner
+and sender read `Referral`, never `Referral_target`, so mirroring a direct campaign cannot cause a
+duplicate send. `initializeTargetQueueTabs()` creates or refreshes it from the sender's campaign
+Script Properties, and direct-send ticks refresh it after a state transition.
+
 ## Connections
 
 - **Reads:** `App` (every row is an application already made), `Employees (seed)` in the contacts

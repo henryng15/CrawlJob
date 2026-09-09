@@ -48,6 +48,8 @@ ATS boards + Markdown trackers
 | `App` | tracker script (rows, columns, `onEdit` repaint) — but its **row order and its yellow** belong to the outreach script's `syncAppOfficialWorklist`, and a rejection found in the mailbox writes `Process` + `Update` | outreach script (both paths), job_sync (`_already_applied`) |
 | `Email` | outreach cold path | outreach budget, referral budget |
 | `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
+| `Email_target` | outreach script's explicit Target-campaign mirror | people; never read by normal workers |
+| `Referral_target` | outreach script's explicit Target-campaign mirror | people; never read by normal workers |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
 | `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export through `replaceContactSeedChunk` / `replaceEmployeeSeedChunk`; the **`Sent` column belongs to the outreach script**, which ticks it after Gmail accepts a message; `From` records which sourcing pass found the row and nothing reads it | outreach compose + planners |
