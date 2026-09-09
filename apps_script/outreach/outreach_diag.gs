@@ -986,10 +986,11 @@ function diagnoseMicrosoftColdDrafts0909() {
     .getProperty('MICROSOFT_COLD_DRAFT_SCHEDULE_20260909');
   if (!text) return {status: 'not-scheduled', entries: []};
   var state = JSON.parse(text);
-  var counts = {pending: 0, sent: 0, failed: 0, skipped: 0};
+  var counts = {pending: 0, sent: 0, bounced: 0, failed: 0, skipped: 0};
   var entries = (state.entries || []).map(function (entry) {
     if (entry.status === 'pending') counts.pending++;
     else if (entry.status === 'sent') counts.sent++;
+    else if (entry.status === 'bounced') counts.bounced++;
     else if (entry.status === 'failed') counts.failed++;
     else counts.skipped++;
     return {
