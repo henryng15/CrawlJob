@@ -84,6 +84,10 @@ Almost all pure — the sheet work lives in [outreach-referral-send.md](outreach
 
 ## Filing and repair
 
+The live `Referral` tab is trimmed to its owned schema `A:T` (20 columns). Empty grid columns
+after `Version` were removed, and the first header is `Company`. Planned queue times remain in
+the existing `Drafted At` and `Scheduled At` columns; no duplicate schedule columns were added.
+
 | Function | Does |
 |---|---|
 | `outreachReferralRowTime_`, `outreachReferralTimeOrder_`, `outreachSortReferralByTime_` | Earliest first, called-off sunk to the bottom, sent rows keeping their place in the timeline. |

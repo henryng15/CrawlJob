@@ -43,6 +43,10 @@ of them pure.
 
 ## Tab shape
 
+The live `Email` tab is trimmed to its owned schema `A:W` (23 columns). The columns after
+`Version` were empty grid space and were removed; the queue keeps its operational timestamps in
+`Drafted At`, `Scheduled At`, `Follow Up`, and `Sent At` rather than adding a second schedule area.
+
 | Function | Does |
 |---|---|
 | `outreachHeaderRow_(sheet)` | The header, never wider than the sheet actually is. |
