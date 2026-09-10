@@ -1539,6 +1539,47 @@ function diagnoseTargetReferralCampaigns() {
   });
 }
 
+/** Read the source and scheduled forms of Lisa Huynh's Datadog referral record. */
+function diagnoseDatadogLisaHuynh() {
+  var company = 'Datadog';
+  var nameKey = outreachNameKey_('Lisa Huynh');
+  var contacts = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var employees = outreachEmployeesFor_(outreachReadEmployees_(contacts), company);
+  var describe = function (person) {
+    var name = String(person.name || '');
+    return {
+      company: person.company,
+      name: name,
+      nameCodePoints: Array.from(name).map(function (character) {
+        return 'U+' + character.codePointAt(0).toString(16).toUpperCase();
+      }),
+      title: person.title,
+      seniority: person.seniority,
+      bucket: person.bucket,
+      sourceRow: person.rowNumber
+    };
+  };
+  var seedMatches = employees.filter(function (person) {
+    return outreachNameKey_(person.name) === nameKey;
+  }).map(describe);
+  var campaignText = PropertiesService.getScriptProperties().getProperty(
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT');
+  var campaignMatches = campaignText ? (JSON.parse(campaignText).entries || []).filter(function (entry) {
+    return entry.company === company && outreachNameKey_(entry.name) === nameKey;
+  }).map(function (entry) {
+    return {
+      name: entry.name,
+      nameCodePoints: Array.from(String(entry.name || '')).map(function (character) {
+        return 'U+' + character.codePointAt(0).toString(16).toUpperCase();
+      }),
+      status: entry.status,
+      scheduledAt: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+      template: entry.template
+    };
+  }) : [];
+  return {seedMatches: seedMatches, campaignMatches: campaignMatches};
+}
+
 /** Summarize a campaign without returning recruiter/employee addresses. */
 function summarizeTargetCampaignState_(state, label) {
   var byCompany = {};
