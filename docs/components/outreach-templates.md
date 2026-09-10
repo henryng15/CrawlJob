@@ -18,7 +18,7 @@ parses both and writes the `.gs`. `--check` fails if the two have drifted.
 | `outreachShortRole_` + `SHORT_ROLES`, rewriting a job-board title into three words | the posting title is printed as written |
 
 The cost is stated plainly because it is real: **nothing is personalised to the reader beyond
-their first name and their employer, and nothing can be.** The templates have nowhere to put it.
+their greeting name and their employer, and nothing can be.** The templates have nowhere to put it.
 
 Two consequences worth knowing:
 
@@ -49,6 +49,7 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachColdTemplateFor_(load)` | Which of the ten a new cold row gets. |
 | `outreachFillTemplate_(text, values)` | Substitutes the three placeholders. |
 | `outreachRenderTemplate_(template, values)` | One template plus one recipient as `{subject, html, plain, inlineImages}`. Shared by both paths. |
+| `outreachFirstName_(name)` | Produces the greeting name for every cold, referral and follow-up email. It strips decorative symbols, uses the Vietnamese given name when a common Vietnamese surname or diacritic establishes the name style, and adds lowercase `anh`/`chị` only for a high-confidence conventional gender signal. Ambiguous names remain untitled. |
 | `outreachBusinessCardHtml_()` | The compact latest footer: Kenyon logo, labeled full Email/LinkedIn/GitHub links, and the soft Trebuchet MS styling. |
 | `outreachBusinessCardPlain_()` | The three labeled contact lines for the plain-text alternative. |
 | `outreachBusinessCardInlineImages_()` | Supplies the embedded Kenyon logo as `cid:kenyonlogo` to Gmail's `inlineImages` option. |
@@ -60,6 +61,15 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachReferralCompose_(options)` | One referral ask. Accepts `angle`, `bucket`, `seniority`, `dateApplied` and uses none of them. |
 | `outreachReferralTier_(title, seniority)` | Still computed, because the Referral tab has a Tier column. Decides no wording. |
 | `previewReferralTemplates()` | Logs one example of each of the ten. Sends nothing. |
+
+## Greeting names
+
+The shared renderer preserves a normal given-name capitalization but never copies a full source
+name or decorative prefix into a greeting. For a Vietnamese-style name, it picks the terminal
+given name when the surname comes first (`Nguyen Van Chien` → `anh Chien`) and the leading given
+name when the surname comes last (`Lisa Huynh` → `chị Lisa`). `anh` and `chị` are deliberately
+lowercase. The gender lists are intentionally conservative: an unclear name receives only the
+given name rather than a guessed title.
 
 ## Gotchas
 

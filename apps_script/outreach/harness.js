@@ -822,6 +822,17 @@ console.log('the message');
     assert.ok(compose({ recruiterName: 'Dana Whitfield' }).plain.startsWith('Hi Dana,'));
   });
 
+  run('Vietnamese greetings use the given name and a lowercase confident honorific', () => {
+    assert.strictEqual(S.outreachFirstName_('Nguyen Van Chien'), 'anh Chien');
+    assert.strictEqual(S.outreachFirstName_('Lisa Huynh'), 'chị Lisa');
+    assert.ok(compose({ recruiterName: 'Nguyen Van Chien' }).plain.startsWith('Hi anh Chien,'));
+  });
+
+  run('decorative symbols are stripped and ambiguous Vietnamese names stay untitled', () => {
+    assert.strictEqual(S.outreachFirstName_('🍃Lisa Huynh'), 'chị Lisa');
+    assert.strictEqual(S.outreachFirstName_('Nguyen An'), 'An');
+  });
+
   console.log('  the two halves say the same thing');
   run('every bullet and paragraph appears in both halves', () => {
     const mail = compose({});

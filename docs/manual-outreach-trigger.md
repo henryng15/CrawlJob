@@ -24,6 +24,15 @@ live Apps Script trigger does not count as a new command.
 “Write/prepare” authorizes planning and drafting only. Actual Gmail sending requires the user to
 explicitly say “send” (or equivalent) for that specific plan.
 
+## Greeting personalization
+
+Use the shared greeting renderer for all recruiter, referral and follow-up messages. It removes
+decorative prefixes, addresses the recipient by their given name, and for a Vietnamese-style name
+adds lowercase `anh` or `chị` only when a conventional gender inference is high confidence. Do
+not guess a title for ambiguous names; use the given name alone. See
+[`components/outreach-templates.md`](components/outreach-templates.md) for the maintained name
+lists and examples.
+
 ## Read the correct template documentation first
 
 Never use the recruiter wording for a referral ask, or referral wording for a recruiter email.

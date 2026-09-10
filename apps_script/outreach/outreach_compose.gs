@@ -446,7 +446,49 @@ function outreachBoldPlain_(text) {
 }
 
 function outreachFirstName_(name) {
-  return String(name || '').trim().split(/\s+/)[0] || 'there';
+  var raw = String(name || '').trim();
+  var tokens = raw.match(/[A-Za-zÀ-ỹĐđ]+/g) || [];
+  if (!tokens.length) return 'there';
+
+  var key = function (value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd').toLowerCase();
+  };
+  var keys = tokens.map(key);
+  var vietnameseSurnames = {
+    bach: true, bao: true, bui: true, cao: true, chau: true, dang: true, do: true,
+    duong: true, dinh: true, ha: true, ho: true, hoang: true, huynh: true, le: true,
+    ly: true, luu: true, mac: true, mai: true, ngo: true, nguyen: true, pham: true,
+    phan: true, phong: true, quach: true, ta: true, tang: true, thai: true, tran: true,
+    trinh: true, truong: true, vu: true, vo: true
+  };
+  var vietnamese = /[À-ỹĐđ]/.test(raw) || keys.some(function (value) {
+    return !!vietnameseSurnames[value];
+  });
+  var givenIndex = 0;
+  if (vietnamese && vietnameseSurnames[keys[0]]) givenIndex = tokens.length - 1;
+  else if (vietnamese && vietnameseSurnames[keys[keys.length - 1]]) givenIndex = 0;
+  var given = tokens[givenIndex];
+  var givenKey = keys[givenIndex];
+
+  // Only names with a strong conventional signal receive an honorific. Names
+  // such as An, Anh, Chau, Khanh, Linh, Minh and Thanh are deliberately absent.
+  var women = {
+    alice: true, anna: true, catherine: true, chi: true, hoa: true, hong: true,
+    huong: true, jane: true, lan: true, lisa: true, mai: true, mary: true, nga: true,
+    ngan: true, nhi: true, phuong: true, quynh: true, thao: true, thu: true,
+    trang: true, trinh: true, tuyet: true, yen: true
+  };
+  var men = {
+    bao: true, chien: true, cuong: true, dat: true, duc: true, duy: true, hai: true,
+    hieu: true, hoang: true, hung: true, huy: true, khang: true,
+    kiet: true, long: true, nam: true, nghia: true, phuc: true, quang: true,
+    son: true, tien: true, trung: true, tuan: true, vinh: true
+  };
+  if (!vietnamese) return given;
+  if (women[givenKey]) return 'chị ' + given;
+  if (men[givenKey]) return 'anh ' + given;
+  return given;
 }
 
 // What [Role Name] falls back to when an application row has no title. The
