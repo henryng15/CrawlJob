@@ -507,6 +507,7 @@ function syncTargetAfterSend_(company, kind) {
 var TARGET_DELIVERY_FAILURE_CAMPAIGNS_ = [
   {key: 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD', kind: 'referral'},
   {key: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI', kind: 'referral'},
+  {key: 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG', kind: 'referral'},
   {key: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT', kind: 'referral'},
   {key: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA', kind: 'recruiter'},
   {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA', kind: 'recruiter'},
@@ -1150,6 +1151,27 @@ function scheduleTargetReferralCampaign0910() {
   });
 }
 
+/** Explicit Target referral campaign for five Datadog contacts on 2026-09-10. */
+function scheduleTargetReferralCampaign0910Datadog() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
+    handler: 'runTargetReferralCampaignTick0910Datadog_',
+    startIso: '2026-09-10T15:15:00-04:00',
+    spacingMinutes: 9,
+    minGapMinutes: 8,
+    excludeEmails: targetReferralCampaignEmails_(
+      'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT', 'Datadog'),
+    companies: [
+      {
+        company: 'Datadog',
+        maxContacts: 5,
+        role: 'Software Engineering Intern',
+        jobLink: 'https://careers.datadoghq.com/detail/8052118/?gh_jid=8052118'
+      }
+    ]
+  });
+}
+
 /** One-off Target referral campaign for the next requested companies. */
 function scheduleTargetReferralCampaign0911() {
   return scheduleTargetReferralCampaign_({
@@ -1216,8 +1238,12 @@ function scheduleTargetReferralCampaign_(config) {
     if (!referral) throw new Error('Referral tab is missing.');
     var existingRows = outreachReadReferralRows_(referral);
     var used = {};
+    var excluded = {};
     existingRows.forEach(function (row) {
       if (row.email) used[row.email.toLowerCase()] = true;
+    });
+    (config.excludeEmails || []).forEach(function (email) {
+      if (email) excluded[String(email).toLowerCase()] = true;
     });
 
     var entries = [], skipped = [];
@@ -1226,6 +1252,10 @@ function scheduleTargetReferralCampaign_(config) {
         .filter(function (person) {
           var email = person.email.toLowerCase();
           if (used[email]) return false;
+          if (excluded[email]) {
+            skipped.push({company: spec.company, email: email, reason: 'reserved-by-campaign'});
+            return false;
+          }
           // This is intentionally broad: a person written to by any earlier
           // campaign must not receive a second unsolicited message.
           if (GmailApp.search('from:me to:' + email, 0, 1).length) {
@@ -1238,7 +1268,7 @@ function scheduleTargetReferralCampaign_(config) {
         .sort(function (left, right) {
           return (left.name || left.email).localeCompare(right.name || right.email);
         })
-        .slice(0, 10);
+        .slice(0, Number(spec.maxContacts || 10));
 
       people.forEach(function (person, index) {
         entries.push({
@@ -1305,6 +1335,14 @@ function runTargetReferralCampaignTick0910_() {
   return runTargetReferralCampaignTickFor_({
     propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
     handler: 'runTargetReferralCampaignTick0910_'
+  });
+}
+
+/** Send one due 09/10 Datadog Target referral entry and finalize its seed snapshot. */
+function runTargetReferralCampaignTick0910Datadog_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
+    handler: 'runTargetReferralCampaignTick0910Datadog_'
   });
 }
 
@@ -1447,6 +1485,17 @@ function ensureTargetReferralHistories_(state) {
   return errors;
 }
 
+/** Addresses reserved by an explicit referral campaign, optionally at one company. */
+function targetReferralCampaignEmails_(propertyKey, company) {
+  var text = PropertiesService.getScriptProperties().getProperty(propertyKey);
+  if (!text) return [];
+  return (JSON.parse(text).entries || []).filter(function (entry) {
+    return !company || entry.company === company;
+  }).map(function (entry) {
+    return String(entry.email || '').toLowerCase();
+  }).filter(Boolean);
+}
+
 /** Persist one successful direct ask so the sender's count snapshot deducts it. */
 function appendTargetReferralHistory_(entry, messageId) {
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
@@ -1481,6 +1530,7 @@ function diagnoseTargetReferralCampaigns() {
   return [
     ['Sierra, Waymo, Mastercard', 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD'],
     ['PayPal, Dropbox, Scale AI', 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI'],
+    ['Datadog — 5 extra contacts', 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG'],
     ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
@@ -1937,6 +1987,7 @@ function refreshTargetQueueTabs_() {
   var referralKeys = [
     'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
     'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
+    'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'
   ];
   var recruiterKeys = [
