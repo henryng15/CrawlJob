@@ -1580,6 +1580,36 @@ function diagnoseDatadogLisaHuynh() {
   return {seedMatches: seedMatches, campaignMatches: campaignMatches};
 }
 
+/** Read-only catalog of Vietnamese-style greeting names across both sendable seeds. */
+function diagnoseVietnameseGreetingCatalog() {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var people = outreachReadContacts_(contactsBook).filter(function (person) {
+    return !person.sent;
+  }).concat(outreachReadEmployees_(contactsBook));
+  var names = {};
+  people.forEach(function (person) {
+    var info = outreachGreetingInfo_(person.name);
+    if (!info.vietnamese || !info.givenKey) return;
+    if (!names[info.givenKey]) {
+      names[info.givenKey] = {
+        given: info.given, greeting: info.greeting, gender: info.gender || 'untitled', count: 0
+      };
+    }
+    names[info.givenKey].count++;
+  });
+  var rows = Object.keys(names).map(function (key) { return names[key]; }).sort(function (left, right) {
+    if (left.gender !== right.gender) return left.gender.localeCompare(right.gender);
+    if (right.count !== left.count) return right.count - left.count;
+    return left.given.localeCompare(right.given);
+  });
+  var format = function (gender) {
+    return rows.filter(function (row) { return row.gender === gender; }).map(function (row) {
+      return row.given + ' | ' + row.greeting + ' | ' + row.count;
+    }).join('\n');
+  };
+  return {men: format('man'), women: format('woman'), untitled: format('untitled')};
+}
+
 /** Summarize a campaign without returning recruiter/employee addresses. */
 function summarizeTargetCampaignState_(state, label) {
   var byCompany = {};
