@@ -1638,6 +1638,48 @@ function scheduleTargetRecruiterCampaign0910Google() {
   });
 }
 
+/** Cancel only the pending 09/10 Google Target recruiter sends. */
+function cancelTargetRecruiterCampaign0910Google() {
+  var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
+  var handler = 'runTargetRecruiterCampaignTick0910Google_';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var stateText = props.getProperty(propertyKey);
+    if (!stateText) return {status: 'not-scheduled', cancelledPending: 0, deletedTriggers: 0};
+    var state = JSON.parse(stateText);
+    var cancelled = 0;
+    (state.entries || []).forEach(function (entry) {
+      if (entry.status !== 'pending') return;
+      entry.status = 'cancelled';
+      entry.cancelledAt = new Date().toISOString();
+      cancelled++;
+    });
+    if (cancelled) {
+      state.status = 'cancelled';
+      state.cancelledAt = new Date().toISOString();
+      props.setProperty(propertyKey, JSON.stringify(state));
+    }
+    var deleted = 0;
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() !== handler) return;
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      status: state.status,
+      cancelledPending: cancelled,
+      sent: (state.entries || []).filter(function (entry) { return entry.status === 'sent'; }).length,
+      deletedTriggers: deleted
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Replace the original unsplit 09/10 schedule with the requested two-day split. */
 function rescheduleTargetRecruiterCampaignSplit0909() {
   var keys = [
