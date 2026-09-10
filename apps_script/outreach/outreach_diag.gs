@@ -510,6 +510,7 @@ var TARGET_DELIVERY_FAILURE_CAMPAIGNS_ = [
   {key: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT', kind: 'referral'},
   {key: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA', kind: 'recruiter'},
   {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA', kind: 'recruiter'},
+  {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE', kind: 'recruiter'},
   {key: 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909', kind: 'recruiter'}
 ];
 
@@ -1567,6 +1568,26 @@ function scheduleTargetRecruiterCampaign0910() {
   });
 }
 
+/** Explicit Target recruiter campaign for up to seven available Google contacts on 2026-09-10. */
+function scheduleTargetRecruiterCampaign0910Google() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE',
+    handler: 'runTargetRecruiterCampaignTick0910Google_',
+    label: 'Google',
+    startIso: '2026-09-10T14:20:00-04:00',
+    spacingMinutes: 10,
+    minGapMinutes: 9,
+    companies: [
+      {
+        company: 'Google',
+        maxContacts: 7,
+        role: 'Software Engineering Intern, BS, Summer 2027',
+        jobLink: 'https://www.google.com/about/careers/applications/jobs/results/85564713261245126-software-engineering-intern-bs-summer-2027'
+      }
+    ]
+  });
+}
+
 /** Replace the original unsplit 09/10 schedule with the requested two-day split. */
 function rescheduleTargetRecruiterCampaignSplit0909() {
   var keys = [
@@ -1590,7 +1611,8 @@ function rescheduleTargetRecruiterCampaignSplit0909() {
 function diagnoseTargetRecruiterCampaign0910() {
   return [
     ['09/09 — Replit + 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA'],
-    ['09/10 — 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA']
+    ['09/10 — 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'],
+    ['09/10 — Google', 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -1755,6 +1777,14 @@ function runTargetRecruiterCampaignTick0910_() {
   });
 }
 
+/** Public wrapper for the 09/10 Google Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0910Google_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE',
+    handler: 'runTargetRecruiterCampaignTick0910Google_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -1911,7 +1941,8 @@ function refreshTargetQueueTabs_() {
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
-    'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'
+    'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA',
+    'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
