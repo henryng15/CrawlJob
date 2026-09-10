@@ -49,7 +49,9 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachColdTemplateFor_(load)` | Which of the ten a new cold row gets. |
 | `outreachFillTemplate_(text, values)` | Substitutes the three placeholders. |
 | `outreachRenderTemplate_(template, values)` | One template plus one recipient as `{subject, html, plain, inlineImages}`. Shared by both paths. |
-| `outreachFirstName_(name)` | Produces the greeting name for every cold, referral and follow-up email. It strips decorative symbols, uses the Vietnamese given name when a common Vietnamese surname or diacritic establishes the name style, and adds lowercase `anh`/`chị` only for a high-confidence conventional gender signal. Ambiguous names remain untitled. |
+| `outreachGreetingKey_(value)` | Normalizes a name token for the greeting-name sets, without accents or punctuation. |
+| `outreachGreetingInfo_(name)` | Resolves the given name, Vietnamese-style name signal, and conservative conventional-gender result used by the greeting. |
+| `outreachFirstName_(name)` | Produces the greeting name for every cold, referral and follow-up email from `outreachGreetingInfo_`. It strips decorative symbols, uses the Vietnamese given name when a common Vietnamese surname or diacritic establishes the name style, and adds lowercase `anh`/`chị` only for a high-confidence conventional gender signal. Ambiguous names remain untitled. |
 | `outreachBusinessCardHtml_()` | The compact latest footer: Kenyon logo, labeled full Email/LinkedIn/GitHub links, and the soft Trebuchet MS styling. |
 | `outreachBusinessCardPlain_()` | The three labeled contact lines for the plain-text alternative. |
 | `outreachBusinessCardInlineImages_()` | Supplies the embedded Kenyon logo as `cid:kenyonlogo` to Gmail's `inlineImages` option. |
@@ -68,8 +70,10 @@ The shared renderer preserves a normal given-name capitalization but never copie
 name or decorative prefix into a greeting. For a Vietnamese-style name, it picks the terminal
 given name when the surname comes first (`Nguyen Van Chien` → `anh Chien`) and the leading given
 name when the surname comes last (`Lisa Huynh` → `chị Lisa`). `anh` and `chị` are deliberately
-lowercase. The gender lists are intentionally conservative: an unclear name receives only the
-given name rather than a guessed title.
+lowercase. The reviewed seed lists include high-confidence Vietnamese and commonly used English
+given names for people with a Vietnamese-style surname. They intentionally omit unclear names
+such as An, Anh, Chau, Khanh, Linh, Minh and Thanh; an unclear name receives only the given name
+rather than a guessed title.
 
 ## Gotchas
 

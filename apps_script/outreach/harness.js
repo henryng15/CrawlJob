@@ -825,6 +825,8 @@ console.log('the message');
   run('Vietnamese greetings use the given name and a lowercase confident honorific', () => {
     assert.strictEqual(S.outreachFirstName_('Nguyen Van Chien'), 'anh Chien');
     assert.strictEqual(S.outreachFirstName_('Lisa Huynh'), 'chị Lisa');
+    assert.strictEqual(S.outreachFirstName_('DAVID NGUYEN'), 'anh David');
+    assert.strictEqual(S.outreachFirstName_('Jessica Tran'), 'chị Jessica');
     assert.ok(compose({ recruiterName: 'Nguyen Van Chien' }).plain.startsWith('Hi anh Chien,'));
   });
 

@@ -445,50 +445,99 @@ function outreachBoldPlain_(text) {
   return String(text).replace(/\*\*(.+?)\*\*/g, '$1');
 }
 
-function outreachFirstName_(name) {
+var VIETNAMESE_SURNAMES_ = {
+  bach: true, bao: true, bui: true, cao: true, chau: true, dang: true, do: true,
+  duong: true, dinh: true, ha: true, ho: true, hoang: true, huynh: true, le: true,
+  ly: true, luu: true, mac: true, mai: true, ngo: true, nguyen: true, pham: true,
+  phan: true, phong: true, quach: true, ta: true, tang: true, thai: true, tran: true,
+  trinh: true, truong: true, vu: true, vo: true
+};
+
+// Only names with a strong conventional signal receive an honorific. Names
+// such as An, Anh, Chau, Khanh, Linh, Minh and Thanh are deliberately absent.
+var VIETNAMESE_WOMEN_GIVEN_NAMES_ = {
+  alice: true, amanda: true, amy: true, angie: true, anna: true, annie: true,
+  arielle: true, brittany: true, carla: true, catherine: true, catrina: true,
+  cherish: true, chi: true, christina: true, christine: true, cindy: true,
+  courtney: true, cynthia: true, deanna: true, diana: true, elisa: true,
+  elizabeth: true, ellie: true, emma: true, emily: true, enny: true, erika: true,
+  frances: true, gabrielle: true, heather: true, helen: true, hoa: true, hong: true,
+  huong: true, jane: true, janette: true, jennifer: true, jessica: true, joanna: true,
+  joanne: true, joy: true, karen: true, katelynn: true, kayla: true, lan: true,
+  laura: true, leah: true, lisa: true, madeline: true, mai: true, mary: true,
+  michelle: true, naomi: true, nancy: true, nga: true, ngan: true, nhi: true,
+  nicole: true, nikki: true, phuong: true, quynh: true, rachel: true, rose: true,
+  sandra: true, selena: true, shana: true, shania: true, sheri: true, stacey: true,
+  stacy: true, stefany: true, susan: true, tammy: true, thao: true, theresa: true,
+  thu: true, tiffany: true, trang: true, tracey: true, tricia: true, trinh: true,
+  trinity: true, tuyet: true, vivian: true, vy: true, winnie: true, yen: true
+};
+var VIETNAMESE_MEN_GIVEN_NAMES_ = {
+  aaron: true, adam: true, alan: true, albert: true, alec: true, alexander: true,
+  allen: true, alvin: true, andrew: true, andre: true, andy: true, anthony: true,
+  aryan: true, bao: true, ben: true, benjamin: true, bill: true, billy: true,
+  bobby: true, brandon: true, brian: true, bryan: true, calvin: true, charles: true,
+  chien: true, christian: true, christopher: true, colin: true, cuong: true, dan: true,
+  danh: true, daniel: true, danny: true, dat: true, david: true, dean: true, dennis: true,
+  dien: true, donald: true, duc: true, dustin: true, duy: true, dzanh: true, ethan: true,
+  eric: true, felix: true, frank: true, gabriel: true, gordon: true, gus: true, hai: true,
+  hank: true, haroldo: true, harris: true, hau: true, heang: true, hiep: true, hieu: true,
+  hoang: true, hoangminh: true, hoc: true, huan: true, hubert: true, hudson: true,
+  hung: true, huy: true, ian: true, jack: true, jackson: true, jacky: true, jacob: true,
+  james: true, jason: true, jay: true, john: true, johnny: true, jonathan: true, joseph: true,
+  josh: true, justin: true, kavin: true, kelvin: true, ken: true, kenny: true, kevin: true,
+  kha: true, khai: true, khang: true, khuong: true, kiet: true,
+  kien: true, khoa: true, khoi: true, kristian: true, lam: true, lap: true, liem: true,
+  loc: true, logan: true, long: true, louis: true, lucas: true, luan: true, malcolm: true,
+  man: true, matt: true, matthew: true, michael: true, mike: true, mukul: true, nam: true,
+  nate: true, nathan: true, newton: true, nghia: true, nick: true, norberto: true,
+  olivier: true, patrick: true, paul: true, peter: true, phu: true, phuc: true, phuoc: true,
+  phillip: true, quan: true, quang: true, quoc: true, raymond: true, richard: true,
+  robert: true, roger: true, ryan: true, sanh: true, scott: true, shawn: true, son: true,
+  steven: true, steve: true, thaison: true, thang: true, than: true, thinh: true, tho: true,
+  thong: true, thuan: true, tien: true, tim: true, timothy: true, tin: true, toan: true,
+  tom: true, tommy: true, tony: true, trevor: true, tri: true, trong: true, troy: true,
+  trung: true, truong: true, tuan: true, tung: true, ty: true, tyler: true, vic: true,
+  victor: true, vinh: true, william: true
+};
+
+/** Lowercase key for a name token, preserving no accents or punctuation. */
+function outreachGreetingKey_(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').toLowerCase();
+}
+
+/** Resolve a safe greeting name and explain the Vietnamese-name inference. */
+function outreachGreetingInfo_(name) {
   var raw = String(name || '').trim();
   var tokens = raw.match(/[A-Za-zÀ-ỹĐđ]+/g) || [];
-  if (!tokens.length) return 'there';
-
-  var key = function (value) {
-    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd').toLowerCase();
-  };
-  var keys = tokens.map(key);
-  var vietnameseSurnames = {
-    bach: true, bao: true, bui: true, cao: true, chau: true, dang: true, do: true,
-    duong: true, dinh: true, ha: true, ho: true, hoang: true, huynh: true, le: true,
-    ly: true, luu: true, mac: true, mai: true, ngo: true, nguyen: true, pham: true,
-    phan: true, phong: true, quach: true, ta: true, tang: true, thai: true, tran: true,
-    trinh: true, truong: true, vu: true, vo: true
-  };
+  if (!tokens.length) return {greeting: 'there', given: 'there', givenKey: '', vietnamese: false, gender: ''};
+  var keys = tokens.map(outreachGreetingKey_);
   var vietnamese = /[À-ỹĐđ]/.test(raw) || keys.some(function (value) {
-    return !!vietnameseSurnames[value];
+    return !!VIETNAMESE_SURNAMES_[value];
   });
   var givenIndex = 0;
-  if (vietnamese && vietnameseSurnames[keys[0]]) givenIndex = tokens.length - 1;
-  else if (vietnamese && vietnameseSurnames[keys[keys.length - 1]]) givenIndex = 0;
+  if (vietnamese && VIETNAMESE_SURNAMES_[keys[0]]) givenIndex = tokens.length - 1;
+  else if (vietnamese && VIETNAMESE_SURNAMES_[keys[keys.length - 1]]) givenIndex = 0;
   var given = tokens[givenIndex];
   var givenKey = keys[givenIndex];
+  if (given === given.toLowerCase() || given === given.toUpperCase()) {
+    given = given.charAt(0).toUpperCase() + given.slice(1).toLowerCase();
+  }
+  var gender = VIETNAMESE_WOMEN_GIVEN_NAMES_[givenKey] ? 'woman'
+    : (VIETNAMESE_MEN_GIVEN_NAMES_[givenKey] ? 'man' : '');
+  return {
+    greeting: !vietnamese ? given : (gender === 'woman' ? 'chị ' + given
+      : (gender === 'man' ? 'anh ' + given : given)),
+    given: given,
+    givenKey: givenKey,
+    vietnamese: vietnamese,
+    gender: gender
+  };
+}
 
-  // Only names with a strong conventional signal receive an honorific. Names
-  // such as An, Anh, Chau, Khanh, Linh, Minh and Thanh are deliberately absent.
-  var women = {
-    alice: true, anna: true, catherine: true, chi: true, hoa: true, hong: true,
-    huong: true, jane: true, lan: true, lisa: true, mai: true, mary: true, nga: true,
-    ngan: true, nhi: true, phuong: true, quynh: true, thao: true, thu: true,
-    trang: true, trinh: true, tuyet: true, yen: true
-  };
-  var men = {
-    bao: true, chien: true, cuong: true, dat: true, duc: true, duy: true, hai: true,
-    hieu: true, hoang: true, hung: true, huy: true, khang: true,
-    kiet: true, long: true, nam: true, nghia: true, phuc: true, quang: true,
-    son: true, tien: true, trung: true, tuan: true, vinh: true
-  };
-  if (!vietnamese) return given;
-  if (women[givenKey]) return 'chị ' + given;
-  if (men[givenKey]) return 'anh ' + given;
-  return given;
+function outreachFirstName_(name) {
+  return outreachGreetingInfo_(name).greeting;
 }
 
 // What [Role Name] falls back to when an application row has no title. The
