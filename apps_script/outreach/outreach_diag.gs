@@ -1735,10 +1735,88 @@ function scheduleTargetRecruiterCampaign0910StripeNetApp() {
   });
 }
 
+/** Explicit Target recruiter campaign for five NetApp contacts on 2026-09-11. */
+function scheduleTargetRecruiterCampaign0911NetApp() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
+    handler: 'runTargetRecruiterCampaignTick0911NetApp_',
+    label: 'NetApp',
+    startIso: '2026-09-11T13:10:00-04:00',
+    spacingMinutes: 10,
+    minGapMinutes: 9,
+    companies: [{
+      company: 'NetApp',
+      maxContacts: 5,
+      role: 'Software Engineer Intern (San Jose)',
+      jobLink: 'https://careers.netapp.com/job/san-jose/software-engineer-intern/27600/99761955632'
+    }]
+  });
+}
+
+/** Explicit Target recruiter campaign for ten Stripe contacts on Monday 2026-09-14. */
+function scheduleTargetRecruiterCampaign0914Stripe() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
+    handler: 'runTargetRecruiterCampaignTick0914Stripe_',
+    label: 'Stripe',
+    startIso: '2026-09-14T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Stripe',
+      maxContacts: 10,
+      role: 'Software Engineer, Intern',
+      jobLink: 'https://stripe.com/jobs/search?gh_jid=8128745'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
   var handler = 'runTargetRecruiterCampaignTick0910Google_';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var stateText = props.getProperty(propertyKey);
+    if (!stateText) return {status: 'not-scheduled', cancelledPending: 0, deletedTriggers: 0};
+    var state = JSON.parse(stateText);
+    var cancelled = 0;
+    (state.entries || []).forEach(function (entry) {
+      if (entry.status !== 'pending') return;
+      entry.status = 'cancelled';
+      entry.cancelledAt = new Date().toISOString();
+      cancelled++;
+    });
+    if (cancelled) {
+      state.status = 'cancelled';
+      state.cancelledAt = new Date().toISOString();
+      props.setProperty(propertyKey, JSON.stringify(state));
+    }
+    var deleted = 0;
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() !== handler) return;
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      status: state.status,
+      cancelledPending: cancelled,
+      sent: (state.entries || []).filter(function (entry) { return entry.status === 'sent'; }).length,
+      deletedTriggers: deleted
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Cancel every still-pending Stripe/NetApp recruiter slot from the 09/10 wave. */
+function cancelTargetRecruiterCampaign0910StripeNetApp() {
+  var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP';
+  var handler = 'runTargetRecruiterCampaignTick0910StripeNetApp_';
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
   try {
@@ -1802,7 +1880,9 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/09 — Replit + 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA'],
     ['09/10 — 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'],
     ['09/10 — Google', 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE'],
-    ['09/10 — Stripe + NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP']
+    ['09/10 — Stripe + NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP'],
+    ['09/11 — NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP'],
+    ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -1829,6 +1909,27 @@ function diagnoseTargetRecruiterCampaign0910StripeNetApp() {
     });
     return company + ': ' + (matches.length ? matches.join(' || ') : '(no active application)');
   });
+}
+
+/** Read-only status for the changed 09/10 Stripe/NetApp campaign, without contacts. */
+function diagnoseTargetRecruiterCampaign0910StripeNetAppState() {
+  var text = PropertiesService.getScriptProperties().getProperty(
+    'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP');
+  if (!text) return 'not-scheduled';
+  var state = JSON.parse(text);
+  var companies = {};
+  (state.entries || []).forEach(function (entry) {
+    var company = entry.company || 'Unknown';
+    if (!companies[company]) companies[company] = {};
+    var status = entry.status || 'unknown';
+    companies[company][status] = (companies[company][status] || 0) + 1;
+  });
+  return Object.keys(companies).sort().map(function (company) {
+    var totals = companies[company];
+    return company + ': ' + Object.keys(totals).sort().map(function (status) {
+      return status + '=' + totals[status];
+    }).join(', ');
+  }).join(' | ');
 }
 
 /** Addresses reserved by an already-scheduled half, without exposing them in diagnostics. */
@@ -2001,6 +2102,22 @@ function runTargetRecruiterCampaignTick0910StripeNetApp_() {
   return runTargetRecruiterCampaignTickFor_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
     handler: 'runTargetRecruiterCampaignTick0910StripeNetApp_'
+  });
+}
+
+/** Public wrapper for the 09/11 NetApp Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0911NetApp_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
+    handler: 'runTargetRecruiterCampaignTick0911NetApp_'
+  });
+}
+
+/** Public wrapper for the 09/14 Stripe Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0914Stripe_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
+    handler: 'runTargetRecruiterCampaignTick0914Stripe_'
   });
 }
 
