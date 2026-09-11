@@ -49,6 +49,11 @@ make a high-confidence title decision, it must return to this chat and ask the o
 to use. It must not draft, queue, schedule, or send that recipient through the pipeline until the
 owner answers.
 
+Once the owner supplies the title, a manual Target-referral run may store that recipient's
+approved given name, title and a `henry_vietnamese` variant in the campaign entry. That is a
+copy-selection change only: it does not itself draft or send email, and no other recipient
+inherits the decision.
+
 ## Read the correct template documentation first
 
 Never use the recruiter wording for a referral ask, or referral wording for a recruiter email.

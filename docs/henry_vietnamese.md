@@ -1,9 +1,11 @@
 # Vietnamese referral email variants
 
 These are manual-review templates for a referral request to a recipient with a
-strong Vietnamese-style name signal. They are reference copy only: no pipeline,
-queue, draft, or send action may use them until the owner explicitly requests a
-manual email-writing run.
+strong Vietnamese-style name signal. They may enter a pipeline only after the
+owner explicitly requests that manual email-writing run and confirms one
+singular title for the recipient. The entry must then record the approved given
+name, `anh` or `chị`, and one of these three variants; no automatic name guess
+may select this copy.
 
 ## Addressing
 
