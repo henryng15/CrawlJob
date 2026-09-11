@@ -1354,6 +1354,81 @@ function runTargetReferralCampaignTick0911_() {
   });
 }
 
+var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
+  'anh pham': { name: 'Anh', title: 'anh' },
+  'chau nguyen': { name: 'Chau', title: 'chị' },
+  'dang nguyen': { name: 'Dang', title: 'anh' },
+  'truc duong': { name: 'Truc', title: 'chị' }
+};
+
+/**
+ * Apply the owner's four confirmed Vietnamese-title decisions to the pending
+ * 09/11 Target referral entries. This changes only their copy metadata; it
+ * neither drafts nor sends email. Re-running after a successful application is
+ * idempotent, while a conflicting or already-sent entry stops the operation.
+ */
+function applyVietnameseReferralOverrides0911() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var text = props.getProperty(propertyKey);
+    if (!text) throw new Error('The 09/11 Target referral campaign is absent.');
+    var state = JSON.parse(text);
+    if (state.status !== 'scheduled') throw new Error('The 09/11 Target referral campaign is not scheduled.');
+    var entriesByName = {};
+    (state.entries || []).forEach(function (entry) {
+      var key = outreachNameKey_(entry.name || '');
+      if (!entriesByName[key]) entriesByName[key] = [];
+      entriesByName[key].push(entry);
+    });
+    var changes = [];
+    Object.keys(TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_).forEach(function (key) {
+      var matches = entriesByName[outreachNameKey_(key)] || [];
+      if (matches.length !== 1) throw new Error('Expected exactly one 09/11 entry for ' + key + '.');
+      var entry = matches[0];
+      var override = TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_[key];
+      var variant = ((Number(entry.template) || 1) - 1) % HENRY_VIETNAMESE_REFERRAL_VARIANTS_.length + 1;
+      var alreadyApplied = entry.copy === 'henry_vietnamese'
+        && entry.vietnameseName === override.name
+        && entry.vietnameseTitle === override.title
+        && Number(entry.vietnameseVariant) === variant;
+      if (entry.status !== 'pending' && !alreadyApplied) {
+        throw new Error('The 09/11 entry for ' + entry.name + ' is no longer pending.');
+      }
+      if (!alreadyApplied) {
+        entry.copy = 'henry_vietnamese';
+        entry.vietnameseName = override.name;
+        entry.vietnameseTitle = override.title;
+        entry.vietnameseVariant = variant;
+      }
+      changes.push({company: entry.company, name: entry.name, title: override.title,
+                    variant: variant, status: alreadyApplied ? 'already-applied' : 'applied'});
+    });
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return changes;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Read-only confirmation of the approved Vietnamese-copy entries in the 09/11 campaign. */
+function diagnoseVietnameseReferralOverrides0911() {
+  var text = PropertiesService.getScriptProperties().getProperty(
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT');
+  if (!text) return [];
+  return (JSON.parse(text).entries || []).filter(function (entry) {
+    return entry.copy === 'henry_vietnamese';
+  }).map(function (entry) {
+    return {company: entry.company, name: entry.name, greeting: entry.vietnameseTitle + ' ' + entry.vietnameseName,
+            variant: entry.vietnameseVariant, status: entry.status,
+            at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm')};
+  });
+}
+
 /** Send one due Target referral entry and finalize the seed snapshot. */
 function runTargetReferralCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -1389,12 +1464,18 @@ function runTargetReferralCampaignTickFor_(config) {
       return {skippedAlreadySent: true, email: due.email};
     }
 
-    var mail = outreachReferralCompose_({
-      personName: due.name, personTitle: due.title, seniority: due.seniority,
-      company: due.company, angle: due.angle, bucket: due.bucket,
-      role: due.role, jobLink: due.jobLink, template: due.template,
-      today: new Date()
-    });
+    var mail = due.copy === 'henry_vietnamese'
+      ? outreachVietnameseReferralCompose_({
+          personName: due.name, vietnameseName: due.vietnameseName,
+          vietnameseTitle: due.vietnameseTitle, vietnameseVariant: due.vietnameseVariant,
+          company: due.company, role: due.role
+        })
+      : outreachReferralCompose_({
+          personName: due.name, personTitle: due.title, seniority: due.seniority,
+          company: due.company, angle: due.angle, bucket: due.bucket,
+          role: due.role, jobLink: due.jobLink, template: due.template,
+          today: new Date()
+        });
     var resume = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID).getBlob()
       .setName('Henry_Nguyen_Resume.pdf');
     GmailApp.sendEmail(due.email, mail.subject, mail.plain, {

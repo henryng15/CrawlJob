@@ -224,6 +224,74 @@ function outreachReferralCompose_(options) {
   };
 }
 
+// These three owner-reviewed variants deliberately live outside the generated
+// English referral catalog. Their source copy is docs/henry_vietnamese.md. A
+// caller must supply an explicitly approved singular Vietnamese honorific; the
+// automatic greeting inference is intentionally not a fallback here.
+var HENRY_VIETNAMESE_REFERRAL_VARIANTS_ = [
+  {
+    intro: 'Em là Henry, hiện học Math and CS tại Kenyon College, và đang tìm kiếm Software Engineering Intern roles cho 2027.',
+    applied: 'Em vừa apply [Role] tại [Company]. Hồ sơ của em thiên về backend systems và data products, nên em thấy background của mình có thể phù hợp với role này.',
+    ask: 'Nếu [title] thấy hồ sơ của em phù hợp, **em xin [title] hỗ trợ referral cho em cho role này được không ạ?**',
+    resume: 'Em có đính kèm resume để [title] tiện xem. Nếu không tiện thì hoàn toàn không sao ạ.'
+  },
+  {
+    intro: 'Em là Henry, đang học Math and CS tại Kenyon College và hiện tìm kiếm Software Engineering Intern roles cho 2027.',
+    applied: 'Em đã apply vị trí [Role] ở [Company]. Profile của em tập trung vào backend systems và data products, nên em muốn chủ động liên hệ với [title] về cơ hội này.',
+    ask: 'Nếu [title] thấy em phù hợp, **em xin [title] một referral cho role này được không ạ?**',
+    resume: 'Em gửi kèm resume để [title] tiện tham khảo. Nếu [title] không tiện hỗ trợ thì cũng không sao ạ.'
+  },
+  {
+    intro: 'Em là Henry, hiện học Math and CS tại Kenyon College và đang tìm kiếm Software Engineering Intern roles cho 2027.',
+    applied: 'Em vừa ứng tuyển [Role] tại [Company]. Vì background của em thiên về backend systems và data products, em nghĩ mình có thể hợp với vị trí này nên muốn liên hệ với [title].',
+    ask: 'Nếu [title] thấy phù hợp, **em xin [title] referral cho role này được không ạ?**',
+    resume: 'Em có đính kèm resume để [title] tiện xem. Không tiện cũng hoàn toàn không sao ạ.'
+  }
+];
+
+/** Normalize the owner-approved given name before it reaches a Vietnamese greeting. */
+function outreachVietnameseReferralName_(value) {
+  var token = (String(value || '').match(/[A-Za-zÀ-ỹĐđ]+/) || [])[0] || '';
+  if (!token) throw new Error('Vietnamese referral copy requires an approved given name.');
+  return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+}
+
+/** One explicitly approved Vietnamese referral request, in HTML and plain text. */
+function outreachVietnameseReferralCompose_(options) {
+  var title = String(options.vietnameseTitle || '').trim().toLowerCase();
+  if (title !== 'anh' && title !== 'chị') {
+    throw new Error('Vietnamese referral copy requires exactly one approved title: anh or chị.');
+  }
+  var name = outreachVietnameseReferralName_(options.vietnameseName);
+  var n = Number(options.vietnameseVariant);
+  if (!(n >= 1 && n <= HENRY_VIETNAMESE_REFERRAL_VARIANTS_.length)) n = 1;
+  var variant = HENRY_VIETNAMESE_REFERRAL_VARIANTS_[n - 1];
+  var fill = function (text) {
+    return String(text)
+      .replace(/\[Company\]/g, options.company || 'công ty')
+      .replace(/\[Role\]/g, options.role || DEFAULT_SHORT_ROLE)
+      .replace(/\[title\]/g, title);
+  };
+  var paragraphs = [variant.intro, variant.applied, variant.ask, variant.resume];
+  var html = ['<p>Hi ' + outreachEscape_(title + ' ' + name) + ',</p>'];
+  var plain = ['Hi ' + title + ' ' + name + ','];
+  paragraphs.forEach(function (paragraph) {
+    var rendered = fill(paragraph);
+    html.push('<p>' + outreachBoldHtml_(rendered) + '</p>');
+    plain.push('', outreachBoldPlain_(rendered));
+  });
+  html.push('<p>Chúc ' + outreachEscape_(title) + ' một ngày tốt lành,<br>Best,<br>Henry</p>');
+  plain.push('', 'Chúc ' + title + ' một ngày tốt lành,', 'Best,', 'Henry');
+  return {
+    subject: 'Xin ' + title + ' hỗ trợ referral tại ' + (options.company || 'công ty'),
+    html: html.join(''),
+    plain: plain.join('\n'),
+    inlineImages: {},
+    copy: 'henry_vietnamese',
+    vietnameseVariant: n
+  };
+}
+
 /**
  * Log one example of each of the ten. Sends nothing.
  */

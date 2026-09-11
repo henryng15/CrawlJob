@@ -61,6 +61,8 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachReferralAttemptForTemplate_(company, template)` | The attempt behind a template a row already advertises. |
 | `outreachBalancedReferralTemplateFor_(tier, company, attempt, load)` | Least-used, tie broken by the company-seeded order. `tier` is ignored and kept only for the caller. |
 | `outreachReferralCompose_(options)` | One referral ask. Accepts `angle`, `bucket`, `seniority`, `dateApplied` and uses none of them. |
+| `outreachVietnameseReferralName_(value)` | Normalizes an owner-approved Vietnamese given name before it is placed in a greeting. |
+| `outreachVietnameseReferralCompose_(options)` | One Vietnamese referral request from the owner-reviewed `henry_vietnamese.md` variants. Requires exactly one explicit `anh` or `chị`, never falls back to gender inference, and returns plain/HTML copy without the English-template business-card footer. |
 | `outreachReferralTier_(title, seniority)` | Still computed, because the Referral tab has a Tier column. Decides no wording. |
 | `previewReferralTemplates()` | Logs one example of each of the ten. Sends nothing. |
 
@@ -75,6 +77,12 @@ lowercase. The reviewed seed lists include high-confidence Vietnamese and common
 given names for people with a Vietnamese-style surname. They intentionally omit unclear names
 such as An, Anh, Chau, Khanh, Linh, Minh and Thanh; an unclear name receives only the given name
 rather than a guessed title.
+
+The Vietnamese referral composer is the intentional exception to that neutral fallback: it is
+available only after an owner has supplied an explicit title and given name for a particular
+manual Target entry. Its wording is maintained in `docs/henry_vietnamese.md`; ordinary referral
+queue entries and Target entries without that explicit `copy: 'henry_vietnamese'` marker continue
+to use the generated English catalog.
 
 ## Gotchas
 

@@ -3144,6 +3144,26 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.notStrictEqual(peer.tier, staff.tier);
   });
 
+  run('an owner-approved Vietnamese referral uses the chosen title and reviewed copy', () => {
+    const mail = S.outreachVietnameseReferralCompose_({
+      vietnameseName: 'tRuC', vietnameseTitle: 'chị', vietnameseVariant: 2,
+      company: 'Datadog', role: 'Software Engineering Intern'
+    });
+    assert.strictEqual(mail.subject, 'Xin chị hỗ trợ referral tại Datadog');
+    assert.ok(mail.plain.startsWith('Hi chị Truc,'), mail.plain);
+    assert.ok(mail.plain.includes('Software Engineering Intern roles cho 2027'));
+    assert.ok(mail.plain.includes('em xin chị một referral cho role này được không ạ?'));
+    assert.ok(mail.html.includes('<b>em xin chị một referral cho role này được không ạ?</b>'));
+    assert.ok(!mail.plain.includes('anh/chị'));
+    assert.strictEqual(mail.copy, 'henry_vietnamese');
+  });
+
+  run('Vietnamese referral copy refuses an unapproved or ambiguous title', () => {
+    assert.throws(() => S.outreachVietnameseReferralCompose_({
+      vietnameseName: 'Chau', vietnameseTitle: '', company: 'Datadog'
+    }), /approved title/);
+  });
+
   run('six people at one company read six different templates', () => {
     const load = S.outreachReferralTemplateLoad_([]);
     const picked = [];
