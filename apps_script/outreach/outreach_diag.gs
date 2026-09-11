@@ -1205,6 +1205,23 @@ function scheduleTargetReferralCampaign0911() {
   });
 }
 
+/** One-off manual referral campaign for five Whatnot engineers on 2026-09-11. */
+function scheduleTargetReferralCampaign0911Whatnot() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
+    handler: 'runTargetReferralCampaignTick0911Whatnot_',
+    startIso: '2026-09-11T14:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Whatnot',
+      maxContacts: 5,
+      role: 'Software Engineer Intern (Summer 2027)',
+      jobLink: 'https://jobs.ashbyhq.com/whatnot/928ffdca-b316-40ce-b82b-94b570919bcd/application?utm_source=Simplify'
+    }]
+  });
+}
+
 /** Schedule one Target campaign with ten templates and one-minute polling. */
 function scheduleTargetReferralCampaign_(config) {
   var propertyKey = config.propertyKey;
@@ -1354,6 +1371,14 @@ function runTargetReferralCampaignTick0911_() {
   });
 }
 
+/** Send one due 09/11 Whatnot Target referral entry. */
+function runTargetReferralCampaignTick0911Whatnot_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
+    handler: 'runTargetReferralCampaignTick0911Whatnot_'
+  });
+}
+
 var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
   'anh pham': { name: 'Anh', title: 'anh' },
   'chau nguyen': { name: 'Chau', title: 'chị' },
@@ -1433,8 +1458,10 @@ function diagnoseVietnameseReferralOverrides0911() {
 function diagnoseTargetRejectionPreflight() {
   var propertyKeys = [
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'
+    'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1692,7 +1719,8 @@ function diagnoseTargetReferralCampaigns() {
     ['Sierra, Waymo, Mastercard', 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD'],
     ['PayPal, Dropbox, Scale AI', 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI'],
     ['Datadog — 5 extra contacts', 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG'],
-    ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT']
+    ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'],
+    ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -1965,6 +1993,24 @@ function scheduleTargetRecruiterCampaign0914Stripe() {
   });
 }
 
+/** Explicit Target recruiter campaign for five Whatnot contacts on Monday 2026-09-14. */
+function scheduleTargetRecruiterCampaign0914Whatnot() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
+    handler: 'runTargetRecruiterCampaignTick0914Whatnot_',
+    label: 'Whatnot',
+    startIso: '2026-09-14T10:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Whatnot',
+      maxContacts: 5,
+      role: 'Software Engineer Intern (Summer 2027)',
+      jobLink: 'https://jobs.ashbyhq.com/whatnot/928ffdca-b316-40ce-b82b-94b570919bcd/application?utm_source=Simplify'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -2076,7 +2122,8 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/10 — Google', 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE'],
     ['09/10 — Stripe + NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP'],
     ['09/11 — NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP'],
-    ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE']
+    ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'],
+    ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2315,6 +2362,14 @@ function runTargetRecruiterCampaignTick0914Stripe_() {
   });
 }
 
+/** Public wrapper for the 09/14 Whatnot Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0914Whatnot_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
+    handler: 'runTargetRecruiterCampaignTick0914Whatnot_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -2486,12 +2541,17 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
     'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
     'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
     'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA',
-    'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE'
+    'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE',
+    'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
+    'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
