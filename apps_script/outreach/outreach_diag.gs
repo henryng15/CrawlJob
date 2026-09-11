@@ -1610,6 +1610,39 @@ function diagnoseVietnameseGreetingCatalog() {
   return {men: format('man'), women: format('woman'), untitled: format('untitled')};
 }
 
+/** Read-only Vietnamese-style names among the still-scheduled 09/11 Target recipients. */
+function diagnoseVietnameseNamesScheduled0911() {
+  var campaigns = [
+    {
+      label: 'Referral',
+      propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'
+    },
+    {
+      label: 'Recruiter',
+      propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP'
+    }
+  ];
+  var props = PropertiesService.getScriptProperties();
+  var rows = [];
+  campaigns.forEach(function (campaign) {
+    var text = props.getProperty(campaign.propertyKey);
+    if (!text) return;
+    (JSON.parse(text).entries || []).forEach(function (entry) {
+      if (entry.status !== 'pending') return;
+      var info = outreachGreetingInfo_(entry.name);
+      if (!info.vietnamese) return;
+      rows.push([
+        campaign.label,
+        entry.company || 'Unknown',
+        String(entry.name || '').trim(),
+        info.greeting,
+        Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'HH:mm')
+      ].join(' | '));
+    });
+  });
+  return rows.sort();
+}
+
 /** Summarize a campaign without returning recruiter/employee addresses. */
 function summarizeTargetCampaignState_(state, label) {
   var byCompany = {};
