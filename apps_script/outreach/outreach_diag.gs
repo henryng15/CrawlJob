@@ -1626,6 +1626,41 @@ function diagnoseCompanyAvailability(company) {
   };
 }
 
+/** Preview the exact unsent people a direct Target referral campaign would select. */
+function diagnoseTargetReferralCandidates(company, maxContacts) {
+  var wanted = String(company || '').trim();
+  if (!wanted) throw new Error('A company name is required.');
+  var limit = Number(maxContacts || 10);
+  if (!(limit > 0)) throw new Error('maxContacts must be positive.');
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) throw new Error('Referral tab is missing.');
+  var used = {};
+  outreachReadReferralRows_(referral).forEach(function (row) {
+    if (row.email) used[row.email.toLowerCase()] = true;
+  });
+  return outreachEmployeesFor_(outreachReadEmployees_(contactsBook), wanted)
+    .filter(function (person) {
+      var email = String(person.email || '').toLowerCase();
+      return email && !used[email] && !GmailApp.search('from:me to:' + email, 0, 1).length;
+    })
+    .sort(function (left, right) {
+      return (left.name || left.email).localeCompare(right.name || right.email);
+    })
+    .slice(0, limit)
+    .map(function (person) {
+      var greeting = outreachGreetingInfo_(person.name);
+      return {
+        name: person.name,
+        vietnameseStyle: greeting.vietnamese,
+        givenName: greeting.given,
+        suggestedTitle: greeting.gender === 'man' ? 'anh'
+          : (greeting.gender === 'woman' ? 'chị' : '')
+      };
+    });
+}
+
 /** Send one due Target referral entry and finalize the seed snapshot. */
 function runTargetReferralCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
