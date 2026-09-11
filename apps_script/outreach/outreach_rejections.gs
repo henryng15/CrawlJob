@@ -769,7 +769,8 @@ function outreachGmailApiBodyText_(payload) {
   try {
     return Utilities.newBlob(Utilities.base64DecodeWebSafe(data)).getDataAsString();
   } catch (error) {
-    throw new Error('Could not decode a Gmail API rejection candidate.');
+    throw new Error('Could not decode a Gmail API rejection candidate: '
+      + String(error.message || error));
   }
 }
 
