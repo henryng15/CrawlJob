@@ -3114,9 +3114,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.ok(mail.plain.includes('Software Engineer Intern'));
   });
 
-  run('every referral subject says it is a referral request', () => {
+  run('every referral subject labels the referral ask', () => {
     for (let n = 1; n <= 10; n++) {
-      assert.ok(/^Referral request/.test(S.REFERRAL_TEMPLATES[n - 1].subject), 'template ' + n);
+      assert.ok(/^Referral (request|ask)/.test(S.REFERRAL_TEMPLATES[n - 1].subject), 'template ' + n);
     }
   });
 
