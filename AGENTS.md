@@ -158,5 +158,8 @@ For any user-requested recruiter, cold-email, follow-up or referral-email work, 
 [`docs/manual-outreach-trigger.md`](docs/manual-outreach-trigger.md) first. Email planning,
 drafting and sending are manual-triggered actions only; do not run them merely because an
 automatic queue or trigger exists. Use the correct recruiter/referral template documents named
-there. Every final response must report the planned messages for the local day, including Target
-and hypothetical automatic work, and must warn the user when the total is greater than 55.
+there. For a pure Vietnamese manual referral, that policy requires the Vietnamese template and a
+definite singular `anh` or `chị`; if the title cannot be decided, return to the chat rather than
+drafting, queueing or sending it. Every final response must report the planned messages for the
+local day, including Target and hypothetical automatic work, and must warn the user when the total
+is greater than 55.

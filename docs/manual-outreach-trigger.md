@@ -33,6 +33,20 @@ not guess a title for ambiguous names; use the given name alone. See
 [`components/outreach-templates.md`](components/outreach-templates.md) for the maintained name
 lists and examples.
 
+## Pure Vietnamese referral gate
+
+For a **manual referral** whose recipient has a pure Vietnamese-style full name, use
+[`henry_vietnamese.md`](henry_vietnamese.md), not the English referral catalog. “Pure” here means
+manual review finds a Vietnamese given-name/middle-name plus Vietnamese family-name structure, or
+Vietnamese diacritics; an English given name paired only with a Vietnamese surname does not meet
+this gate.
+
+Every Vietnamese-template message must use exactly one lowercase title, `anh` or `chị`. The
+shared renderer's neutral given-name fallback is not permitted for this gate. If the agent cannot
+make a high-confidence title decision, it must return to this chat and ask the owner which title
+to use. It must not draft, queue, schedule, or send that recipient through the pipeline until the
+owner answers.
+
 ## Read the correct template documentation first
 
 Never use the recruiter wording for a referral ask, or referral wording for a recruiter email.
@@ -41,7 +55,7 @@ Before composing, read the relevant existing documentation:
 | Email type | Required documentation | Use |
 |---|---|---|
 | Recruiter / cold email | [`email-templates.md`](email-templates.md), [`components/outreach-templates.md`](components/outreach-templates.md), and [`components/outreach-send.md`](components/outreach-send.md) | Select the approved cold template, recruiter-specific proof point and sender/footer rules. |
-| Request for a referral | [`components/outreach-referral-queue.md`](components/outreach-referral-queue.md), [`components/outreach-referral-send.md`](components/outreach-referral-send.md), and [`components/outreach-templates.md`](components/outreach-templates.md) | Select the approved referral template and obey the referral eligibility, recipient and safety rules. |
+| Request for a referral | [`components/outreach-referral-queue.md`](components/outreach-referral-queue.md), [`components/outreach-referral-send.md`](components/outreach-referral-send.md), and [`components/outreach-templates.md`](components/outreach-templates.md); plus [`henry_vietnamese.md`](henry_vietnamese.md) when the pure-Vietnamese gate applies | Select the approved referral template and obey the referral eligibility, recipient and safety rules. |
 | Target campaign | [`components/tracker-target-tab.md`](components/tracker-target-tab.md) plus the applicable row above | Treat `Target` as the sourcing/count view; use `Email_target` and `Referral_target` for explicit Target campaign state. |
 
 If the request does not identify the path, stop and resolve whether it is a recruiter/cold email

@@ -9,8 +9,9 @@ manual email-writing run.
 
 - Use exactly one lowercase title: `anh` or `chị`. Never write `anh/chị` in an
   email.
-- If a conventional gender inference is not sufficiently clear, use `Hi [Tên],`
-  without a title.
+- If a conventional gender inference is not sufficiently clear, stop and ask the
+  owner whether to use `anh` or `chị`. Do not use `Hi [Tên],`, and do not draft,
+  queue, schedule, or send the email until the owner answers.
 - Use `Hi`, not `Chào`.
 - For a female recipient, replace every `anh` in the selected variant with `chị`,
   including the subject line and sign-off context.
@@ -89,5 +90,6 @@ Henry
 - Keep the request in the first scan of the email; bold only the referral ask.
 - Do not add a list of achievements. The one profile-focus sentence is enough;
   the resume provides detail.
-- Do not state or assume a recipient's nationality. Vietnamese copy is chosen
-  only during manual review, and the recipient may reply in either language.
+- Do not state a recipient's nationality in the email. Vietnamese copy is chosen
+  only after the manual pure-Vietnamese gate passes, and the recipient may reply
+  in either language.

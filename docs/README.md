@@ -11,7 +11,7 @@
 | [external-applications.md](external-applications.md) | Install the personal Chrome extension that adds an external application straight to `App` |
 | [outreach.md](outreach.md) | Emailing a recruiter after you have applied: the queue, the order, the daily caps, and why the sender is a separate Apps Script |
 | [email-templates.md](email-templates.md) | Every subject line and every body that can go out, all three paths: the ten cold variations, the twenty follow-up nudges, the forty referral bodies and their thirty six subjects, the resume bullets, the per-person hook and the per-company angle |
-| [henry_vietnamese.md](henry_vietnamese.md) | Manual-review Vietnamese referral variants: direct but humble copy, singular `anh`/`chị` addressing, and the approved 2027 Software Engineering Intern context. It is not wired into the sender. |
+| [henry_vietnamese.md](henry_vietnamese.md) | Manual-review Vietnamese referral variants: direct but humble copy, mandatory singular `anh`/`chị` addressing, and the approved 2027 Software Engineering Intern context. An uncertain title must return to chat, not the sender. |
 | [henry_cold_email_templates_10.md](henry_cold_email_templates_10.md) / [henry_referral.md](henry_referral.md) | Verbatim reference copies of the ColdEmail source documents for the English cold and referral template catalogs. |
 | [manual-outreach-trigger.md](manual-outreach-trigger.md) | **Assistant operating policy:** email work is manual-triggered only, the correct template docs to read, the 55-message warning, and the required daily summary |
 | [operations.md](operations.md) | Reading the log, `--audit-app`, `--rebuild`, the error table |
