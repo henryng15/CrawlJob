@@ -1709,6 +1709,32 @@ function scheduleTargetRecruiterCampaign0910Google() {
   });
 }
 
+/** Explicit Target recruiter campaign for five Stripe and five NetApp contacts on 2026-09-10. */
+function scheduleTargetRecruiterCampaign0910StripeNetApp() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
+    handler: 'runTargetRecruiterCampaignTick0910StripeNetApp_',
+    label: 'Stripe, NetApp',
+    startIso: '2026-09-10T20:50:00-04:00',
+    spacingMinutes: 10,
+    minGapMinutes: 9,
+    companies: [
+      {
+        company: 'Stripe',
+        maxContacts: 5,
+        role: 'Software Engineer, Intern',
+        jobLink: 'https://stripe.com/jobs/search?gh_jid=8128745'
+      },
+      {
+        company: 'NetApp',
+        maxContacts: 5,
+        role: 'Software Engineer Intern (San Jose)',
+        jobLink: 'https://careers.netapp.com/job/san-jose/software-engineer-intern/27600/99761955632'
+      }
+    ]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -1775,11 +1801,33 @@ function diagnoseTargetRecruiterCampaign0910() {
   return [
     ['09/09 — Replit + 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA'],
     ['09/10 — 5 NVIDIA', 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA'],
-    ['09/10 — Google', 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE']
+    ['09/10 — Google', 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE'],
+    ['09/10 — Stripe + NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
     return summarizeTargetCampaignState_(JSON.parse(text), spec[0]);
+  });
+}
+
+/** Read the active applications that can safely anchor the 09/10 Stripe/NetApp cold wave. */
+function diagnoseTargetRecruiterCampaign0910StripeNetApp() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var apps = targetMirrorApplications_(tracker);
+  return ['Stripe', 'NetApp'].map(function (company) {
+    var companyTokens = outreachCompanyTokens_(company);
+    var matches = apps.filter(function (app) {
+      return app.process !== STAGE_REJECTED
+        && outreachSameEmployer_(outreachCompanyTokens_(app.company), companyTokens);
+    }).map(function (app) {
+      return [
+        app.role || '(no role)',
+        app.link || '(no link)',
+        app.dateApplied ? Utilities.formatDate(app.dateApplied, 'America/New_York', 'yyyy-MM-dd') : '',
+        app.process || '(no process)'
+      ].join(' | ');
+    });
+    return company + ': ' + (matches.length ? matches.join(' || ') : '(no active application)');
   });
 }
 
@@ -1945,6 +1993,14 @@ function runTargetRecruiterCampaignTick0910Google_() {
   return runTargetRecruiterCampaignTickFor_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE',
     handler: 'runTargetRecruiterCampaignTick0910Google_'
+  });
+}
+
+/** Public wrapper for the 09/10 Stripe/NetApp Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0910StripeNetApp_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
+    handler: 'runTargetRecruiterCampaignTick0910StripeNetApp_'
   });
 }
 
