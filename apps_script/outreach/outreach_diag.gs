@@ -1548,7 +1548,8 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'
+    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1569,6 +1570,27 @@ function diagnoseTargetRejectionPreflight() {
       reason: result.rejected ? 'Gmail API found a matching rejection: ' + result.why : 'clear'
     };
   });
+}
+
+/** Read-only Gmail API rejection check for one proposed Target campaign. */
+function diagnoseTargetCompanyRejectionPreflight(company, role, jobLink) {
+  var entry = {
+    company: String(company || '').trim(),
+    role: String(role || '').trim(),
+    jobLink: String(jobLink || '').trim()
+  };
+  if (!entry.company || !entry.role) {
+    throw new Error('A company and role are required for Target rejection preflight.');
+  }
+  var result = outreachGmailApiRejectedTarget_(entry);
+  return {
+    company: entry.company,
+    role: entry.role,
+    blocked: result.rejected,
+    reason: result.rejected
+      ? 'Gmail API found a matching rejection: ' + result.why
+      : 'clear'
+  };
 }
 
 /** Read-only recruiter-contact and Target-list presence for one employer. */
@@ -2099,6 +2121,24 @@ function scheduleTargetRecruiterCampaign0914Whatnot() {
   });
 }
 
+/** Explicit Target recruiter campaign for four Motorola Solutions contacts on Monday 2026-09-14. */
+function scheduleTargetRecruiterCampaign0914MotorolaSolutions() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
+    handler: 'runTargetRecruiterCampaignTick0914MotorolaSolutions_',
+    label: 'Motorola Solutions',
+    startIso: '2026-09-14T10:30:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Motorola Solutions',
+      maxContacts: 4,
+      role: 'Software Engineering Intern - Summer 2027',
+      jobLink: 'https://jobright.ai/jobs/info/6aa0259c3b5aa83237b07236?utm_campaign=1079&utm_source=git'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -2211,7 +2251,8 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/10 — Stripe + NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP'],
     ['09/11 — NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP'],
     ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'],
-    ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT']
+    ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'],
+    ['09/14 — Motorola Solutions', 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2458,6 +2499,14 @@ function runTargetRecruiterCampaignTick0914Whatnot_() {
   });
 }
 
+/** Public wrapper for the 09/14 Motorola Solutions Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0914MotorolaSolutions_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
+    handler: 'runTargetRecruiterCampaignTick0914MotorolaSolutions_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -2640,7 +2689,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'
+    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
