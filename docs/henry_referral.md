@@ -7,6 +7,9 @@ These 10 templates use the same structure:
 - **A quick question** asking about a referral without pressure
 - Polite resume and closing lines
 
+The subjects are deliberately split between `Referral request` and `Referral ask`
+so sequential templates do not repeat the same opening phrase.
+
 ## Template 1
 
 **Subject:** Referral request - Student SWE with backend reliability experience
@@ -39,7 +42,7 @@ Henry Nguyen
 
 ## Template 2
 
-**Subject:** Referral request - Student SWE focused on backend systems
+**Subject:** Referral ask - Student SWE focused on backend systems
 
 Hi [Name],
 
@@ -99,7 +102,7 @@ Henry Nguyen
 
 ## Template 4
 
-**Subject:** Referral request - Student engineer with cloud data pipeline experience
+**Subject:** Referral ask - Student engineer with cloud data pipeline experience
 
 Hi [Name],
 
@@ -159,7 +162,7 @@ Henry Nguyen
 
 ## Template 6
 
-**Subject:** Referral request - Student SWE working across AI tooling and cloud infrastructure
+**Subject:** Referral ask - Student SWE working across AI tooling and cloud infrastructure
 
 Hi [Name],
 
@@ -219,7 +222,7 @@ Henry Nguyen
 
 ## Template 8
 
-**Subject:** Referral request - Student SWE with applied AI and infrastructure experience
+**Subject:** Referral ask - Student SWE with applied AI and infrastructure experience
 
 Hi [Name],
 
@@ -279,7 +282,7 @@ Henry Nguyen
 
 ## Template 10
 
-**Subject:** Referral request - Student SWE with MCP, AWS, and Kubernetes experience
+**Subject:** Referral ask - Student SWE with MCP, AWS, and Kubernetes experience
 
 Hi [Name],
 

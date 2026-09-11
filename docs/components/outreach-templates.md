@@ -40,6 +40,9 @@ Only three placeholders exist: `[Name]`, `[Company]`, `[Role Name]`. The generat
 other, because a placeholder nothing fills reaches a recruiter as square brackets. Each falls back
 to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_ROLE`.
 
+The ten English referral-template subjects split evenly between `Referral request` and `Referral ask`.
+This is wording variation only; the selected template remains the stable source of truth for its subject.
+
 ## Functions
 
 | Function | Does |

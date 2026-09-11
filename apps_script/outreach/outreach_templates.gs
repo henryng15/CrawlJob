@@ -356,7 +356,7 @@ var REFERRAL_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 2
-    subject: 'Referral request - Student SWE focused on backend systems',
+    subject: 'Referral ask - Student SWE focused on backend systems',
     opening: 'I’m sorry for contacting you out of the blue, especially since we haven’t met before, but I recently came across [Company]’s opening for **[Role Name]**. After reading through the description, I thought the opportunity could be a good match for my experience.',
     sections: [
       {
@@ -418,7 +418,7 @@ var REFERRAL_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 4
-    subject: 'Referral request - Student engineer with cloud data pipeline experience',
+    subject: 'Referral ask - Student engineer with cloud data pipeline experience',
     opening: 'I’m sorry for contacting you out of the blue, especially since we haven’t met before, but I recently came across [Company]’s opening for **[Role Name]**. After reading the job description, I felt the work could be closely related to my background.',
     sections: [
       {
@@ -480,7 +480,7 @@ var REFERRAL_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 6
-    subject: 'Referral request - Student SWE working across AI tooling and cloud infrastructure',
+    subject: 'Referral ask - Student SWE working across AI tooling and cloud infrastructure',
     opening: 'I’m sorry for contacting you out of the blue, especially since we haven’t met before, but I recently came across [Company]’s opening for **[Role Name]**. I wanted to reach out after seeing how closely the role seemed connected to my experience.',
     sections: [
       {
@@ -542,7 +542,7 @@ var REFERRAL_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 8
-    subject: 'Referral request - Student SWE with applied AI and infrastructure experience',
+    subject: 'Referral ask - Student SWE with applied AI and infrastructure experience',
     opening: 'I’m sorry for contacting you out of the blue, especially since we haven’t met before, but I recently came across [Company]’s opening for **[Role Name]**. The engineering challenges in the role seemed closely related to the work I’ve been doing.',
     sections: [
       {
@@ -604,7 +604,7 @@ var REFERRAL_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 10
-    subject: 'Referral request - Student SWE with MCP, AWS, and Kubernetes experience',
+    subject: 'Referral ask - Student SWE with MCP, AWS, and Kubernetes experience',
     opening: 'I’m sorry for contacting you out of the blue, especially since we haven’t met before, but I recently came across [Company]’s opening for **[Role Name]**. I wanted to reach out after seeing how closely the role seemed aligned with my background.',
     sections: [
       {
