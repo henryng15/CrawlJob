@@ -1269,6 +1269,109 @@ function scheduleTargetReferralCampaign0914Cisco() {
   });
 }
 
+/**
+ * Owner-approved Lyft referrals for 2026-09-11: two selected seed contacts and
+ * one supplied external contact. The schedule starts five minutes after setup
+ * and keeps ten-minute gaps, so all three leave within one hour.
+ */
+function scheduleTargetReferralCampaign0911Lyft() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT';
+  var handler = 'runTargetReferralCampaignTick0911Lyft_';
+  var roleBackend = 'Software Engineer Intern, Backend (Summer 2027)';
+  var roleFullstack = 'Software Engineer Intern, Fullstack (Summer 2027)';
+  var jobBackend = 'https://app.careerpuck.com/job-board/lyft/job/8767726002?gh_jid=8767726002';
+  var jobFullstack = 'https://app.careerpuck.com/job-board/lyft/job/8797837002?gh_jid=8797837002';
+  var specs = [
+    {name: 'Abhinav Solan', role: roleBackend, jobLink: jobBackend, subjectRole: 'Backend',
+     profile: 'My work has mainly focused on backend systems and data products, and this role feels closely aligned with the kind of engineering work I’m hoping to grow in.',
+     resume: 'I’ve attached my resume in case it is helpful. I completely understand if it is not something you are able to support.',
+     thanks: 'Thank you very much for taking the time to read this.'},
+    {name: 'Degao Chen', role: roleFullstack, jobLink: jobFullstack, subjectRole: 'Fullstack',
+     profile: 'My background is centered on building reliable backend systems and data products, and I was drawn to the opportunity to learn from the kind of product engineering Lyft does at scale.',
+     resume: 'I’ve attached my resume for context. No pressure at all if you are not in a position to help.',
+     thanks: 'Thank you very much for your time.'},
+    {name: 'Tammy', email: 'tammylee@lyft.com', role: roleBackend, jobLink: jobBackend, subjectRole: 'Backend',
+     profile: 'I’ve been focusing on backend systems and data products, and Lyft feels like a place where I could learn a great deal while contributing thoughtfully as an intern.',
+     resume: 'I’ve attached my resume for your reference. I understand completely if you are unable to help, and I appreciate you taking a moment to consider it.',
+     thanks: 'Thank you very much.'}
+  ];
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: existing};
+      }
+    }
+    var rejections = {};
+    specs.forEach(function (spec) {
+      var key = outreachNameKey_(spec.role);
+      if (rejections[key]) return;
+      var result = outreachGmailApiRejectedTarget_({company: 'Lyft', role: spec.role, jobLink: spec.jobLink});
+      if (result.rejected) throw new Error('Lyft ' + spec.role + ' was rejected: ' + result.why);
+      rejections[key] = true;
+    });
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) throw new Error('Referral tab is missing.');
+    var used = {};
+    outreachReadReferralRows_(referral).forEach(function (row) {
+      if (row.email) used[String(row.email).toLowerCase()] = true;
+    });
+    var employees = outreachEmployeesFor_(outreachReadEmployees_(contactsBook), 'Lyft');
+    var startMs = new Date().getTime() + 5 * 60000;
+    var entries = specs.map(function (spec, index) {
+      var source = null;
+      var email = String(spec.email || '').trim().toLowerCase();
+      if (!email) {
+        var matches = employees.filter(function (person) {
+          return outreachNameKey_(person.name) === outreachNameKey_(spec.name);
+        });
+        if (matches.length !== 1) throw new Error('Expected exactly one current Lyft seed contact for ' + spec.name + '.');
+        source = matches[0];
+        email = String(source.email || '').trim().toLowerCase();
+      }
+      if (!email) throw new Error('Lyft referral recipient is missing an email address.');
+      if (used[email] || GmailApp.search('from:me to:' + email, 0, 1).length) {
+        throw new Error('Lyft referral recipient was already contacted: ' + spec.name + '.');
+      }
+      used[email] = true;
+      return {
+        company: 'Lyft', role: spec.role, jobLink: spec.jobLink,
+        name: spec.name, email: email,
+        title: source ? source.title : '', seniority: source ? (source.seniority || '') : '',
+        template: 'lyft-approved-' + String(index + 1),
+        customCopy: 'lyft-referral-0911', subjectRole: spec.subjectRole,
+        profile: spec.profile, resume: spec.resume, thanks: spec.thanks,
+        atMs: startMs + index * 10 * 60000, status: 'pending'
+      };
+    });
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+      lastSentAtMs: 0, spacingMinutes: 10, minGapMinutes: 9, entries: entries, skipped: []
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try { ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create(); }
+    catch (error) { props.deleteProperty(propertyKey); throw error; }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      scheduled: entries.map(function (entry) {
+        return {name: entry.name, at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }), trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Cancel the Dell Hai La referral before it can reach Gmail after a rejection block. */
 function cancelTargetReferralCampaign0911DellHai() {
   var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA';
@@ -1510,6 +1613,14 @@ function runTargetReferralCampaignTick0914Cisco_() {
   });
 }
 
+/** Send one due owner-approved Lyft referral entry. */
+function runTargetReferralCampaignTick0911Lyft_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
+    handler: 'runTargetReferralCampaignTick0911Lyft_'
+  });
+}
+
 var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
   'anh pham': { name: 'Anh', title: 'anh' },
   'chau nguyen': { name: 'Chau', title: 'chị' },
@@ -1596,7 +1707,8 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
     'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
     'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
-    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'
+    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1762,7 +1874,9 @@ function runTargetReferralCampaignTickFor_(config) {
               pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
     }
 
-    var mail = due.copy === 'henry_vietnamese'
+    var mail = due.customCopy === 'lyft-referral-0911'
+      ? outreachLyftReferralCompose_(due)
+      : due.copy === 'henry_vietnamese'
       ? outreachVietnameseReferralCompose_({
           personName: due.name, vietnameseName: due.vietnameseName,
           vietnameseTitle: due.vietnameseTitle, vietnameseVariant: due.vietnameseVariant,
@@ -1900,6 +2014,28 @@ function appendTargetReferralHistory_(entry, messageId) {
   referral.getRange(referral.getLastRow() + 1, 1, 1, R_WIDTH).setValues([row]);
 }
 
+/** Render the three owner-approved warm English Lyft referral messages. */
+function outreachLyftReferralCompose_(entry) {
+  var name = outreachFirstName_(entry.name);
+  var subject = 'Referral ask - Lyft Software Engineering Intern, ' + entry.subjectRole;
+  var intro = 'I’m Henry, a Math & CS student at Kenyon College, and I recently applied for Lyft’s '
+    + entry.role + '.';
+  if (outreachNameKey_(entry.name) === outreachNameKey_('Degao Chen')) {
+    intro = 'I’m Henry, currently studying Math & CS at Kenyon College. I recently applied for Lyft’s '
+      + entry.role + '.';
+  }
+  var ask = 'I’m sorry for reaching out out of the blue, especially since we haven’t met. I wanted to give myself the best chance to move forward in the process, so if you feel comfortable, would you be willing to refer me for this role?';
+  var lines = ['Hi ' + name + ',', '', intro, '', entry.profile, '', ask, '', entry.resume, '', entry.thanks, '', 'Best,', 'Henry'];
+  var html = '<p>Hi ' + outreachEscape_(name) + ',</p>'
+    + '<p>' + outreachEscape_(intro) + '</p>'
+    + '<p>' + outreachEscape_(entry.profile) + '</p>'
+    + '<p><b>' + outreachEscape_(ask) + '</b></p>'
+    + '<p>' + outreachEscape_(entry.resume) + '</p>'
+    + '<p>' + outreachEscape_(entry.thanks) + '</p>'
+    + '<p>Best,<br>Henry</p>';
+  return {subject: subject, plain: lines.join('\n'), html: html, inlineImages: {}};
+}
+
 /**
  * Read-only status for the explicit Target referral waves. The normal referral
  * planner is paused, so these script-property campaigns are the authoritative
@@ -1913,6 +2049,7 @@ function diagnoseTargetReferralCampaigns() {
     ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'],
     ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'],
     ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'],
+    ['Lyft', 'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'],
     ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
@@ -2791,6 +2928,7 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
     'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
     'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
     'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'
   ];
   var recruiterKeys = [
