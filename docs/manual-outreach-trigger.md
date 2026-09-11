@@ -27,9 +27,11 @@ explicitly say “send” (or equivalent) for that specific plan.
 ## Greeting personalization
 
 Use the shared greeting renderer for all recruiter, referral and follow-up messages. It removes
-decorative prefixes, addresses the recipient by their given name, and for a Vietnamese-style name
-adds lowercase `anh` or `chị` only when a conventional gender inference is high confidence. Do
-not guess a title for ambiguous names; use the given name alone. See
+decorative prefixes/icons and addresses the recipient by their given name. It renders that given
+name with only its first letter capitalized (`lIsA` → `Lisa`) before it reaches any email. For a
+Vietnamese-style name it adds lowercase `anh` or `chị` only when a conventional gender inference
+is high confidence. Do not guess a title for ambiguous names; use the given name alone except
+where the pure-Vietnamese gate below requires the owner’s choice. See
 [`components/outreach-templates.md`](components/outreach-templates.md) for the maintained name
 lists and examples.
 

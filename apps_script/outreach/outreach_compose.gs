@@ -521,9 +521,7 @@ function outreachGreetingInfo_(name) {
   else if (vietnamese && VIETNAMESE_SURNAMES_[keys[keys.length - 1]]) givenIndex = 0;
   var given = tokens[givenIndex];
   var givenKey = keys[givenIndex];
-  if (given === given.toLowerCase() || given === given.toUpperCase()) {
-    given = given.charAt(0).toUpperCase() + given.slice(1).toLowerCase();
-  }
+  given = given.charAt(0).toUpperCase() + given.slice(1).toLowerCase();
   var gender = VIETNAMESE_WOMEN_GIVEN_NAMES_[givenKey] ? 'woman'
     : (VIETNAMESE_MEN_GIVEN_NAMES_[givenKey] ? 'man' : '');
   return {

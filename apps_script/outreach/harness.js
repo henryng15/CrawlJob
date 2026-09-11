@@ -827,6 +827,8 @@ console.log('the message');
     assert.strictEqual(S.outreachFirstName_('Lisa Huynh'), 'chị Lisa');
     assert.strictEqual(S.outreachFirstName_('DAVID NGUYEN'), 'anh David');
     assert.strictEqual(S.outreachFirstName_('Jessica Tran'), 'chị Jessica');
+    assert.strictEqual(S.outreachFirstName_('🍃lIsA Huynh'), 'chị Lisa');
+    assert.strictEqual(S.outreachFirstName_('aLeX Kim'), 'Alex');
     assert.ok(compose({ recruiterName: 'Nguyen Van Chien' }).plain.startsWith('Hi anh Chien,'));
   });
 

@@ -162,4 +162,5 @@ there. For a pure Vietnamese manual referral, that policy requires the Vietnames
 definite singular `anh` or `chị`; if the title cannot be decided, return to the chat rather than
 drafting, queueing or sending it. Every final response must report the planned messages for the
 local day, including Target and hypothetical automatic work, and must warn the user when the total
-is greater than 55.
+is greater than 55. For every email path, strip decorative name icons and render the selected
+given name with only its first letter capitalized before writing it into a greeting.
