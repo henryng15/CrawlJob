@@ -178,8 +178,10 @@ var ATS_HOST_NOISE = [
 // picked up on the next firing, because nothing is labelled until it is judged.
 var REJECTION_WINDOW_DAYS = 45;
 var REJECTION_SCAN_LIMIT = 40;
-var REJECTION_API_MAX_PAGES = 5;
-var REJECTION_API_PAGE_SIZE = 100;
+// Match the scanner's bounded review window. A Target tick must finish inside
+// its minute; the scanner labels old candidates separately on its own pass.
+var REJECTION_API_MAX_PAGES = 1;
+var REJECTION_API_PAGE_SIZE = REJECTION_SCAN_LIMIT;
 
 // Only the top of a message is read. One real rejection put its refusal past the
 // 4,000th character of an 18KB message, so this is generous; the rest is
