@@ -1222,6 +1222,67 @@ function scheduleTargetReferralCampaign0911Whatnot() {
   });
 }
 
+/** One-off Vietnamese referral request for the owner-approved Dell contact Hai La. */
+function scheduleTargetReferralCampaign0911DellHai() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
+    handler: 'runTargetReferralCampaignTick0911DellHai_',
+    startIso: '2026-09-11T14:35:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    includeEmails: ['hai.la@dell.com'],
+    vietnameseOverrides: {
+      'hai.la@dell.com': {
+        name: 'Hai', title: 'anh', variant: 2
+      }
+    },
+    companies: [{
+      company: 'Dell Technologies',
+      maxContacts: 1,
+      role: 'Software Engineer Intern - Client Solutions Group Engineering',
+      jobLink: 'https://iawmqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/careers/job/298217?utm_source=Simplify&ref=Simplify'
+    }]
+  });
+}
+
+/** Cancel the Dell Hai La referral before it can reach Gmail after a rejection block. */
+function cancelTargetReferralCampaign0911DellHai() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA';
+  var handler = 'runTargetReferralCampaignTick0911DellHai_';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var stateText = props.getProperty(propertyKey);
+    if (!stateText) return {status: 'not-scheduled', cancelledPending: 0, deletedTriggers: 0};
+    var state = JSON.parse(stateText);
+    var cancelled = 0;
+    (state.entries || []).forEach(function (entry) {
+      if (entry.status !== 'pending') return;
+      entry.status = 'cancelled';
+      entry.cancelledAt = new Date().toISOString();
+      entry.error = 'Cancelled before sending: Gmail API preflight found a matching rejection.';
+      cancelled++;
+    });
+    if (cancelled) {
+      state.status = 'cancelled';
+      state.cancelledAt = new Date().toISOString();
+      props.setProperty(propertyKey, JSON.stringify(state));
+    }
+    var deleted = 0;
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() !== handler) return;
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {status: state.status, cancelledPending: cancelled, deletedTriggers: deleted};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Schedule one Target campaign with ten templates and one-minute polling. */
 function scheduleTargetReferralCampaign_(config) {
   var propertyKey = config.propertyKey;
@@ -1256,11 +1317,16 @@ function scheduleTargetReferralCampaign_(config) {
     var existingRows = outreachReadReferralRows_(referral);
     var used = {};
     var excluded = {};
+    var included = {};
+    var vietnameseOverrides = config.vietnameseOverrides || {};
     existingRows.forEach(function (row) {
       if (row.email) used[row.email.toLowerCase()] = true;
     });
     (config.excludeEmails || []).forEach(function (email) {
       if (email) excluded[String(email).toLowerCase()] = true;
+    });
+    (config.includeEmails || []).forEach(function (email) {
+      if (email) included[String(email).toLowerCase()] = true;
     });
 
     var entries = [], skipped = [];
@@ -1269,6 +1335,7 @@ function scheduleTargetReferralCampaign_(config) {
         .filter(function (person) {
           var email = person.email.toLowerCase();
           if (used[email]) return false;
+          if (Object.keys(included).length && !included[email]) return false;
           if (excluded[email]) {
             skipped.push({company: spec.company, email: email, reason: 'reserved-by-campaign'});
             return false;
@@ -1288,7 +1355,7 @@ function scheduleTargetReferralCampaign_(config) {
         .slice(0, Number(spec.maxContacts || 10));
 
       people.forEach(function (person, index) {
-        entries.push({
+        var entry = {
           company: spec.company,
           role: spec.role,
           jobLink: spec.jobLink,
@@ -1301,7 +1368,18 @@ function scheduleTargetReferralCampaign_(config) {
           template: index + 1,
           atMs: startMs + entries.length * spacingMinutes * 60000,
           status: 'pending'
-        });
+        };
+        var vietnamese = vietnameseOverrides[person.email.toLowerCase()];
+        if (vietnamese) {
+          if (!vietnamese.name || (vietnamese.title !== 'anh' && vietnamese.title !== 'chị')) {
+            throw new Error('Vietnamese referral copy requires an approved given name and anh or chị title.');
+          }
+          entry.copy = 'henry_vietnamese';
+          entry.vietnameseName = vietnamese.name;
+          entry.vietnameseTitle = vietnamese.title;
+          entry.vietnameseVariant = Number(vietnamese.variant || 1);
+        }
+        entries.push(entry);
       });
     });
     if (!entries.length) {
@@ -1376,6 +1454,14 @@ function runTargetReferralCampaignTick0911Whatnot_() {
   return runTargetReferralCampaignTickFor_({
     propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
     handler: 'runTargetReferralCampaignTick0911Whatnot_'
+  });
+}
+
+/** Send the owner-approved Vietnamese referral entry for Hai La at Dell. */
+function runTargetReferralCampaignTick0911DellHai_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
+    handler: 'runTargetReferralCampaignTick0911DellHai_'
   });
 }
 
@@ -1459,6 +1545,7 @@ function diagnoseTargetRejectionPreflight() {
   var propertyKeys = [
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
     'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'
@@ -1720,7 +1807,8 @@ function diagnoseTargetReferralCampaigns() {
     ['PayPal, Dropbox, Scale AI', 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI'],
     ['Datadog — 5 extra contacts', 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG'],
     ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'],
-    ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT']
+    ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'],
+    ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2542,7 +2630,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
     'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'
+    'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
