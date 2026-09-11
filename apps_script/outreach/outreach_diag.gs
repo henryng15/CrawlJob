@@ -1621,6 +1621,11 @@ function runTargetReferralCampaignTick0911Lyft_() {
   });
 }
 
+/** Manually run the due Lyft slot when an owner asks for immediate delivery. */
+function sendDueTargetReferralCampaign0911Lyft() {
+  return runTargetReferralCampaignTick0911Lyft_();
+}
+
 var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
   'anh pham': { name: 'Anh', title: 'anh' },
   'chau nguyen': { name: 'Chau', title: 'chị' },
