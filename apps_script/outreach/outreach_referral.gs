@@ -233,19 +233,22 @@ var HENRY_VIETNAMESE_REFERRAL_VARIANTS_ = [
     intro: 'Em là Henry, hiện học Math and CS tại Kenyon College, và đang tìm kiếm Software Engineering Intern roles cho 2027.',
     applied: 'Em vừa apply [Role] tại [Company]. Hồ sơ của em thiên về backend systems và data products, nên em thấy background của mình có thể phù hợp với role này.',
     ask: 'Nếu [title] thấy hồ sơ của em phù hợp, **em xin [title] hỗ trợ referral cho em cho role này được không ạ?**',
-    resume: 'Em có đính kèm resume để [title] tiện xem. Nếu không tiện thì hoàn toàn không sao ạ.'
+    resume: 'Em có đính kèm resume để [title] tiện xem. Nếu không tiện thì hoàn toàn không sao ạ.',
+    thanks: 'Em cảm ơn [title] rất nhiều ạ.'
   },
   {
     intro: 'Em là Henry, đang học Math and CS tại Kenyon College và hiện tìm kiếm Software Engineering Intern roles cho 2027.',
     applied: 'Em đã apply vị trí [Role] ở [Company]. Profile của em tập trung vào backend systems và data products, nên em muốn chủ động liên hệ với [title] về cơ hội này.',
     ask: 'Nếu [title] thấy em phù hợp, **em xin [title] một referral cho role này được không ạ?**',
-    resume: 'Em gửi kèm resume để [title] tiện tham khảo. Nếu [title] không tiện hỗ trợ thì cũng không sao ạ.'
+    resume: 'Em gửi kèm resume để [title] tiện tham khảo. Nếu [title] không tiện hỗ trợ thì cũng không sao ạ.',
+    thanks: 'Em cảm ơn [title] rất nhiều ạ.'
   },
   {
     intro: 'Em là Henry, hiện học Math and CS tại Kenyon College và đang tìm kiếm Software Engineering Intern roles cho 2027.',
     applied: 'Em vừa ứng tuyển [Role] tại [Company]. Vì background của em thiên về backend systems và data products, em nghĩ mình có thể hợp với vị trí này nên muốn liên hệ với [title].',
     ask: 'Nếu [title] thấy phù hợp, **em xin [title] referral cho role này được không ạ?**',
-    resume: 'Em có đính kèm resume để [title] tiện xem. Không tiện cũng hoàn toàn không sao ạ.'
+    resume: 'Em có đính kèm resume để [title] tiện xem. Không tiện cũng hoàn toàn không sao ạ.',
+    thanks: 'Em cảm ơn [title] rất nhiều ạ.'
   }
 ];
 
@@ -272,7 +275,7 @@ function outreachVietnameseReferralCompose_(options) {
       .replace(/\[Role\]/g, options.role || DEFAULT_SHORT_ROLE)
       .replace(/\[title\]/g, title);
   };
-  var paragraphs = [variant.intro, variant.applied, variant.ask, variant.resume];
+  var paragraphs = [variant.intro, variant.applied, variant.ask, variant.resume, variant.thanks];
   var html = ['<p>Hi ' + outreachEscape_(title + ' ' + name) + ',</p>'];
   var plain = ['Hi ' + title + ' ' + name + ','];
   paragraphs.forEach(function (paragraph) {

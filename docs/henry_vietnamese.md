@@ -40,6 +40,8 @@ này được không ạ?**
 
 Em có đính kèm resume để anh tiện xem. Nếu không tiện thì hoàn toàn không sao ạ.
 
+Em cảm ơn anh rất nhiều ạ.
+
 Chúc anh một ngày tốt lành,
 Best,
 Henry
@@ -60,6 +62,8 @@ Nếu anh thấy em phù hợp, **em xin anh một referral cho role này đư�
 
 Em gửi kèm resume để anh tiện tham khảo. Nếu anh không tiện hỗ trợ thì cũng
 không sao ạ.
+
+Em cảm ơn anh rất nhiều ạ.
 
 Chúc anh một ngày tốt lành,
 Best,
@@ -82,6 +86,8 @@ Nếu anh thấy phù hợp, **em xin anh referral cho role này được không
 
 Em có đính kèm resume để anh tiện xem. Không tiện cũng hoàn toàn không sao ạ.
 
+Em cảm ơn anh rất nhiều ạ.
+
 Chúc anh một ngày tốt lành,
 Best,
 Henry
@@ -90,6 +96,7 @@ Henry
 ## Copy guardrails
 
 - Keep the request in the first scan of the email; bold only the referral ask.
+- Include the humble `Em cảm ơn anh/chị rất nhiều ạ.` line before the closing.
 - Do not add a list of achievements. The one profile-focus sentence is enough;
   the resume provides detail.
 - Do not state a recipient's nationality in the email. Vietnamese copy is chosen

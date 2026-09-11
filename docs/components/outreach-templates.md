@@ -62,7 +62,7 @@ to a word rather than an empty string — `there`, `your team`, `DEFAULT_SHORT_R
 | `outreachBalancedReferralTemplateFor_(tier, company, attempt, load)` | Least-used, tie broken by the company-seeded order. `tier` is ignored and kept only for the caller. |
 | `outreachReferralCompose_(options)` | One referral ask. Accepts `angle`, `bucket`, `seniority`, `dateApplied` and uses none of them. |
 | `outreachVietnameseReferralName_(value)` | Normalizes an owner-approved Vietnamese given name before it is placed in a greeting. |
-| `outreachVietnameseReferralCompose_(options)` | One Vietnamese referral request from the owner-reviewed `henry_vietnamese.md` variants. Requires exactly one explicit `anh` or `chị`, never falls back to gender inference, and returns plain/HTML copy without the English-template business-card footer. |
+| `outreachVietnameseReferralCompose_(options)` | One Vietnamese referral request from the owner-reviewed `henry_vietnamese.md` variants. Requires exactly one explicit `anh` or `chị`, never falls back to gender inference, includes the humble `Em cảm ơn anh/chị rất nhiều ạ.` line before the closing, and returns plain/HTML copy without the English-template business-card footer. |
 | `outreachReferralTier_(title, seniority)` | Still computed, because the Referral tab has a Tier column. Decides no wording. |
 | `previewReferralTemplates()` | Logs one example of each of the ten. Sends nothing. |
 
