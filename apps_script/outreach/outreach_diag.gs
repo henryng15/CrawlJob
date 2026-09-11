@@ -1464,12 +1464,28 @@ function diagnoseCompanyAvailability(company) {
   var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var contacts = outreachContactsFor_(outreachReadContacts_(contactsBook), wanted);
+  var employees = outreachEmployeesFor_(outreachReadEmployees_(contactsBook), wanted);
+  var wantedTokens = outreachCompanyTokens_(wanted);
+  var applications = targetMirrorApplications_(tracker).filter(function (app) {
+    return app.process !== STAGE_REJECTED
+      && outreachSameEmployer_(wantedTokens, outreachCompanyTokens_(app.company));
+  }).map(function (app) {
+    return {
+      role: app.role,
+      link: app.official || app.link,
+      dateApplied: app.dateApplied
+        ? Utilities.formatDate(app.dateApplied, 'America/New_York', 'yyyy-MM-dd') : '',
+      process: app.process
+    };
+  });
   var targetCompanies = outreachReferralTargetCompanies_(tracker);
   if (targetCompanies === null) throw new Error('Target tab is unavailable.');
   return {
     company: wanted,
     recruiterContacts: contacts.length,
     recruiterContactsUnsent: contacts.filter(function (contact) { return !contact.sent; }).length,
+    referralContacts: employees.length,
+    activeApplications: applications,
     inTarget: !!targetCompanies[outreachNameKey_(wanted)]
   };
 }
