@@ -767,7 +767,9 @@ function outreachGmailApiBodyText_(payload) {
   var data = payload.body && payload.body.data;
   if (!data || (mime && mime !== 'text/plain' && mime !== 'text/html')) return '';
   try {
-    return Utilities.newBlob(Utilities.base64DecodeWebSafe(data)).getDataAsString();
+    var encoded = String(data).replace(/\s/g, '');
+    while (encoded.length % 4) encoded += '=';
+    return Utilities.newBlob(Utilities.base64DecodeWebSafe(encoded)).getDataAsString();
   } catch (error) {
     throw new Error('Could not decode a Gmail API rejection candidate: '
       + String(error.message || error));
