@@ -1457,6 +1457,23 @@ function diagnoseTargetRejectionPreflight() {
   });
 }
 
+/** Read-only recruiter-contact and Target-list presence for one employer. */
+function diagnoseCompanyAvailability(company) {
+  var wanted = String(company || '').trim();
+  if (!wanted) throw new Error('A company name is required.');
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contacts = outreachContactsFor_(outreachReadContacts_(contactsBook), wanted);
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+  if (targetCompanies === null) throw new Error('Target tab is unavailable.');
+  return {
+    company: wanted,
+    recruiterContacts: contacts.length,
+    recruiterContactsUnsent: contacts.filter(function (contact) { return !contact.sent; }).length,
+    inTarget: !!targetCompanies[outreachNameKey_(wanted)]
+  };
+}
+
 /** Send one due Target referral entry and finalize the seed snapshot. */
 function runTargetReferralCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
