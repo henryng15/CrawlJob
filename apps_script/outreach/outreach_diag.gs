@@ -1245,6 +1245,30 @@ function scheduleTargetReferralCampaign0911DellHai() {
   });
 }
 
+/** Manual Target referral campaign for eight Cisco engineers on Monday 2026-09-14. */
+function scheduleTargetReferralCampaign0914Cisco() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
+    handler: 'runTargetReferralCampaignTick0914Cisco_',
+    startIso: '2026-09-14T11:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    // "Anh" can be a given name of any gender. Do not put this person into a
+    // Vietnamese-copy campaign until the owner supplies anh or chị.
+    excludeNames: ['Anh Huynh'],
+    vietnameseOverridesByName: {
+      'Danh Nguyen': {name: 'Danh', title: 'anh', variant: 1},
+      'Hai Nguyen': {name: 'Hai', title: 'anh', variant: 2}
+    },
+    companies: [{
+      company: 'Cisco',
+      maxContacts: 8,
+      role: 'Software Consulting Engineer I (Intern) United States',
+      jobLink: 'https://cisco.wd5.myworkdayjobs.com/cisco_careers/job/USA-RESEARCH-TRIANGLE-PARK/Software-Consulting-Engineer-I--Intern--United-States_2025180'
+    }]
+  });
+}
+
 /** Cancel the Dell Hai La referral before it can reach Gmail after a rejection block. */
 function cancelTargetReferralCampaign0911DellHai() {
   var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA';
@@ -1318,7 +1342,9 @@ function scheduleTargetReferralCampaign_(config) {
     var used = {};
     var excluded = {};
     var included = {};
+    var excludedNames = {};
     var vietnameseOverrides = config.vietnameseOverrides || {};
+    var vietnameseOverridesByName = {};
     existingRows.forEach(function (row) {
       if (row.email) used[row.email.toLowerCase()] = true;
     });
@@ -1327,6 +1353,12 @@ function scheduleTargetReferralCampaign_(config) {
     });
     (config.includeEmails || []).forEach(function (email) {
       if (email) included[String(email).toLowerCase()] = true;
+    });
+    (config.excludeNames || []).forEach(function (name) {
+      if (name) excludedNames[outreachNameKey_(name)] = true;
+    });
+    Object.keys(config.vietnameseOverridesByName || {}).forEach(function (name) {
+      vietnameseOverridesByName[outreachNameKey_(name)] = config.vietnameseOverridesByName[name];
     });
 
     var entries = [], skipped = [];
@@ -1338,6 +1370,10 @@ function scheduleTargetReferralCampaign_(config) {
           if (Object.keys(included).length && !included[email]) return false;
           if (excluded[email]) {
             skipped.push({company: spec.company, email: email, reason: 'reserved-by-campaign'});
+            return false;
+          }
+          if (excludedNames[outreachNameKey_(person.name)]) {
+            skipped.push({company: spec.company, email: email, reason: 'requires-title-review'});
             return false;
           }
           // This is intentionally broad: a person written to by any earlier
@@ -1369,7 +1405,8 @@ function scheduleTargetReferralCampaign_(config) {
           atMs: startMs + entries.length * spacingMinutes * 60000,
           status: 'pending'
         };
-        var vietnamese = vietnameseOverrides[person.email.toLowerCase()];
+        var vietnamese = vietnameseOverrides[person.email.toLowerCase()]
+          || vietnameseOverridesByName[outreachNameKey_(person.name)];
         if (vietnamese) {
           if (!vietnamese.name || (vietnamese.title !== 'anh' && vietnamese.title !== 'chị')) {
             throw new Error('Vietnamese referral copy requires an approved given name and anh or chị title.');
@@ -1465,6 +1502,14 @@ function runTargetReferralCampaignTick0911DellHai_() {
   });
 }
 
+/** Send one due Cisco Target referral entry on 2026-09-14. */
+function runTargetReferralCampaignTick0914Cisco_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
+    handler: 'runTargetReferralCampaignTick0914Cisco_'
+  });
+}
+
 var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
   'anh pham': { name: 'Anh', title: 'anh' },
   'chau nguyen': { name: 'Chau', title: 'chị' },
@@ -1549,7 +1594,9 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'
+    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
+    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1865,7 +1912,8 @@ function diagnoseTargetReferralCampaigns() {
     ['Datadog — 5 extra contacts', 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG'],
     ['Datadog, Vercel, Coinbase, Red Hat', 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT'],
     ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'],
-    ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA']
+    ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'],
+    ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2174,6 +2222,24 @@ function scheduleTargetRecruiterCampaign0914MotorolaSolutions() {
   });
 }
 
+/** Manual Target recruiter campaign for ten Cisco contacts on Tuesday 2026-09-15. */
+function scheduleTargetRecruiterCampaign0915Cisco() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    handler: 'runTargetRecruiterCampaignTick0915Cisco_',
+    label: 'Cisco',
+    startIso: '2026-09-15T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Cisco',
+      maxContacts: 10,
+      role: 'Software Consulting Engineer I (Intern) United States',
+      jobLink: 'https://cisco.wd5.myworkdayjobs.com/cisco_careers/job/USA-RESEARCH-TRIANGLE-PARK/Software-Consulting-Engineer-I--Intern--United-States_2025180'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -2287,7 +2353,8 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/11 — NetApp', 'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP'],
     ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'],
     ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'],
-    ['09/14 — Motorola Solutions', 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS']
+    ['09/14 — Motorola Solutions', 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'],
+    ['09/15 — Cisco', 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2542,6 +2609,14 @@ function runTargetRecruiterCampaignTick0914MotorolaSolutions_() {
   });
 }
 
+/** Public wrapper for the 09/15 Cisco Target recruiter every-minute trigger. */
+function runTargetRecruiterCampaignTick0915Cisco_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    handler: 'runTargetRecruiterCampaignTick0915Cisco_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -2715,7 +2790,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
     'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
     'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
@@ -2725,7 +2801,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'
+    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
+    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
