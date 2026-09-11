@@ -84,12 +84,13 @@ the send operation.
 
 ## Gmail rejection preflight
 
-Before allowing a recruiter, referral or Target campaign entry to leave the mailbox, verify through
-the Advanced Gmail API that the company has not sent a matching rejection. A matching rejection
-blocks the entry; never send it merely because it was already scheduled or drafted. For direct
-Target campaigns the delivery tick performs this check immediately before `sendEmail`, records a
-blocked entry as cancelled with the reason, and refreshes the Target mirror. For a manual run,
-report every block to the owner in this chat before continuing with any remaining eligible entries.
+Before allowing a manual recruiter/referral run or a Target campaign entry to leave the mailbox,
+verify through the Advanced Gmail API that the company has not sent a matching rejection. A
+matching rejection blocks the entry; never send it merely because it was already scheduled or
+drafted. Direct Target campaigns perform this check in their delivery tick immediately before
+`sendEmail`, record a blocked entry as cancelled with the reason, and refresh the Target mirror.
+For a manual run, report every block to the owner in this chat before continuing with any remaining
+eligible entries.
 
 An Apps Script clock trigger cannot itself write into this chat. If a future background tick finds a
 new rejection, it preserves the evidence and blocked state in the campaign; the next requested
