@@ -3164,6 +3164,22 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     }), /approved title/);
   });
 
+  run('Gmail API rejection preflight matches only the target company', () => {
+    const candidates = [{
+      id: 'message-1', from: 'Datadog Recruiting <noreply@datadoghq.com>',
+      subject: 'Update on your application',
+      body: 'We regret to inform you that we will not be moving forward with your application.'
+    }];
+    const blocked = S.outreachGmailApiRejectedTarget_(
+      { company: 'Datadog', role: 'Software Engineering Intern', jobLink: 'https://careers.datadoghq.com/job/1' },
+      candidates);
+    assert.strictEqual(blocked.rejected, true);
+    const clear = S.outreachGmailApiRejectedTarget_(
+      { company: 'Stripe', role: 'Software Engineering Intern', jobLink: 'https://stripe.com/jobs/1' },
+      candidates);
+    assert.strictEqual(clear.rejected, false);
+  });
+
   run('six people at one company read six different templates', () => {
     const load = S.outreachReferralTemplateLoad_([]);
     const picked = [];

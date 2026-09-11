@@ -36,6 +36,10 @@ also says "we were impressed" is still a rejection.
 | `outreachRejectable_(process)` | Whether a refusal can still close this application. Everything but `Rejected`. |
 | `outreachRoleScore_(a, b)` | How much of a role title a text names. One-way; kept for callers that want recall. |
 | `outreachRejectionTarget_(...)` | **Which application this is about, what state it is in, and why.** Returning the reason is the point: an unpinnable rejection must be visible, not silently dropped. |
+| `outreachGmailApiRejectionQuery_()` | The broad, bounded Gmail query used by preflight; it uses the same rejection phrase catalog as the scanner but does not depend on the scanner's labels. |
+| `outreachGmailApiBodyText_(payload)`, `outreachGmailApiHeader_(payload, wanted)` | Decode the plain body and selected headers from an Advanced Gmail API message response. |
+| `outreachGmailApiRejectionCandidates_()` | Reads up to five 100-message pages of current candidates through `Gmail.Users.Messages.list/get`; an API error reaches the caller so a send cannot proceed on an unverified mailbox. |
+| `outreachGmailApiRejectedTarget_(entry, candidates)` | Applies the existing conservative rejection recognizer and company/role matcher to one Target entry. It returns a block only for that employer; another employer's rejection cannot block the message. |
 
 ### The three layers, strongest first
 

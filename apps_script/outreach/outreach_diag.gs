@@ -1429,6 +1429,34 @@ function diagnoseVietnameseReferralOverrides0911() {
   });
 }
 
+/** Read every active Target employer once through Gmail API and report rejection blocks. */
+function diagnoseTargetRejectionPreflight() {
+  var propertyKeys = [
+    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
+    'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
+    'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'
+  ];
+  var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
+    return entry.status === 'pending';
+  });
+  var candidates = outreachGmailApiRejectionCandidates_();
+  var seen = {};
+  return entries.filter(function (entry) {
+    var key = outreachNameKey_(entry.company) + '|' + outreachNameKey_(entry.role);
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).map(function (entry) {
+    var result = outreachGmailApiRejectedTarget_(entry, candidates);
+    return {
+      company: entry.company,
+      role: entry.role,
+      blocked: result.rejected,
+      reason: result.rejected ? 'Gmail API found a matching rejection: ' + result.why : 'clear'
+    };
+  });
+}
+
 /** Send one due Target referral entry and finalize the seed snapshot. */
 function runTargetReferralCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -1462,6 +1490,25 @@ function runTargetReferralCampaignTickFor_(config) {
       try { refreshTargetQueueTabs_(); }
       catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
       return {skippedAlreadySent: true, email: due.email};
+    }
+
+    var rejection = outreachGmailApiRejectedTarget_(due);
+    if (rejection.rejected) {
+      due.status = 'cancelled';
+      due.completedAt = new Date().toISOString();
+      due.error = 'Blocked before sending: Gmail API found a matching rejection (' + rejection.why + ').';
+      if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
+        state.status = 'complete';
+        state.completedAt = new Date().toISOString();
+        ScriptApp.getProjectTriggers().forEach(function (trigger) {
+          if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+        });
+      }
+      props.setProperty(propertyKey, JSON.stringify(state));
+      try { refreshTargetQueueTabs_(); }
+      catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+      return {blocked: true, company: due.company, reason: 'matching Gmail rejection',
+              pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
     }
 
     var mail = due.copy === 'henry_vietnamese'
@@ -2273,6 +2320,24 @@ function runTargetRecruiterCampaignTickFor_(config) {
       syncTargetAfterSend_(due.company, 'recruiter');
       state.lastSentAtMs = now;
     } else {
+      var rejection = outreachGmailApiRejectedTarget_(due);
+      if (rejection.rejected) {
+        due.status = 'cancelled';
+        due.completedAt = new Date().toISOString();
+        due.error = 'Blocked before sending: Gmail API found a matching rejection (' + rejection.why + ').';
+        if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
+          state.status = 'complete';
+          state.completedAt = new Date().toISOString();
+          ScriptApp.getProjectTriggers().forEach(function (trigger) {
+            if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+          });
+        }
+        props.setProperty(propertyKey, JSON.stringify(state));
+        try { refreshTargetQueueTabs_(); }
+        catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+        return {blocked: true, company: due.company, reason: 'matching Gmail rejection',
+                pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
+      }
       var mail = outreachCompose_({
         template: due.template, company: due.company,
         role: due.role, recruiterName: due.name

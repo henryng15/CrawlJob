@@ -178,6 +178,8 @@ var ATS_HOST_NOISE = [
 // picked up on the next firing, because nothing is labelled until it is judged.
 var REJECTION_WINDOW_DAYS = 45;
 var REJECTION_SCAN_LIMIT = 40;
+var REJECTION_API_MAX_PAGES = 5;
+var REJECTION_API_PAGE_SIZE = 100;
 
 // Only the top of a message is read. One real rejection put its refusal past the
 // 4,000th character of an 18KB message, so this is generous; the rest is
@@ -743,6 +745,92 @@ function outreachRejectionQuery_(reopen) {
     : ' -label:"' + LABEL_CHECK + '" -label:"' + LABEL_IGNORED + '"'
       + ' -label:"' + LABEL_ALREADY + '" -label:"' + LABEL_NO_APP + '"';
   return query + ' (' + phrases + ')';
+}
+
+/** The Gmail-API preflight reads the same broad rejection candidates as the scanner. */
+function outreachGmailApiRejectionQuery_() {
+  var phrases = REJECTION_QUERY_PHRASES.map(function (phrase) {
+    return '"' + phrase + '"';
+  }).join(' OR ');
+  return 'newer_than:' + REJECTION_WINDOW_DAYS + 'd -in:chats (' + phrases + ')';
+}
+
+/** Decode one URL-safe Gmail API body part without treating HTML as trusted markup. */
+function outreachGmailApiBodyText_(payload) {
+  if (!payload) return '';
+  var mime = String(payload.mimeType || '').toLowerCase();
+  var parts = payload.parts || [];
+  for (var i = 0; i < parts.length; i++) {
+    var plain = outreachGmailApiBodyText_(parts[i]);
+    if (plain) return plain;
+  }
+  var data = payload.body && payload.body.data;
+  if (!data || (mime && mime !== 'text/plain' && mime !== 'text/html')) return '';
+  try {
+    return Utilities.newBlob(Utilities.base64DecodeWebSafe(data)).getDataAsString();
+  } catch (error) {
+    throw new Error('Could not decode a Gmail API rejection candidate.');
+  }
+}
+
+function outreachGmailApiHeader_(payload, wanted) {
+  var key = String(wanted || '').toLowerCase();
+  var headers = (payload && payload.headers) || [];
+  for (var i = 0; i < headers.length; i++) {
+    if (String(headers[i].name || '').toLowerCase() === key) return headers[i].value || '';
+  }
+  return '';
+}
+
+/**
+ * Read the bounded candidate set through the Advanced Gmail API. This is kept
+ * separate from matching so a preflight over several scheduled companies only
+ * reads the mailbox once.
+ */
+function outreachGmailApiRejectionCandidates_() {
+  var candidates = [];
+  var pageToken = null;
+  for (var page = 0; page < REJECTION_API_MAX_PAGES; page++) {
+    var options = {q: outreachGmailApiRejectionQuery_(), maxResults: REJECTION_API_PAGE_SIZE};
+    if (pageToken) options.pageToken = pageToken;
+    var listed = Gmail.Users.Messages.list('me', options) || {};
+    (listed.messages || []).forEach(function (item) {
+      var message = Gmail.Users.Messages.get('me', item.id, {format: 'full'});
+      var payload = message.payload || {};
+      candidates.push({
+        id: item.id,
+        from: outreachGmailApiHeader_(payload, 'From'),
+        subject: outreachGmailApiHeader_(payload, 'Subject'),
+        body: outreachGmailApiBodyText_(payload)
+      });
+    });
+    pageToken = listed.nextPageToken || '';
+    if (!pageToken) break;
+  }
+  return candidates;
+}
+
+/**
+ * Whether a verified Gmail-API rejection belongs to this target company. A
+ * single synthetic App row preserves the conservative sender/role matching
+ * rules without allowing another company's rejection to block this send.
+ */
+function outreachGmailApiRejectedTarget_(entry, candidates) {
+  var app = {
+    company: entry.company || '', role: entry.role || '',
+    link: entry.jobLink || '', official: entry.jobLink || '', process: 'Applied'
+  };
+  if (!app.company) throw new Error('Gmail rejection preflight requires a company.');
+  var found = (candidates || outreachGmailApiRejectionCandidates_()).filter(function (message) {
+    return outreachIsRejection_(message.subject, message.body);
+  }).map(function (message) {
+    return {message: message, target: outreachRejectionTarget_(message, [app])};
+  }).filter(function (result) {
+    return !!result.target.app;
+  })[0];
+  return found
+    ? {rejected: true, messageId: found.message.id, why: found.target.why}
+    : {rejected: false};
 }
 
 /**

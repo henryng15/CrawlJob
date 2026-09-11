@@ -82,6 +82,19 @@ If the user asks only to “write” emails, produce the plan and drafts/copy bu
 user asks to send, re-check the live application, recipient and queue state immediately before
 the send operation.
 
+## Gmail rejection preflight
+
+Before allowing a recruiter, referral or Target campaign entry to leave the mailbox, verify through
+the Advanced Gmail API that the company has not sent a matching rejection. A matching rejection
+blocks the entry; never send it merely because it was already scheduled or drafted. For direct
+Target campaigns the delivery tick performs this check immediately before `sendEmail`, records a
+blocked entry as cancelled with the reason, and refreshes the Target mirror. For a manual run,
+report every block to the owner in this chat before continuing with any remaining eligible entries.
+
+An Apps Script clock trigger cannot itself write into this chat. If a future background tick finds a
+new rejection, it preserves the evidence and blocked state in the campaign; the next requested
+status/preflight check must surface it to the owner here.
+
 ## Daily email accounting
 
 Use `America/New_York` calendar dates. At the end of every manual run, calculate the number of
