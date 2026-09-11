@@ -3178,6 +3178,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       { company: 'Stripe', role: 'Software Engineering Intern', jobLink: 'https://stripe.com/jobs/1' },
       candidates);
     assert.strictEqual(clear.rejected, false);
+    const unreadable = S.outreachGmailApiRejectedTarget_(
+      { company: 'Datadog', role: 'Software Engineering Intern', jobLink: 'https://careers.datadoghq.com/job/1' },
+      [{ id: 'message-2', from: 'Datadog Recruiting <noreply@datadoghq.com>',
+         subject: 'Update on your application', body: '', decodeError: 'Could not decode string.' }]);
+    assert.strictEqual(unreadable.rejected, true);
+    assert.strictEqual(unreadable.unverifiedBody, true);
   });
 
   run('six people at one company read six different templates', () => {

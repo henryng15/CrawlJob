@@ -800,11 +800,22 @@ function outreachGmailApiRejectionCandidates_() {
     (listed.messages || []).forEach(function (item) {
       var message = Gmail.Users.Messages.get('me', item.id, {format: 'full'});
       var payload = message.payload || {};
+      var body = '';
+      var decodeError = '';
+      try {
+        body = outreachGmailApiBodyText_(payload);
+      } catch (error) {
+        // The Gmail query already found a rejection-language candidate. Keep its
+        // headers so a matching employer is blocked rather than letting one
+        // malformed MIME part turn into an unverified send at every company.
+        decodeError = String(error.message || error);
+      }
       candidates.push({
         id: item.id,
         from: outreachGmailApiHeader_(payload, 'From'),
         subject: outreachGmailApiHeader_(payload, 'Subject'),
-        body: outreachGmailApiBodyText_(payload)
+        body: body,
+        decodeError: decodeError
       });
     });
     pageToken = listed.nextPageToken || '';
@@ -824,15 +835,15 @@ function outreachGmailApiRejectedTarget_(entry, candidates) {
     link: entry.jobLink || '', official: entry.jobLink || '', process: 'Applied'
   };
   if (!app.company) throw new Error('Gmail rejection preflight requires a company.');
-  var found = (candidates || outreachGmailApiRejectionCandidates_()).filter(function (message) {
-    return outreachIsRejection_(message.subject, message.body);
-  }).map(function (message) {
+  var found = (candidates || outreachGmailApiRejectionCandidates_()).map(function (message) {
     return {message: message, target: outreachRejectionTarget_(message, [app])};
   }).filter(function (result) {
-    return !!result.target.app;
+    return !!result.target.app && (result.message.decodeError
+      || outreachIsRejection_(result.message.subject, result.message.body));
   })[0];
   return found
-    ? {rejected: true, messageId: found.message.id, why: found.target.why}
+    ? {rejected: true, messageId: found.message.id, why: found.target.why,
+       unverifiedBody: !!found.message.decodeError}
     : {rejected: false};
 }
 
