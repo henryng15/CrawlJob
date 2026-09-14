@@ -1969,7 +1969,12 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
  * non-rejected application or an eligible current Jobs posting. Direct Target
  * campaign state is deduplicated against the operational Referral history.
  */
-function auditTargetOutreachCoverage() {
+function auditTargetOutreachCoverage(summerOnly) {
+  summerOnly = summerOnly === true;
+  var roleInScope = function (role) {
+    return targetAuditRoleEligible_(role)
+      && (!summerOnly || targetAuditSummerRoleEligible_(role));
+  };
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var targets = targetAuditTargetCompanies_(tracker);
   var byKey = {};
@@ -1992,7 +1997,7 @@ function auditTargetOutreachCoverage() {
   var eligibleAppRows = 0;
   appRows.forEach(function (app) {
     var row = match(app.company);
-    if (row && app.process !== STAGE_REJECTED && targetAuditRoleEligible_(app.role)) {
+    if (row && app.process !== STAGE_REJECTED && roleInScope(app.role)) {
       row.applications++;
       eligibleAppRows++;
     }
@@ -2003,7 +2008,7 @@ function auditTargetOutreachCoverage() {
     jobs.getRange(2, 1, jobs.getLastRow() - 1, Math.min(3, jobs.getLastColumn())).getValues()
       .forEach(function (job) {
         var row = match(job[0]);
-        if (row && targetAuditRoleEligible_(job[1])) {
+        if (row && roleInScope(job[1])) {
           row.openJobs++;
           eligibleJobRows++;
         }
@@ -2075,7 +2080,7 @@ function auditTargetOutreachCoverage() {
       && !(row.recruiter.sent || row.recruiter.queued);
   });
   return {
-    scope: {targetCompanies: targets.length, appRows: appRows.length, eligibleAppRows: eligibleAppRows,
+    scope: {summerOnly: summerOnly, targetCompanies: targets.length, appRows: appRows.length, eligibleAppRows: eligibleAppRows,
             eligibleJobRows: eligibleJobRows, eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
             missingOneOrBoth: missing.length, missingBoth: missingBoth.length,
             missingReferralOnly: missingReferralOnly.length,
@@ -2088,6 +2093,11 @@ function auditTargetOutreachCoverage() {
       return display;
     })
   };
+}
+
+/** Read-only Target coverage limited to companies with a current eligible Summer role. */
+function auditTargetSummerOutreachCoverage() {
+  return auditTargetOutreachCoverage(true);
 }
 
 /** Flatten one company so `clasp run` exposes all path counts rather than [Object]. */
@@ -2124,6 +2134,11 @@ function targetAuditRoleEligible_(role) {
   if (/\bsoftware\s+developer\b/.test(text)) return true;
   return /\bsoftware\b/.test(text) && /\b(engineer|engineering)\b/.test(text)
     && /\b(intern|internship|co[ -]?op)\b/.test(text);
+}
+
+/** The Summer-only audit gate, layered on the shared SWE role scope. */
+function targetAuditSummerRoleEligible_(role) {
+  return /\bsummer\b/i.test(String(role || '')) && targetAuditRoleEligible_(role);
 }
 
 /** Collapse direct campaign and operational queue state into sent, queued, or other. */
