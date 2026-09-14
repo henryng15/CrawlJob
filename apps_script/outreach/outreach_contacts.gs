@@ -5,7 +5,8 @@
  * tracker. Two tabs, and the split is the whole point:
  *
  *   Contacts (seed)    overwritten wholesale by the ColdEmail export
- *   Contacts (manual)  only ever typed by hand, and never touched by automation
+ *   Contacts (manual)  hand-curated and never touched by bulk export; an
+ *                      explicit user-approved source may append a bounded row
  *
  * One tab would mean a single re-export silently destroying months of contacts
  * gathered by hand. Two tabs make that impossible rather than merely unlikely.
@@ -62,7 +63,7 @@ var CAMPUS_TITLE =
  * Anything else a title might say is already carried by the company's bucket, so
  * inventing more values here would be guessing rather than reading.
  *
- * This exists for the hand-typed tab. A seed row arrives from ColdEmail with Focus
+ * This exists for the hand-curated tab. A seed row arrives from ColdEmail with Focus
  * already filled; a row typed by hand carries a title and little else, and asking
  * for a second column whose only useful value is one word is how a tab stops being
  * used. An explicit Focus still wins — the caller only falls back to this.
@@ -105,7 +106,7 @@ function outreachReadContacts_(contactsSpreadsheet) {
       var company = outreachCell_(row, C_COMPANY);
       if (!email || email.indexOf('@') === -1 || !company) return;
 
-      // The seed tab is read first, so a hand-typed duplicate of a seed contact
+      // The seed tab is read first, so a hand-curated duplicate of a seed contact
       // loses — the seed row is the one carrying an angle and a hook.
       if (byEmail[email]) return;
 
@@ -118,7 +119,7 @@ function outreachReadContacts_(contactsSpreadsheet) {
         name: outreachCell_(row, C_NAME),
         email: email,
         role: outreachCell_(row, C_ROLE),
-        // A hand-typed row carries a title and no Focus. Deriving it here rather
+        // A hand-curated row carries a title and no Focus. Deriving it here rather
         // than at compose time means the Email tab's Template column names the
         // campus subject when the row is queued, which is before the message is
         // written and while there is still time to disagree with it.
@@ -146,8 +147,8 @@ function outreachReadContacts_(contactsSpreadsheet) {
 /**
  * The industry this employer sits in, borrowed the same way the angle is.
  *
- * A hand-typed contact carries no bucket, so it inherits the one its company's
- * seed contacts already have — which is what lets a hand-typed recruiter at a
+ * A hand-curated contact carries no bucket, so it inherits the one its company's
+ * seed contacts already have — which is what lets a hand-curated recruiter at a
  * fintech still get the payments subject line rather than a generic one.
  */
 function outreachBucketFor_(companyContacts) {
@@ -169,7 +170,7 @@ function outreachContactsFor_(contacts, company) {
 /**
  * The company's opening line, borrowed from whichever contact has one.
  *
- * A hand-typed contact at a company ColdEmail has already written for inherits
+ * A hand-curated contact at a company ColdEmail has already written for inherits
  * that company's angle for free. A hand-typed contact at a company it has never
  * seen has none, and the caller sends that as a draft rather than as mail.
  */

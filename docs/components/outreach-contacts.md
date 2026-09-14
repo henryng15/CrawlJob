@@ -7,7 +7,7 @@ Contacts live in a **separate spreadsheet owned by the sending account**, never 
 | Tab | Written by |
 |---|---|
 | `Contacts (seed)` | Overwritten wholesale by the ColdEmail export |
-| `Contacts (manual)` | Only ever typed by hand, never touched by automation |
+| `Contacts (manual)` | Hand-curated and protected from bulk export. An explicit user-approved campaign may append a bounded, documented set of contacts; it never rewrites existing rows. |
 
 One tab would mean a single re-export silently destroying months of hand-gathered contacts.
 Two tabs make that impossible rather than merely unlikely.
