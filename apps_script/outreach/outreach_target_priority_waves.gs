@@ -207,12 +207,12 @@ function scheduleTargetRecruiterCampaign0918Vercel() {
   });
 }
 
-/** Schedule seven Dropbox recruiter emails on the following Monday. */
+/** Schedule seven Dropbox recruiter emails in the September 14–18 campaign week. */
 function scheduleTargetRecruiterCampaign0921Dropbox() {
   return scheduleTargetRecruiterCampaign_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
     handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
-    label: 'Dropbox', startIso: '2026-09-21T09:00:00-04:00',
+    label: 'Dropbox', startIso: '2026-09-16T12:00:00-04:00',
     spacingMinutes: 6, minGapMinutes: 5,
     companies: [{company: 'Dropbox', maxContacts: 7,
       role: 'Software Engineering Intern (Summer 2027)',
@@ -220,12 +220,12 @@ function scheduleTargetRecruiterCampaign0921Dropbox() {
   });
 }
 
-/** Schedule seven Lyft recruiter emails after the Lockheed Martin recruiter wave. */
+/** Schedule seven Lyft recruiter emails in the September 14–18 campaign week. */
 function scheduleTargetRecruiterCampaign0922Lyft() {
   return scheduleTargetRecruiterCampaign_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
     handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
-    label: 'Lyft', startIso: '2026-09-22T10:00:00-04:00',
+    label: 'Lyft', startIso: '2026-09-17T13:00:00-04:00',
     spacingMinutes: 6, minGapMinutes: 5,
     companies: [{company: 'Lyft', maxContacts: 7,
       role: 'Software Engineer Intern, Backend (Summer 2027)',
@@ -233,17 +233,29 @@ function scheduleTargetRecruiterCampaign0922Lyft() {
   });
 }
 
-/** Schedule seven Mastercard recruiter emails on September 23. */
+/** Schedule seven Mastercard recruiter emails in the September 14–18 campaign week. */
 function scheduleTargetRecruiterCampaign0923Mastercard() {
   return scheduleTargetRecruiterCampaign_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD',
     handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
-    label: 'Mastercard', startIso: '2026-09-23T09:00:00-04:00',
+    label: 'Mastercard', startIso: '2026-09-18T10:00:00-04:00',
     spacingMinutes: 6, minGapMinutes: 5,
     companies: [{company: 'Mastercard', maxContacts: 7,
       role: 'Software Engineer Intern, Summer 2027 – United States',
       jobLink: 'https://mastercard.wd1.myworkdayjobs.com/campusapplyonly/job/OFallon-Missouri/Software-Engineer-Intern--Summer-2027---United-States_R-287618?jr_id=6a889bbdd34f700f87fc97ff'}]
   });
+}
+
+/** Move the three unsent summer recruiter waves into the September 14–18 campaign week. */
+function rescheduleSummerRecruiterWavesInto0914To0918() {
+  return {
+    dropbox: rescheduleTargetRecruiterCampaign_(
+      'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX', '2026-09-16T12:00:00-04:00', 'Dropbox'),
+    lyft: rescheduleTargetRecruiterCampaign_(
+      'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT', '2026-09-17T13:00:00-04:00', 'Lyft'),
+    mastercard: rescheduleTargetRecruiterCampaign_(
+      'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD', '2026-09-18T10:00:00-04:00', 'Mastercard')
+  };
 }
 
 /** Schedule the earliest safe Walmart referral wave, excluding ambiguous Vietnamese greetings. */

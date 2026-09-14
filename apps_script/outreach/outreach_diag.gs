@@ -2970,11 +2970,11 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'],
     ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'],
     ['09/16 — Datadog', 'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG'],
+    ['09/16 — Dropbox', 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX'],
     ['09/17 — Scale AI', 'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI'],
+    ['09/17 — Lyft', 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT'],
     ['09/18 — Vercel', 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL'],
-    ['09/21 — Dropbox', 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX'],
-    ['09/22 — Lyft', 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT'],
-    ['09/23 — Mastercard', 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD'],
+    ['09/18 — Mastercard', 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD'],
     ['09/22 — Walmart', 'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART'],
     ['09/13 — Off-Target night', 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT'],
     ['09/14 — Off-Target early', 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY']
@@ -3147,6 +3147,50 @@ function scheduleTargetRecruiterCampaign_(config) {
       firstAt: Utilities.formatDate(new Date(entries[0].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
       lastAt: Utilities.formatDate(new Date(entries[entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
       trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Safely retime an entirely pending direct Target recruiter campaign. */
+function rescheduleTargetRecruiterCampaign_(propertyKey, startIso, expectedCompany) {
+  var startMs = new Date(startIso).getTime();
+  if (!isFinite(startMs) || new Date().getTime() >= startMs) {
+    throw new Error('The new recruiter campaign start time must be in the future.');
+  }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var text = props.getProperty(propertyKey);
+    if (!text) throw new Error('Recruiter campaign does not exist: ' + propertyKey);
+    var state = JSON.parse(text);
+    if (state.status !== 'scheduled') {
+      throw new Error('Only a scheduled recruiter campaign may be rescheduled.');
+    }
+    var entries = (state.entries || []).slice().sort(function (left, right) {
+      return Number(left.atMs) - Number(right.atMs);
+    });
+    if (!entries.length || entries.some(function (entry) {
+      return entry.status !== 'pending' || (expectedCompany && entry.company !== expectedCompany);
+    })) {
+      throw new Error('Campaign must contain only pending entries for ' + expectedCompany + '.');
+    }
+    var spacingMinutes = Number(state.spacingMinutes || 6);
+    entries.forEach(function (entry, index) {
+      entry.atMs = startMs + index * spacingMinutes * 60000;
+    });
+    state.entries = entries;
+    state.rescheduledAt = new Date().toISOString();
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      company: expectedCompany,
+      moved: entries.length,
+      firstAt: Utilities.formatDate(new Date(entries[0].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+      lastAt: Utilities.formatDate(new Date(entries[entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')
     };
   } finally {
     lock.releaseLock();
