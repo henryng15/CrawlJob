@@ -1976,13 +1976,24 @@ function auditTargetOutreachCoverage() {
     return !(row.referral.sent || row.referral.queued)
       || !(row.recruiter.sent || row.recruiter.queued);
   });
+  var missingBoth = missing.filter(function (row) {
+    return !(row.referral.sent || row.referral.queued)
+      && !(row.recruiter.sent || row.recruiter.queued);
+  });
+  var missingReferralOnly = missing.filter(function (row) {
+    return !(row.referral.sent || row.referral.queued)
+      && !!(row.recruiter.sent || row.recruiter.queued);
+  });
+  var missingRecruiterOnly = missing.filter(function (row) {
+    return !!(row.referral.sent || row.referral.queued)
+      && !(row.recruiter.sent || row.recruiter.queued);
+  });
   return {
     scope: {targetCompanies: targets.length, appRows: appRows.length, eligibleAppRows: eligibleAppRows,
             eligibleJobRows: eligibleJobRows, eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
-            missingOneOrBoth: missing.length,
-            missingBoth: missing.filter(function (row) {
-              return row.missingReferral && row.missingRecruiter;
-            }).length},
+            missingOneOrBoth: missing.length, missingBoth: missingBoth.length,
+            missingReferralOnly: missingReferralOnly.length,
+            missingRecruiterOnly: missingRecruiterOnly.length},
     sentOrQueued: withOutreach.map(targetAuditDisplayRow_),
     missingReferralOrRecruiter: missing.map(function (row) {
       var display = targetAuditDisplayRow_(row);
