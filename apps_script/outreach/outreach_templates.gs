@@ -41,7 +41,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If you think my background could be relevant, I\'d be grateful for any guidance on the appropriate team. I\'ve attached my resume for context.'
+        body: 'If you think my background could be relevant, I\'d be grateful for any guidance on the appropriate team. I\'ve attached my resume for context. **If there is a potential fit, I would be very grateful for the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -71,7 +71,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If my experience looks relevant, I\'d be grateful if you could point me toward the appropriate team. I\'ve attached my resume in case it\'s helpful.'
+        body: 'If my experience looks relevant, I\'d be grateful if you could point me toward the appropriate team. I\'ve attached my resume in case it\'s helpful. **If there is a fit, I would really appreciate the chance to move forward in the process.**'
       },
     ],
     closing: [
@@ -101,7 +101,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If you think there could be a fit, I\'d appreciate any guidance on the appropriate recruiting or engineering contact.'
+        body: 'If you think there could be a fit, I\'d appreciate any guidance on the appropriate recruiting or engineering contact. **I would be very grateful for the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -131,7 +131,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If my background seems relevant, I\'d really appreciate any guidance on the right team. I\'ve attached my resume in case it\'s useful.'
+        body: 'If my background seems relevant, I\'d really appreciate any guidance on the right team. I\'ve attached my resume in case it\'s useful. **If it could be a match, I would be grateful for the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -161,7 +161,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If you think my experience could align with the team\'s needs, I\'d be grateful for any guidance on the appropriate next step.'
+        body: 'If you think my experience could align with the team\'s needs, I\'d be grateful for any guidance on the appropriate next step. **I would really appreciate the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -191,7 +191,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If my background seems relevant to the role, I\'d really appreciate any guidance on the appropriate team. I\'ve attached my resume in case it\'s helpful.'
+        body: 'If my background seems relevant to the role, I\'d really appreciate any guidance on the appropriate team. I\'ve attached my resume in case it\'s helpful. **If there is a fit, I would be very grateful for the chance to move forward in the process.**'
       },
     ],
     closing: [
@@ -221,7 +221,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If you think there may be a fit, I\'d be grateful for any guidance on the best team or process to follow up with.'
+        body: 'If you think there may be a fit, I\'d be grateful for any guidance on the best team or process to follow up with. **I would truly appreciate the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -251,7 +251,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If my background seems like a potential match, I\'d appreciate any guidance on the appropriate team or next step. I\'ve attached my resume for context.'
+        body: 'If my background seems like a potential match, I\'d appreciate any guidance on the appropriate team or next step. I\'ve attached my resume for context. **I would be very grateful for the opportunity to move forward in the process.**'
       },
     ],
     closing: [
@@ -281,7 +281,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If my background seems relevant, I\'d really appreciate any guidance on the appropriate team.'
+        body: 'If my background seems relevant, I\'d really appreciate any guidance on the appropriate team. **If there is a potential fit, I would be grateful for the chance to move forward in the process.**'
       },
     ],
     closing: [
@@ -311,7 +311,7 @@ var COLD_TEMPLATES = [
       {
         heading: 'The ask:',
         bullets: [],
-        body: 'If you think my experience could be a fit, I\'d be very grateful for any guidance on the appropriate team. I\'ve attached my resume in case it\'s helpful.'
+        body: 'If you think my experience could be a fit, I\'d be very grateful for any guidance on the appropriate team. I\'ve attached my resume in case it\'s helpful. **I would really appreciate the opportunity to move forward in the process.**'
       },
     ],
     closing: [

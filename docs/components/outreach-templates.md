@@ -34,7 +34,9 @@ Two consequences worth knowing:
 Every template, in both sets: a subject, one opening paragraph, three headed sections — the first
 four bullets, the other two a short paragraph each — one or more closing paragraphs, a sign-off,
 and the shared Kenyon business-card footer. `**bold**` survives into both halves through
-`outreachBoldHtml_` / `outreachBoldPlain_`.
+`outreachBoldHtml_` / `outreachBoldPlain_`. Every cold template's final CTA now
+bolds the request for the opportunity to move forward in the process; referral
+templates remain unchanged.
 
 Only three placeholders exist: `[Name]`, `[Company]`, `[Role Name]`. The generator refuses any
 other, because a placeholder nothing fills reaches a recruiter as square brackets. Each falls back
