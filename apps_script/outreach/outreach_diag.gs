@@ -1269,6 +1269,27 @@ function scheduleTargetReferralCampaign0914Cisco() {
   });
 }
 
+/** Manual Target referral campaign for Dell's recent SWE Intern application. */
+function scheduleTargetReferralCampaign0914Dell() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
+    handler: 'runTargetReferralCampaignTick0914Dell_',
+    startIso: '2026-09-14T12:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    vietnameseOverridesByName: {
+      // The owner approved this exact greeting in the cancelled 09/11 Dell ask.
+      'Hai La': {name: 'Hai', title: 'anh', variant: 2}
+    },
+    companies: [{
+      company: 'Dell Technologies',
+      maxContacts: 10,
+      role: 'Software Engineer Intern - Client Solutions Group Engineering',
+      jobLink: 'https://iawmqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/careers/job/298217?utm_source=Simplify&ref=Simplify'
+    }]
+  });
+}
+
 /**
  * Owner-approved Lyft referrals for 2026-09-11: two selected seed contacts and
  * one supplied external contact. The schedule starts five minutes after setup
@@ -1613,6 +1634,14 @@ function runTargetReferralCampaignTick0914Cisco_() {
   });
 }
 
+/** Send one due Dell Target referral entry on 2026-09-14. */
+function runTargetReferralCampaignTick0914Dell_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
+    handler: 'runTargetReferralCampaignTick0914Dell_'
+  });
+}
+
 /** Send one due owner-approved Lyft referral entry. */
 function runTargetReferralCampaignTick0911Lyft_() {
   return runTargetReferralCampaignTickFor_({
@@ -1713,6 +1742,9 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
     'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
     'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
+    'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
@@ -2055,7 +2087,8 @@ function diagnoseTargetReferralCampaigns() {
     ['Whatnot', 'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT'],
     ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'],
     ['Lyft', 'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'],
-    ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO']
+    ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'],
+    ['Dell Technologies', 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2382,6 +2415,47 @@ function scheduleTargetRecruiterCampaign0915Cisco() {
   });
 }
 
+/** Manual Target cold-email campaign for older untouched SWE Intern applications. */
+function scheduleTargetRecruiterCampaign0916IntelAtlassian() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
+    handler: 'runTargetRecruiterCampaignTick0916IntelAtlassian_',
+    label: 'Intel, Atlassian',
+    startIso: '2026-09-16T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [
+      {
+        company: 'Intel', maxContacts: 7,
+        role: 'Software Engineering - Intern, Bachelor’s',
+        jobLink: 'https://jobright.ai/jobs/info/6a984018def18223c854e3ec?utm_campaign=1079&utm_source=git'
+      },
+      {
+        company: 'Atlassian', maxContacts: 7,
+        role: 'Software Engineer Intern, 2027 Summer U.S',
+        jobLink: 'https://careers-americas.icims.com/jobs/26266/software-engineer-intern%2c-2027-summer-u.s./job?jr_id=6a970d90e4e60e4b8da5bcb8&mobile=false&width=1413&height=500&bga=true&needsRedirect=false&jan1offset=-300&jun1offset=-240'
+      }
+    ]
+  });
+}
+
+/** Manual Target cold-email campaign three days after Dell's referral asks. */
+function scheduleTargetRecruiterCampaign0917Dell() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
+    handler: 'runTargetRecruiterCampaignTick0917Dell_',
+    label: 'Dell Technologies',
+    startIso: '2026-09-17T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Dell Technologies', maxContacts: 7,
+      role: 'Software Engineer Intern - Client Solutions Group Engineering',
+      jobLink: 'https://iawmqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/careers/job/298217?utm_source=Simplify&ref=Simplify'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -2496,7 +2570,9 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/14 — Stripe', 'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE'],
     ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'],
     ['09/14 — Motorola Solutions', 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'],
-    ['09/15 — Cisco', 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO']
+    ['09/15 — Cisco', 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'],
+    ['09/16 — Intel + Atlassian', 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'],
+    ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2759,6 +2835,22 @@ function runTargetRecruiterCampaignTick0915Cisco_() {
   });
 }
 
+/** Send one due Intel/Atlassian Target recruiter entry on 2026-09-16. */
+function runTargetRecruiterCampaignTick0916IntelAtlassian_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
+    handler: 'runTargetRecruiterCampaignTick0916IntelAtlassian_'
+  });
+}
+
+/** Send one due Dell Target recruiter entry on 2026-09-17. */
+function runTargetRecruiterCampaignTick0917Dell_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
+    handler: 'runTargetRecruiterCampaignTick0917Dell_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -2934,7 +3026,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
     'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
-    'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'
+    'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_DELL'
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
@@ -2945,7 +3038,9 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
     'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
-    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'
+    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
