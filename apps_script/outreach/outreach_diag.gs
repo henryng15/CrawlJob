@@ -1882,6 +1882,144 @@ function diagnoseCompanyAvailability(company) {
   };
 }
 
+/**
+ * Read-only coverage audit for Target companies that still have an eligible,
+ * non-rejected application or an eligible current Jobs posting. Direct Target
+ * campaign state is deduplicated against the operational Referral history.
+ */
+function auditTargetOutreachCoverage() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var targets = targetAuditTargetCompanies_(tracker);
+  var byKey = {};
+  targets.forEach(function (target) {
+    byKey[target.key] = {
+      company: target.company, group: target.group,
+      applications: 0, openJobs: 0,
+      referral: {sent: 0, queued: 0, other: 0},
+      recruiter: {sent: 0, queued: 0, other: 0}
+    };
+  });
+  var match = function (company) {
+    var tokens = outreachCompanyTokens_(company);
+    var keys = Object.keys(byKey).filter(function (key) {
+      return outreachSameEmployer_(tokens, outreachCompanyTokens_(byKey[key].company));
+    });
+    return keys.length ? byKey[keys[0]] : null;
+  };
+  targetMirrorApplications_(tracker).forEach(function (app) {
+    var row = match(app.company);
+    if (row && app.process !== STAGE_REJECTED && targetAuditRoleEligible_(app.role)) row.applications++;
+  });
+  var jobs = tracker.getSheetByName('Jobs');
+  if (jobs && jobs.getLastRow() >= 2) {
+    jobs.getRange(2, 1, jobs.getLastRow() - 1, Math.min(3, jobs.getLastColumn())).getValues()
+      .forEach(function (job) {
+        var row = match(job[0]);
+        if (row && targetAuditRoleEligible_(job[1])) row.openJobs++;
+      });
+  }
+
+  var directReferral = {};
+  Object.keys(PropertiesService.getScriptProperties().getProperties()).forEach(function (key) {
+    if (key.indexOf('TARGET_REFERRAL_CAMPAIGN_') !== 0
+        && key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0
+        && key !== 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909') return;
+    var text = PropertiesService.getScriptProperties().getProperty(key);
+    var state;
+    try { state = JSON.parse(text); } catch (ignored) { return; }
+    (state.entries || []).forEach(function (entry) {
+      var company = entry.company || (key === 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909' ? 'Microsoft' : '');
+      var row = match(company);
+      if (!row || !targetAuditRoleEligible_(entry.role || 'Software Engineer Intern')) return;
+      var path = key.indexOf('TARGET_REFERRAL_CAMPAIGN_') === 0 ? 'referral' : 'recruiter';
+      targetAuditAddState_(row[path], entry.status);
+      if (path === 'referral' && entry.email) {
+        directReferral[String(company).toLowerCase() + '|' + String(entry.email).toLowerCase()] = true;
+      }
+    });
+  });
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (referral) {
+    outreachReadReferralRows_(referral).forEach(function (entry) {
+      var row = match(entry.company);
+      if (!row || !targetAuditRoleEligible_(entry.role)) return;
+      var key = String(entry.company).toLowerCase() + '|' + String(entry.email || '').toLowerCase();
+      if (entry.email && directReferral[key]) return;
+      targetAuditAddState_(row.referral, entry.status);
+    });
+  }
+  var email = tracker.getSheetByName(TAB_QUEUE);
+  if (email && email.getLastRow() >= 2) {
+    email.getRange(2, 1, email.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (values, index) { return outreachParseQueue_(values, index + 2); })
+      .forEach(function (entry) {
+        var row = match(entry.company);
+        if (row && targetAuditRoleEligible_(entry.role)) targetAuditAddState_(row.recruiter, entry.status);
+      });
+  }
+  var active = Object.keys(byKey).map(function (key) { return byKey[key]; })
+    .filter(function (row) { return row.applications || row.openJobs; })
+    .sort(function (left, right) { return left.company.localeCompare(right.company); });
+  var withOutreach = active.filter(function (row) {
+    return row.referral.sent || row.referral.queued || row.recruiter.sent || row.recruiter.queued;
+  });
+  var missing = active.filter(function (row) {
+    return !(row.referral.sent || row.referral.queued)
+      || !(row.recruiter.sent || row.recruiter.queued);
+  }).map(function (row) {
+    return {
+      company: row.company, group: row.group, applications: row.applications, openJobs: row.openJobs,
+      missingReferral: !(row.referral.sent || row.referral.queued),
+      missingRecruiter: !(row.recruiter.sent || row.recruiter.queued),
+      referral: row.referral, recruiter: row.recruiter
+    };
+  });
+  return {
+    scope: {eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
+            missingOneOrBoth: missing.length,
+            missingBoth: missing.filter(function (row) {
+              return row.missingReferral && row.missingRecruiter;
+            }).length},
+    sentOrQueued: withOutreach,
+    missingReferralOrRecruiter: missing
+  };
+}
+
+/** Target company names and P0–P3 group read from the visible four-block tab. */
+function targetAuditTargetCompanies_(tracker) {
+  var sheet = tracker.getSheetByName('Target');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, REFERRAL_TARGET_READ_WIDTH).getValues();
+  var found = {};
+  values.forEach(function (row) {
+    REFERRAL_TARGET_BLOCK_COLS.forEach(function (column, index) {
+      var company = outreachCell_(row, column);
+      var tokens = outreachCompanyTokens_(company);
+      if (!tokens.length) return;
+      var key = tokens.join('\u0000');
+      if (!found[key]) found[key] = {company: company, group: 'P' + String(index), key: key};
+    });
+  });
+  return Object.keys(found).map(function (key) { return found[key]; });
+}
+
+/** The user-approved SWE intern/co-op/software-developer scope, excluding design and embedded. */
+function targetAuditRoleEligible_(role) {
+  var text = String(role || '').toLowerCase();
+  if (/\b(design|embedded)\b/.test(text)) return false;
+  if (/\bsoftware\s+developer\b/.test(text)) return true;
+  return /\bsoftware\b/.test(text) && /\b(engineer|engineering)\b/.test(text)
+    && /\b(intern|internship|co[ -]?op)\b/.test(text);
+}
+
+/** Collapse direct campaign and operational queue state into sent, queued, or other. */
+function targetAuditAddState_(bucket, status) {
+  var state = String(status || '').toLowerCase();
+  if (state === 'sent' || state === 'already-sent' || state === 'replied' || state === 'bounced') bucket.sent++;
+  else if (state === 'pending' || state === 'queued' || state === 'drafted') bucket.queued++;
+  else if (state) bucket.other++;
+}
+
 /** Preview the exact unsent people a direct Target referral campaign would select. */
 function diagnoseTargetReferralCandidates(company, maxContacts) {
   var wanted = String(company || '').trim();
