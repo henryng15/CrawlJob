@@ -1390,9 +1390,15 @@ function scheduleTargetReferralCampaign0911Lyft() {
         atMs: startMs + index * 10 * 60000, status: 'pending'
       };
     });
-    ScriptApp.getProjectTriggers().forEach(function (trigger) {
-      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
-    });
+    if (!config.reuseExistingTrigger) {
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+      });
+    } else if (!ScriptApp.getProjectTriggers().some(function (trigger) {
+      return trigger.getHandlerFunction() === handler;
+    })) {
+      throw new Error('The shared Target recruiter trigger is not installed.');
+    }
     var state = {
       status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
       lastSentAtMs: 0, spacingMinutes: 10, minGapMinutes: 9, entries: entries, skipped: []
@@ -1576,11 +1582,13 @@ function scheduleTargetReferralCampaign_(config) {
       entries: entries, skipped: skipped
     };
     props.setProperty(propertyKey, JSON.stringify(state));
-    try {
-      ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
-    } catch (error) {
-      props.deleteProperty(propertyKey);
-      throw error;
+    if (!config.reuseExistingTrigger) {
+      try {
+        ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
+      } catch (error) {
+        props.deleteProperty(propertyKey);
+        throw error;
+      }
     }
     try { refreshTargetQueueTabs_(); }
     catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
@@ -1780,7 +1788,13 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
     'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
     'TARGET_REFERRAL_CAMPAIGN_20260915_LOCKHEED_MARTIN',
-    'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN'
+    'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
+    'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL',
+    'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
+    'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -2953,6 +2967,12 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/16 — Notion', 'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION'],
     ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'],
     ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'],
+    ['09/16 — Datadog', 'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG'],
+    ['09/17 — Scale AI', 'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI'],
+    ['09/18 — Vercel', 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL'],
+    ['09/21 — Dropbox', 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX'],
+    ['09/22 — Lyft', 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT'],
+    ['09/23 — Mastercard', 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD'],
     ['09/13 — Off-Target night', 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT'],
     ['09/14 — Off-Target early', 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY']
   ].map(function (spec) {
@@ -3295,9 +3315,11 @@ function runTargetRecruiterCampaignTickFor_(config) {
         if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
           state.status = 'complete';
           state.completedAt = new Date().toISOString();
-          ScriptApp.getProjectTriggers().forEach(function (trigger) {
-            if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
-          });
+          if (!config.keepTrigger) {
+            ScriptApp.getProjectTriggers().forEach(function (trigger) {
+              if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+            });
+          }
         }
         props.setProperty(propertyKey, JSON.stringify(state));
         try { refreshTargetQueueTabs_(); }
@@ -3331,9 +3353,11 @@ function runTargetRecruiterCampaignTickFor_(config) {
     if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
       state.status = 'complete';
       state.completedAt = new Date().toISOString();
-      ScriptApp.getProjectTriggers().forEach(function (trigger) {
-        if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
-      });
+      if (!config.keepTrigger) {
+        ScriptApp.getProjectTriggers().forEach(function (trigger) {
+          if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+        });
+      }
     }
     props.setProperty(propertyKey, JSON.stringify(state));
     try { refreshTargetQueueTabs_(); }
@@ -3364,6 +3388,60 @@ function runTargetRecruiterCampaignTickFor_(config) {
       } catch (ignored) {}
     }
     throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** One minute trigger that routes the earliest due direct Target recruiter email. */
+function runTargetRecruiterSharedTick_() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var earliest = null;
+  Object.keys(props).forEach(function (key) {
+    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0) return;
+    var state;
+    try { state = JSON.parse(props[key]); } catch (ignored) { return; }
+    if (state.status !== 'scheduled') return;
+    var due = (state.entries || []).filter(function (entry) {
+      return entry.status === 'pending' && Number(entry.atMs || 0) <= new Date().getTime();
+    }).sort(function (left, right) { return Number(left.atMs) - Number(right.atMs); })[0];
+    if (due && (!earliest || Number(due.atMs) < Number(earliest.atMs))) {
+      earliest = {key: key, atMs: due.atMs};
+    }
+  });
+  if (!earliest) return {skipped: true, reason: 'nothing due'};
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: earliest.key, handler: 'runTargetRecruiterSharedTick_', keepTrigger: true
+  });
+}
+
+/** Consolidate individual direct-Target recruiter triggers into one safe router. */
+function consolidateTargetRecruiterCampaignTriggers() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties();
+    var scheduled = Object.keys(props).filter(function (key) {
+      if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0) return false;
+      try { return JSON.parse(props[key]).status === 'scheduled'; }
+      catch (ignored) { return false; }
+    });
+    var deleted = [];
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      var handler = trigger.getHandlerFunction();
+      if (/^runTargetRecruiterCampaignTick.*_$/.test(handler)) {
+        ScriptApp.deleteTrigger(trigger);
+        deleted.push(handler);
+      }
+    });
+    var hasShared = ScriptApp.getProjectTriggers().some(function (trigger) {
+      return trigger.getHandlerFunction() === 'runTargetRecruiterSharedTick_';
+    });
+    if (scheduled.length && !hasShared) {
+      ScriptApp.newTrigger('runTargetRecruiterSharedTick_').timeBased().everyMinutes(1).create();
+    }
+    return {scheduledCampaigns: scheduled.length, deletedTriggers: deleted.length,
+            sharedInstalled: scheduled.length > 0};
   } finally {
     lock.releaseLock();
   }
@@ -3445,6 +3523,14 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
     'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
+    'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL',
+    'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
+    'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD',
     'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
     'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY'
   ];

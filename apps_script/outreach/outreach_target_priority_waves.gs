@@ -168,6 +168,84 @@ function scheduleTargetRecruiterCampaign0922LockheedMartin() {
   });
 }
 
+/** Schedule seven Datadog recruiter emails after the existing September 16 waves. */
+function scheduleTargetRecruiterCampaign0916Datadog() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG',
+    handler: 'runTargetRecruiterCampaignTick0916Datadog_',
+    label: 'Datadog', startIso: '2026-09-16T11:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Datadog', maxContacts: 7,
+      role: 'Software Engineering Intern (Summer)',
+      jobLink: 'https://careers.datadoghq.com/detail/8052118/?gh_jid=8052118'}]
+  });
+}
+
+/** Schedule seven Scale AI recruiter emails after the existing September 17 waves. */
+function scheduleTargetRecruiterCampaign0917ScaleAi() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Scale AI', startIso: '2026-09-17T12:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Scale AI', maxContacts: 7,
+      role: 'Software Engineering Intern (Summer 2027)',
+      jobLink: 'https://job-boards.greenhouse.io/scaleai/jobs/4730845005/'}]
+  });
+}
+
+/** Schedule seven Vercel recruiter emails on the next available weekday. */
+function scheduleTargetRecruiterCampaign0918Vercel() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Vercel', startIso: '2026-09-18T09:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Vercel', maxContacts: 7,
+      role: 'Software Engineering Intern - Summer 27',
+      jobLink: 'https://job-boards.greenhouse.io/vercel/jobs/6181759004?gh_src=Simplify'}]
+  });
+}
+
+/** Schedule seven Dropbox recruiter emails on the following Monday. */
+function scheduleTargetRecruiterCampaign0921Dropbox() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Dropbox', startIso: '2026-09-21T09:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Dropbox', maxContacts: 7,
+      role: 'Software Engineering Intern (Summer 2027)',
+      jobLink: 'https://www.dropbox.jobs/en/jobs/apply/?id=8106224'}]
+  });
+}
+
+/** Schedule seven Lyft recruiter emails after the Lockheed Martin recruiter wave. */
+function scheduleTargetRecruiterCampaign0922Lyft() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Lyft', startIso: '2026-09-22T10:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Lyft', maxContacts: 7,
+      role: 'Software Engineer Intern, Backend (Summer 2027)',
+      jobLink: 'https://app.careerpuck.com/job-board/lyft/job/8767726002?gh_jid=8767726002'}]
+  });
+}
+
+/** Schedule seven Mastercard recruiter emails on September 23. */
+function scheduleTargetRecruiterCampaign0923Mastercard() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Mastercard', startIso: '2026-09-23T09:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Mastercard', maxContacts: 7,
+      role: 'Software Engineer Intern, Summer 2027 – United States',
+      jobLink: 'https://mastercard.wd1.myworkdayjobs.com/campusapplyonly/job/OFallon-Missouri/Software-Engineer-Intern--Summer-2027---United-States_R-287618?jr_id=6a889bbdd34f700f87fc97ff'}]
+  });
+}
+
 /** Direct Target delivery tick for the 2026-09-15 Lyft referral campaign. */
 function runTargetReferralCampaignTick0915Lyft_() {
   return runTargetReferralCampaignTickFor_({
@@ -214,4 +292,34 @@ function runTargetRecruiterCampaignTick0922LockheedMartin_() {
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
     handler: 'runTargetRecruiterCampaignTick0922LockheedMartin_'
   });
+}
+
+/** Direct Target delivery tick for the 2026-09-16 Datadog recruiter campaign. */
+function runTargetRecruiterCampaignTick0916Datadog_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG', handler: 'runTargetRecruiterCampaignTick0916Datadog_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-17 Scale AI recruiter campaign. */
+function runTargetRecruiterCampaignTick0917ScaleAi_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI', handler: 'runTargetRecruiterCampaignTick0917ScaleAi_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-18 Vercel recruiter campaign. */
+function runTargetRecruiterCampaignTick0918Vercel_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL', handler: 'runTargetRecruiterCampaignTick0918Vercel_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-21 Dropbox recruiter campaign. */
+function runTargetRecruiterCampaignTick0921Dropbox_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX', handler: 'runTargetRecruiterCampaignTick0921Dropbox_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-22 Lyft recruiter campaign. */
+function runTargetRecruiterCampaignTick0922Lyft_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT', handler: 'runTargetRecruiterCampaignTick0922Lyft_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-23 Mastercard recruiter campaign. */
+function runTargetRecruiterCampaignTick0923Mastercard_() {
+  return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD', handler: 'runTargetRecruiterCampaignTick0923Mastercard_'});
 }
