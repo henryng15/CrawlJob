@@ -24,6 +24,18 @@ Each has a matching every-minute tick wrapper, `runOffTargetRecruiterCampaignTic
 `runOffTargetRecruiterCampaignTick0914Early_`, which delegate to
 `runTargetRecruiterCampaignTickFor_`.
 
+`migrateOffTargetRecruiterCampaignsToEmail()` is the one-time exit path for these
+direct waves. It keeps the selected recipients, verifies their App state, contact availability,
+sent-mail history and Advanced Gmail rejection state, appends ordinary `Queued` rows to `Email`,
+then deletes both direct triggers and campaign properties. It balances the regular cold templates
+and uses the normal queue's weekday cap and send hours from that point onward. A matching Gmail
+rejection is blocked and reported while every other fully valid entry proceeds; a sent, changed,
+Target-listed, missing or already-committed entry aborts the migration before it changes either
+direct campaign.
+
+`diagnoseOffTargetMigrationToEmail()` is a read-only count by normal-queue status and scheduled
+calendar day. It returns no recruiter names or addresses.
+
 ## How the employers were chosen
 
 Every employer satisfies all of: an application already in `App`, not on the `Target` shortlist,
@@ -57,3 +69,7 @@ these two functions must never be wired to a scheduler: nothing else would stop 
 
 The per-entry Gmail rejection preflight still runs immediately before each `sendEmail`, and a
 blocked entry is recorded as cancelled with its reason rather than sent.
+
+After `migrateOffTargetRecruiterCampaignsToEmail()` succeeds, neither direct wave remains in
+`Email_target`; the operational `Email` rows are the sole send instructions and are handled by the
+ordinary cold queue.

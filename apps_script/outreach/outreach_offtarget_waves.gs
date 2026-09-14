@@ -181,3 +181,141 @@ function runOffTargetRecruiterCampaignTick0914Early_() {
     handler: 'runOffTargetRecruiterCampaignTick0914Early_'
   });
 }
+
+/**
+ * Move the two off-Target direct waves into the operational Email queue.
+ *
+ * This is a one-time migration, not a second scheduler. It preserves the exact
+ * recruiter selected for each company, checks the live App and Gmail-rejection
+ * state before writing anything, then removes both direct-send triggers and
+ * campaign properties. The ordinary cold queue owns all later drafting, sending
+ * and scheduling under its weekday cap.
+ */
+function migrateOffTargetRecruiterCampaignsToEmail() {
+  var campaigns = [
+    {propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
+     handler: 'runOffTargetRecruiterCampaignTick0913Night_', idPrefix: 'NIGHT'},
+    {propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY',
+     handler: 'runOffTargetRecruiterCampaignTick0914Early_', idPrefix: 'EARLY'}
+  ];
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var states = campaigns.map(function (campaign) {
+      var text = props.getProperty(campaign.propertyKey);
+      if (!text) throw new Error('Missing direct campaign ' + campaign.propertyKey + '.');
+      var state = JSON.parse(text);
+      if (state.status !== 'scheduled') {
+        throw new Error(campaign.propertyKey + ' is ' + state.status + ', not safely migratable.');
+      }
+      if ((state.entries || []).some(function (entry) { return entry.status !== 'pending'; })) {
+        throw new Error(campaign.propertyKey + ' already has a non-pending entry.');
+      }
+      return {campaign: campaign, state: state};
+    });
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+    var apps = targetMirrorApplications_(tracker);
+    var contacts = outreachReadContacts_(contactsBook);
+    var salt = outreachProperty_(PROP_SALT, true);
+    var targetCompanies = outreachColdTargetCompanies_(tracker);
+    if (!targetCompanies) throw new Error('Target tab could not be read.');
+    var queueRows = queue.getLastRow() < 2 ? []
+      : queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+        .map(function (row, index) { return outreachParseQueue_(row, index); });
+    var usedIds = {}, spent = {};
+    queueRows.forEach(function (row) {
+      if (row.id) usedIds[row.id] = true;
+      if (row.fingerprint && STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) {
+        spent[row.fingerprint] = true;
+      }
+    });
+    var rejectionCandidates = outreachGmailApiRejectionCandidates_();
+    var entries = [], blocked = [];
+    states.forEach(function (item) {
+      item.state.entries.forEach(function (entry, index) {
+        var app = targetMirrorApplicationFor_(apps, entry);
+        var id = 'OFFTARGET-EMAIL-' + item.campaign.idPrefix + '-' + (index + 1);
+        if (usedIds[id]) throw new Error('Migration queue row already exists: ' + id + '.');
+        if (!app) throw new Error('No App row for ' + entry.company + '.');
+        var qualification = outreachStillQualifies_(app);
+        if (!qualification.ok) throw new Error(entry.company + ': ' + qualification.why + '.');
+        if (outreachCompanyOnTarget_(entry.company, targetCompanies)) {
+          throw new Error(entry.company + ' is in Target and cannot enter Email.');
+        }
+        var companyContacts = outreachContactsFor_(contacts, entry.company);
+        var contact = companyContacts.filter(function (person) {
+          return String(person.email || '').toLowerCase() === String(entry.email || '').toLowerCase();
+        })[0];
+        if (!contact || contact.sent) throw new Error(entry.company + ' no longer has its selected contact.');
+        if (GmailApp.search('from:me to:' + entry.email, 0, 1).length) {
+          throw new Error(entry.company + ' already has sent mail to its selected contact.');
+        }
+        var rejection = outreachGmailApiRejectedTarget_(entry, rejectionCandidates);
+        if (rejection.rejected) {
+          blocked.push({company: entry.company,
+                        reason: 'matching Gmail rejection: ' + rejection.why});
+          return;
+        }
+        var fingerprint = outreachFingerprint_(entry.email, salt, outreachSeason_(app.role));
+        if (spent[fingerprint]) throw new Error(entry.company + ' contact is already committed in Email.');
+        spent[fingerprint] = true;
+        entries.push({id: id, app: app, entry: entry, contacts: companyContacts,
+                      fingerprint: fingerprint});
+      });
+    });
+    var templateLoad = outreachColdTemplateLoad_(queueRows);
+    var values = entries.map(function (item) {
+      var template = outreachColdTemplateFor_(templateLoad);
+      templateLoad[template] = (templateLoad[template] || 0) + 1;
+      return outreachQueueRowValues_({
+        id: item.id, property: item.app.property, company: item.entry.company,
+        role: item.app.role, dateApplied: item.app.dateApplied,
+        recruiters: item.contacts.length, attempt: 1, template: template,
+        status: STATUS_QUEUED, mode: outreachAngleFor_(item.contacts) ? MODE_SEND : MODE_DRAFT,
+        fingerprint: item.fingerprint,
+        result: 'Migrated from direct off-Target campaign before send.'
+      });
+    });
+    if (values.length) {
+      queue.getRange(queue.getLastRow() + 1, 1, values.length, Q_WIDTH).setValues(values);
+      outreachRepairQueueLayout_(queue);
+      refreshOutreachSchedule();
+      outreachSortQueueByTime_(queue);
+    }
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      campaigns.forEach(function (campaign) {
+        if (trigger.getHandlerFunction() === campaign.handler) ScriptApp.deleteTrigger(trigger);
+      });
+    });
+    campaigns.forEach(function (campaign) { props.deleteProperty(campaign.propertyKey); });
+    refreshTargetQueueTabs_();
+    return {migrated: values.length, queued: values.length, blocked: blocked,
+            directCampaignsCancelled: campaigns.length};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Read-only confirmation of the off-Target rows now owned by the Email queue. */
+function diagnoseOffTargetMigrationToEmail() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue || queue.getLastRow() < 2) return {total: 0, byStatus: {}, bySchedule: {}};
+  var byStatus = {}, bySchedule = {};
+  queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+    .map(function (row, index) { return outreachParseQueue_(row, index); })
+    .filter(function (row) { return /^OFFTARGET-EMAIL-/.test(row.id || ''); })
+    .forEach(function (row) {
+      byStatus[row.status || 'blank'] = (byStatus[row.status || 'blank'] || 0) + 1;
+      var day = row.scheduledAt
+        ? Utilities.formatDate(row.scheduledAt, 'America/New_York', 'yyyy-MM-dd')
+        : 'unscheduled';
+      bySchedule[day] = (bySchedule[day] || 0) + 1;
+    });
+  var total = Object.keys(byStatus).reduce(function (sum, status) { return sum + byStatus[status]; }, 0);
+  return {total: total, byStatus: byStatus, bySchedule: bySchedule};
+}
