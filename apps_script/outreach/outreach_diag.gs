@@ -1742,6 +1742,7 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
     'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
     'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
     'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
@@ -2415,6 +2416,36 @@ function scheduleTargetRecruiterCampaign0915Cisco() {
   });
 }
 
+/** Manual Target cold-email campaign for three older active SWE Intern applications. */
+function scheduleTargetRecruiterCampaign0915HpIntuitOracle() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
+    handler: 'runTargetRecruiterCampaignTick0915HpIntuitOracle_',
+    label: 'HP, Intuit, Oracle',
+    // Starts after the existing 09:00–09:54 Cisco wave, preserving the five-minute gap.
+    startIso: '2026-09-15T10:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [
+      {
+        company: 'HP', maxContacts: 7,
+        role: 'Software Engineering Intern, Connectivity (Summer 2027)',
+        jobLink: 'https://job-boards.greenhouse.io/hpiq/jobs/6176783004'
+      },
+      {
+        company: 'Intuit', maxContacts: 7,
+        role: 'Summer 2027: Software Engineering Intern - Full Stack',
+        jobLink: 'https://jobs.intuit.com/job/mountain-view/summer-2027-software-engineering-intern-full-stack/27595/99856180864?cid=directBookmarked_directBookmarked'
+      },
+      {
+        company: 'Oracle', maxContacts: 7,
+        role: 'OCI Software Engineer Intern - OVIP',
+        jobLink: 'https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/jobsearch/job/334333?jr_id=6a367d27649fdf16292fbc7a'
+      }
+    ]
+  });
+}
+
 /** Manual Target cold-email campaign for older untouched SWE Intern applications. */
 function scheduleTargetRecruiterCampaign0916IntelAtlassian() {
   return scheduleTargetRecruiterCampaign_({
@@ -2571,6 +2602,7 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/14 — Whatnot', 'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT'],
     ['09/14 — Motorola Solutions', 'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS'],
     ['09/15 — Cisco', 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'],
+    ['09/15 — HP + Intuit + Oracle', 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE'],
     ['09/16 — Intel + Atlassian', 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'],
     ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL']
   ].map(function (spec) {
@@ -2835,6 +2867,14 @@ function runTargetRecruiterCampaignTick0915Cisco_() {
   });
 }
 
+/** Send one due HP/Intuit/Oracle Target recruiter entry on 2026-09-15. */
+function runTargetRecruiterCampaignTick0915HpIntuitOracle_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
+    handler: 'runTargetRecruiterCampaignTick0915HpIntuitOracle_'
+  });
+}
+
 /** Send one due Intel/Atlassian Target recruiter entry on 2026-09-16. */
 function runTargetRecruiterCampaignTick0916IntelAtlassian_() {
   return runTargetRecruiterCampaignTickFor_({
@@ -3039,6 +3079,7 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
     'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
     'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
+    'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'
   ];
