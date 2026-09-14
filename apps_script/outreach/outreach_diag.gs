@@ -1966,13 +1966,6 @@ function auditTargetOutreachCoverage() {
   var missing = active.filter(function (row) {
     return !(row.referral.sent || row.referral.queued)
       || !(row.recruiter.sent || row.recruiter.queued);
-  }).map(function (row) {
-    return {
-      company: row.company, group: row.group, applications: row.applications, openJobs: row.openJobs,
-      missingReferral: !(row.referral.sent || row.referral.queued),
-      missingRecruiter: !(row.recruiter.sent || row.recruiter.queued),
-      referral: row.referral, recruiter: row.recruiter
-    };
   });
   return {
     scope: {eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
@@ -1980,8 +1973,22 @@ function auditTargetOutreachCoverage() {
             missingBoth: missing.filter(function (row) {
               return row.missingReferral && row.missingRecruiter;
             }).length},
-    sentOrQueued: withOutreach,
-    missingReferralOrRecruiter: missing
+    sentOrQueued: withOutreach.map(targetAuditDisplayRow_),
+    missingReferralOrRecruiter: missing.map(function (row) {
+      var display = targetAuditDisplayRow_(row);
+      display.missingReferral = !(row.referral.sent || row.referral.queued);
+      display.missingRecruiter = !(row.recruiter.sent || row.recruiter.queued);
+      return display;
+    })
+  };
+}
+
+/** Flatten one company so `clasp run` exposes all path counts rather than [Object]. */
+function targetAuditDisplayRow_(row) {
+  return {
+    company: row.company, group: row.group, applications: row.applications, openJobs: row.openJobs,
+    referralSent: row.referral.sent, referralQueued: row.referral.queued, referralOther: row.referral.other,
+    recruiterSent: row.recruiter.sent, recruiterQueued: row.recruiter.queued, recruiterOther: row.recruiter.other
   };
 }
 
