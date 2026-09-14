@@ -1906,16 +1906,25 @@ function auditTargetOutreachCoverage() {
     });
     return keys.length ? byKey[keys[0]] : null;
   };
-  targetMirrorApplications_(tracker).forEach(function (app) {
+  var appRows = targetMirrorApplications_(tracker);
+  var eligibleAppRows = 0;
+  appRows.forEach(function (app) {
     var row = match(app.company);
-    if (row && app.process !== STAGE_REJECTED && targetAuditRoleEligible_(app.role)) row.applications++;
+    if (row && app.process !== STAGE_REJECTED && targetAuditRoleEligible_(app.role)) {
+      row.applications++;
+      eligibleAppRows++;
+    }
   });
   var jobs = tracker.getSheetByName('Jobs');
+  var eligibleJobRows = 0;
   if (jobs && jobs.getLastRow() >= 2) {
     jobs.getRange(2, 1, jobs.getLastRow() - 1, Math.min(3, jobs.getLastColumn())).getValues()
       .forEach(function (job) {
         var row = match(job[0]);
-        if (row && targetAuditRoleEligible_(job[1])) row.openJobs++;
+        if (row && targetAuditRoleEligible_(job[1])) {
+          row.openJobs++;
+          eligibleJobRows++;
+        }
       });
   }
 
@@ -1968,7 +1977,8 @@ function auditTargetOutreachCoverage() {
       || !(row.recruiter.sent || row.recruiter.queued);
   });
   return {
-    scope: {eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
+    scope: {targetCompanies: targets.length, appRows: appRows.length, eligibleAppRows: eligibleAppRows,
+            eligibleJobRows: eligibleJobRows, eligibleTargetCompanies: active.length, withOutreach: withOutreach.length,
             missingOneOrBoth: missing.length,
             missingBoth: missing.filter(function (row) {
               return row.missingReferral && row.missingRecruiter;
