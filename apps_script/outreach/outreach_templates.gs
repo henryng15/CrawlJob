@@ -20,7 +20,7 @@
 // From henry_cold_email_templates_10.md.
 var COLD_TEMPLATES = [
   {   // 1
-    subject: 'Student SWE who handled 500 concurrent requests with no overbooking',
+    subject: 'SWE student who handled 500 concurrent requests',
     opening: 'I came across your profile while looking into [Company]\'s early-career engineering hiring, and thought you might be a helpful person to contact.',
     sections: [
       {
@@ -50,7 +50,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 2
-    subject: 'Student SWE who cut analyst research from 30 minutes to 1',
+    subject: 'SWE student who cut research from 30 minutes to 1',
     opening: 'I found your profile while looking into [Company]\'s student engineering hiring, so I wanted to introduce myself directly.',
     sections: [
       {
@@ -80,7 +80,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry'
   },
   {   // 3
-    subject: 'Kenyon SWE student building across MCP, AWS, and Kubernetes',
+    subject: 'Kenyon SWE student: MCP, AWS, and Kubernetes',
     opening: 'I came across your profile while researching [Company]\'s engineering opportunities and thought I\'d reach out directly.',
     sections: [
       {
@@ -110,7 +110,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 4
-    subject: 'Student engineer who caught 340K malformed records before downstream analysis',
+    subject: 'SWE student who caught 340K bad records',
     opening: 'I was looking into [Company]\'s early-career SWE hiring and came across your profile, so I thought I\'d introduce myself.',
     sections: [
       {
@@ -140,7 +140,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry'
   },
   {   // 5
-    subject: 'Student SWE building reliable backend systems under real concurrency',
+    subject: 'SWE student building reliable backend systems',
     opening: 'I found your profile while looking into [Company]\'s engineering hiring and thought you might be able to point me in the right direction.',
     sections: [
       {
@@ -170,7 +170,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 6
-    subject: 'Student SWE working across AI tooling, cloud, and backend infrastructure',
+    subject: 'SWE student: AI, cloud, and backend systems',
     opening: 'I came across your profile while looking into [Company]\'s early-career engineering team and wanted to reach out directly.',
     sections: [
       {
@@ -200,7 +200,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry'
   },
   {   // 7
-    subject: 'Math & CS student building production systems across AWS and Kubernetes',
+    subject: 'Math & CS student building production systems',
     opening: 'I found your profile while researching [Company]\'s student and early-career engineering hiring, so I wanted to reach out.',
     sections: [
       {
@@ -230,7 +230,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 8
-    subject: 'Student SWE who turned a 30-minute analyst workflow into 1 minute',
+    subject: 'SWE student who cut research to 1 minute',
     opening: 'I came across your profile while looking into [Company]\'s engineering internship hiring, and thought you might be able to point me in the right direction.',
     sections: [
       {
@@ -260,7 +260,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry'
   },
   {   // 9
-    subject: 'Student engineer focused on backend reliability at scale',
+    subject: 'Student engineer focused on backend reliability',
     opening: 'I found your profile while looking into [Company]\'s engineering recruiting team and wanted to introduce myself directly.',
     sections: [
       {
@@ -290,7 +290,7 @@ var COLD_TEMPLATES = [
     signOff: 'Henry Nguyen'
   },
   {   // 10
-    subject: 'Student SWE with hands-on MCP, AWS, and Kubernetes experience',
+    subject: 'SWE student with MCP, AWS, Kubernetes experience',
     opening: 'I came across your profile while researching [Company]\'s early-career engineering hiring and thought I\'d reach out directly.',
     sections: [
       {

@@ -93,9 +93,8 @@ to use the generated English catalog.
 
 - **Both halves must say the same thing.** `outreachRenderTemplate_` builds HTML and plain in one
   pass for that reason; changing one branch without the other is the failure this shape prevents.
-- **Subjects run long.** Seven of the ten cold subjects and nine of the ten referral subjects pass
-  the 60 characters a phone shows. That is a property of the copy, not of this code, and the tests
-  assert the exact counts so it cannot change unnoticed.
+- **Cold subjects fit a mobile preview.** Each of the ten is 55 characters or fewer; the harness
+  enforces that limit. Referral subjects are unchanged and may remain longer.
 - **The closing is a list, not a string.** Referral templates end with two paragraphs — the resume
   line and the thank-you. An early version of the generator kept only the last, which silently
   dropped the sentence saying an attachment exists from all ten.

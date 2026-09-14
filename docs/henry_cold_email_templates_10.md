@@ -10,7 +10,7 @@ These 10 templates follow the same structure and tone:
 
 ## Template 1
 
-**Subject:** Student SWE who handled 500 concurrent requests with no overbooking
+**Subject:** SWE student who handled 500 concurrent requests
 
 Hi [Name],
 
@@ -40,7 +40,7 @@ Henry Nguyen
 
 ## Template 2
 
-**Subject:** Student SWE who cut analyst research from 30 minutes to 1
+**Subject:** SWE student who cut research from 30 minutes to 1
 
 Hi [Name],
 
@@ -70,7 +70,7 @@ Henry
 
 ## Template 3
 
-**Subject:** Kenyon SWE student building across MCP, AWS, and Kubernetes
+**Subject:** Kenyon SWE student: MCP, AWS, and Kubernetes
 
 Hi [Name],
 
@@ -100,7 +100,7 @@ Henry Nguyen
 
 ## Template 4
 
-**Subject:** Student engineer who caught 340K malformed records before downstream analysis
+**Subject:** SWE student who caught 340K bad records
 
 Hi [Name],
 
@@ -130,7 +130,7 @@ Henry
 
 ## Template 5
 
-**Subject:** Student SWE building reliable backend systems under real concurrency
+**Subject:** SWE student building reliable backend systems
 
 Hi [Name],
 
@@ -160,7 +160,7 @@ Henry Nguyen
 
 ## Template 6
 
-**Subject:** Student SWE working across AI tooling, cloud, and backend infrastructure
+**Subject:** SWE student: AI, cloud, and backend systems
 
 Hi [Name],
 
@@ -190,7 +190,7 @@ Henry
 
 ## Template 7
 
-**Subject:** Math & CS student building production systems across AWS and Kubernetes
+**Subject:** Math & CS student building production systems
 
 Hi [Name],
 
@@ -220,7 +220,7 @@ Henry Nguyen
 
 ## Template 8
 
-**Subject:** Student SWE who turned a 30-minute analyst workflow into 1 minute
+**Subject:** SWE student who cut research to 1 minute
 
 Hi [Name],
 
@@ -250,7 +250,7 @@ Henry
 
 ## Template 9
 
-**Subject:** Student engineer focused on backend reliability at scale
+**Subject:** Student engineer focused on backend reliability
 
 Hi [Name],
 
@@ -280,7 +280,7 @@ Henry Nguyen
 
 ## Template 10
 
-**Subject:** Student SWE with hands-on MCP, AWS, and Kubernetes experience
+**Subject:** SWE student with MCP, AWS, Kubernetes experience
 
 Hi [Name],
 

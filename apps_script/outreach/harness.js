@@ -869,12 +869,10 @@ console.log('the message');
     assert.strictEqual(compose({ template: 3 }).subject, S.COLD_TEMPLATES[2].subject);
   });
 
-  // The subjects are longer than the sixty characters a phone shows. That is a
-  // property of the copy rather than of this code, so it is recorded here as
-  // what is true rather than asserted as what should be.
-  run('the subjects are documented as long, not silently assumed short', () => {
-    const long = S.COLD_TEMPLATES.filter((t) => t.subject.length > 60).length;
-    assert.strictEqual(long, 7, 'seven of the ten cold subjects pass 60 characters');
+  run('every cold subject fits a mobile preview', () => {
+    S.COLD_TEMPLATES.forEach((t) => {
+      assert.ok(t.subject.length <= 55, t.subject);
+    });
   });
 
   console.log('  which of the ten a row gets');
