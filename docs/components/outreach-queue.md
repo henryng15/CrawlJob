@@ -35,8 +35,8 @@ of them pure.
 | `outreachPriorityGroups_(rows)` | The company-and-role pairs somebody ticked by hand. |
 | `outreachPrioritised_(row)` | Whether a row rides on someone else's tick — **a tick moves the whole group**. |
 | `outreachOrderForSending_(rows)` | Ticked rows first, then employers taking turns, oldest application first inside each. Both halves go through `outreachInterleaveByCompany_`; the shared budget separately protects this path only when queued cold work is present. |
-| `outreachDueNow_(...)` | The rows allowed out on this firing, against the shared budget. |
-| `outreachProjectSchedule_(rows)` | The date each queued row is expected to go. |
+| `outreachDueNow_(...)` | The rows allowed out on this firing, against the shared budget. Explicitly timed off-Target Email rows are excluded because their minute trigger owns delivery. |
+| `outreachProjectSchedule_(rows)` | The date each queued row is expected to go. Explicitly timed off-Target Email rows retain their stored time and do not consume normal weekday slots. |
 | `refreshOutreachSchedule()`, `outreachWriteProjection_(...)` | Rewrite the derived columns, and only those. |
 | `outreachColdTargetCompanies_(tracker)` | Reads the four seven-column Target blocks at `A:G`, `I:O`, `Q:W`, `Y:AE` and returns the normalized company set used to exclude Target companies from automatic cold planning. |
 | `outreachRowTime_`, `outreachTimeOrder_`, `outreachSortQueueByTime_` | File the tab: earliest hour first, cancelled sunk. Sorting *values* rather than calling `Range.sort` is what makes it testable. |
@@ -55,6 +55,11 @@ and senders read `Email` only. `initializeTargetQueueTabs()` creates or refreshe
 Target campaign Script Properties; a Microsoft role is recovered once from its existing draft body,
 then retained in campaign state. Direct-send ticks refresh the mirror after a state transition.
 Recipient names and addresses remain out of this mirror, matching the privacy rule of `Email`.
+
+The one-time 2026-09-13 off-Target migration uses ordinary `Email` rows with ids beginning
+`OFFTARGET-EMAIL-`. Those rows are operational queue records, but their explicit 23:00 and 03:00
+times are preserved by the minute handler in `outreach_offtarget_waves.gs`; normal projection,
+drafting and sending do not alter or consume them.
 
 | Function | Does |
 |---|---|

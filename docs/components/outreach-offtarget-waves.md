@@ -19,6 +19,9 @@ and the owner asked for two windows outside the normal sending window.
 |---|---|---|---|---|
 | `scheduleOffTargetRecruiterCampaign0913Night()` | `OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT` | 2026-09-13 23:00 to 23:50 | 2 min | 26 |
 | `scheduleOffTargetRecruiterCampaign0914Early()` | `OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY` | 2026-09-14 03:00 to 04:12 | 12 min | 7 |
+| `migrateOffTargetRecruiterCampaignsToEmail()` | both properties | one-time | n/a | 32 valid rows |
+| `restoreOffTargetEmailQueueTiming()` | `Email` ids `OFFTARGET-EMAIL-*` | 2026-09-13 23:00 to 23:50; 2026-09-14 03:00 to 04:12 | 2 / 12 min | 25 / 7 |
+| `diagnoseOffTargetMigrationToEmail()` | `Email` ids `OFFTARGET-EMAIL-*` | read-only | n/a | count only |
 
 Each has a matching every-minute tick wrapper, `runOffTargetRecruiterCampaignTick0913Night_` and
 `runOffTargetRecruiterCampaignTick0914Early_`, which delegate to
@@ -27,11 +30,12 @@ Each has a matching every-minute tick wrapper, `runOffTargetRecruiterCampaignTic
 `migrateOffTargetRecruiterCampaignsToEmail()` is the one-time exit path for these
 direct waves. It keeps the selected recipients, verifies their App state, contact availability,
 sent-mail history and Advanced Gmail rejection state, appends ordinary `Queued` rows to `Email`,
-then deletes both direct triggers and campaign properties. It balances the regular cold templates
-and uses the normal queue's weekday cap and send hours from that point onward. A matching Gmail
-rejection is blocked and reported while every other fully valid entry proceeds; a sent, changed,
-Target-listed, missing or already-committed entry aborts the migration before it changes either
-direct campaign.
+then deletes both direct triggers and campaign properties. It balances the regular cold templates.
+`restoreOffTargetEmailQueueTiming()` restores the requested 23:00 and 03:00 timestamps and installs
+`runOffTargetEmailQueueTick_`, which delivers only those `Email` rows at their explicit times.
+A matching Gmail rejection is blocked and reported while every other fully valid entry proceeds; a
+sent, changed, Target-listed, missing or already-committed entry aborts the migration before it
+changes either direct campaign.
 
 `diagnoseOffTargetMigrationToEmail()` is a read-only count by normal-queue status and scheduled
 calendar day. It returns no recruiter names or addresses.
@@ -71,5 +75,5 @@ The per-entry Gmail rejection preflight still runs immediately before each `send
 blocked entry is recorded as cancelled with its reason rather than sent.
 
 After `migrateOffTargetRecruiterCampaignsToEmail()` succeeds, neither direct wave remains in
-`Email_target`; the operational `Email` rows are the sole send instructions and are handled by the
-ordinary cold queue.
+`Email_target`; the operational `Email` rows are the sole send instructions. The off-Target minute
+handler, rather than the ordinary weekday queue, sends them at 23:00 and 03:00.

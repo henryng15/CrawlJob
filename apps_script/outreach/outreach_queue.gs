@@ -147,6 +147,11 @@ function outreachParseQueue_(row, index) {
   };
 }
 
+/** Whether a normal Email row has an explicit off-Target direct-send time. */
+function outreachOffTargetEmailQueueRow_(row) {
+  return /^OFFTARGET-EMAIL-(NIGHT|EARLY)-/.test(String(row && row.id || ''));
+}
+
 /**
  * How many more people at this employer this application should be written to.
  *
@@ -1376,7 +1381,7 @@ function outreachDueNow_(queueRows, now, referralRows) {
   var slots = Math.min(remaining, Math.ceil(remaining / firingsLeft));
 
   var due = queueRows.filter(function (r) {
-    return r.status === STATUS_QUEUED && r.eligibleAt
+    return r.status === STATUS_QUEUED && !outreachOffTargetEmailQueueRow_(r) && r.eligibleAt
         && outreachMidnight_(r.eligibleAt).getTime() <= outreachMidnight_(now).getTime();
   });
   // Anything ticked by hand first, then oldest application, exactly as at enqueue
@@ -1407,7 +1412,9 @@ function outreachProjectSchedule_(queueRows, from) {
   // row shows is the date it lands on rather than the date it would have landed on
   // before anybody asked for anything.
   var pending = outreachOrderForSending_(
-    queueRows.filter(function (r) { return r.status === STATUS_QUEUED; }), queueRows
+    queueRows.filter(function (r) {
+      return r.status === STATUS_QUEUED && !outreachOffTargetEmailQueueRow_(r);
+    }), queueRows
   );
 
   var out = [];
@@ -1510,6 +1517,9 @@ function outreachWriteProjection_(queue) {
   // or sent keeps the two times it really happened at, which is both the honest
   // record and the only timestamp a draft has to be counted by.
   queue.getRange(2, Q_DRAFTED_AT, rows.length, 2).setValues(rows.map(function (row) {
+    if (outreachOffTargetEmailQueueRow_(row)) {
+      return [row.draftedAt || '', row.scheduledAt || ''];
+    }
     var slot = projected[row.rowNumber];
     if (slot) return [slot.draftAt, slot.sendAt];
     return [row.draftedAt || '', row.scheduledAt || ''];

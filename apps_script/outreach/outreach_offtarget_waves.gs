@@ -319,3 +319,107 @@ function diagnoseOffTargetMigrationToEmail() {
   var total = Object.keys(byStatus).reduce(function (sum, status) { return sum + byStatus[status]; }, 0);
   return {total: total, byStatus: byStatus, bySchedule: bySchedule};
 }
+
+/** Restore the requested 23:00 and 03:00 timings after the one-time Email migration. */
+function restoreOffTargetEmailQueueTiming() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    if (!queue || queue.getLastRow() < 2) throw new Error('No migrated Email rows found.');
+    var rows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index); });
+    var restored = 0;
+    rows.forEach(function (row) {
+      if (!outreachOffTargetEmailQueueRow_(row) || row.status !== STATUS_QUEUED) return;
+      var match = /^OFFTARGET-EMAIL-(NIGHT|EARLY)-(\d+)$/.exec(row.id);
+      if (!match) return;
+      var start = match[1] === 'NIGHT'
+        ? new Date('2026-09-13T23:00:00-04:00')
+        : new Date('2026-09-14T03:00:00-04:00');
+      var spacing = match[1] === 'NIGHT' ? 2 : 12;
+      var at = new Date(start.getTime() + (Number(match[2]) - 1) * spacing * 60000);
+      var updates = {};
+      updates[Q_DRAFTED_AT] = '';
+      updates[Q_SCHEDULED] = at;
+      updates[Q_RESULT] = 'Explicit off-Target Email timing; direct queue sender owns delivery.';
+      outreachWriteRow_(queue, row.rowNumber, updates);
+      restored++;
+    });
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === 'runOffTargetEmailQueueTick_') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+    ScriptApp.newTrigger('runOffTargetEmailQueueTick_').timeBased().everyMinutes(1).create();
+    return {restored: restored, trigger: 'runOffTargetEmailQueueTick_'};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Send one due explicitly timed off-Target Email row, preserving its queue record. */
+function runOffTargetEmailQueueTick_() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return {skipped: true, reason: 'lock busy'};
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    var now = new Date();
+    var rows = queue.getLastRow() < 2 ? []
+      : queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+        .map(function (row, index) { return outreachParseQueue_(row, index); });
+    var due = rows.filter(function (row) {
+      return outreachOffTargetEmailQueueRow_(row) && row.status === STATUS_QUEUED
+        && row.scheduledAt && row.scheduledAt.getTime() <= now.getTime();
+    }).sort(function (left, right) { return left.scheduledAt.getTime() - right.scheduledAt.getTime(); })[0];
+    if (!due) return {skipped: true, reason: 'nothing due'};
+    var apps = targetMirrorApplications_(tracker);
+    var app = apps.filter(function (item) { return item.property === due.property; })[0];
+    var qualification = outreachStillQualifies_(app);
+    if (!qualification.ok) {
+      var cancelled = {}; cancelled[Q_STATUS] = STATUS_CANCELLED; cancelled[Q_RESULT] = qualification.why;
+      outreachWriteRow_(queue, due.rowNumber, cancelled);
+      return {cancelled: true, company: due.company, reason: qualification.why};
+    }
+    var contacts = outreachReadContacts_(contactsBook);
+    var salt = outreachProperty_(PROP_SALT, true);
+    var contact = outreachContactByFingerprint_(outreachContactsFor_(contacts, due.company), due.fingerprint, salt);
+    if (!contact || contact.sent) {
+      var unavailable = {}; unavailable[Q_STATUS] = STATUS_CANCELLED;
+      unavailable[Q_RESULT] = 'The selected recruiter is no longer available.';
+      outreachWriteRow_(queue, due.rowNumber, unavailable);
+      return {cancelled: true, company: due.company, reason: 'contact unavailable'};
+    }
+    if (GmailApp.search('from:me to:' + contact.email, 0, 1).length) {
+      var already = {}; already[Q_STATUS] = STATUS_CANCELLED;
+      already[Q_RESULT] = 'Already sent to this recruiter; direct send skipped.';
+      outreachWriteRow_(queue, due.rowNumber, already);
+      return {cancelled: true, company: due.company, reason: 'already sent'};
+    }
+    var rejection = outreachGmailApiRejectedTarget_({company: due.company, role: due.role},
+                                                     outreachGmailApiRejectionCandidates_());
+    if (rejection.rejected) {
+      var blocked = {}; blocked[Q_STATUS] = STATUS_CANCELLED;
+      blocked[Q_RESULT] = 'Blocked before sending: Gmail API found a matching rejection (' + rejection.why + ').';
+      outreachWriteRow_(queue, due.rowNumber, blocked);
+      return {blocked: true, company: due.company, reason: 'matching Gmail rejection'};
+    }
+    var mail = outreachCompose_({template: due.template, company: due.company,
+                                 role: app.role || due.role, recruiterName: contact.name});
+    var resume = DriveApp.getFileById(OFFICIAL_RESUME_FILE_ID).getBlob()
+      .setName('Henry_Nguyen_Resume.pdf');
+    GmailApp.sendEmail(contact.email, mail.subject, mail.plain, {
+      htmlBody: mail.html, inlineImages: mail.inlineImages, attachments: [resume], name: SENDER_NAME
+    });
+    var updates = {}; updates[Q_STATUS] = STATUS_SENT; updates[Q_SENT_AT] = now;
+    updates[Q_RESULT] = 'Sent: ' + due.template;
+    outreachWriteRow_(queue, due.rowNumber, updates);
+    outreachMarkColdContactsSent_([due.fingerprint]);
+    return {sent: true, company: due.company};
+  } finally {
+    lock.releaseLock();
+  }
+}
