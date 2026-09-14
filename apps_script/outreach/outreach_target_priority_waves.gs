@@ -116,6 +116,58 @@ function scheduleTargetRecruiterCampaign0916Notion() {
   });
 }
 
+/** Schedule the seven remaining Palantir campus/technical recruiter emails for 2026-09-17. */
+function scheduleTargetRecruiterCampaign0917Palantir() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
+    handler: 'runTargetRecruiterCampaignTick0917Palantir_',
+    label: 'Palantir',
+    startIso: '2026-09-17T11:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Palantir', maxContacts: 7,
+      role: 'Software Engineer Intern, Production Infrastructure (Summer 2027, grad 2028)',
+      jobLink: 'https://jobs.lever.co/palantir/373367a9-3160-49d8-b7af-2efec062fad1'
+    }]
+  });
+}
+
+/** Schedule two unambiguous Lockheed Martin referral asks for 2026-09-15. */
+function scheduleTargetReferralCampaign0915LockheedMartin() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260915_LOCKHEED_MARTIN',
+    handler: 'runTargetReferralCampaignTick0915LockheedMartin_',
+    startIso: '2026-09-15T15:00:00-04:00',
+    spacingMinutes: 9,
+    minGapMinutes: 8,
+    // Preserve pure-Vietnamese contacts for a separate owner-reviewed run.
+    excludeNames: ['David Nguyen', 'John Nguyen', 'Thomas Pham'],
+    companies: [{
+      company: 'Lockheed Martin', maxContacts: 2,
+      role: 'Winter 2027 Co-op - Software Developer (International Program Team)',
+      jobLink: 'https://jobright.ai/jobs/info/6aa38cea959a10d7230d2543?utm_campaign=1079&utm_source=git'
+    }]
+  });
+}
+
+/** Schedule every currently sendable Lockheed Martin recruiter one week after its referral wave. */
+function scheduleTargetRecruiterCampaign0922LockheedMartin() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
+    handler: 'runTargetRecruiterCampaignTick0922LockheedMartin_',
+    label: 'Lockheed Martin',
+    startIso: '2026-09-22T09:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Lockheed Martin', maxContacts: 5,
+      role: 'Winter 2027 Co-op - Software Developer (International Program Team)',
+      jobLink: 'https://jobright.ai/jobs/info/6aa38cea959a10d7230d2543?utm_campaign=1079&utm_source=git'
+    }]
+  });
+}
+
 /** Direct Target delivery tick for the 2026-09-15 Lyft referral campaign. */
 function runTargetReferralCampaignTick0915Lyft_() {
   return runTargetReferralCampaignTickFor_({
@@ -137,5 +189,29 @@ function runTargetRecruiterCampaignTick0916Notion_() {
   return runTargetRecruiterCampaignTickFor_({
     propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION',
     handler: 'runTargetRecruiterCampaignTick0916Notion_'
+  });
+}
+
+/** Direct Target delivery tick for the 2026-09-17 Palantir recruiter campaign. */
+function runTargetRecruiterCampaignTick0917Palantir_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
+    handler: 'runTargetRecruiterCampaignTick0917Palantir_'
+  });
+}
+
+/** Direct Target delivery tick for the 2026-09-15 Lockheed Martin referral campaign. */
+function runTargetReferralCampaignTick0915LockheedMartin_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260915_LOCKHEED_MARTIN',
+    handler: 'runTargetReferralCampaignTick0915LockheedMartin_'
+  });
+}
+
+/** Direct Target delivery tick for the 2026-09-22 Lockheed Martin recruiter campaign. */
+function runTargetRecruiterCampaignTick0922LockheedMartin_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
+    handler: 'runTargetRecruiterCampaignTick0922LockheedMartin_'
   });
 }

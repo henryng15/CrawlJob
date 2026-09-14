@@ -1777,7 +1777,10 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
     'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'
+    'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
+    'TARGET_REFERRAL_CAMPAIGN_20260915_LOCKHEED_MARTIN',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1870,6 +1873,17 @@ function diagnoseCompanyAvailability(company) {
       process: app.process
     };
   });
+  var jobs = tracker.getSheetByName('Jobs');
+  var openJobs = [];
+  if (jobs && jobs.getLastRow() >= 2) {
+    jobs.getRange(2, 1, jobs.getLastRow() - 1, Math.min(3, jobs.getLastColumn())).getValues()
+      .forEach(function (job) {
+        if (outreachSameEmployer_(wantedTokens, outreachCompanyTokens_(job[0]))
+            && targetAuditRoleEligible_(job[1])) {
+          openJobs.push({role: String(job[1] || ''), link: String(job[2] || '')});
+        }
+      });
+  }
   var targetCompanies = outreachReferralTargetCompanies_(tracker);
   if (targetCompanies === null) throw new Error('Target tab is unavailable.');
   return {
@@ -1878,8 +1892,73 @@ function diagnoseCompanyAvailability(company) {
     recruiterContactsUnsent: contacts.filter(function (contact) { return !contact.sent; }).length,
     referralContacts: employees.length,
     activeApplications: applications,
-    inTarget: !!targetCompanies[outreachNameKey_(wanted)]
+    openJobs: openJobs,
+    inTarget: !!targetCompanies[wantedTokens.join('\u0000')]
   };
+}
+
+/** Read-only Gmail and pipeline history for recruiter cold outreach to named employers. */
+function diagnoseTargetRecruiterOutboundHistory(companies) {
+  var requested = Array.isArray(companies) ? companies : [companies];
+  var names = requested.map(function (company) { return String(company || '').trim(); })
+    .filter(function (company) { return !!company; });
+  if (!names.length) throw new Error('At least one company is required.');
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contacts = outreachReadContacts_(contactsBook);
+  var campaignEntries = [];
+  Object.keys(PropertiesService.getScriptProperties().getProperties()).forEach(function (key) {
+    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0) return;
+    var text = PropertiesService.getScriptProperties().getProperty(key);
+    try { campaignEntries = campaignEntries.concat((JSON.parse(text).entries || [])); }
+    catch (ignored) {}
+  });
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var queueEntries = queue && queue.getLastRow() >= 2
+    ? queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (values, index) { return outreachParseQueue_(values, index + 2); }) : [];
+  return names.map(function (company) {
+    var people = outreachContactsFor_(contacts, company);
+    var emails = people.map(function (person) { return person.email; });
+    var query = emails.length ? 'from:me (' + emails.map(function (email) {
+      return 'to:' + email;
+    }).join(' OR ') + ')' : '';
+    var threads = query ? GmailApp.search(query, 0, 500) : [];
+    var coldSubjects = {};
+    COLD_TEMPLATES.forEach(function (template) { coldSubjects[template.subject] = true; });
+    var coldTemplateMessages = 0;
+    threads.forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        // The enclosing search already guarantees a message from this mailbox;
+        // count only exact approved cold-template subjects in that thread.
+        if (coldSubjects[message.getSubject()]) coldTemplateMessages++;
+      });
+    });
+    var sameEmployer = function (entry) {
+      return outreachSameEmployer_(outreachCompanyTokens_(company), outreachCompanyTokens_(entry.company));
+    };
+    var stateCounts = function (entries) {
+      var sent = 0, queued = 0;
+      entries.filter(sameEmployer).forEach(function (entry) {
+        var status = String(entry.status || '').toLowerCase();
+        if (status === 'sent' || status === 'already-sent' || status === 'replied' || status === 'bounced') sent++;
+        else if (status === 'pending' || status === 'queued' || status === 'drafted') queued++;
+      });
+      return {sent: sent, queued: queued};
+    };
+    var direct = stateCounts(campaignEntries);
+    var normal = stateCounts(queueEntries);
+    return {
+      company: company,
+      currentRecruiterContacts: people.length,
+      gmailOutboundThreadsToCurrentRecruiters: threads.length,
+      gmailColdTemplateMessagesToCurrentRecruiters: coldTemplateMessages,
+      directCampaignSent: direct.sent,
+      directCampaignQueued: direct.queued,
+      normalQueueSent: normal.sent,
+      normalQueueQueued: normal.queued
+    };
+  });
 }
 
 /**
