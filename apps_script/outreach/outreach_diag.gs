@@ -1290,6 +1290,25 @@ function scheduleTargetReferralCampaign0914Dell() {
   });
 }
 
+/** Manual Target referral campaign for Plaid's recent SWE Intern application. */
+function scheduleTargetReferralCampaign0914Plaid() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID',
+    handler: 'runTargetReferralCampaignTick0914Plaid_',
+    startIso: '2026-09-14T13:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    vietnameseOverridesByName: {
+      'Andy Nguyen': {name: 'Andy', title: 'anh', variant: 4}
+    },
+    companies: [{
+      company: 'Plaid', maxContacts: 10,
+      role: 'Software Engineering Intern, Summer 2027',
+      jobLink: 'https://app.ripplematch.com/v2/public/job/02cb6f70?from=AllJobsPage'
+    }]
+  });
+}
+
 /**
  * Owner-approved Lyft referrals for 2026-09-11: two selected seed contacts and
  * one supplied external contact. The schedule starts five minutes after setup
@@ -1642,6 +1661,14 @@ function runTargetReferralCampaignTick0914Dell_() {
   });
 }
 
+/** Send one due Plaid Target referral entry on 2026-09-14. */
+function runTargetReferralCampaignTick0914Plaid_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID',
+    handler: 'runTargetReferralCampaignTick0914Plaid_'
+  });
+}
+
 /** Send one due owner-approved Lyft referral entry. */
 function runTargetReferralCampaignTick0911Lyft_() {
   return runTargetReferralCampaignTickFor_({
@@ -1744,6 +1771,7 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
     'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
     'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'
@@ -2089,7 +2117,8 @@ function diagnoseTargetReferralCampaigns() {
     ['Dell Technologies — Hai La', 'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA'],
     ['Lyft', 'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT'],
     ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'],
-    ['Dell Technologies', 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL']
+    ['Dell Technologies', 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL'],
+    ['Plaid', 'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2487,6 +2516,23 @@ function scheduleTargetRecruiterCampaign0917Dell() {
   });
 }
 
+/** Manual Target cold-email campaign three days after Plaid's referral asks. */
+function scheduleTargetRecruiterCampaign0917Plaid() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID',
+    handler: 'runTargetRecruiterCampaignTick0917Plaid_',
+    label: 'Plaid',
+    startIso: '2026-09-17T10:00:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    companies: [{
+      company: 'Plaid', maxContacts: 7,
+      role: 'Software Engineering Intern, Summer 2027',
+      jobLink: 'https://app.ripplematch.com/v2/public/job/02cb6f70?from=AllJobsPage'
+    }]
+  });
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -2604,7 +2650,8 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/15 — Cisco', 'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO'],
     ['09/15 — HP + Intuit + Oracle', 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE'],
     ['09/16 — Intel + Atlassian', 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'],
-    ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL']
+    ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'],
+    ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2891,6 +2938,14 @@ function runTargetRecruiterCampaignTick0917Dell_() {
   });
 }
 
+/** Send one due Plaid Target recruiter entry on 2026-09-17. */
+function runTargetRecruiterCampaignTick0917Plaid_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID',
+    handler: 'runTargetRecruiterCampaignTick0917Plaid_'
+  });
+}
+
 /** Send one due Target recruiter entry and update the Target snapshots. */
 function runTargetRecruiterCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -3067,7 +3122,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
     'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
-    'TARGET_REFERRAL_CAMPAIGN_20260914_DELL'
+    'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
+    'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID'
   ];
   var recruiterKeys = [
     'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
@@ -3081,7 +3137,8 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
     'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'
+    'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
+    'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
