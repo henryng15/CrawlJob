@@ -858,6 +858,18 @@ console.log('the message');
     assert.ok(!mail.plain.includes('**'));
   });
 
+  run('every section body is indented and the Kenyon name card is present', () => {
+    const mail = compose({});
+    const quote = 'margin:0 0 0 12px;padding-left:12px;border-left:2px solid #ddd';
+    assert.ok(mail.html.includes('<ul style="' + quote + '">'));
+    S.COLD_TEMPLATES[0].sections.slice(1).forEach((section) => {
+      const body = section.body.split('**').join('').split('[Company]').join('Stripe').split('[Role Name]').join('Software Engineer Intern');
+      assert.ok(mail.html.includes('<p style="' + quote + '">'), section.heading);
+      assert.ok(mail.plain.includes('\n  ' + body), section.heading);
+    });
+    assert.ok(mail.html.includes('cid:kenyonlogo'));
+  });
+
   run('the sign off and the contact line close both halves', () => {
     const mail = compose({});
     assert.ok(mail.plain.includes('Best,'));

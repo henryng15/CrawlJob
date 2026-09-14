@@ -413,7 +413,7 @@ function outreachRenderTemplate_(template, values) {
       });
     } else {
       html.push('<p style="' + quote + '">' + outreachBoldHtml_(fill(section.body)) + '</p>');
-      plain.push(outreachBoldPlain_(fill(section.body)));
+      plain.push('  ' + outreachBoldPlain_(fill(section.body)));
     }
   });
 

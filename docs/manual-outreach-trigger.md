@@ -61,7 +61,7 @@ Before composing, read the relevant existing documentation:
 
 | Email type | Required documentation | Use |
 |---|---|---|
-| Recruiter / cold email | [`email-templates.md`](email-templates.md), [`components/outreach-templates.md`](components/outreach-templates.md), and [`components/outreach-send.md`](components/outreach-send.md) | Select the approved cold template, recruiter-specific proof point and sender/footer rules. |
+| Recruiter / cold email | [`email-templates.md`](email-templates.md), [`components/outreach-templates.md`](components/outreach-templates.md), and [`components/outreach-send.md`](components/outreach-send.md) | Select the approved cold template, recruiter-specific proof point and sender/footer rules. Every manual cold draft must preserve the renderer's indented section layout and Kenyon inline-image business card; use outreachRenderTemplate_ or its exact equivalent. |
 | Request for a referral | [`components/outreach-referral-queue.md`](components/outreach-referral-queue.md), [`components/outreach-referral-send.md`](components/outreach-referral-send.md), and [`components/outreach-templates.md`](components/outreach-templates.md); plus [`henry_vietnamese.md`](henry_vietnamese.md) when the pure-Vietnamese gate applies | Select the approved referral template and obey the referral eligibility, recipient and safety rules. |
 | Target campaign | [`components/tracker-target-tab.md`](components/tracker-target-tab.md) plus the applicable row above | Treat `Target` as the sourcing/count view; use `Email_target` and `Referral_target` for explicit Target campaign state. |
 

@@ -33,7 +33,12 @@ Two consequences worth knowing:
 
 Every template, in both sets: a subject, one opening paragraph, three headed sections — the first
 four bullets, the other two a short paragraph each — one or more closing paragraphs, a sign-off,
-and the shared Kenyon business-card footer. `**bold**` survives into both halves through
+and the shared Kenyon business-card footer. **Strict renderer contract:** every section's content
+is indented below its heading: HTML uses the shared left-border quote style for both list bullets
+and paragraph bodies, and plain text prefixes each content line with two spaces. HTML email must
+finish with the Kenyon business card and its cid:kenyonlogo inline PNG. A manual draft must use
+outreachRenderTemplate_ or reproduce this exact layout; a personal sender may substitute only
+its own email address in the business card. `**bold**` survives into both halves through
 `outreachBoldHtml_` / `outreachBoldPlain_`. Every cold template's final CTA now
 bolds the request for the opportunity to move forward in the process; referral
 templates remain unchanged.
