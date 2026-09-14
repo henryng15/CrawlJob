@@ -40,6 +40,10 @@ changes either direct campaign.
 `diagnoseOffTargetMigrationToEmail()` is a read-only count by normal-queue status and scheduled
 calendar day. It returns no recruiter names or addresses.
 
+`restoreMicronOffTargetEmailRow()` is the one-time repair for Micron's false block: its unreadable
+Workday acknowledgement body was not a verified rejection. It selects the same first available
+recruiter rule as the original wave and restores the original 23:36 ET slot.
+
 ## How the employers were chosen
 
 Every employer satisfies all of: an application already in `App`, not on the `Target` shortlist,

@@ -359,6 +359,64 @@ function restoreOffTargetEmailQueueTiming() {
   }
 }
 
+/** Restore Micron's original 23:36 Email row after its false rejection block. */
+function restoreMicronOffTargetEmailRow() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var queue = tracker.getSheetByName(TAB_QUEUE);
+    var apps = targetMirrorApplications_(tracker);
+    var app = apps.filter(function (item) {
+      return outreachNameKey_(item.company) === outreachNameKey_('Micron Technology')
+        && outreachNameKey_(item.role) === outreachNameKey_('Intern, Software Engineer');
+    })[0];
+    if (!app) throw new Error('Micron Software Engineer Intern App row is missing.');
+    var qualification = outreachStillQualifies_(app);
+    if (!qualification.ok) throw new Error('Micron: ' + qualification.why + '.');
+    var rows = queue.getLastRow() < 2 ? []
+      : queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+        .map(function (row, index) { return outreachParseQueue_(row, index); });
+    if (rows.some(function (row) { return row.id === 'OFFTARGET-EMAIL-NIGHT-19'; })) {
+      return {alreadyRestored: true};
+    }
+    var contacts = outreachReadContacts_(contactsBook);
+    var salt = outreachProperty_(PROP_SALT, true);
+    var spent = {};
+    rows.forEach(function (row) {
+      if (row.fingerprint && STATUS_SPENDS_CONTACT.indexOf(row.status) !== -1) spent[row.fingerprint] = true;
+    });
+    var contact = outreachContactsFor_(contacts, app.company).filter(function (person) {
+      if (person.sent || GmailApp.search('from:me to:' + person.email, 0, 1).length) return false;
+      var fingerprint = outreachFingerprint_(person.email, salt, outreachSeason_(app.role));
+      return !spent[fingerprint];
+    }).sort(function (left, right) {
+      return (left.name || left.email).localeCompare(right.name || right.email);
+    })[0];
+    if (!contact) throw new Error('No sendable Micron recruiter remains.');
+    var rejection = outreachGmailApiRejectedTarget_({company: app.company, role: app.role, jobLink: app.link});
+    if (rejection.rejected) throw new Error('Micron has a matching Gmail rejection: ' + rejection.why + '.');
+    var templateLoad = outreachColdTemplateLoad_(rows);
+    var template = outreachColdTemplateFor_(templateLoad);
+    var row = outreachQueueRowValues_({
+      id: 'OFFTARGET-EMAIL-NIGHT-19', property: app.property, company: app.company,
+      role: app.role, dateApplied: app.dateApplied,
+      recruiters: outreachContactsFor_(contacts, app.company).length, attempt: 1,
+      template: template, status: STATUS_QUEUED,
+      mode: outreachAngleFor_(outreachContactsFor_(contacts, app.company)) ? MODE_SEND : MODE_DRAFT,
+      fingerprint: outreachFingerprint_(contact.email, salt, outreachSeason_(app.role)),
+      result: 'Restored after acknowledgment email was confirmed not to be a rejection.'
+    });
+    row[Q_SCHEDULED - 1] = new Date('2026-09-13T23:36:00-04:00');
+    queue.getRange(queue.getLastRow() + 1, 1, 1, Q_WIDTH).setValues([row]);
+    outreachRepairQueueLayout_(queue);
+    return {restored: true, scheduled: '2026-09-13 23:36 EDT'};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Send one due explicitly timed off-Target Email row, preserving its queue record. */
 function runOffTargetEmailQueueTick_() {
   var lock = LockService.getScriptLock();

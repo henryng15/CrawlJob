@@ -1818,6 +1818,34 @@ function diagnoseTargetCompanyRejectionPreflight(company, role, jobLink) {
   };
 }
 
+/** Read-only evidence for a single company/role Gmail rejection preflight decision. */
+function diagnoseTargetCompanyRejectionEvidence(company, role, jobLink) {
+  var entry = {
+    company: String(company || '').trim(),
+    role: String(role || '').trim(),
+    jobLink: String(jobLink || '').trim()
+  };
+  if (!entry.company || !entry.role) {
+    throw new Error('A company and role are required for rejection evidence.');
+  }
+  var app = {company: entry.company, role: entry.role, link: entry.jobLink,
+             official: entry.jobLink, process: 'Applied'};
+  return outreachGmailApiRejectionCandidates_().map(function (message) {
+    return {message: message, target: outreachRejectionTarget_(message, [app])};
+  }).filter(function (result) {
+    return !!result.target.app && (result.message.decodeError
+      || outreachIsRejection_(result.message.subject, result.message.body));
+  }).map(function (result) {
+    return {
+      from: result.message.from,
+      subject: result.message.subject,
+      match: result.target.why,
+      decodeError: result.message.decodeError || '',
+      bodyPreview: String(result.message.body || '').replace(/\s+/g, ' ').slice(0, 600)
+    };
+  });
+}
+
 /** Read-only recruiter-contact and Target-list presence for one employer. */
 function diagnoseCompanyAvailability(company) {
   var wanted = String(company || '').trim();

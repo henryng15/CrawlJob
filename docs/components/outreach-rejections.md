@@ -38,8 +38,8 @@ also says "we were impressed" is still a rejection.
 | `outreachRejectionTarget_(...)` | **Which application this is about, what state it is in, and why.** Returning the reason is the point: an unpinnable rejection must be visible, not silently dropped. |
 | `outreachGmailApiRejectionQuery_()` | The broad, bounded Gmail query used by preflight; it uses the same rejection phrase catalog as the scanner but does not depend on the scanner's labels. |
 | `outreachGmailApiBodyText_(payload)`, `outreachGmailApiHeader_(payload, wanted)` | Decode the plain body and selected headers from an Advanced Gmail API message response. |
-| `outreachGmailApiRejectionCandidates_()` | Reads the scanner's bounded 40 newest current candidates through `Gmail.Users.Messages.list/get`, so a one-minute Target tick can finish. A list/get API error reaches the caller so a send cannot proceed on an unverified mailbox; an individual malformed body stays as a candidate with its headers and decode state. |
-| `outreachGmailApiRejectedTarget_(entry, candidates)` | Applies the existing conservative rejection recognizer and company/role matcher to one Target entry. It blocks only that employer; a Gmail-query candidate whose body cannot decode also blocks its matching employer rather than allowing an unverified send. |
+| `outreachGmailApiRejectionCandidates_()` | Reads the scanner's bounded 40 newest current candidates through `Gmail.Users.Messages.list/get`, so a one-minute Target tick can finish. A list/get API error reaches the caller so a send cannot proceed on an unverified mailbox; an individual malformed body stays available to diagnostics but does not by itself block delivery. |
+| `outreachGmailApiRejectedTarget_(entry, candidates)` | Applies the rejection recognizer and company/role matcher to one Target entry. It blocks only a message with decoded refusal language; an unreadable body is insufficient evidence to block an application acknowledgement. |
 
 ### The three layers, strongest first
 

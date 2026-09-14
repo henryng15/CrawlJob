@@ -807,9 +807,9 @@ function outreachGmailApiRejectionCandidates_() {
       try {
         body = outreachGmailApiBodyText_(payload);
       } catch (error) {
-        // The Gmail query already found a rejection-language candidate. Keep its
-        // headers so a matching employer is blocked rather than letting one
-        // malformed MIME part turn into an unverified send at every company.
+        // Keep malformed MIME candidates for diagnostics, but do not treat them
+        // as a refusal: sender matching alone can identify an acknowledgement
+        // email, and an unreadable body is not evidence that it rejected anyone.
         decodeError = String(error.message || error);
       }
       candidates.push({
@@ -840,12 +840,11 @@ function outreachGmailApiRejectedTarget_(entry, candidates) {
   var found = (candidates || outreachGmailApiRejectionCandidates_()).map(function (message) {
     return {message: message, target: outreachRejectionTarget_(message, [app])};
   }).filter(function (result) {
-    return !!result.target.app && (result.message.decodeError
-      || outreachIsRejection_(result.message.subject, result.message.body));
+    return !!result.target.app
+      && outreachIsRejection_(result.message.subject, result.message.body);
   })[0];
   return found
-    ? {rejected: true, messageId: found.message.id, why: found.target.why,
-       unverifiedBody: !!found.message.decodeError}
+    ? {rejected: true, messageId: found.message.id, why: found.target.why}
     : {rejected: false};
 }
 
