@@ -50,7 +50,6 @@ ATS boards + Markdown trackers
 | `Referral` | outreach referral path **only** — the tracker script may sink called-off rows and nothing else | outreach budget |
 | `Email_target` | outreach script's explicit Target-campaign mirror | people; never read by normal workers |
 | `Referral_target` | outreach script's explicit Target-campaign mirror | people; never read by normal workers |
-| `Outreach History` | outreach script only | people and the Target-coverage audit; append-only evidence for cold emails sent outside `Email` or a direct campaign, never a queue |
 | `Season` | `refreshSeasonTab` | people |
 | `Cycle Health` | `runOutreachCycle` | people — is the cycle finishing? |
 | `Contacts (seed/manual)`, `Employees (seed)` | ColdEmail export through `replaceContactSeedChunk` / `replaceEmployeeSeedChunk`; the **`Sent` column belongs to the outreach script**, which ticks it after Gmail accepts a message; `From` records which sourcing pass found the row and nothing reads it | outreach compose + planners |
@@ -97,7 +96,6 @@ looser one winning every hour — see the gotcha in
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
 - [outreach-offtarget-waves.md](outreach-offtarget-waves.md) — explicit off-Target manual recruiter campaigns
 - [outreach-target-priority-waves.md](outreach-target-priority-waves.md) — approved Lyft, Anduril and Notion Target campaigns
-- [outreach-history.md](outreach-history.md) — append-only evidence for manually sent or off-template cold emails
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 - [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
 
