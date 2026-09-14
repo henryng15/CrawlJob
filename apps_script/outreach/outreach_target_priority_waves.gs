@@ -246,6 +246,38 @@ function scheduleTargetRecruiterCampaign0923Mastercard() {
   });
 }
 
+/** Schedule the earliest safe Walmart referral wave, excluding ambiguous Vietnamese greetings. */
+function scheduleTargetReferralCampaign0915Walmart() {
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260915_WALMART',
+    handler: 'runTargetReferralCampaignTick0915Walmart_',
+    startIso: '2026-09-15T16:00:00-04:00',
+    spacingMinutes: 9, minGapMinutes: 8,
+    excludeNames: ['An Tran', 'Huynh Le'],
+    vietnameseOverridesByName: {
+      'Duc Nguyen': {name: 'Duc', title: 'anh', variant: 1},
+      'Luan Nguyen': {name: 'Luan', title: 'anh', variant: 2},
+      'Nhi Nguyen, CPWA': {name: 'Nhi', title: 'chị', variant: 3}
+    },
+    companies: [{company: 'Walmart', maxContacts: 10,
+      role: 'Summer 2027 Intern:: Software Engineer II',
+      jobLink: 'https://walmart.wd504.myworkdayjobs.com/en-US/WalmartExternal/job/Summer-2027-Intern---Software-Engineer-II_R-2630029-1'}]
+  });
+}
+
+/** Schedule seven Walmart recruiter emails exactly one week after its referral wave. */
+function scheduleTargetRecruiterCampaign0922Walmart() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Walmart', startIso: '2026-09-22T11:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    companies: [{company: 'Walmart', maxContacts: 7,
+      role: 'Summer 2027 Intern:: Software Engineer II',
+      jobLink: 'https://walmart.wd504.myworkdayjobs.com/en-US/WalmartExternal/job/Summer-2027-Intern---Software-Engineer-II_R-2630029-1'}]
+  });
+}
+
 /** Direct Target delivery tick for the 2026-09-15 Lyft referral campaign. */
 function runTargetReferralCampaignTick0915Lyft_() {
   return runTargetReferralCampaignTickFor_({
@@ -322,4 +354,20 @@ function runTargetRecruiterCampaignTick0922Lyft_() {
 /** Direct Target delivery tick for the 2026-09-23 Mastercard recruiter campaign. */
 function runTargetRecruiterCampaignTick0923Mastercard_() {
   return runTargetRecruiterCampaignTickFor_({propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD', handler: 'runTargetRecruiterCampaignTick0923Mastercard_'});
+}
+
+/** Direct Target delivery tick for the 2026-09-15 Walmart referral campaign. */
+function runTargetReferralCampaignTick0915Walmart_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260915_WALMART',
+    handler: 'runTargetReferralCampaignTick0915Walmart_'
+  });
+}
+
+/** Direct Target delivery fallback for the 2026-09-22 Walmart recruiter campaign. */
+function runTargetRecruiterCampaignTick0922Walmart_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART',
+    handler: 'runTargetRecruiterCampaignTick0922Walmart_'
+  });
 }

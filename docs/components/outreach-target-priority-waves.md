@@ -8,6 +8,8 @@ Notion recruiter cold emails on September 16, seven Palantir recruiter cold
 emails on September 17, two Lockheed Martin referral asks on September 15, and
 the Lockheed Martin recruiter wave one week later on September 22. It also owns
 the six requested Summer recruiter waves from September 16 through September 23.
+Walmart's earliest safe referral wave is on September 15, with its recruiter
+wave exactly one week later.
 It uses the common
 direct-Target campaign schedulers and therefore writes campaign state only to
 Script Properties and the `Referral_target` / `Email_target` mirrors. The
@@ -41,6 +43,8 @@ user-approved, bounded exception to the tab's normal hand-entry practice.
 | `scheduleTargetRecruiterCampaign0921Dropbox()` | Queues up to seven Dropbox recruiters for 09:00–09:36 ET on 2026-09-21, using the Summer 2027 SWE Intern posting. |
 | `scheduleTargetRecruiterCampaign0922Lyft()` | Queues up to seven Lyft recruiters for 10:00–10:36 ET on 2026-09-22, after the Lockheed Martin recruiter wave, using Lyft's Backend Summer 2027 SWE Intern posting. |
 | `scheduleTargetRecruiterCampaign0923Mastercard()` | Queues up to seven Mastercard recruiters for 09:00–09:36 ET on 2026-09-23, using the Summer 2027 Software Engineer Intern posting. |
+| `scheduleTargetReferralCampaign0915Walmart()` | Queues ten Walmart referral asks for 16:00–17:21 ET on 2026-09-15 using the active Summer 2027 Software Engineer II Intern application. It excludes An Tran and Huynh Le because an `anh`/`chị` title is not high confidence, and uses reviewed Vietnamese copy for Duc Nguyen, Luan Nguyen and Nhi Nguyen. |
+| `scheduleTargetRecruiterCampaign0922Walmart()` | Queues up to seven Walmart recruiter emails for 11:00–11:36 ET on 2026-09-22, exactly one week after the referral wave, using the shared Target recruiter delivery trigger. |
 | `runTargetReferralCampaignTick0915Lyft_()` | Every-minute delivery handler for the Lyft campaign; delegates to the shared referral sender, including its Advanced Gmail rejection preflight immediately before each send. |
 | `runTargetRecruiterCampaignTick0915Anduril_()` | Every-minute delivery handler for the Anduril campaign; delegates to the shared recruiter sender, including its Advanced Gmail rejection preflight immediately before each send. |
 | `runTargetRecruiterCampaignTick0916Notion_()` | Every-minute delivery handler for the Notion campaign; delegates to the shared recruiter sender, including its Advanced Gmail rejection preflight immediately before each send. |
@@ -48,6 +52,8 @@ user-approved, bounded exception to the tab's normal hand-entry practice.
 | `runTargetReferralCampaignTick0915LockheedMartin_()` | Every-minute delivery handler for the Lockheed Martin referral campaign, including its Advanced Gmail rejection preflight immediately before each send. |
 | `runTargetRecruiterCampaignTick0922LockheedMartin_()` | Every-minute delivery handler for the Lockheed Martin recruiter campaign, including its Advanced Gmail rejection preflight immediately before each send. |
 | `runTargetRecruiterSharedTick_()` | Shared every-minute delivery router used by the six requested Summer recruiter campaigns after trigger consolidation. It keeps each campaign's recorded time and delegates the earliest due entry to the common sender, including its Advanced Gmail rejection preflight immediately before each send. The dated tick functions remain callable maintenance fallbacks. |
+| `runTargetReferralCampaignTick0915Walmart_()` | Every-minute delivery handler for the Walmart referral campaign, including its Advanced Gmail rejection preflight immediately before each send. |
+| `runTargetRecruiterCampaignTick0922Walmart_()` | Callable maintenance fallback for the Walmart recruiter campaign; the shared recruiter router normally delivers it. |
 
 ## Validation
 
