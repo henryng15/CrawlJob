@@ -1,0 +1,183 @@
+// Off-Target manual recruiter waves.
+//
+// Two explicit recruiter waves for companies that are NOT on the Target shortlist: every one is
+// an application already made, outside the quant set, with no rejection in the mailbox and an
+// open Software Engineer Intern, Software Developer, or Software Engineering Co-op requisition.
+// Roles containing Design or Embedded are excluded. One recruiter per employer, chosen by
+// verification quality rather than by the alphabetical order the selector would otherwise use.
+// Everyone else at that employer is listed in excludeEmails so the pick is forced.
+//
+// The hours sit outside SEND_HOUR_FIRST..SEND_HOUR_LAST because the owner asked for them
+// explicitly. A direct campaign does not enter the normal Email queue and is not bound by the
+// weekday DAILY_CAP. See docs/manual-outreach-trigger.md and
+// docs/components/outreach-offtarget-waves.md.
+
+/** Manual off-Target recruiter wave, 26 employers, 2026-09-13 23:00 to 23:50 ET. */
+function scheduleOffTargetRecruiterCampaign0913Night() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
+    handler: 'runOffTargetRecruiterCampaignTick0913Night_',
+    label: 'Off-Target night wave',
+    startIso: '2026-09-13T23:00:00-04:00',
+    spacingMinutes: 2,
+    minGapMinutes: 1,
+    companies: [
+      {company: 'The Hartford', maxContacts: 1,
+       role: 'Tech & Data Program Summer 2027 Software Engineer Intern (Charlotte)',
+       jobLink: 'https://thehartford.wd5.myworkdayjobs.com/Careers_External/job/Charlotte-NC/Tech---Data-Program-Summer-2027---Software-Engineer-Intern--Charlotte-_R2626649'},
+      {company: 'Northwood Space', maxContacts: 1,
+       role: 'Software Engineer Intern, Multiple Teams',
+       jobLink: 'https://jobs.ashbyhq.com/NorthwoodSpace/ce3d4b73-461e-4128-a6f1-f933897e8119/application?embed=true&utm_source=Simplify&ref=Simplify'},
+      {company: 'Phillips Edison & Company', maxContacts: 1,
+       role: 'Information Technology Intern, Software Development (Summer 2027)',
+       jobLink: 'https://jobright.ai/jobs/info/6a95c2ecf28891320e85db8f?utm_campaign=1079&utm_source=git'},
+      {company: 'Nokia', maxContacts: 1,
+       role: 'Deepfield Software Engineer Co-op',
+       jobLink: 'https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/39908'},
+      {company: 'Progress Rail, A Caterpillar Company', maxContacts: 1,
+       role: 'Software Engineer Intern, Advanced Rail Technology',
+       jobLink: 'https://jobright.ai/jobs/info/6a8eeb81309e5f22487094ea?utm_campaign=1079&utm_source=git'},
+      {company: 'C3.ai', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://c3.ai/job-description/8739037002?gh_jid=8739037002&utm_source=Simplify&ref=Simplify'},
+      {company: 'K2 Space', maxContacts: 1,
+       role: 'Software Engineer Intern, Summer 2027',
+       jobLink: 'https://job-boards.greenhouse.io/k2spacecorporation/jobs/5411920008?utm_source=Simplify&ref=Simplify'},
+      {company: 'Nike', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://nike.wd1.myworkdayjobs.com/nke/job/Beaverton-Oregon/NIKE--Inc-Software-Engineering-Undergraduate-Internship_R-91111?utm_source=Simplify&ref=Simplify'},
+      {company: 'Valon', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://jobs.ashbyhq.com/valon/b5a62c0c-823c-42dd-8cb5-e4b1455bcc64/application?utm_source=Simplify&jr_id=6a9740e5b22f636c81416f7a'},
+      {company: 'Momentive', maxContacts: 1,
+       role: 'Summer 2027 Intern, Software Development',
+       jobLink: 'https://momentive.wd1.myworkdayjobs.com/MC/job/US-NY-Niskayuna/Summer-2027-Intern---Software-Development_R9756'},
+      {company: 'Johns Hopkins Applied Physics Laboratory', maxContacts: 1,
+       role: 'Software Development Intern',
+       jobLink: 'https://careers.jhuapl.edu/jobs/59745?icims=1&utm_source=Simplify&ref=Simplify'},
+      {company: 'The Kraft Group & Affiliates', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://jobright.ai/jobs/info/6a996c9b040e5c3d075961cd?utm_campaign=1079&utm_source=git'},
+      {company: 'Northmarq', maxContacts: 1,
+       role: 'Software Engineering Intern, Summer 2027',
+       jobLink: 'https://job-boards.greenhouse.io/northmarq/jobs/5414475008'},
+      {company: 'PepsiCo', maxContacts: 1,
+       role: '2027 Summer Intern: Technology Software Development & Engineering',
+       jobLink: 'https://jobright.ai/jobs/info/6a983d5111f73b6462c8d5e6?utm_campaign=1079&utm_source=git'},
+      {company: 'CIBC', maxContacts: 1,
+       role: '2027 Summer Intern, Software Engineering',
+       jobLink: 'https://cibc.wd3.myworkdayjobs.com/search/job/Chicago-IL/XMLNAME-2027-Summer-Intern---Software-Engineering_2618322-1'},
+      {company: 'Garner Health', maxContacts: 1,
+       role: 'Software Engineering Intern',
+       jobLink: 'https://job-boards.greenhouse.io/garnerhealth/jobs/6164698004'},
+      {company: 'Skillz', maxContacts: 1,
+       role: 'Co-op, Software Engineer',
+       jobLink: 'https://job-boards.greenhouse.io/skillzinc/jobs/8168006'},
+      {company: 'Prescient Edge', maxContacts: 1,
+       role: 'Junior Software Developer Intern',
+       jobLink: 'https://jobright.ai/jobs/info/6a9ad00ed5ff1f3f1c39b53b?utm_campaign=1079&utm_source=git'},
+      {company: 'Micron Technology', maxContacts: 1,
+       role: 'Intern, Software Engineer',
+       jobLink: 'https://micron.wd1.myworkdayjobs.com/External/job/Boise-ID---Main-Site/Intern---Software-Engineer_JR108550'},
+      {company: 'Hearst Television', maxContacts: 1,
+       role: 'Software Engineering Intern',
+       jobLink: 'https://jobright.ai/jobs/info/6aa39919626f9945308b1c89?utm_campaign=1079&utm_source=git'},
+      {company: 'ibotta', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://jobs.ashbyhq.com/ibotta/3130669e-16aa-4f63-834d-b83571c8d269/application?embed=true&utm_source=Simplify&ref=Simplify'},
+      {company: 'US Foods', maxContacts: 1,
+       role: 'Intern, Software Engineer, Digital Commerce',
+       jobLink: 'https://jobright.ai/jobs/info/6a97381fd13b4819f39dfd07?utm_campaign=1079&utm_source=git'},
+      {company: 'Amgen', maxContacts: 1,
+       role: 'Software Engineer Intern, Technology & Medical Organizations',
+       jobLink: 'https://amgen.wd1.myworkdayjobs.com/careers/job/United-States---Remote/Undergrad-Intern---Software-Engineer---Amgen-s-Technology---Medical-Organizations--Summer-2027-_R-255719?utm_source=Simplify&ref=Simplify'},
+      {company: 'Copart', maxContacts: 1,
+       role: 'Software Engineering Intern',
+       jobLink: 'https://copart.wd12.myworkdayjobs.com/en-US/copart/job/Software-Engineering-Intern_JR101510'},
+      {company: 'AbbVie', maxContacts: 1,
+       role: 'Business Technology Solutions Intern, Data & Software Engineering',
+       jobLink: 'https://jobs.smartrecruiters.com/AbbVie/3743990014697918?utm_source=Simplify&ref=Simplify'},
+      {company: 'Advanced Space', maxContacts: 1,
+       role: '2027 Software Engineering Summer Internship',
+       jobLink: 'https://job-boards.greenhouse.io/advancedspace/jobs/4324855009'}
+    ],
+    excludeEmails: [
+      'abby.motson@pepsico.com', 'adam.wigley@momentive.com', 'alex.leet@cibc.com',
+      'ashley.farmer@nike.com', 'audra.mazur@gehealthcare.com', 'barry@gehealthcare.com',
+      'brielle.lambert@pepsico.com', 'byron.wallace@nike.com', 'charlotte.kehoe@nike.com',
+      'chaus.nicholson@nike.com', 'christa.maguire@nike.com', 'cody.goodmen@ibotta.com',
+      'connor.snashall@nike.com', 'david.jasso@nike.com', 'elliott.dykman@c3.ai',
+      'harp.dhanota@c3.ai', 'jalen.carter@ibotta.com', 'javier.vargas@copart.com',
+      'jeff.porter@nokia.com', 'jessica.hacker@amgen.com', 'jordan.mills@hearst.com',
+      'justin@ibotta.com', 'kevin.clemens@cibc.com', 'kristy.bortle@thehartford.com',
+      'marianna.murphy@c3.ai', 'michael.berube@thehartford.com', 'michael.lee@c3.ai',
+      'natalie.henry@pepsico.com', 'neha.patel@pepsico.com', 'nick.kimball@copart.com',
+      'omar.alvarez@c3.ai', 'ryan.watson@bylight.com', 'stacy.gabriel@thehartford.com',
+      'tandra.smith@thehartford.com', 'thomas.geraci@cibc.com', 'thomas.stuyvesant@nike.com',
+      'vaishnavi.venugopal@gehealthcare.com', 'willa.woods@pepsico.com'
+    ]
+  });
+}
+
+/** Manual off-Target recruiter wave, 7 employers, 2026-09-14 03:00 to 04:12 ET. */
+function scheduleOffTargetRecruiterCampaign0914Early() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY',
+    handler: 'runOffTargetRecruiterCampaignTick0914Early_',
+    label: 'Off-Target early wave',
+    startIso: '2026-09-14T03:00:00-04:00',
+    spacingMinutes: 12,
+    minGapMinutes: 11,
+    companies: [
+      {company: 'Amtrak', maxContacts: 1,
+       role: 'Fall 2026/Spring 2027 Software Engineering Intern, Washington',
+       jobLink: 'https://jobright.ai/jobs/info/6a95ac98c8763a3a87ffb40d?utm_campaign=1079&utm_source=git'},
+      {company: 'Entrust', maxContacts: 1,
+       role: 'Intern, Software Developer, Ottawa',
+       jobLink: 'https://jobright.ai/jobs/info/6a9ec3aedacf777321a933a7?utm_campaign=1079&utm_source=git'},
+      {company: 'Fidelity Investments', maxContacts: 1,
+       role: 'Co-op, Software Engineer',
+       jobLink: 'https://fmr.wd1.myworkdayjobs.com/targeted/job/Boston-MA/Co-op--Software-Engineer_2135200'},
+      {company: 'Veeam Software', maxContacts: 1,
+       role: 'Software Engineering Intern, Summer 2027',
+       jobLink: 'https://job-boards.greenhouse.io/embed/job_app?for=veeamsoftware&token=4955293101&jr_id=6aa433181d92e2d05d113c5d'},
+      {company: 'Hudl', maxContacts: 1,
+       role: 'Software Engineering Intern',
+       jobLink: 'https://job-boards.greenhouse.io/hudl/jobs/8114314'},
+      {company: 'Cboe Global Markets', maxContacts: 1,
+       role: 'Software Engineer Intern',
+       jobLink: 'https://cboe.wd1.myworkdayjobs.com/en-US/external_career_cboe/job/Chicago-IL/Software-Engineer-Intern_R-4654'},
+      {company: 'whatnot', maxContacts: 1,
+       role: 'Software Engineer Intern (Summer 2027)',
+       jobLink: 'https://jobs.ashbyhq.com/whatnot/928ffdca-b316-40ce-b82b-94b570919bcd/application?utm_source=Simplify'},
+      {company: 'Emerson Electric', maxContacts: 1,
+       role: 'Software Engineering Co-op (Jun to Dec 2027)',
+       jobLink: 'https://hdjq.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/26010738'}
+    ],
+    excludeEmails: targetRecruiterCampaignEmails_('TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT').concat([
+      'alex.huynh@verkada.com', 'christine.higgins@verkada.com', 'courtney@whatnot.com',
+      'david.in@verkada.com', 'davis.tat@verkada.com', 'heather.trippet@fidelity.com',
+      'jcortez@cboe.com', 'julie.fowler@verkada.com', 'marlane.velthouse@fidelity.com',
+      'rae@whatnot.com', 'shawn.ricker@fidelity.com', 'stephanie.kang@verkada.com',
+      'steve.donahue@entrust.com', 'steve@whatnot.com', 'taylor.scott@fidelity.com',
+      'tbewley@cboe.com', 'trey.martin@fidelity.com', 'tyler.nevin@veeam.com',
+      'winnie.lee@verkada.com', 'winnie@whatnot.com'
+    ])
+  });
+}
+
+/** Every-minute trigger for the 09/13 off-Target night wave. */
+function runOffTargetRecruiterCampaignTick0913Night_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
+    handler: 'runOffTargetRecruiterCampaignTick0913Night_'
+  });
+}
+
+/** Every-minute trigger for the 09/14 off-Target early wave. */
+function runOffTargetRecruiterCampaignTick0914Early_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY',
+    handler: 'runOffTargetRecruiterCampaignTick0914Early_'
+  });
+}

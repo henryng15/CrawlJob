@@ -94,6 +94,7 @@ looser one winning every hour — see the gotcha in
 - [outreach-referral-send.md](outreach-referral-send.md) — referral drafting, sending, reconciling
 - [outreach-app-worklist.md](outreach-app-worklist.md) — the `App` worklist: which rows are waiting on a link, and where they sit
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
+- [outreach-offtarget-waves.md](outreach-offtarget-waves.md) — explicit off-Target manual recruiter campaigns
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 - [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
 

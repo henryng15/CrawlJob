@@ -2651,7 +2651,9 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/15 — HP + Intuit + Oracle', 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE'],
     ['09/16 — Intel + Atlassian', 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'],
     ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'],
-    ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID']
+    ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'],
+    ['09/13 — Off-Target night', 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT'],
+    ['09/14 — Off-Target early', 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -3138,7 +3140,9 @@ function refreshTargetQueueTabs_() {
     'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'
+    'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID',
+    'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
+    'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY'
   ];
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
