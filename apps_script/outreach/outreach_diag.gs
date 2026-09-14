@@ -1917,6 +1917,7 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
   var queueEntries = queue && queue.getLastRow() >= 2
     ? queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
       .map(function (values, index) { return outreachParseQueue_(values, index + 2); }) : [];
+  var externalHistory = outreachReadExternalColdHistory_(tracker);
   return names.map(function (company) {
     var people = outreachContactsFor_(contacts, company);
     var emails = people.map(function (person) { return person.email; });
@@ -1948,6 +1949,7 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
     };
     var direct = stateCounts(campaignEntries);
     var normal = stateCounts(queueEntries);
+    var external = externalHistory.filter(sameEmployer).length;
     return {
       company: company,
       currentRecruiterContacts: people.length,
@@ -1956,7 +1958,8 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
       directCampaignSent: direct.sent,
       directCampaignQueued: direct.queued,
       normalQueueSent: normal.sent,
-      normalQueueQueued: normal.queued
+      normalQueueQueued: normal.queued,
+      externalColdHistorySent: external
     };
   });
 }
@@ -2045,6 +2048,10 @@ function auditTargetOutreachCoverage() {
         if (row && targetAuditRoleEligible_(entry.role)) targetAuditAddState_(row.recruiter, entry.status);
       });
   }
+  outreachReadExternalColdHistory_(tracker).forEach(function (entry) {
+    var row = match(entry.company);
+    if (row) targetAuditAddState_(row.recruiter, 'sent');
+  });
   var active = Object.keys(byKey).map(function (key) { return byKey[key]; })
     .filter(function (row) { return row.applications || row.openJobs; })
     .sort(function (left, right) { return left.company.localeCompare(right.company); });

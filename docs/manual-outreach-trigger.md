@@ -82,6 +82,21 @@ If the user asks only to “write” emails, produce the plan and drafts/copy bu
 user asks to send, re-check the live application, recipient and queue state immediately before
 the send operation.
 
+## External and off-template cold-email history
+
+Every actual cold email counts as outreach for its company, even when it was sent manually,
+outside `Email`, or with wording that is not one of this repository's templates. After such an
+email has left Gmail, record it in the sender-owned `Outreach History` sheet with
+`recordExternalColdEmail(company, recipientEmail, role, jobLink, source)`. The recorder verifies
+the Gmail send before creating an append-only `Sent` entry, ticks the matching contact where it
+exists, and updates Target recruiter status/counts. It never drafts, schedules, or sends email.
+
+Do not use Gmail search alone to backfill arbitrary old conversations: it cannot reliably tell a
+cold email from unrelated correspondence. For future manual sends, record the message in the
+same session that it is sent. The Target coverage audit treats these ledger entries exactly as
+sent recruiter outreach, so companies are not left in the “not sent” list merely because the
+template or send path differed.
+
 ## Gmail rejection preflight
 
 Before allowing a manual recruiter/referral run or a Target campaign entry to leave the mailbox,

@@ -79,6 +79,10 @@ var TAB_REFERRAL       = 'Referral';
 // show the direct-send schedule without becoming a second send queue.
 var TAB_EMAIL_TARGET    = 'Email_target';
 var TAB_REFERRAL_TARGET = 'Referral_target';
+// Append-only ledger for cold emails sent outside the normal Email queue or
+// direct Target campaigns. It is never read by workers, so history cannot turn
+// into a second send queue.
+var TAB_OUTREACH_HISTORY = 'Outreach History';
 // Where a run says it started and, if it got that far, that it finished. Its own
 // tab rather than Logger, because a step that has been failing for days is only
 // worth anything if it is visible where somebody actually looks. See

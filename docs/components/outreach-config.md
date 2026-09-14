@@ -9,6 +9,8 @@ here. Nothing in this file touches a sheet or Gmail.
 - **Column constants must match the live tabs.** `Q_*` describes `Email` (23 columns), `R_*`
   describes `Referral` (20), `APP_*` describes `App`, `C_*`/`E_*` the contacts spreadsheet.
   Layout migrations live in [tracker-sync.md](tracker-sync.md); this file only names positions.
+- `TAB_OUTREACH_HISTORY` names the sender-owned append-only evidence ledger for external or
+  off-template cold emails. The normal workers never read it as a queue.
 - The referral sender's cross-project handoff is `Employees (seed)` plus the hidden tracker tab
   `Referral Seed Counts`; every Verify value except `debounce:invalid` is sendable, including blank.
 
