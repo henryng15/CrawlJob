@@ -22,19 +22,23 @@
         <input id="link" name="link" type="url" maxlength="2000" placeholder="Filled from this tab" required>
 
         <section class="personal-links" aria-labelledby="personal-links-title">
-          <h2 id="personal-links-title">Your links</h2>
-          <p>Copy a link to paste into an application or message.</p>
+          <h2 id="personal-links-title">Your details</h2>
+          <p>Copy a link, or fill the sign-in boxes on the open tab.</p>
           <div class="personal-link-row">
             <span>LinkedIn</span>
-            <button class="copy-link" type="button" data-url="https://www.linkedin.com/in/hoanng15/">Copy</button>
+            <button class="copy-link" type="button" data-copy="https://www.linkedin.com/in/hoanng15/">Copy</button>
           </div>
           <div class="personal-link-row">
             <span>GitHub</span>
-            <button class="copy-link" type="button" data-url="https://github.com/henryng15">Copy</button>
+            <button class="copy-link" type="button" data-copy="https://github.com/henryng15">Copy</button>
           </div>
           <div class="personal-link-row">
             <span>Portfolio</span>
-            <button class="copy-link" type="button" data-url="https://hoanng.netlify.app/">Copy</button>
+            <button class="copy-link" type="button" data-copy="https://hoanng.netlify.app/">Copy</button>
+          </div>
+          <div class="personal-link-row">
+            <span>Email + password</span>
+            <button id="login-fill" class="copy-link" type="button">Log in</button>
           </div>
         </section>
 

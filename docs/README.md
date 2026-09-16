@@ -14,6 +14,7 @@
 | [henry_vietnamese.md](henry_vietnamese.md) | Manual-review Vietnamese referral variants: direct but humble copy, mandatory singular `anh`/`chị` addressing, and the approved 2027 Software Engineering Intern context. An uncertain title must return to chat, not the sender. |
 | [henry_cold_email_templates_10.md](henry_cold_email_templates_10.md) / [henry_referral.md](henry_referral.md) | Verbatim reference copies of the ColdEmail source documents for the English cold and referral template catalogs. |
 | [manual-outreach-trigger.md](manual-outreach-trigger.md) | **Assistant operating policy:** email work is manual-triggered only, the correct template docs to read, the 55-message warning, and the required daily summary |
+| [direct-target-campaigns.md](direct-target-campaigns.md) | Runbook for explicit, bounded Target recruiter/referral campaigns that continue independently while Automatic remains paused. |
 | [operations.md](operations.md) | Reading the log, `--audit-app`, `--rebuild`, the error table |
 | [components/](components/README.md) | **One document per source file:** what it owns, what it connects to, what every function does. Read the relevant one before changing a file; update it in the same change. |
 

@@ -39,7 +39,7 @@ here. Nothing in this file touches a sheet or Gmail.
 | `REFERRAL_PRIORITY_WINDOW_MINUTES` | 120 | A Priority ask uses the fast lane and is scheduled within two hours when that lane has room. |
 | `REFERRAL_PRIORITY_GAP_MINUTES_MIN` / `MAX` | 10 / 20 | Deterministic jitter between fast-lane sends. It looks varied but remains stable across replans. |
 | `REFERRAL_TOP_COMPANY_PROPERTY_MAX` | 0 | Retained for compatibility only; Target membership, not `App!Property`, decides the company gate. |
-| `REFERRAL_QUANT_COMPANIES` | named firms | Quant firms excluded from the Referral campaign, even for a today/yesterday application. Matching uses the shared employer normaliser. |
+| `REFERRAL_QUANT_COMPANIES` | named firms, including Schonfeld and Two Sigma | Quant firms excluded from the Referral campaign, even for a today/yesterday application. Matching uses the shared employer normaliser. |
 | `FOLLOWUP_DAILY_CAP` | **0** | The follow-up path is switched off. Zero rather than deleted: the planner already respects this cap, so it is the smallest switch that stops every one of the path's writes. Restoring the feature needs both a number here **and** `followup` back in `EMAIL_PATH_ORDER`. Was 6. |
 | `WAVE_SIZE` / `WAVE_GAP_DAYS` | 3 / 5 | Cold contacts per wave, and the gap before the next. |
 

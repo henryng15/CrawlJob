@@ -36,6 +36,7 @@ new write-capable entry points casually.
 | `onEdit(e)` | Every cell edit in the file lands here first and is dispatched by tab. |
 | `onJobsEdit(e)` | Ticking **Applied** on `Jobs` copies the row into `App`. |
 | `onAppEdit(e)` | Changing **Process** in column F appends one `"<Stage>: <date>"` line to `Update`. |
+| `markJPMorganSWECompletedOA()` | One-purpose owner correction: requires exactly the JPMorgan Chase `Software Engineer Summer Intern` row at `OA`/`Completed OA`, then records `Completed OA` in Process and its dated Update history without changing any other App row. |
 | `onReferralEdit(e)` | Ticking **Cancel** in column M calls that ask off immediately. |
 | `onReferralPriorityEdit(e)` | A Priority tick spread across the whole ask it belongs to. Writes the boxes and nothing else — no reorder, no re-time. |
 | `stageLabel(v)`, `hasStage(...)`, `stamp(...)` | The canonical stage name (or `''`), and the date written into the cell. |

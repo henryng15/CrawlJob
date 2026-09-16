@@ -504,16 +504,21 @@ function syncTargetAfterSend_(company, kind) {
   }
 }
 
-var TARGET_DELIVERY_FAILURE_CAMPAIGNS_ = [
-  {key: 'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD', kind: 'referral'},
-  {key: 'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI', kind: 'referral'},
-  {key: 'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG', kind: 'referral'},
-  {key: 'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT', kind: 'referral'},
-  {key: 'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA', kind: 'recruiter'},
-  {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA', kind: 'recruiter'},
-  {key: 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE', kind: 'recruiter'},
-  {key: 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909', kind: 'recruiter'}
-];
+/** Every persisted direct recruiter/referral campaign participates in bounce reconciliation. */
+function targetDeliveryFailureCampaigns_() {
+  return Object.keys(PropertiesService.getScriptProperties().getProperties())
+    .filter(function (key) {
+      return key.indexOf('TARGET_REFERRAL_CAMPAIGN_') === 0
+        || key.indexOf('TARGET_RECRUITER_CAMPAIGN_') === 0
+        || key.indexOf('OFFTARGET_RECRUITER_CAMPAIGN_') === 0;
+    })
+    .sort()
+    .map(function (key) {
+      return {key: key, kind: key.indexOf('TARGET_REFERRAL_CAMPAIGN_') === 0
+        ? 'referral' : 'recruiter'};
+    })
+    .concat([{key: 'MICROSOFT_COLD_DRAFT_SCHEDULE_20260909', kind: 'recruiter'}]);
+}
 
 /** Read recent delivery-failure notices into an address-to-received-time map. */
 function targetDeliveryFailureAddresses_() {
@@ -548,7 +553,7 @@ function scanTargetDeliveryFailures() {
   var props = PropertiesService.getScriptProperties();
   var tally = {bounced: 0, referral: 0, recruiter: 0, notices: Object.keys(bounced).length};
 
-  TARGET_DELIVERY_FAILURE_CAMPAIGNS_.forEach(function (campaign) {
+  targetDeliveryFailureCampaigns_().forEach(function (campaign) {
     var text = props.getProperty(campaign.key);
     if (!text) return;
     var state = JSON.parse(text);
@@ -693,6 +698,132 @@ function diagnoseReferralReplan() {
       return move.index + ' -> '
         + Utilities.formatDate(move.scheduled, Session.getScriptTimeZone(), 'MM-dd HH:mm');
     })
+  };
+}
+
+/**
+ * Read-only daily accounting for the normal automatic Email, Referral and
+ * follow-up planners. It simulates newly planned work against the live rows but
+ * never writes a queue row, draft, or message.
+ */
+function diagnoseAutomaticOutreachForDay(dayIso) {
+  var requestedDay = String(dayIso || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDay)) {
+    throw new Error('Use a local date in YYYY-MM-DD format.');
+  }
+  var noon = new Date(requestedDay + 'T12:00:00-04:00');
+  if (Utilities.formatDate(noon, 'America/New_York', 'yyyy-MM-dd') !== requestedDay) {
+    throw new Error('The requested date is invalid.');
+  }
+  var isRequestedDay = function (value) {
+    return !!value && Utilities.formatDate(
+      value, 'America/New_York', 'yyyy-MM-dd') === requestedDay;
+  };
+  var now = new Date();
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var appSheet = tracker.getSheetByName(TAB_APP);
+  var emailSheet = tracker.getSheetByName(TAB_QUEUE);
+  var referralSheet = tracker.getSheetByName(TAB_REFERRAL);
+  if (!appSheet || !emailSheet || !referralSheet) {
+    throw new Error('App, Email and Referral tabs are all required for this preview.');
+  }
+
+  var appRows = appSheet.getLastRow() < 2 ? []
+    : appSheet.getRange(2, 1, appSheet.getLastRow() - 1, APP_RECRUITERS)
+      .getValues().map(outreachParseApp_);
+  var emailLast = emailSheet.getLastRow();
+  var emailRows = emailLast < 2 ? []
+    : emailSheet.getRange(2, 1, emailLast - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index + 2); });
+  var referralRows = outreachReadReferralRows_(referralSheet);
+  var contacts = outreachReadContacts_(contactsBook);
+  var salt = outreachProperty_(PROP_SALT, true);
+
+  var coldPlan = outreachPlanEnqueue_(appRows, emailRows, contacts, now, salt,
+                                       outreachColdTargetCompanies_(tracker));
+  var hypotheticalEmailRows = coldPlan.planned.map(function (item, index) {
+    return outreachParseQueue_(outreachQueueRowValues_(item), emailLast + index + 1);
+  });
+  var allEmailRows = emailRows.concat(hypotheticalEmailRows);
+  var emailProjection = outreachProjectSchedule_(allEmailRows, now);
+  var coldSent = emailRows.filter(function (row) {
+    return (row.status === STATUS_SENT || row.status === STATUS_REPLIED
+      || row.status === STATUS_BOUNCED) && isRequestedDay(row.sentAt);
+  }).length;
+  var coldDrafted = emailRows.filter(function (row) {
+    return row.status === STATUS_DRAFTED && isRequestedDay(row.scheduled);
+  }).length;
+  var coldQueued = emailProjection.filter(function (row) {
+    return row.rowNumber <= emailLast && isRequestedDay(row.sendAt);
+  }).length;
+  emailRows.forEach(function (row) {
+    if (row.status === STATUS_QUEUED && outreachOffTargetEmailQueueRow_(row)
+        && isRequestedDay(row.scheduled)) coldQueued++;
+  });
+  var coldNew = emailProjection.filter(function (row) {
+    return row.rowNumber > emailLast && isRequestedDay(row.sendAt);
+  }).length;
+
+  var employees = outreachReadEmployees_(contactsBook);
+  var domainFor = outreachReferralDomainFor_(employees);
+  var referralApps = appSheet.getLastRow() < 2 ? []
+    : appSheet.getRange(2, 1, appSheet.getLastRow() - 1, APP_READ_WIDTH)
+      .getValues().map(function (row, index) {
+        return outreachParseApplication_(row, index + 2, domainFor);
+      });
+  var referralPlan = outreachReferralPlan_(
+    referralApps, referralRows, employees, now,
+    outreachReferralRoomOn_(emailRows, referralRows),
+    outreachReferralTargetCompanies_(tracker));
+  var referralSent = referralRows.filter(function (row) {
+    return (row.status === STATUS_SENT || row.status === STATUS_REPLIED
+      || row.status === STATUS_BOUNCED) && isRequestedDay(row.sentAt);
+  }).length;
+  var referralDrafted = referralRows.filter(function (row) {
+    return row.status === STATUS_DRAFTED && isRequestedDay(row.scheduled);
+  }).length;
+  var referralQueued = referralRows.filter(function (row) {
+    return row.status === STATUS_QUEUED && !row.cancel && isRequestedDay(row.scheduled);
+  }).length;
+  var referralNew = referralPlan.booked.filter(function (row) {
+    return isRequestedDay(row.scheduled);
+  }).length;
+
+  var followUpPlan = outreachPlanFollowUps_(emailRows, now);
+  var stopped = {};
+  followUpPlan.stopped.forEach(function (row) { stopped[row.rowNumber] = true; });
+  var followUpSent = emailRows.filter(function (row) {
+    return row.followUpStatus === FOLLOWUP_SENT && isRequestedDay(row.followUpAt);
+  }).length;
+  var followUpDrafted = emailRows.filter(function (row) {
+    return row.followUpStatus === FOLLOWUP_DRAFTED && isRequestedDay(row.followUpAt);
+  }).length;
+  var followUpQueued = emailRows.filter(function (row) {
+    return row.followUpStatus === FOLLOWUP_QUEUED && !stopped[row.rowNumber]
+      && isRequestedDay(row.followUpAt);
+  }).length;
+  var followUpNew = followUpPlan.booked.filter(function (row) {
+    return isRequestedDay(row.day);
+  }).length;
+
+  var alreadySent = coldSent + referralSent + followUpSent;
+  var stillQueuedDrafted = coldQueued + coldDrafted + referralQueued + referralDrafted
+    + followUpQueued + followUpDrafted;
+  var hypothetical = coldNew + referralNew + followUpNew;
+  return {
+    planDate: requestedDay,
+    asOf: now.toISOString(),
+    cold: {sent: coldSent, queued: coldQueued, drafted: coldDrafted, newlyPlanned: coldNew},
+    referral: {sent: referralSent, queued: referralQueued, drafted: referralDrafted,
+               newlyPlanned: referralNew},
+    followUp: {sent: followUpSent, queued: followUpQueued, drafted: followUpDrafted,
+               newlyPlanned: followUpNew},
+    automaticTotal: alreadySent + stillQueuedDrafted + hypothetical,
+    alreadySent: alreadySent,
+    stillQueuedDrafted: stillQueuedDrafted,
+    hypotheticalNewWork: hypothetical,
+    assumption: 'Current App, contact and queue snapshot; future applications and replies are not forecast.'
   };
 }
 
@@ -1782,7 +1913,10 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260915_ANDURIL',
     'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
     'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID',
+    'TARGET_REFERRAL_CAMPAIGN_20260918_FIGMA',
+    'TARGET_REFERRAL_CAMPAIGN_20260916_DOORDASH',
     'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
+    'TARGET_RECRUITER_CAMPAIGN_20260916_ATLASSIAN_HUNTER4',
     'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION',
     'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
     'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
@@ -1792,11 +1926,25 @@ function diagnoseTargetRejectionPreflight() {
     'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG',
     'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI',
     'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL_SUPPLEMENT',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_PAYPAL',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_PAYPAL_SUPPLEMENT',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT_HUNTER_SUPPLEMENT',
+    'TARGET_RECRUITER_CAMPAIGN_20260924_ROBINHOOD',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_COINBASE',
+    'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA',
+    'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA_SUPPLEMENT',
+    'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA_SUPPLEMENT2',
     'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
     'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
     'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD',
     'TARGET_REFERRAL_CAMPAIGN_20260915_WALMART',
-    'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART'
+    'TARGET_REFERRAL_CAMPAIGN_20260916_DOORDASH',
+    'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART',
+    'TARGET_RECRUITER_CAMPAIGN_20260923_RED_HAT',
+    'TARGET_RECRUITER_CAMPAIGN_20260923_DOORDASH',
+    'TARGET_RECRUITER_CAMPAIGN_20260918_SHIELD_AI'
   ];
   var entries = targetMirrorCampaignEntries_(propertyKeys).filter(function (entry) {
     return entry.status === 'pending';
@@ -1868,6 +2016,238 @@ function diagnoseTargetCompanyRejectionEvidence(company, role, jobLink) {
   });
 }
 
+/**
+ * Whether an App role belongs to the requested Summer 2027 review.
+ *
+ * A missing season/year is intentionally treated as Summer 2027: App records
+ * an application, and the owner requested that unstated intake metadata not
+ * hide an otherwise current application.  Explicitly named non-Summer intakes
+ * and an explicit year other than 2027 remain out of scope.
+ */
+function outreachRecentSummer2027Role_(role) {
+  var text = String(role || '').toLowerCase();
+  if (!text.trim()) return true;
+  if (/\b(?:winter|spring|fall)\b/.test(text) && !/\bsummer\b/.test(text)) return false;
+  var years = text.match(/\b20\d{2}\b/g) || [];
+  return !years.some(function (year) { return year !== '2027'; });
+}
+
+/**
+ * Read-only review of recent, non-Target Summer-2027 applications that have
+ * current recruiter data.  It deliberately makes no outreach decision: the
+ * result distinguishes companies with no accepted cold email but a pending
+ * queue from companies that are still fully uncontacted.
+ */
+function auditRecentOffTargetSummer2027RecruiterGaps() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+  if (targetCompanies === null) throw new Error('Target tab is unavailable.');
+  var appSheet = tracker.getSheetByName(TAB_APP);
+  var queueSheet = tracker.getSheetByName(TAB_QUEUE);
+  if (!appSheet) throw new Error('App tab is unavailable.');
+  var today = outreachMidnight_(new Date());
+  var cutoff = new Date(today.getTime());
+  cutoff.setDate(cutoff.getDate() - 21);
+  var tomorrow = new Date(today.getTime());
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var applications = appSheet.getLastRow() < 2 ? []
+    : appSheet.getRange(2, 1, appSheet.getLastRow() - 1, APP_READ_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseApp_(row, index); })
+      .filter(function (app) {
+        return app.company && app.process !== STAGE_REJECTED && app.dateApplied
+          && app.dateApplied >= cutoff && app.dateApplied < tomorrow
+          && outreachRecentSummer2027Role_(app.role)
+          && !outreachReferralCompanyIsTarget_(app.company, targetCompanies)
+          && !outreachReferralIsQuantFirm_(app.company);
+      });
+  var groups = [];
+  applications.forEach(function (app) {
+    var tokens = outreachCompanyTokens_(app.company);
+    var group = groups.filter(function (candidate) {
+      return outreachSameEmployer_(tokens, candidate.tokens);
+    })[0];
+    if (!group) {
+      group = {company: app.company, tokens: tokens, applications: []};
+      groups.push(group);
+    }
+    group.applications.push(app);
+  });
+  var contacts = outreachReadContacts_(contactsBook);
+  var queueEntries = queueSheet && queueSheet.getLastRow() >= 2
+    ? queueSheet.getRange(2, 1, queueSheet.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index + 2); }) : [];
+  var campaignEntries = [];
+  Object.keys(PropertiesService.getScriptProperties().getProperties()).forEach(function (key) {
+    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0
+        && key.indexOf('OFFTARGET_RECRUITER_CAMPAIGN_') !== 0) return;
+    try { campaignEntries = campaignEntries.concat(
+      (JSON.parse(PropertiesService.getScriptProperties().getProperty(key)).entries || []));
+    } catch (ignored) {}
+  });
+  var subjects = {};
+  COLD_TEMPLATES.forEach(function (template) { subjects[template.subject] = true; });
+  var stateCounts = function (entries, company) {
+    var sent = 0, queued = 0;
+    entries.forEach(function (entry) {
+      if (!outreachSameEmployer_(outreachCompanyTokens_(company),
+          outreachCompanyTokens_(entry.company))) return;
+      var status = String(entry.status || '').toLowerCase();
+      if (status === 'sent' || status === 'already-sent' || status === 'replied'
+          || status === 'bounced') sent++;
+      else if (status === 'pending' || status === 'queued' || status === 'drafted') queued++;
+    });
+    return {sent: sent, queued: queued};
+  };
+  var candidates = groups.map(function (group) {
+    var people = outreachContactsFor_(contacts, group.company);
+    if (!people.length) return null;
+    var emails = people.map(function (person) { return person.email; });
+    var query = 'from:me (' + emails.map(function (email) { return 'to:' + email; }).join(' OR ') + ')';
+    var templateSent = 0;
+    GmailApp.search(query, 0, 500).forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        if (subjects[message.getSubject()]) templateSent++;
+      });
+    });
+    var direct = stateCounts(campaignEntries, group.company);
+    var normal = stateCounts(queueEntries, group.company);
+    var contactsMarkedSent = people.filter(function (person) { return person.sent; }).length;
+    var hasColdEmailSent = templateSent > 0 || direct.sent > 0 || normal.sent > 0
+      || contactsMarkedSent > 0;
+    var queued = direct.queued + normal.queued;
+    return {
+      company: group.company,
+      recruiterContacts: people.length,
+      recruiterContactsUnsent: people.filter(function (person) { return !person.sent; }).length,
+      applications: group.applications.map(function (app) {
+        return {
+          role: app.role || '(role missing; assumed Summer 2027)',
+          dateApplied: Utilities.formatDate(app.dateApplied, 'America/New_York', 'yyyy-MM-dd'),
+          process: app.process || '',
+          jobLink: app.official || app.link || ''
+        };
+      }),
+      coldEmail: {
+        sent: hasColdEmailSent ? 1 : 0,
+        queued: queued,
+        templateMessages: templateSent,
+        directCampaignSent: direct.sent,
+        normalQueueSent: normal.sent,
+        contactsMarkedSent: contactsMarkedSent
+      },
+      needsNewColdEmail: !hasColdEmailSent && queued === 0
+    };
+  }).filter(function (candidate) { return candidate && candidate.coldEmail.sent === 0; });
+  candidates.sort(function (left, right) {
+    return left.company.localeCompare(right.company);
+  });
+  return {
+    asOf: Utilities.formatDate(new Date(), 'America/New_York', "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    windowStart: Utilities.formatDate(cutoff, 'America/New_York', 'yyyy-MM-dd'),
+    windowEnd: Utilities.formatDate(today, 'America/New_York', 'yyyy-MM-dd'),
+    rule: 'Active App within 21 days; explicit non-Summer intake or non-2027 year excluded; blank season/year assumed Summer 2027; Target and quant excluded.',
+    counts: {
+      recentOffTargetSummer2027Applications: applications.length,
+      companiesWithRecruiterDataAndNoColdEmailSent: candidates.length,
+      currentRecruiterContacts: candidates.reduce(function (total, candidate) {
+        return total + candidate.recruiterContacts;
+      }, 0),
+      currentUnsentRecruiterContacts: candidates.reduce(function (total, candidate) {
+        return total + candidate.recruiterContactsUnsent;
+      }, 0),
+      alreadyQueuedButNotSent: candidates.filter(function (candidate) {
+        return candidate.coldEmail.queued > 0;
+      }).length,
+      needsNewColdEmail: candidates.filter(function (candidate) {
+        return candidate.needsNewColdEmail;
+      }).length
+    },
+    companies: candidates
+  };
+}
+
+/**
+ * Read-only source list for an owner-requested startup screen. It intentionally
+ * keeps only companies without any recruiter record or existing cold-email
+ * commitment, so later enrichment cannot duplicate the database or Email.
+ */
+function auditRecentOffTargetSWEInternWithoutRecruiterCoverage() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+  if (targetCompanies === null) throw new Error('Target tab is unavailable.');
+  var apps = targetMirrorApplications_(tracker);
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  var todayText = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var today = new Date(todayText + 'T00:00:00-04:00');
+  var cutoff = outreachAddDays_(today, -34);
+  var tomorrow = outreachAddDays_(today, 1);
+  var groups = [];
+  apps.filter(function (app) {
+    return app.company && app.process !== STAGE_REJECTED && app.dateApplied
+      && app.dateApplied.getTime() >= cutoff.getTime() && app.dateApplied.getTime() < tomorrow.getTime()
+      && offTargetSWEInternRole_(app.role)
+      && !outreachReferralCompanyIsTarget_(app.company, targetCompanies)
+      && !outreachReferralIsQuantFirm_(app.company);
+  }).forEach(function (app) {
+    var group = groups.filter(function (candidate) {
+      return outreachSameEmployer_(outreachCompanyTokens_(candidate.company),
+                                   outreachCompanyTokens_(app.company));
+    })[0];
+    if (!group) {
+      group = {company: app.company, applications: []};
+      groups.push(group);
+    }
+    group.applications.push(app);
+  });
+  var contacts = outreachReadContacts_(contactsBook);
+  var queueRows = queue && queue.getLastRow() >= 2
+    ? queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index); }) : [];
+  var campaignEntries = [];
+  Object.keys(PropertiesService.getScriptProperties().getProperties()).forEach(function (key) {
+    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0
+        && key.indexOf('OFFTARGET_RECRUITER_CAMPAIGN_') !== 0) return;
+    try { campaignEntries = campaignEntries.concat(
+      (JSON.parse(PropertiesService.getScriptProperties().getProperty(key)).entries || []));
+    } catch (ignored) {}
+  });
+  var countState = function (rows, company) {
+    return rows.filter(function (row) {
+      return outreachSameEmployer_(outreachCompanyTokens_(row.company),
+                                   outreachCompanyTokens_(company))
+        && ['pending', 'queued', 'drafted', 'sent', 'already-sent', 'replied', 'bounced']
+          .indexOf(String(row.status || '').toLowerCase()) !== -1;
+    }).length;
+  };
+  var candidates = groups.map(function (group) {
+    var matchingContacts = outreachContactsFor_(contacts, group.company);
+    var committed = countState(queueRows, group.company) + countState(campaignEntries, group.company);
+    if (matchingContacts.length || committed) return null;
+    var newest = group.applications.slice().sort(function (left, right) {
+      return Number(right.dateApplied || 0) - Number(left.dateApplied || 0)
+        || String(left.role || '').localeCompare(String(right.role || ''));
+    })[0];
+    return {
+      company: group.company,
+      applications: group.applications.length,
+      latestApplied: Utilities.formatDate(newest.dateApplied, 'America/New_York', 'yyyy-MM-dd'),
+      role: newest.role,
+      jobLink: newest.official || newest.link || ''
+    };
+  }).filter(function (candidate) { return !!candidate; }).sort(function (left, right) {
+    return left.company.localeCompare(right.company);
+  });
+  return {
+    applicationWindow: Utilities.formatDate(cutoff, 'America/New_York', 'yyyy-MM-dd') + ' through '
+      + Utilities.formatDate(today, 'America/New_York', 'yyyy-MM-dd'),
+    rule: 'Active off-Target, non-quant Software Engineer/Engineering Intern App; no recruiter in Contacts and no active Email/direct recruiter commitment.',
+    candidates: candidates,
+    count: candidates.length
+  };
+}
+
 /** Read-only recruiter-contact and Target-list presence for one employer. */
 function diagnoseCompanyAvailability(company) {
   var wanted = String(company || '').trim();
@@ -1913,6 +2293,33 @@ function diagnoseCompanyAvailability(company) {
   };
 }
 
+/** Read one normal Email company row and its immediate physical neighbors. */
+function diagnoseNormalQueueCompanyWindow(company) {
+  var wanted = String(company || '').trim();
+  if (!wanted) throw new Error('A company is required.');
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue || queue.getLastRow() < 2) return [];
+  var values = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH).getValues();
+  var rows = values.map(function (row, index) {
+    var parsed = outreachParseQueue_(row, index);
+    parsed.result = outreachCell_(row, Q_RESULT);
+    return parsed;
+  });
+  var matches = rows.filter(function (row) {
+    return outreachSameEmployer_(outreachCompanyTokens_(wanted), outreachCompanyTokens_(row.company));
+  });
+  var wantedRows = {};
+  matches.forEach(function (row) {
+    [row.rowNumber - 2, row.rowNumber - 1, row.rowNumber, row.rowNumber + 1, row.rowNumber + 2]
+      .forEach(function (number) { wantedRows[number] = true; });
+  });
+  return rows.filter(function (row) { return wantedRows[row.rowNumber]; }).map(function (row) {
+    return {rowNumber: row.rowNumber, company: row.company, role: row.role, status: row.status,
+      mode: row.mode, draftId: !!row.draftId, result: row.result, scheduledAt: row.scheduledAt};
+  });
+}
+
 /** Read-only Gmail and pipeline history for recruiter cold outreach to named employers. */
 function diagnoseTargetRecruiterOutboundHistory(companies) {
   var requested = Array.isArray(companies) ? companies : [companies];
@@ -1924,7 +2331,8 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
   var contacts = outreachReadContacts_(contactsBook);
   var campaignEntries = [];
   Object.keys(PropertiesService.getScriptProperties().getProperties()).forEach(function (key) {
-    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0) return;
+    if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0
+        && key.indexOf('OFFTARGET_RECRUITER_CAMPAIGN_') !== 0) return;
     var text = PropertiesService.getScriptProperties().getProperty(key);
     try { campaignEntries = campaignEntries.concat((JSON.parse(text).entries || [])); }
     catch (ignored) {}
@@ -1975,6 +2383,35 @@ function diagnoseTargetRecruiterOutboundHistory(companies) {
       normalQueueQueued: normal.queued
     };
   });
+}
+
+/** Read exact recipient/template data for an explicitly requested draft mirror. */
+function diagnoseTargetRecruiterCampaignEntries(propertyKey) {
+  var key = String(propertyKey || '').trim();
+  if (!/^TARGET_RECRUITER_CAMPAIGN_/.test(key)) {
+    throw new Error('A Target recruiter campaign property key is required.');
+  }
+  var text = PropertiesService.getScriptProperties().getProperty(key);
+  if (!text) return {propertyKey: key, status: 'not-scheduled', entries: []};
+  var state = JSON.parse(text);
+  return {
+    propertyKey: key,
+    status: state.status,
+    timezone: state.timezone || 'America/New_York',
+    entries: (state.entries || []).map(function (entry) {
+      return {
+        company: entry.company,
+        name: entry.name,
+        email: entry.email,
+        title: entry.title,
+        role: entry.role,
+        jobLink: entry.jobLink,
+        template: entry.template,
+        status: entry.status,
+        scheduledAt: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')
+      };
+    })
+  };
 }
 
 /**
@@ -2426,7 +2863,9 @@ function diagnoseTargetReferralCampaigns() {
     ['Cisco', 'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO'],
     ['Dell Technologies', 'TARGET_REFERRAL_CAMPAIGN_20260914_DELL'],
     ['Plaid', 'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID'],
-    ['Lyft — five more contacts', 'TARGET_REFERRAL_CAMPAIGN_20260915_LYFT']
+    ['Lyft — five more contacts', 'TARGET_REFERRAL_CAMPAIGN_20260915_LYFT'],
+    ['Figma', 'TARGET_REFERRAL_CAMPAIGN_20260918_FIGMA'],
+    ['DoorDash', 'TARGET_REFERRAL_CAMPAIGN_20260916_DOORDASH']
   ].map(function (spec) {
     var text = PropertiesService.getScriptProperties().getProperty(spec[1]);
     if (!text) return {companies: spec[0], status: 'not-scheduled'};
@@ -2807,6 +3246,31 @@ function scheduleTargetRecruiterCampaign0916IntelAtlassian() {
   });
 }
 
+/** Queue four additional Hunter-found Atlassian recruiters for 2026-09-16. */
+function scheduleTargetRecruiterCampaign0916AtlassianHunter4() {
+  appendTargetPriorityHunterRecruiters_();
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260916_ATLASSIAN_HUNTER4',
+    handler: 'runTargetRecruiterSharedTick_',
+    label: 'Atlassian Hunter 4',
+    startIso: '2026-09-16T09:30:00-04:00',
+    spacingMinutes: 6,
+    minGapMinutes: 5,
+    reuseExistingTrigger: true,
+    excludeEmails: targetRecruiterCampaignEmails_(
+      'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'),
+    includeEmails: [
+      'ceaton@atlassian.com', 'ctanner@atlassian.com',
+      'nsingh@atlassian.com', 'rbrace@atlassian.com'
+    ],
+    companies: [{
+      company: 'Atlassian', maxContacts: 4,
+      role: 'Software Engineer Intern, 2027 Summer U.S',
+      jobLink: 'https://careers-americas.icims.com/jobs/26266/software-engineer-intern%2c-2027-summer-u.s./job?jr_id=6a970d90e4e60e4b8da5bcb8&mobile=false&width=1413&height=500&bga=true&needsRedirect=false&jan1offset=-300&jun1offset=-240'
+    }]
+  });
+}
+
 /** Manual Target cold-email campaign three days after Dell's referral asks. */
 function scheduleTargetRecruiterCampaign0917Dell() {
   return scheduleTargetRecruiterCampaign_({
@@ -2839,6 +3303,165 @@ function scheduleTargetRecruiterCampaign0917Plaid() {
       jobLink: 'https://app.ripplematch.com/v2/public/job/02cb6f70?from=AllJobsPage'
     }]
   });
+}
+
+// The owner met these two Plaid recruiting-team members at a live workshop on
+// 2026-09-15. Tomba returned valid work-email results; Alex Perelygin was not
+// included because public role evidence identifies him as an engineering lead.
+var TARGET_PLAID_WORKSHOP_RECRUITERS_ = [
+  {name: 'Jason Ling', email: 'jling@plaid.com', title: 'Technical Sourcer', verify: 'tomba:valid'},
+  {name: 'Caroline Bavaro', email: 'cbavaro@plaid.com', title: 'Recruiter', verify: 'tomba:valid'}
+];
+
+/**
+ * Repair the malformed Plaid Jason address and append the verified workshop
+ * recruiter while the September 17 campaign is entirely future and pending.
+ */
+function repairTargetRecruiterCampaign0917PlaidWorkshopContacts() {
+  var key = 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID';
+  var props = PropertiesService.getScriptProperties();
+  var text = props.getProperty(key);
+  if (!text) throw new Error('Plaid recruiter campaign is missing.');
+  var state = JSON.parse(text);
+  var entries = state.entries || [];
+  var jasonSlot = entries.filter(function (entry) {
+    return String(entry.email || '').toLowerCase() === 'l@plaid.com';
+  });
+  if (state.status !== 'scheduled' || entries.some(function (entry) { return entry.status !== 'pending'; })) {
+    throw new Error('Plaid repair is allowed only while every entry is pending.');
+  }
+  if (jasonSlot.length !== 1) throw new Error('Expected exactly one malformed Plaid Jason slot.');
+  if (TARGET_PLAID_WORKSHOP_RECRUITERS_.some(function (person) {
+    return entries.some(function (entry) { return String(entry.email || '').toLowerCase() === person.email; });
+  })) throw new Error('A verified workshop recruiter is already in the Plaid campaign.');
+
+  // This campaign is not due until Sep 17 and has one isolated property key.
+  // Avoid the global sender lock, which currently has minute-tick contention;
+  // the pending-only guard above prevents a delivery-time mutation.
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contacts = outreachReadContacts_(contactsBook);
+  var known = {}, direct = {}, spent = targetRecruiterSpentFingerprints_(tracker);
+  var salt = outreachProperty_(PROP_SALT, true);
+  contacts.forEach(function (contact) { known[String(contact.email || '').toLowerCase()] = contact; });
+  targetMirrorCampaignEntries_(targetMirrorCampaignKeys_('TARGET_RECRUITER_CAMPAIGN_')).forEach(function (entry) {
+    direct[String(entry.email || '').toLowerCase()] = true;
+  });
+  TARGET_PLAID_WORKSHOP_RECRUITERS_.forEach(function (person) {
+    var current = known[person.email];
+    var summer = outreachFingerprint_(person.email, salt, SEASON_SUMMER);
+    var offcycle = outreachFingerprint_(person.email, salt, SEASON_OFFCYCLE);
+    if ((current && current.sent) || direct[person.email] || spent[summer] || spent[offcycle] ||
+        GmailApp.search('from:me to:' + person.email, 0, 1).length) {
+      throw new Error('Plaid workshop contact is already spent or committed: ' + person.email);
+    }
+  });
+
+  var manual = contactsBook.getSheetByName(TAB_CONTACTS_MANUAL);
+  if (!manual) throw new Error('Contacts (manual) is missing.');
+  var rows = [], added = [];
+  TARGET_PLAID_WORKSHOP_RECRUITERS_.forEach(function (person) {
+    if (known[person.email]) return;
+    var row = new Array(C_WIDTH).fill('');
+    row[C_COMPANY - 1] = 'Plaid'; row[C_NAME - 1] = person.name; row[C_EMAIL - 1] = person.email;
+    row[C_ROLE - 1] = person.title; row[C_FOCUS - 1] = 'recruiting'; row[C_VERIFY - 1] = person.verify;
+    row[C_FROM - 1] = 'Plaid workshop + Treg Tomba work-email verification — user approved 2026-09-15';
+    rows.push(row); added.push(person.name);
+  });
+  if (rows.length) manual.getRange(manual.getLastRow() + 1, 1, rows.length, C_WIDTH).setValues(rows);
+
+  var jason = TARGET_PLAID_WORKSHOP_RECRUITERS_[0], caroline = TARGET_PLAID_WORKSHOP_RECRUITERS_[1];
+  var slot = jasonSlot[0];
+  slot.name = jason.name; slot.email = jason.email; slot.title = jason.title;
+  var lastAtMs = entries.reduce(function (latest, entry) { return Math.max(latest, Number(entry.atMs || 0)); }, 0);
+  entries.push({company: 'Plaid', role: slot.role, jobLink: slot.jobLink, name: caroline.name,
+    email: caroline.email, title: caroline.title,
+    template: ((entries.length) % COLD_TEMPLATES.length) + 1,
+    atMs: lastAtMs + Number(state.spacingMinutes || 6) * 60000, status: 'pending'});
+  state.entries = entries;
+  state.repairedAt = new Date().toISOString();
+  state.repairNote = 'Replaced malformed l@plaid.com with Tomba-valid Jason Ling; appended workshop recruiter Caroline Bavaro.';
+  props.setProperty(key, JSON.stringify(state));
+  refreshTargetQueueTabs_();
+  return {replaced: 'Jason L. <l@plaid.com>', replacement: jason.name,
+    appended: caroline.name, contactsAdded: added,
+    total: entries.length,
+    firstAt: Utilities.formatDate(new Date(entries[0].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+    lastAt: Utilities.formatDate(new Date(entries[entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+}
+
+/** Remove the entirely pending Plaid recruiter wave until the owner reapplies. */
+function cancelTargetRecruiterCampaign0917PlaidForReapplication() {
+  var key = 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID';
+  var props = PropertiesService.getScriptProperties();
+  var text = props.getProperty(key);
+  if (!text) return {alreadyRemoved: true, removed: 0};
+  var state = JSON.parse(text);
+  var entries = state.entries || [];
+  if (state.status !== 'scheduled' || !entries.length || entries.some(function (entry) {
+    return entry.status !== 'pending';
+  })) throw new Error('Plaid recruiter wave can be removed only while every entry is pending.');
+  // The wave is future-only and the shared router reads this property at send
+  // time; deleting it removes all eight unsent slots without affecting any
+  // accepted referral history or the reusable contact records.
+  props.deleteProperty(key);
+  refreshTargetQueueTabs_();
+  return {removed: entries.length, reason: 'Plaid application requires reapplication before recruiter outreach.'};
+}
+
+/**
+ * Owner-confirmed, immediate one-recipient Stripe recruiter send. It resolves
+ * Alexandria from the live contacts database and rechecks the exact official
+ * SWE Intern application before delegating the actual Gmail send to the shared
+ * Target sender, which repeats the Gmail rejection preflight at send time.
+ */
+function sendTargetRecruiterNowStripeAlexandria() {
+  var key = 'TARGET_RECRUITER_SENDNOW_20260915_STRIPE_ALEXANDRIA';
+  var props = PropertiesService.getScriptProperties();
+  var existing = props.getProperty(key);
+  if (existing) {
+    var existingState = JSON.parse(existing);
+    if ((existingState.entries || []).some(function (entry) { return entry.status === 'sent'; })) {
+      return {alreadySent: true, company: 'Stripe', name: 'Alexandria Bolinas Paynton'};
+    }
+    return runTargetRecruiterCampaignTickFor_({propertyKey: key,
+      handler: 'runTargetRecruiterCampaignTickNowStripeAlexandria_', keepTrigger: true});
+  }
+
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var matches = outreachContactsFor_(outreachReadContacts_(contactsBook), 'Stripe').filter(function (contact) {
+    return outreachNameKey_(contact.name).indexOf('alexandriabolinas') === 0;
+  });
+  if (matches.length !== 1) throw new Error('Expected one live Stripe Alexandria recruiter record; found ' + matches.length + '.');
+  var contact = matches[0];
+  var email = String(contact.email || '').toLowerCase();
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+  var summer = outreachFingerprint_(email, salt, SEASON_SUMMER);
+  var offcycle = outreachFingerprint_(email, salt, SEASON_OFFCYCLE);
+  if (contact.sent || spent[summer] || spent[offcycle] || GmailApp.search('from:me to:' + email, 0, 1).length) {
+    throw new Error('Alexandria is already sent or committed; no duplicate email was created.');
+  }
+
+  var jobLink = 'https://stripe.com/jobs/search?gh_jid=8128745';
+  var role = 'Software Engineer, Intern';
+  var applications = targetMirrorApplications_(tracker).filter(function (app) {
+    return outreachSameEmployer_(outreachCompanyTokens_(app.company), outreachCompanyTokens_('Stripe'))
+      && app.role === role && app.link === jobLink && outreachQualifies_(app.process);
+  });
+  if (applications.length !== 1) throw new Error('The exact active Stripe SWE Intern application is not available.');
+  var entry = {company: 'Stripe', role: role, jobLink: jobLink, name: contact.name,
+    email: email, title: contact.role || 'Technical Recruiter', template: 3,
+    atMs: new Date().getTime(), status: 'pending'};
+  var rejection = outreachGmailApiRejectedTarget_(entry);
+  if (rejection.rejected) return {blocked: true, company: 'Stripe', reason: rejection.why};
+  props.setProperty(key, JSON.stringify({status: 'scheduled', timezone: 'America/New_York',
+    createdAt: new Date().toISOString(), lastSentAtMs: 0, spacingMinutes: 6,
+    minGapMinutes: 5, entries: [entry]}));
+  refreshTargetQueueTabs_();
+  return runTargetRecruiterCampaignTickFor_({propertyKey: key,
+    handler: 'runTargetRecruiterCampaignTickNowStripeAlexandria_', keepTrigger: true});
 }
 
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
@@ -2959,6 +3582,7 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/15 — HP + Intuit + Oracle', 'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE'],
     ['09/15 — Anduril', 'TARGET_RECRUITER_CAMPAIGN_20260915_ANDURIL'],
     ['09/16 — Intel + Atlassian', 'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN'],
+    ['09/16 — Atlassian Hunter 4', 'TARGET_RECRUITER_CAMPAIGN_20260916_ATLASSIAN_HUNTER4'],
     ['09/16 — Notion', 'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION'],
     ['09/17 — Dell Technologies', 'TARGET_RECRUITER_CAMPAIGN_20260917_DELL'],
     ['09/17 — Plaid', 'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID'],
@@ -2967,8 +3591,21 @@ function diagnoseTargetRecruiterCampaign0910() {
     ['09/17 — Scale AI', 'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI'],
     ['09/17 — Lyft', 'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT'],
     ['09/18 — Vercel', 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL'],
+    ['09/18 — Vercel supplement', 'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL_SUPPLEMENT'],
     ['09/18 — Mastercard', 'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD'],
+    ['09/18 — PayPal', 'TARGET_RECRUITER_CAMPAIGN_20260918_PAYPAL'],
+    ['09/18 — PayPal supplement', 'TARGET_RECRUITER_CAMPAIGN_20260918_PAYPAL_SUPPLEMENT'],
+    ['09/22 — Intuit', 'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT'],
+    ['09/22 — Intuit Hunter supplement', 'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT_HUNTER_SUPPLEMENT'],
+    ['09/24 — Robinhood', 'TARGET_RECRUITER_CAMPAIGN_20260924_ROBINHOOD'],
+    ['09/22 — Coinbase', 'TARGET_RECRUITER_CAMPAIGN_20260922_COINBASE'],
     ['09/22 — Walmart', 'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART'],
+    ['09/25 — Figma', 'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA'],
+    ['09/25 — Figma supplement', 'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA_SUPPLEMENT'],
+    ['09/25 — Figma supplement 2', 'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA_SUPPLEMENT2'],
+    ['09/18 — Shield AI', 'TARGET_RECRUITER_CAMPAIGN_20260918_SHIELD_AI'],
+    ['09/23 — Red Hat', 'TARGET_RECRUITER_CAMPAIGN_20260923_RED_HAT'],
+    ['09/23 — DoorDash', 'TARGET_RECRUITER_CAMPAIGN_20260923_DOORDASH'],
     ['09/13 — Off-Target night', 'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT'],
     ['09/14 — Off-Target early', 'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY']
   ].map(function (spec) {
@@ -3052,9 +3689,16 @@ function scheduleTargetRecruiterCampaign_(config) {
         return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, label)};
       }
     }
-    ScriptApp.getProjectTriggers().forEach(function (trigger) {
-      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    var handlerTriggers = ScriptApp.getProjectTriggers().filter(function (trigger) {
+      return trigger.getHandlerFunction() === handler;
     });
+    if (config.reuseExistingTrigger) {
+      if (!handlerTriggers.length) {
+        throw new Error('The shared Target recruiter trigger is not installed.');
+      }
+    } else {
+      handlerTriggers.forEach(function (trigger) { ScriptApp.deleteTrigger(trigger); });
+    }
 
     var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
     var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
@@ -3062,14 +3706,20 @@ function scheduleTargetRecruiterCampaign_(config) {
     var spent = targetRecruiterSpentFingerprints_(tracker);
     var salt = outreachProperty_(PROP_SALT, true);
     var excluded = {};
+    var included = {};
     (config.excludeEmails || []).forEach(function (email) {
       excluded[String(email || '').toLowerCase()] = true;
+    });
+    (config.includeEmails || []).forEach(function (email) {
+      included[String(email || '').toLowerCase()] = true;
     });
     var selected = config.companies.map(function (spec) {
       var companyContacts = outreachContactsFor_(contacts, spec.company)
         .filter(function (contact) {
+          var email = String(contact.email || '').toLowerCase();
+          if (Object.keys(included).length && !included[email]) return false;
           if (contact.sent) return false;
-          if (excluded[contact.email]) return false;
+          if (excluded[email]) return false;
           var summer = outreachFingerprint_(contact.email, salt, SEASON_SUMMER);
           var offcycle = outreachFingerprint_(contact.email, salt, SEASON_OFFCYCLE);
           if (spent[summer] || spent[offcycle]) return false;
@@ -3103,13 +3753,24 @@ function scheduleTargetRecruiterCampaign_(config) {
           name: person.name,
           email: person.email,
           title: person.role || '',
-          template: (index % COLD_TEMPLATES.length) + 1,
+          // Position, not per-company contact ordinal: a one-recruiter-per-
+          // company campaign still needs the ten approved templates balanced.
+          template: (position % COLD_TEMPLATES.length) + 1,
           atMs: startMs + position * spacingMinutes * 60000,
           status: 'pending'
         });
         position++;
       });
       index++;
+    }
+
+    // A bounded owner request may require a minimum/exact wave rather than
+    // silently shrinking when a contact was spent between research and setup.
+    // Check before persisting state so an undersized campaign cannot later send.
+    if (config.exactContacts !== undefined
+        && entries.length !== Number(config.exactContacts)) {
+      throw new Error('Campaign requires exactly ' + Number(config.exactContacts)
+        + ' eligible contacts; found ' + entries.length + '.');
     }
 
     if (!entries.length) {
@@ -3126,11 +3787,13 @@ function scheduleTargetRecruiterCampaign_(config) {
       entries: entries
     };
     props.setProperty(propertyKey, JSON.stringify(state));
-    try {
-      ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
-    } catch (error) {
-      props.deleteProperty(propertyKey);
-      throw error;
+    if (!config.reuseExistingTrigger) {
+      try {
+        ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
+      } catch (error) {
+        props.deleteProperty(propertyKey);
+        throw error;
+      }
     }
     try { refreshTargetQueueTabs_(); }
     catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
@@ -3534,49 +4197,9 @@ function initializeTargetQueueTabs() {
 
 /** Refresh Target mirrors after scheduling or a direct-send state transition. */
 function refreshTargetQueueTabs_() {
-  var referralKeys = [
-    'TARGET_REFERRAL_CAMPAIGN_20260909_SIERRA_WAYMO_MASTERCARD',
-    'TARGET_REFERRAL_CAMPAIGN_20260910_PAYPAL_DROPBOX_SCALE_AI',
-    'TARGET_REFERRAL_CAMPAIGN_20260910_DATADOG',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_DATADOG_VERCEL_COINBASE_RED_HAT',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_WHATNOT',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_DELL_HAI_LA',
-    'TARGET_REFERRAL_CAMPAIGN_20260911_LYFT',
-    'TARGET_REFERRAL_CAMPAIGN_20260914_CISCO',
-    'TARGET_REFERRAL_CAMPAIGN_20260914_DELL',
-    'TARGET_REFERRAL_CAMPAIGN_20260914_PLAID',
-    'TARGET_REFERRAL_CAMPAIGN_20260915_LYFT',
-    'TARGET_REFERRAL_CAMPAIGN_20260915_LOCKHEED_MARTIN',
-    'TARGET_REFERRAL_CAMPAIGN_20260915_WALMART'
-  ];
-  var recruiterKeys = [
-    'TARGET_RECRUITER_CAMPAIGN_20260909_REPLIT_NVIDIA',
-    'TARGET_RECRUITER_CAMPAIGN_20260910_NVIDIA',
-    'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE',
-    'TARGET_RECRUITER_CAMPAIGN_20260910_STRIPE_NETAPP',
-    'TARGET_RECRUITER_CAMPAIGN_20260911_NETAPP',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_STRIPE',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_WHATNOT',
-    'TARGET_RECRUITER_CAMPAIGN_20260914_MOTOROLA_SOLUTIONS',
-    'TARGET_RECRUITER_CAMPAIGN_20260915_CISCO',
-    'TARGET_RECRUITER_CAMPAIGN_20260915_HP_INTUIT_ORACLE',
-    'TARGET_RECRUITER_CAMPAIGN_20260915_ANDURIL',
-    'TARGET_RECRUITER_CAMPAIGN_20260916_INTEL_ATLASSIAN',
-    'TARGET_RECRUITER_CAMPAIGN_20260916_NOTION',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_DELL',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_PLAID',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_PALANTIR',
-    'TARGET_RECRUITER_CAMPAIGN_20260922_LOCKHEED_MARTIN',
-    'TARGET_RECRUITER_CAMPAIGN_20260916_DATADOG',
-    'TARGET_RECRUITER_CAMPAIGN_20260917_SCALE_AI',
-    'TARGET_RECRUITER_CAMPAIGN_20260918_VERCEL',
-    'TARGET_RECRUITER_CAMPAIGN_20260921_DROPBOX',
-    'TARGET_RECRUITER_CAMPAIGN_20260922_LYFT',
-    'TARGET_RECRUITER_CAMPAIGN_20260923_MASTERCARD',
-    'TARGET_RECRUITER_CAMPAIGN_20260922_WALMART',
-    'OFFTARGET_RECRUITER_CAMPAIGN_20260913_NIGHT',
-    'OFFTARGET_RECRUITER_CAMPAIGN_20260914_EARLY'
-  ];
+  var referralKeys = targetMirrorCampaignKeys_('TARGET_REFERRAL_CAMPAIGN_');
+  var recruiterKeys = targetMirrorCampaignKeys_('TARGET_RECRUITER_CAMPAIGN_').concat(
+    targetMirrorCampaignKeys_('OFFTARGET_RECRUITER_CAMPAIGN_'));
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var apps = targetMirrorApplications_(tracker);
   var referralEntries = targetMirrorCampaignEntries_(referralKeys);
@@ -3597,6 +4220,17 @@ function refreshTargetQueueTabs_() {
     emailTarget: {tab: TAB_EMAIL_TARGET, rows: emailRows.length,
                   byCompany: targetMirrorCounts_(recruiterEntries)}
   };
+}
+
+/**
+ * Every persisted Target campaign must appear in its visible mirror.
+ * Discover keys instead of maintaining a parallel manual registry, so campaign
+ * scheduling cannot succeed while the matching `*_target` tab omits it.
+ */
+function targetMirrorCampaignKeys_(prefix) {
+  return Object.keys(PropertiesService.getScriptProperties().getProperties())
+    .filter(function (key) { return key.indexOf(prefix) === 0; })
+    .sort();
 }
 
 /** Read all entries from the explicit campaign properties, hiding no state. */

@@ -361,7 +361,8 @@ var REFERRAL_QUANT_COMPANIES = [
   'PEAK6', 'DV Trading', 'Quadrillion Labs', 'Quantbot Technologies',
   'Balyasny Asset Management', 'Belvedere Trading', 'TransMarket Group',
   'Hypercubic', 'Point72', 'Xantium', 'Verition', 'Garda Capital Partners',
-  'The Voleon Group', 'Castleton Commodities International', 'InfiniteQuant'
+  'The Voleon Group', 'Castleton Commodities International', 'InfiniteQuant',
+  'Schonfeld', 'Two Sigma'
 ];
 
 // How many people at one employer are ever asked for a referral.

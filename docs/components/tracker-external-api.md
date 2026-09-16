@@ -9,7 +9,7 @@ site, without anybody opening the spreadsheet.
 
 - **In:** `POST` from the extension, authenticated by a shared secret.
 - **Writes:** appends to `App`, and ticks the matching `Jobs` row so the visible queue stays in step.
-- Deployed as a **pinned** Web App (`@2`). `clasp push` alone does not update it.
+- Deployed as a **pinned** Web App (`@6`, verified 2026-09-14). `clasp push` alone does not update it.
 
 | Function | Does |
 |---|---|

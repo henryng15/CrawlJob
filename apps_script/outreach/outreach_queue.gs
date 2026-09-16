@@ -149,7 +149,7 @@ function outreachParseQueue_(row, index) {
 
 /** Whether a normal Email row has an explicit off-Target direct-send time. */
 function outreachOffTargetEmailQueueRow_(row) {
-  return /^OFFTARGET-EMAIL-(NIGHT|EARLY)-/.test(String(row && row.id || ''));
+  return /^OFFTARGET-EMAIL-(NIGHT|EARLY|WEEKEND)-/.test(String(row && row.id || ''));
 }
 
 /**

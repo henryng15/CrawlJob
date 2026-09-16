@@ -56,10 +56,21 @@ Target campaign Script Properties; a Microsoft role is recovered once from its e
 then retained in campaign state. Direct-send ticks refresh the mirror after a state transition.
 Recipient names and addresses remain out of this mirror, matching the privacy rule of `Email`.
 
-The one-time 2026-09-13 off-Target migration uses ordinary `Email` rows with ids beginning
-`OFFTARGET-EMAIL-`. Those rows are operational queue records, but their explicit 23:00 and 03:00
-times are preserved by the minute handler in `outreach_offtarget_waves.gs`; normal projection,
-drafting and sending do not alter or consume them.
+The one-time off-Target migrations use ordinary `Email` rows with ids beginning
+`OFFTARGET-EMAIL-`. This includes the 2026-09-19/20/26/27 weekend wave as
+`OFFTARGET-EMAIL-WEEKEND-*`. They are operational queue records, but their explicit timestamps
+are preserved by the minute handler in `outreach_offtarget_waves.gs`; normal projection, drafting
+and sending do not alter or consume them.
+
+The three owner-approved 2026-09-16 coverage rows use `MANUAL-EMAIL-20260916-*` ids instead.
+They are ordinary queued cold-email records with no explicit timestamp. The dedicated off-Target
+minute sender ignores that namespace, and Automatic outreach remains paused, so writing these rows
+does not create a draft or send instruction.
+
+The same namespace's `-TOPUP-*` ids are a bounded follow-up expansion, not new generic planner
+output: they bring Baird, Dow Jones and Textron GSE to exactly five active cold-email contacts
+each after independently verified contacts were added to `Contacts (manual)`. They retain the same
+no-timestamp/no-direct-sender behavior.
 
 | Function | Does |
 |---|---|
@@ -70,6 +81,7 @@ drafting and sending do not alter or consume them.
 | `outreachRepairQueueLayout_` | Pull the table together after rows were appended below a gap, and dress them. |
 | `outreachDressQueueRows_`, `outreachColourQueueColumn_` | Checkboxes, timestamp formats and colour rules, over the rows that exist and only those. |
 | `refileOutreachQueue()`, `repairOutreachQueueLayout()` | Run by hand; send nothing. |
+| `cancelAllTargetWellsFargoOutreach()` / `repairWellsFargoNormalQueueCancellation()` (in `outreach_target_priority_waves.gs`) | Bounded owner-requested exception and one-time repair: the cancellation writes `Cancelled` and the owner-process reason to exactly one still-queued Wells Fargo row after validating both paired Target campaigns are wholly pending. The repair requeues only the exact row offset by the initial call, then cancels Wells Fargo at its physical sheet row. Neither alters a drafted, sent, failed, replied, or bounced normal-queue row. |
 
 ## Season
 

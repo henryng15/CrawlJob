@@ -68,9 +68,9 @@ cd apps_script && clasp push          # profile `default` (hoanng15.work)
 clasp -u kenyon deploy                # deploying needs the owner account
 ```
 
-**`clasp push` does not update a pinned deployment.** The extension's Web App is pinned to `@2`
-and keeps serving that snapshot; redeploy after any change it depends on, and verify by pulling
-that version back and grepping it — never by trusting the command's output.
+**`clasp push` does not update a pinned deployment.** The extension's Web App is pinned to `@6`
+as of 2026-09-14 and keeps serving that snapshot; redeploy after any change it depends on, and
+verify by pulling that version back and grepping it — never by trusting the command's output.
 
 Before pushing, check the cloud for editor-side edits that never reached git: copy `.clasp.json`
 into a scratch directory, `clasp pull` **there**, and diff against the repo. Pulling into the repo

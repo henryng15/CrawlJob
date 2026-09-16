@@ -2198,6 +2198,45 @@ function onAppEdit(e) {
   e.source.toast(stageReport(written, today), 'App', 5);
 }
 
+/**
+ * Record the owner's completed JPMorgan SWE assessment when the App row was not
+ * updated at the time. This is deliberately scoped to its one exact live row;
+ * a broader process-changing entry point would bypass the normal App edit trail.
+ */
+function markJPMorganSWECompletedOA() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var app = ss.getSheetByName(APP_TAB);
+  if (!app || app.getLastRow() < FIRST_ROW) throw new Error('App tab is unavailable.');
+  var width = Math.max(UPDATE_COL, app.getLastColumn());
+  var rows = app.getRange(FIRST_ROW, 1, app.getLastRow() - FIRST_ROW + 1, width).getValues();
+  var matches = rows.map(function (row, index) {
+    return {row: row, rowNumber: index + FIRST_ROW};
+  }).filter(function (item) {
+    return String(item.row[APP_COMPANY - 1] || '').trim() === 'JPMorgan Chase'
+      && String(item.row[APP_ROLE - 1] || '').trim() === 'Software Engineer Summer Intern';
+  });
+  if (matches.length !== 1) {
+    throw new Error('Expected one JPMorgan Chase Software Engineer Summer Intern App row; found '
+      + matches.length + '.');
+  }
+  var item = matches[0];
+  var process = stageLabel(item.row[PROCESS_COL - 1]);
+  if (process !== 'OA' && process !== 'Completed OA') {
+    throw new Error('JPMorgan SWE row has Process ' + (process || 'blank') + ', not OA.');
+  }
+  var update = String(item.row[UPDATE_COL - 1] == null ? '' : item.row[UPDATE_COL - 1])
+    .replace(/\s+$/, '');
+  var changed = process !== 'Completed OA';
+  if (changed) app.getRange(item.rowNumber, PROCESS_COL).setValue('Completed OA');
+  if (!hasStage(update, 'Completed OA')) {
+    update = (update ? update + '\n' : '') + 'Completed OA: ' + stamp(new Date());
+    app.getRange(item.rowNumber, UPDATE_COL).setValue(update)
+      .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  }
+  return {row: item.rowNumber, process: 'Completed OA', processChanged: changed,
+          updateRecorded: hasStage(update, 'Completed OA')};
+}
+
 
 function stageReport(written, today) {
   return 'Wrote ' + today + ' to the Update column of ' + rowCount(written) + '.';

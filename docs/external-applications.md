@@ -68,7 +68,8 @@ not change.
 | `API is not configured` | Run `configureExternalApplicationApi` once in the spreadsheet-bound script. |
 | `Invalid extension key` | Re-copy the key, or use the new one after rotating it. |
 | `No tab named "App"` | Rename the application tab to `App`, matching the existing workflow. |
-| Popup says it could not add the row | Check that Settings contains the deployed `/exec` URL, not `/dev`; then open the Apps Script deployment and confirm it is still active. |
+| Popup says `Google returned an HTML page` or shows `Unexpected token '<'` | The request reached a Google HTML page instead of the JSON endpoint. The extension automatically retries the verified deployment and updates a stale saved URL when Google returns 404. If the error remains, reload the unpacked extension and check that the deployment is active, ends in `/exec`, runs as **Me**, and allows **Anyone** access. |
+| Popup says it could not add the row for another reason | Check that Settings contains the active deployed `/exec` URL, not `/dev`, and that the Apps Script deployment is still active. |
 | `already in App` | This is intentional duplicate protection. It checks the application link and Company + Role. Use a more specific role name if two genuinely distinct applications would otherwise have the same names. |
 
 ## Updating the extension

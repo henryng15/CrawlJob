@@ -82,6 +82,9 @@ looser one winning every hour — see the gotcha in
 - [tracker-target-tab.md](tracker-target-tab.md) — `target_tab.gs`
 - [tracker-external-api.md](tracker-external-api.md) — `external_application_api.gs`, `setup_process_dropdown.gs`
 
+**Chrome extension**
+- [chrome-extension-quick-add.md](chrome-extension-quick-add.md) — `quick_add_application/popup.js`
+
 **Outreach script** (`apps_script/outreach/`)
 - [outreach-config.md](outreach-config.md) — constants, seasons, the shared interleaver
 - [outreach-contacts.md](outreach-contacts.md) — who counts as the same employer
