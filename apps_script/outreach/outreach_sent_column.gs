@@ -188,3 +188,86 @@ function repairColdContactSentTicksNeverMailed(emails) {
   });
   return verdicts;
 }
+
+/**
+ * Sweep the cold contact tabs and clear every Sent tick the mailbox cannot account for.
+ *
+ * repairColdContactSentTicksNeverMailed takes names because a caller naming four people has
+ * checked four people. This is the other case: the owner asked for the whole book, so the list
+ * comes from the sheet instead. What decides a row does not change — the tick survives only if
+ * `from:me to:<address>` finds something, or a live Email row still spends the contact.
+ *
+ * Paged, and for a hard reason rather than tidiness. The check is one Gmail search per ticked
+ * address and Apps Script stops a function at six minutes, so a whole-book pass would die
+ * somewhere in the middle having already written some tabs — and the caller could not tell how
+ * far it got. A page writes its tabs before it returns, `nextOffset` says where to resume, and
+ * `more` says whether to. Re-running a page is safe: a cleared tick reads as `already-clear`.
+ *
+ * Offsets walk the ticked rows, not the sheet rows, and clearing a tick removes that row from the
+ * set the next page walks. So the caller re-reads from the same offset until `more` is false
+ * rather than advancing — advancing would step over the rows that shifted down into the gap.
+ */
+function repairColdContactSentTicksSweep(offset, limit) {
+  var from = Number(offset) || 0;
+  var size = Math.max(1, Number(limit) || 120);
+
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+
+  // Every ticked row across both tabs, in one list, so a page means the same thing whichever tab
+  // it lands in and the caller never has to know the tabs exist.
+  var ticked = [];
+  var sheets = {};
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+    var addresses = sheet.getRange(2, C_EMAIL, last - 1, 1).getValues();
+    var ticks = sheet.getRange(2, C_SENT, last - 1, 1).getValues();
+    sheets[name] = {sheet: sheet, ticks: ticks, changed: false, last: last};
+    for (var i = 0; i < addresses.length; i++) {
+      var email = String(addresses[i][0] || '').trim().toLowerCase();
+      if (email && outreachSentTicked_(ticks[i][0])) ticked.push({tab: name, index: i, email: email});
+    }
+  });
+
+  var page = ticked.slice(from, from + size);
+  var cleared = [], keptMailed = 0, keptSpent = 0;
+
+  page.forEach(function (row) {
+    if (spent[outreachFingerprint_(row.email, salt, SEASON_SUMMER)]
+        || spent[outreachFingerprint_(row.email, salt, SEASON_OFFCYCLE)]) {
+      keptSpent++;
+      return;
+    }
+    if (GmailApp.search('from:me to:' + row.email, 0, 1).length) {
+      keptMailed++;
+      return;
+    }
+    var target = sheets[row.tab];
+    target.ticks[row.index][0] = '';
+    target.changed = true;
+    cleared.push(row.email);
+  });
+
+  // Write before returning, so a page that finished is a page that persisted.
+  Object.keys(sheets).forEach(function (name) {
+    var target = sheets[name];
+    if (target.changed) target.sheet.getRange(2, C_SENT, target.last - 1, 1).setValues(target.ticks);
+  });
+
+  return {
+    tickedTotal: ticked.length,
+    offset: from,
+    examined: page.length,
+    cleared: cleared.length,
+    keptMailed: keptMailed,
+    keptSpent: keptSpent,
+    clearedAddresses: cleared.join('\n'),
+    nextOffset: from + keptMailed + keptSpent,
+    more: from + page.length < ticked.length
+  };
+}

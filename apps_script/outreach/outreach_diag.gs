@@ -4462,3 +4462,70 @@ function targetMirrorWrite_(tracker, tabName, headers, width, rows, kind) {
   }
   sheet.setFrozenRows(1);
 }
+
+/**
+ * Read-only: which cold Sent ticks the mailbox cannot account for.
+ *
+ * The dry run for repairColdContactSentTicksSweep, and deliberately a separate function rather
+ * than a flag on it. A repair with a preview mode is one wrong argument away from writing when it
+ * was asked to look; this one holds no reference to a setValues call at all, so there is nothing
+ * for a wrong argument to reach.
+ *
+ * It asks the same three questions in the same order and reports the answer per address, so a
+ * verdict here is the verdict the sweep will reach on the same row — unless the mailbox or the
+ * Email tab moves in between, which is the one thing neither function can freeze.
+ *
+ * Paged for the six-minute limit, the same way and for the same reason. Offsets are stable here
+ * because nothing is written, so a caller walks them with offset + examined.
+ */
+function diagnoseColdContactSentTicks(offset, limit) {
+  var from = Number(offset) || 0;
+  var size = Math.max(1, Number(limit) || 120);
+
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+
+  var ticked = [];
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+    var rows = sheet.getRange(2, 1, last - 1, Math.max(C_SENT, C_EMAIL)).getValues();
+    rows.forEach(function (row) {
+      var email = String(row[C_EMAIL - 1] || '').trim().toLowerCase();
+      if (email && outreachSentTicked_(row[C_SENT - 1])) {
+        ticked.push({email: email, company: String(row[C_COMPANY - 1] || ''),
+                     name: String(row[C_NAME - 1] || '')});
+      }
+    });
+  });
+
+  var page = ticked.slice(from, from + size);
+  var unmailed = [], mailed = 0, committed = 0;
+  page.forEach(function (row) {
+    if (spent[outreachFingerprint_(row.email, salt, SEASON_SUMMER)]
+        || spent[outreachFingerprint_(row.email, salt, SEASON_OFFCYCLE)]) {
+      committed++;
+      return;
+    }
+    if (GmailApp.search('from:me to:' + row.email, 0, 1).length) {
+      mailed++;
+      return;
+    }
+    unmailed.push([row.email, row.company, row.name].join('\t'));
+  });
+
+  return {
+    tickedTotal: ticked.length,
+    offset: from,
+    examined: page.length,
+    mailed: mailed,
+    committedByQueue: committed,
+    unmailed: unmailed.length,
+    unmailedRows: unmailed.join('\n'),
+    more: from + page.length < ticked.length
+  };
+}
