@@ -109,3 +109,82 @@ function outreachMarkEmployeesSent_(emails) {
   if (changed) sheet.getRange(2, E_SENT, last - 1, 1).setValues(ticks);
   return marked;
 }
+
+/**
+ * Clear the Sent tick on named cold contacts that no message ever reached.
+ *
+ * The tick is supposed to mean "Gmail accepted a message for this person", set by
+ * outreachMarkColdContactsSent_ after the send and never before. A batch of contacts carries it
+ * anyway without a message behind it: they sat on the Email tab as `Queued` when that tab was
+ * cleared, and the rebuild read a spent row as a written-to person. Anduril is the clearest case —
+ * fourteen contacts, all ticked, eight addresses in the mailbox.
+ *
+ * A wrong tick is silent and permanent. outreachContactAvailable_ drops the row, every planner and
+ * campaign drops it after that, and nothing ever raises it again, so the person is simply gone
+ * from the outreach universe with no error anywhere to say so.
+ *
+ * Three rules keep this from becoming the thing it repairs:
+ *
+ *  - It takes an explicit address list. There is no sweep-the-book mode, because the failure this
+ *    fixes and a genuine send look identical from inside the sheet; only the mailbox can tell them
+ *    apart, and only one address at a time.
+ *  - The mailbox decides, not the caller. `from:me to:<address>` runs per address and any hit at
+ *    all leaves the tick alone. Passing a name in is a request to check it, never an assertion
+ *    about it.
+ *  - A live queue row vetoes it too. If the Email tab still holds a spending row for that
+ *    fingerprint the contact is committed right now, whatever the mailbox says, and un-ticking
+ *    would let a second row be planned alongside the first.
+ *
+ * Returns a per-address verdict rather than a count, so a caller can see which names it did not
+ * touch and why.
+ */
+function repairColdContactSentTicksNeverMailed(emails) {
+  var wanted = {};
+  (emails || []).forEach(function (one) {
+    var email = String(one || '').trim().toLowerCase();
+    if (email) wanted[email] = true;
+  });
+  if (!Object.keys(wanted).length) throw new Error('An explicit address list is required.');
+
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+  var verdicts = {}, seen = {};
+
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+
+    var addresses = sheet.getRange(2, C_EMAIL, last - 1, 1).getValues();
+    var ticks = sheet.getRange(2, C_SENT, last - 1, 1).getValues();
+    var changed = false;
+
+    for (var i = 0; i < addresses.length; i++) {
+      var email = String(addresses[i][0] || '').trim().toLowerCase();
+      if (!email || !wanted[email]) continue;
+      seen[email] = true;
+      if (!outreachSentTicked_(ticks[i][0])) { verdicts[email] = 'already-clear'; continue; }
+      if (spent[outreachFingerprint_(email, salt, SEASON_SUMMER)]
+          || spent[outreachFingerprint_(email, salt, SEASON_OFFCYCLE)]) {
+        verdicts[email] = 'kept: a live Email row still spends this contact';
+        continue;
+      }
+      if (GmailApp.search('from:me to:' + email, 0, 1).length) {
+        verdicts[email] = 'kept: the mailbox has a message to this address';
+        continue;
+      }
+      ticks[i][0] = '';
+      changed = true;
+      verdicts[email] = 'cleared: ticked Sent with no message behind it';
+    }
+    if (changed) sheet.getRange(2, C_SENT, last - 1, 1).setValues(ticks);
+  });
+
+  Object.keys(wanted).forEach(function (email) {
+    if (!seen[email]) verdicts[email] = 'not-found: no contact row carries this address';
+  });
+  return verdicts;
+}

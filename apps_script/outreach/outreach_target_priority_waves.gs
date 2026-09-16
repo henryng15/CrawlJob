@@ -893,6 +893,41 @@ function scheduleTargetRecruiterCampaign0922IntuitHunterSupplement() {
   });
 }
 
+/**
+ * The four Intuit recruiters the 09/22 wave could not take, once their rows freed up.
+ *
+ * `scheduleTargetRecruiterCampaign0922Intuit` asked for nine and got two. Seven were dropped by
+ * the spent filter in `scheduleTargetRecruiterCampaign_`: three had been sent on 08/28, and these
+ * four still sat on the Email tab as `Queued` — a status in STATUS_SPENDS_CONTACT, so the
+ * selector read them as already committed. The rows have since left that tab without ever being
+ * drafted, which is why no message reached any of them and why they are selectable again now.
+ *
+ * `exactContacts` is the point of this function. If a row for one of the four returns to the
+ * Email tab between now and the push, that address is spent again, the selector drops it, and a
+ * campaign quietly sized three would be indistinguishable from one sized four. Four or an error.
+ *
+ * 10:00 rather than 09:00: the two existing waves run 09:00–09:54, and these continue the same
+ * morning at the same six-minute spacing instead of opening a second front on another day.
+ */
+function scheduleTargetRecruiterCampaign0922IntuitQueuedRemainder() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT_QUEUED_REMAINDER',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Intuit queued remainder', startIso: '2026-09-22T10:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5, exactContacts: 4,
+    excludeEmails: targetRecruiterCampaignEmails_('TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT')
+      .concat(targetRecruiterCampaignEmails_(
+        'TARGET_RECRUITER_CAMPAIGN_20260922_INTUIT_HUNTER_SUPPLEMENT')),
+    includeEmails: [
+      'katie_davis@intuit.com', 'maria_schoppa@intuit.com',
+      'shiva_javanshir@intuit.com', 'vanessa_otter@intuit.com'
+    ],
+    companies: [{company: 'Intuit', maxContacts: 4,
+      role: 'Summer 2027: Software Engineering Intern - Full Stack',
+      jobLink: 'https://jobs.intuit.com/job/mountain-view/summer-2027-software-engineering-intern-full-stack/27595/99856180864?cid=directBookmarked_directBookmarked'}]
+  });
+}
+
 /** Move the three unsent summer recruiter waves into the September 14–18 campaign week. */
 function rescheduleSummerRecruiterWavesInto0914To0918() {
   return {
