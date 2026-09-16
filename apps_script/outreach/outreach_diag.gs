@@ -4529,3 +4529,54 @@ function diagnoseColdContactSentTicks(offset, limit) {
     more: from + page.length < ticked.length
   };
 }
+
+/**
+ * Read-only: the tick state and the mailbox answer for named contacts, side by side.
+ *
+ * Counts cannot tell these two apart: a contact the send path never ticked, and a contact whose
+ * tick something cleared by mistake. Both read as one unticked row. The only way to separate them
+ * is to ask the sheet and the mailbox the same question about the same address and print both
+ * answers, which is all this does.
+ *
+ * Nothing here writes, deliberately — this is the function to reach for when the suspect is a
+ * repair that already ran.
+ */
+function diagnoseContactSentState(emails) {
+  var wanted = {};
+  (emails || []).forEach(function (one) {
+    var email = String(one || '').trim().toLowerCase();
+    if (email) wanted[email] = true;
+  });
+  if (!Object.keys(wanted).length) throw new Error('An explicit address list is required.');
+
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+  var out = [], seen = {};
+
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+    var rows = sheet.getRange(2, 1, last - 1, Math.max(C_SENT, C_EMAIL)).getValues();
+    rows.forEach(function (row, i) {
+      var email = String(row[C_EMAIL - 1] || '').trim().toLowerCase();
+      if (!email || !wanted[email]) return;
+      seen[email] = true;
+      out.push([
+        email,
+        name + ':' + (i + 2),
+        outreachSentTicked_(row[C_SENT - 1]) ? 'ticked' : 'NOT-ticked',
+        GmailApp.search('from:me to:' + email, 0, 1).length ? 'mailbox-has-message' : 'mailbox-empty',
+        (spent[outreachFingerprint_(email, salt, SEASON_SUMMER)]
+          || spent[outreachFingerprint_(email, salt, SEASON_OFFCYCLE)]) ? 'queue-spends' : 'queue-free'
+      ].join('\t'));
+    });
+  });
+  Object.keys(wanted).forEach(function (email) {
+    if (!seen[email]) out.push([email, '(no row)', '-', '-', '-'].join('\t'));
+  });
+  return out.join('\n');
+}
