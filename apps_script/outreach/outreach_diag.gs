@@ -4582,3 +4582,74 @@ function diagnoseContactSentState(emails) {
   });
   return out.join('\n');
 }
+
+/**
+ * Read-only: contact rows whose address cannot be worth sending to.
+ *
+ * Four separate complaints, reported apart rather than merged into one "invalid" verdict, because
+ * only the first is a fact about the string and the rest need a human to agree:
+ *
+ *   malformed         the address does not have the shape of an address. No judgement needed.
+ *   single-char-local `l@plaid.com` — Jason Ling's address truncated to its last letter. A
+ *                     one-letter local part is legal and a few employers really use one, so this
+ *                     is a question, not a finding: read the Name column beside it and decide.
+ *   duplicate         the same address on more than one row, which is how a person survives a
+ *                     rebuild twice and can be planned twice.
+ *   bounced           a mailer-daemon or postmaster reply names this address. The strongest
+ *                     signal available, and the only one that is evidence rather than a guess.
+ *
+ * Nothing is deleted here. The mailbox scan reaches back thirty days, so an older bounce will not
+ * appear and absence from this list is not a clean bill of health.
+ */
+function diagnoseInvalidContactAddresses() {
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var rows = [];
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+    sheet.getRange(2, 1, last - 1, Math.max(C_SENT, C_EMAIL)).getValues().forEach(function (row, i) {
+      rows.push({
+        tab: name, rowNumber: i + 2,
+        email: String(row[C_EMAIL - 1] || '').trim().toLowerCase(),
+        company: String(row[C_COMPANY - 1] || ''),
+        name: String(row[C_NAME - 1] || ''),
+        ticked: outreachSentTicked_(row[C_SENT - 1])
+      });
+    });
+  });
+
+  var seenAt = {};
+  rows.forEach(function (row) {
+    if (!row.email) return;
+    (seenAt[row.email] = seenAt[row.email] || []).push(row.tab + ':' + row.rowNumber);
+  });
+  var bounced = targetDeliveryFailureAddresses_();
+
+  var out = {malformed: [], singleCharLocal: [], duplicate: [], bounced: []};
+  var shape = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+  var reported = {};
+  rows.forEach(function (row) {
+    var where = row.tab + ':' + row.rowNumber;
+    var line = [row.email || '(blank)', where, row.company, row.name,
+                row.ticked ? 'ticked' : 'not-ticked'].join('\t');
+    if (!row.email || !shape.test(row.email)) { out.malformed.push(line); return; }
+    if (bounced[row.email]) { out.bounced.push(line + '\t' + bounced[row.email]); return; }
+    if (row.email.split('@')[0].length === 1) out.singleCharLocal.push(line);
+    if (seenAt[row.email].length > 1 && !reported[row.email]) {
+      reported[row.email] = true;
+      out.duplicate.push(row.email + '\t' + seenAt[row.email].join(' + '));
+    }
+  });
+
+  return {
+    scanned: rows.length,
+    counts: {malformed: out.malformed.length, singleCharLocal: out.singleCharLocal.length,
+             duplicate: out.duplicate.length, bounced: out.bounced.length},
+    malformed: out.malformed.join('\n'),
+    singleCharLocal: out.singleCharLocal.join('\n'),
+    duplicate: out.duplicate.join('\n'),
+    bounced: out.bounced.join('\n')
+  };
+}

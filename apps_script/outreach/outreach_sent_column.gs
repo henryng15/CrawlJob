@@ -271,3 +271,84 @@ function repairColdContactSentTicksSweep(offset, limit) {
     more: from + page.length < ticked.length
   };
 }
+
+/**
+ * Delete named contact rows outright, for addresses that can never receive anything.
+ *
+ * Deleting rather than ticking, and the reason is specific to this repo. A tick means "Gmail
+ * accepted a message" and repairColdContactSentTicksSweep enforces exactly that: ticked with an
+ * empty mailbox gets cleared. An address that cannot receive mail has a permanently empty mailbox,
+ * so a tick used to silence one would be cleared by the next sweep and the address would come
+ * back. The two mechanisms would fight forever. A row that is gone is gone.
+ *
+ * Deletion is not durable by itself — a seed rebuild can re-add the same address from the research
+ * exports — so the addresses also belong in ColdEmail's `treg/suppress_emails.txt`, which is what
+ * keeps them from being bought and loaded again. One without the other only buys time.
+ *
+ * Guards, because this is the only call here that destroys a row:
+ *
+ *  - Explicit addresses only, and each row's own cell must still match the address given. A row
+ *    that moved under the caller's feet is skipped, never deleted on position.
+ *  - Bottom-up within each tab, so deleting one row cannot shift the next one out from under the
+ *    index that was resolved for it.
+ *  - A live Email row vetoes the delete. Whatever is wrong with the address, something is
+ *    currently planned against that contact and the plan should be cancelled first.
+ *
+ * Deliberately not guarded on the mailbox: `d@hp.com` has a message behind it — that is the damage
+ * being cleaned up, not a reason to keep the row.
+ */
+function removeContactRowsByAddress(emails) {
+  var wanted = {};
+  (emails || []).forEach(function (one) {
+    var email = String(one || '').trim().toLowerCase();
+    if (email) wanted[email] = true;
+  });
+  if (!Object.keys(wanted).length) throw new Error('An explicit address list is required.');
+
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+  var deleted = [], kept = [], seen = {};
+
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet) return;
+    var last = sheet.getLastRow();
+    if (last < 2) return;
+    var addresses = sheet.getRange(2, C_EMAIL, last - 1, 1).getValues();
+
+    var targets = [];
+    for (var i = 0; i < addresses.length; i++) {
+      var email = String(addresses[i][0] || '').trim().toLowerCase();
+      if (!email || !wanted[email]) continue;
+      seen[email] = true;
+      if (spent[outreachFingerprint_(email, salt, SEASON_SUMMER)]
+          || spent[outreachFingerprint_(email, salt, SEASON_OFFCYCLE)]) {
+        kept.push(email + '\t' + name + ':' + (i + 2) + '\ta live Email row still plans this contact');
+        continue;
+      }
+      targets.push({rowNumber: i + 2, email: email});
+    }
+
+    // Bottom-up: every earlier row keeps the number it was resolved at.
+    targets.sort(function (left, right) { return right.rowNumber - left.rowNumber; });
+    targets.forEach(function (target) {
+      var current = String(sheet.getRange(target.rowNumber, C_EMAIL).getValue() || '')
+        .trim().toLowerCase();
+      if (current !== target.email) {
+        kept.push(target.email + '\t' + name + ':' + target.rowNumber
+          + '\trow no longer holds this address (found "' + current + '")');
+        return;
+      }
+      sheet.deleteRow(target.rowNumber);
+      deleted.push(target.email + '\t' + name + ':' + target.rowNumber);
+    });
+  });
+
+  Object.keys(wanted).forEach(function (email) {
+    if (!seen[email]) kept.push(email + '\t(no row)\tno contact row carries this address');
+  });
+  return {deleted: deleted.length, keptCount: kept.length,
+          deletedRows: deleted.join('\n'), kept: kept.join('\n')};
+}
