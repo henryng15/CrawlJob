@@ -1739,3 +1739,51 @@ function retargetTargetRecruiterCampaign0924RobinhoodToWeb() {
     lock.releaseLock();
   }
 }
+
+/**
+ * Plaid's recruiter wave, nine days after its referral asks.
+ *
+ * scheduleTargetRecruiterCampaign0917Plaid was written to run three days after the 09/14 referral
+ * wave and never armed — its property key reads `not-scheduled`, so nothing was cancelled and
+ * nothing is being sent twice. This is that wave on the day the owner asked for instead.
+ *
+ * `l@plaid.com` is excluded by hand. It is a malformed capture of Jason Ling's address sitting on
+ * Contacts (seed) row 2388, unticked and never written to, so the selector would treat it as an
+ * ordinary eligible contact and spend a slot bouncing a message off a nonexistent mailbox. The
+ * real address is on Contacts (manual) and reachable under its own row, which is why excluding
+ * this one costs nothing. The row itself still needs correcting; an exclusion here only stops
+ * this wave from tripping over it.
+ */
+function scheduleTargetRecruiterCampaign0923Plaid() {
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260923_PLAID',
+    handler: 'runTargetRecruiterSharedTick_', reuseExistingTrigger: true,
+    label: 'Plaid', startIso: '2026-09-23T10:00:00-04:00',
+    spacingMinutes: 6, minGapMinutes: 5,
+    excludeEmails: ['l@plaid.com'],
+    companies: [{company: 'Plaid', maxContacts: 7,
+      role: 'Software Engineering Intern, Summer 2027',
+      jobLink: 'https://app.ripplematch.com/v2/public/job/02cb6f70?from=AllJobsPage'}]
+  });
+}
+
+/**
+ * Pull both live Figma recruiter waves four days forward, onto Monday 09/21.
+ *
+ * The owner's reason is that 09/25 is too late, so the shape of the day is kept and only the date
+ * moves: the nine-contact wave keeps its 13:00 start and six-minute spacing, and the one-contact
+ * supplement keeps its 14:00 slot an hour behind it. rescheduleTargetRecruiterCampaign_ re-deals
+ * `atMs` from the new start using each campaign's own spacing, so the gaps come out unchanged.
+ *
+ * The 09/25 supplement is left alone: it already reads `complete`, and the helper refuses anything
+ * that is not `scheduled` with every entry still pending, which is the guard that makes this safe
+ * to run without first proving nothing has gone out.
+ */
+function rescheduleFigmaRecruiterWavesInto0921() {
+  return {
+    main: rescheduleTargetRecruiterCampaign_(
+      'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA', '2026-09-21T13:00:00-04:00', 'Figma'),
+    supplement2: rescheduleTargetRecruiterCampaign_(
+      'TARGET_RECRUITER_CAMPAIGN_20260925_FIGMA_SUPPLEMENT2', '2026-09-21T14:00:00-04:00', 'Figma')
+  };
+}
