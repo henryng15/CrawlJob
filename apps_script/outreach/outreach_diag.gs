@@ -4653,3 +4653,296 @@ function diagnoseInvalidContactAddresses() {
     bounced: out.bounced.join('\n')
   };
 }
+
+/**
+ * Read-only: recent applications at employers the referral database has people
+ * for, where neither path has been used.
+ *
+ * The question this answers is the one the coverage audits above cannot: they
+ * look at recruiter contacts, and "we have somebody to ask for a referral" is a
+ * fact about `Employees (seed)` rather than about `Contacts (seed)`. A company
+ * can be fully covered on the recruiter side and still have ten engineers on
+ * file nobody has written to, and the reverse is just as common.
+ *
+ * Nothing is written. Every judgement is made from live state: the App tab, both
+ * seed tabs, both queues, every campaign Script Property, and Gmail itself for
+ * the shortlist that survives the sheet checks — because a message sent by hand
+ * leaves no row anywhere else.
+ */
+function auditRecentReferralCandidatesWithoutOutreach(weeks) {
+  var span = Number(weeks) || 4;
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var todayText = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var today = new Date(todayText + 'T00:00:00-04:00');
+  var cutoff = outreachAddDays_(today, -(span * 7 - 1));
+  var tomorrow = outreachAddDays_(today, 1);
+  var targetCompanies = outreachReferralTargetCompanies_(tracker);
+
+  var appSheet = tracker.getSheetByName(TAB_APP);
+  if (!appSheet) throw new Error('App tab is unavailable.');
+  var appRows = appSheet.getLastRow() < 2 ? []
+    : appSheet.getRange(2, 1, appSheet.getLastRow() - 1, APP_READ_WIDTH).getValues();
+  var applications = appRows.map(function (row, index) {
+    var app = outreachParseApp_(row, index);
+    app.recruitersSent = Number(outreachCell_(row, APP_RECRUITERS)) || 0;
+    app.update = outreachCell_(row, APP_UPDATE);
+    return app;
+  }).filter(function (app) {
+    return app.company && app.dateApplied
+      && app.dateApplied.getTime() >= cutoff.getTime()
+      && app.dateApplied.getTime() < tomorrow.getTime();
+  });
+
+  var groups = [];
+  applications.forEach(function (app) {
+    var tokens = outreachCompanyTokens_(app.company);
+    var group = groups.filter(function (candidate) {
+      return outreachSameEmployer_(tokens, candidate.tokens);
+    })[0];
+    if (!group) {
+      group = {company: app.company, tokens: tokens, applications: []};
+      groups.push(group);
+    }
+    group.applications.push(app);
+  });
+
+  // The referral database, read raw rather than through outreachReadEmployees_:
+  // that reader drops anyone already ticked Sent, and a company whose whole
+  // roster is spent is precisely a company that has been asked.
+  var employeeSheet = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
+  var employees = !employeeSheet || employeeSheet.getLastRow() < 2 ? []
+    : employeeSheet.getRange(2, 1, employeeSheet.getLastRow() - 1, E_WIDTH).getValues()
+      .map(function (row, index) {
+        var company = outreachCell_(row, E_COMPANY);
+        return {
+          company: company,
+          tokens: outreachCompanyTokens_(company),
+          name: outreachCell_(row, E_NAME),
+          email: outreachCell_(row, E_EMAIL).toLowerCase(),
+          title: outreachCell_(row, E_TITLE),
+          verify: outreachCell_(row, E_VERIFY).toLowerCase(),
+          sent: outreachSentTicked_(row[E_SENT - 1]),
+          rowNumber: index + 2
+        };
+      }).filter(function (person) {
+        return person.company && person.email.indexOf('@') !== -1;
+      });
+
+  var contacts = outreachReadContacts_(contactsBook);
+
+  var queueSheet = tracker.getSheetByName(TAB_QUEUE);
+  var queueRows = queueSheet && queueSheet.getLastRow() >= 2
+    ? queueSheet.getRange(2, 1, queueSheet.getLastRow() - 1, Q_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseQueue_(row, index); }) : [];
+  var referralSheet = tracker.getSheetByName(TAB_REFERRAL);
+  var referralRows = referralSheet && referralSheet.getLastRow() >= 2
+    ? referralSheet.getRange(2, 1, referralSheet.getLastRow() - 1, R_WIDTH).getValues()
+      .map(function (row, index) { return outreachParseReferral_(row, index); }) : [];
+
+  // Every campaign family, found by the word rather than by a list of prefixes,
+  // so a family added later cannot make this audit quietly under-report.
+  var referralEntries = [], recruiterEntries = [];
+  var properties = PropertiesService.getScriptProperties().getProperties();
+  Object.keys(properties).forEach(function (key) {
+    if (key.indexOf('CAMPAIGN') === -1) return;
+    var entries;
+    try { entries = (JSON.parse(properties[key]) || {}).entries || []; }
+    catch (ignored) { return; }
+    entries.forEach(function (entry) { entry.campaignKey = key; });
+    if (key.indexOf('REFERRAL') !== -1) referralEntries = referralEntries.concat(entries);
+    else recruiterEntries = recruiterEntries.concat(entries);
+  });
+
+  var SENT = ['sent', 'already-sent', 'replied', 'bounced'];
+  var PENDING = ['pending', 'queued', 'drafted'];
+  var tally = function (rows, tokens) {
+    var out = {sent: 0, pending: 0, cancelled: 0, examples: []};
+    rows.forEach(function (row) {
+      if (!row.company) return;
+      if (!outreachSameEmployer_(tokens, outreachCompanyTokens_(row.company))) return;
+      var status = String(row.status || '').toLowerCase();
+      if (SENT.indexOf(status) !== -1) out.sent++;
+      else if (PENDING.indexOf(status) !== -1) out.pending++;
+      else out.cancelled++;
+      if (out.examples.length < 4) {
+        out.examples.push((row.status || '(blank)') + ' ' + (row.role || row.person || ''));
+      }
+    });
+    return out;
+  };
+
+  var subjects = {};
+  COLD_TEMPLATES.forEach(function (template) { subjects[template.subject] = true; });
+
+  var rows = groups.map(function (group) {
+    var roster = employees.filter(function (person) {
+      return outreachSameEmployer_(group.tokens, person.tokens);
+    });
+    if (!roster.length) return null;
+    var recruiters = outreachContactsFor_(contacts, group.company);
+    var referralQueue = tally(referralRows, group.tokens);
+    var emailQueue = tally(queueRows, group.tokens);
+    var referralCampaign = tally(referralEntries, group.tokens);
+    var recruiterCampaign = tally(recruiterEntries, group.tokens);
+    var rosterSpent = roster.filter(function (person) { return person.sent; }).length;
+    var recruitersSpent = recruiters.filter(function (person) { return person.sent; }).length;
+    var appRecruiters = group.applications.reduce(function (total, app) {
+      return total + app.recruitersSent;
+    }, 0);
+    var newest = group.applications.slice().sort(function (left, right) {
+      return Number(right.dateApplied || 0) - Number(left.dateApplied || 0);
+    })[0];
+    return {
+      company: group.company,
+      isTarget: targetCompanies
+        ? outreachReferralCompanyIsTarget_(group.company, targetCompanies) : null,
+      isQuant: outreachReferralIsQuantFirm_(group.company),
+      referralContacts: roster.length,
+      referralContactsUnspent: roster.length - rosterSpent,
+      referralContactsSpent: rosterSpent,
+      recruiterContacts: recruiters.length,
+      recruiterContactsSpent: recruitersSpent,
+      appRecruiterColumn: appRecruiters,
+      referral: {queue: referralQueue, campaign: referralCampaign},
+      recruiter: {queue: emailQueue, campaign: recruiterCampaign},
+      applications: group.applications.map(function (app) {
+        return {
+          row: app.rowNumber,
+          role: app.role,
+          process: app.process,
+          applied: Utilities.formatDate(app.dateApplied, 'America/New_York', 'yyyy-MM-dd'),
+          link: app.official || app.link || ''
+        };
+      }),
+      latestApplied: Utilities.formatDate(newest.dateApplied, 'America/New_York', 'yyyy-MM-dd'),
+      activeApplications: group.applications.filter(function (app) {
+        return app.process !== STAGE_REJECTED;
+      }).length
+    };
+  }).filter(function (row) { return !!row; });
+
+  rows.forEach(function (row) {
+    row.sentAnywhere = row.referral.queue.sent + row.referral.campaign.sent
+      + row.recruiter.queue.sent + row.recruiter.campaign.sent
+      + row.referralContactsSpent + row.recruiterContactsSpent + row.appRecruiterColumn;
+    row.pendingAnywhere = row.referral.queue.pending + row.referral.campaign.pending
+      + row.recruiter.queue.pending + row.recruiter.campaign.pending;
+  });
+
+  // Gmail is asked only about the companies the sheets say are untouched. It is
+  // the slow check and the only one that can see a message sent by hand.
+  var shortlist = rows.filter(function (row) {
+    return row.sentAnywhere === 0 && row.pendingAnywhere === 0;
+  });
+  shortlist.forEach(function (row) {
+    var group = groups.filter(function (candidate) {
+      return candidate.company === row.company;
+    })[0];
+    var addresses = employees.filter(function (person) {
+      return outreachSameEmployer_(group.tokens, person.tokens);
+    }).map(function (person) { return person.email; })
+      .concat(outreachContactsFor_(contacts, row.company).map(function (person) {
+        return person.email;
+      })).slice(0, 30);
+    row.gmailAddressesChecked = addresses.length;
+    row.gmailMessages = 0;
+    row.gmailColdTemplateMessages = 0;
+    if (!addresses.length) return;
+    var query = 'from:me (' + addresses.map(function (email) {
+      return 'to:' + email;
+    }).join(' OR ') + ')';
+    GmailApp.search(query, 0, 200).forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        row.gmailMessages++;
+        if (subjects[message.getSubject()]) row.gmailColdTemplateMessages++;
+      });
+    });
+  });
+
+  var untouched = shortlist.filter(function (row) { return row.gmailMessages === 0; })
+    .sort(function (left, right) {
+      return right.latestApplied.localeCompare(left.latestApplied)
+        || left.company.localeCompare(right.company);
+    });
+
+  return {
+    asOf: Utilities.formatDate(new Date(), 'America/New_York', "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    window: Utilities.formatDate(cutoff, 'America/New_York', 'yyyy-MM-dd')
+      + ' through ' + todayText,
+    rule: 'App rows applied in the window whose employer has at least one row in '
+      + 'Employees (seed); reported when no referral or recruiter message has been '
+      + 'sent, nothing is queued or drafted on either path, and Gmail holds no '
+      + 'message to any known contact there.',
+    counts: {
+      applicationsInWindow: applications.length,
+      employersInWindow: groups.length,
+      employersWithReferralContacts: rows.length,
+      untouchedOnBothPaths: untouched.length,
+      sheetCleanButGmailHistory: shortlist.length - untouched.length
+    },
+    untouched: untouched,
+    gmailHistoryOnly: shortlist.filter(function (row) { return row.gmailMessages > 0; })
+  };
+}
+
+/**
+ * The same audit, flattened to one line per employer. `clasp run` prints its
+ * result through util.inspect, which abbreviates nested objects to [Object] and
+ * so hides exactly the counts the audit exists to report.
+ */
+function reportRecentReferralCandidatesWithoutOutreach(weeks) {
+  var result = auditRecentReferralCandidatesWithoutOutreach(weeks);
+  var line = function (row) {
+    return [
+      row.company,
+      row.isTarget ? 'Target' : 'off-Target',
+      'refDB=' + row.referralContacts + '(free ' + row.referralContactsUnspent + ')',
+      'recruiterDB=' + row.recruiterContacts,
+      'apps=' + row.applications.map(function (app) {
+        return app.applied + ' ' + app.process + ' | ' + app.role;
+      }).join(' ;; '),
+      'gmail=' + row.gmailMessages,
+      'link=' + (row.applications[0] ? row.applications[0].link : '')
+    ].join(' :: ');
+  };
+  return [result.window, JSON.stringify(result.counts)]
+    .concat(['--- UNTOUCHED ---'])
+    .concat(result.untouched.map(line))
+    .concat(['--- GMAIL HISTORY ONLY ---'])
+    .concat(result.gmailHistoryOnly.map(line));
+}
+
+/** Read-only: what Gmail actually holds from me to one employer's known contacts. */
+function reportOutboundToCompanyContacts(company) {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tokens = outreachCompanyTokens_(String(company || ''));
+  var employeeSheet = contactsBook.getSheetByName(TAB_EMPLOYEES_SEED);
+  var addresses = [];
+  if (employeeSheet && employeeSheet.getLastRow() >= 2) {
+    employeeSheet.getRange(2, 1, employeeSheet.getLastRow() - 1, E_WIDTH).getValues()
+      .forEach(function (row) {
+        var email = outreachCell_(row, E_EMAIL).toLowerCase();
+        if (!email || email.indexOf('@') === -1) return;
+        if (!outreachSameEmployer_(tokens, outreachCompanyTokens_(outreachCell_(row, E_COMPANY)))) return;
+        addresses.push(email);
+      });
+  }
+  outreachContactsFor_(outreachReadContacts_(contactsBook), company).forEach(function (person) {
+    addresses.push(person.email);
+  });
+  addresses = addresses.filter(function (email, index) {
+    return addresses.indexOf(email) === index;
+  }).slice(0, 30);
+  if (!addresses.length) return ['no known contacts'];
+  var out = [];
+  GmailApp.search('from:me (' + addresses.map(function (email) {
+    return 'to:' + email;
+  }).join(' OR ') + ')', 0, 200).forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      out.push(Utilities.formatDate(message.getDate(), 'America/New_York', 'yyyy-MM-dd')
+        + ' :: to ' + message.getTo() + ' :: ' + message.getSubject());
+    });
+  });
+  return out.length ? out : ['no outbound messages'];
+}
