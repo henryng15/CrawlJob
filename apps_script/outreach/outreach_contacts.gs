@@ -495,3 +495,40 @@ function scheduleOwnerSheetRecruiterWave20260923() {
     return result;
   });
 }
+
+/**
+ * Owner call-off: cancel every still-pending entry for the named employers in
+ * both owner-sheet wave campaigns. Sent entries are left as they are.
+ */
+function cancelOwnerSheetRecruiterWaveCompanies(companies, reason) {
+  var names = {};
+  (companies || []).forEach(function (company) { names[company] = true; });
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var result = OWNER_SHEET_WAVE_DAYS_20260923_.map(function (day) {
+      var state = JSON.parse(props.getProperty(day.key));
+      var cancelled = [], alreadyDone = [];
+      state.entries.forEach(function (entry) {
+        if (!names[entry.company]) return;
+        if (entry.status !== 'pending') { alreadyDone.push(entry.company + ' ' + entry.status); return; }
+        entry.status = 'cancelled';
+        entry.completedAt = new Date().toISOString();
+        entry.error = 'Cancelled by owner: ' + (reason || 'called off');
+        cancelled.push(entry.company + ' ' + entry.email);
+      });
+      if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
+        state.status = 'complete';
+        state.completedAt = new Date().toISOString();
+      }
+      props.setProperty(day.key, JSON.stringify(state));
+      return {key: day.key, cancelled: cancelled, notPending: alreadyDone};
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
