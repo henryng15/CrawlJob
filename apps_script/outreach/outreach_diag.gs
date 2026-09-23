@@ -1991,6 +1991,157 @@ function diagnoseTargetCompanyRejectionPreflight(company, role, jobLink) {
 }
 
 /** Read-only evidence for a single company/role Gmail rejection preflight decision. */
+/**
+ * Owner-requested ZipRecruiter referral wave for 2026-09-23. ZipRecruiter has no
+ * Employees (seed) rows, so the recipients were sourced by hand through treg
+ * (leadsforge search, email finder, MillionVerifier: every address `ok` on a
+ * domain that rejects an invented mailbox). Entry-level titles come first; Kevin
+ * Nguy (Software Engineer II) takes the fifteenth slot only when Y-Uyen La has no
+ * owner-approved Vietnamese title, because the pure-Vietnamese gate forbids a guess.
+ */
+var TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_ = [
+  {name: 'Forrest Cao', email: 'forrest@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Vincent Tieu', email: 'vincentt@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Jack Ngo', email: 'jack.ngo@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Oyintare Ebelo', email: 'oyintare.ebelo@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Allyson Wesman', email: 'allyson@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Milia Nguyen', email: 'milia.nguyen@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Violetta Dabros', email: 'violetta.dabros@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Valery Kalesnik', email: 'valery@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'David Braunstein', email: 'davidb@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Viktar Starynski', email: 'viktar.starynski@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Aramis Subee', email: 'aramiss@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Jeffrey Marzec', email: 'jeffreym@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Clement Lau', email: 'clau@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Tayfun Turanligil', email: 'tayfunt@ziprecruiter.com', title: 'Software Engineer'}
+];
+
+/**
+ * Schedule the ZipRecruiter wave: fifteen asks, six minutes apart, from five
+ * minutes after setup. `yUyenTitle` is the owner's `anh`/`chị` for Y-Uyen La;
+ * blank sends Kevin Nguy instead. `acknowledgeOver55` must be true, because the
+ * day already exceeds the 55-message threshold and the policy requires the
+ * owner's explicit acknowledgement before anything is queued.
+ */
+function scheduleTargetReferralCampaign0923ZipRecruiter(yUyenTitle, acknowledgeOver55) {
+  if (acknowledgeOver55 !== true) {
+    throw new Error('The 2026-09-23 total exceeds 55; pass acknowledgeOver55 = true after the owner confirms.');
+  }
+  var title = String(yUyenTitle || '').trim();
+  if (title && title !== 'anh' && title !== 'chị') throw new Error('yUyenTitle must be anh, chị or blank.');
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER';
+  var handler = 'runTargetReferralCampaignTick0923ZipRecruiter_';
+  var role = 'Software Engineer - Intern';
+  var jobLink = 'https://job-boards.greenhouse.io/embed/job_app?for=ziprecruiter&token=8180455&jr_id=6ab426190e0ae54eeea46e6d';
+  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
+  contacts.push(title
+    ? {name: 'Y-Uyen La', email: 'yuyen@ziprecruiter.com', title: 'Software Engineer',
+       vietnamese: {name: 'Uyên', title: title, variant: 1}}
+    : {name: 'Kevin Nguy', email: 'kevin.nguy@ziprecruiter.com', title: 'Software Engineer II'});
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, 'ZipRecruiter')};
+      }
+    }
+    var rejection = outreachGmailApiRejectedTarget_({company: 'ZipRecruiter', role: role, jobLink: jobLink});
+    if (rejection.rejected) return {blocked: true, company: 'ZipRecruiter', reason: rejection.why};
+
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) throw new Error('Referral tab is missing.');
+    var used = {};
+    outreachReadReferralRows_(referral).forEach(function (row) {
+      if (row.email) used[String(row.email).toLowerCase()] = true;
+    });
+    var skipped = [];
+    var startMs = new Date().getTime() + 5 * 60000;
+    var entries = [];
+    contacts.forEach(function (contact) {
+      var email = contact.email.toLowerCase();
+      if (used[email] || GmailApp.search('from:me to:' + email, 0, 1).length) {
+        skipped.push({name: contact.name, email: email, reason: 'already-sent'});
+        return;
+      }
+      used[email] = true;
+      var entry = {
+        company: 'ZipRecruiter', role: role, jobLink: jobLink,
+        name: contact.name, email: email, title: contact.title, seniority: '',
+        angle: '', bucket: '', template: (entries.length % 10) + 1,
+        atMs: startMs + entries.length * 6 * 60000, status: 'pending'
+      };
+      if (contact.vietnamese) {
+        entry.copy = 'henry_vietnamese';
+        entry.vietnameseName = contact.vietnamese.name;
+        entry.vietnameseTitle = contact.vietnamese.title;
+        entry.vietnameseVariant = contact.vietnamese.variant;
+      }
+      entries.push(entry);
+    });
+    if (!entries.length) return {scheduled: [], skipped: skipped};
+
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+      lastSentAtMs: 0, spacingMinutes: 6, minGapMinutes: 5, entries: entries, skipped: skipped,
+      volumeAcknowledged: true
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try { ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create(); }
+    catch (error) { props.deleteProperty(propertyKey); throw error; }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      scheduled: entries.map(function (entry) {
+        return {name: entry.name, email: entry.email, template: entry.copy || entry.template,
+                at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }),
+      skipped: skipped, trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Send one due ZipRecruiter referral entry. */
+function runTargetReferralCampaignTick0923ZipRecruiter_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER',
+    handler: 'runTargetReferralCampaignTick0923ZipRecruiter_'
+  });
+}
+
+/** Read-only preview of the fifteen ZipRecruiter messages; sends nothing. */
+function previewTargetReferralCampaign0923ZipRecruiter(yUyenTitle) {
+  var title = String(yUyenTitle || '').trim();
+  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
+  contacts.push(title
+    ? {name: 'Y-Uyen La', vietnamese: {name: 'Uyên', title: title, variant: 1}}
+    : {name: 'Kevin Nguy'});
+  return contacts.map(function (contact, index) {
+    var mail = contact.vietnamese
+      ? outreachVietnameseReferralCompose_({
+          personName: contact.name, vietnameseName: contact.vietnamese.name,
+          vietnameseTitle: contact.vietnamese.title, vietnameseVariant: contact.vietnamese.variant,
+          company: 'ZipRecruiter', role: 'Software Engineer - Intern'
+        })
+      : outreachReferralCompose_({
+          personName: contact.name, company: 'ZipRecruiter', role: 'Software Engineer - Intern',
+          template: (index % 10) + 1, today: new Date()
+        });
+    return {name: contact.name, subject: mail.subject,
+            plain: index < 2 || contact.vietnamese ? mail.plain : undefined};
+  });
+}
+
 function diagnoseTargetCompanyRejectionEvidence(company, role, jobLink) {
   var entry = {
     company: String(company || '').trim(),
