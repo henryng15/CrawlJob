@@ -185,3 +185,142 @@ function outreachAngleFor_(companyContacts) {
 function outreachRecruiterCount_(contacts, company) {
   return outreachContactsFor_(contacts, company).length;
 }
+
+// ------------------------------------------------ owner-supplied recruiter import
+
+// The recruiters with an email on the owner's shared list (spreadsheet
+// 17KnCRwNrjmuwjCLbCuHl8xiI-qSchiEcWbWJuDvXZHM, gid 165100402), read on
+// 2026-09-23. A blank Company on that sheet was filled from the address's domain
+// (`inferred`); names are only the ones the sheet itself gives, never guessed
+// from the address. Obvious spelling slips were corrected (Mercesdes, DataDog).
+var OWNER_RECRUITER_SHEET_20260923_ = [
+  {"company": "NVIDIA", "name": "Lexy Aldape", "email": "laldape@nvidia.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "MongoDB", "name": "", "email": "sammy.attia@mongodb.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "MongoDB", "name": "", "email": "earlytalent@mongodb.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Rippling", "name": "", "email": "ctung@rippling.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Adobe", "name": "", "email": "cfelix@adobe.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "F5", "name": "", "email": "ki.nguyen@f5.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "DoorDash", "name": "", "email": "jessica.woo@doordash.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "DoorDash", "name": "", "email": "alexandra.graw@ext.doordash.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Wayfair", "name": "", "email": "cmcbride1@wayfair.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Twilio", "name": "", "email": "bfeicho@twilio.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Confluent", "name": "", "email": "lzabel@confluent.io", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Palantir", "name": "", "email": "ajordan@palantir.com", "note": "UK", "linkedin": "", "inferred": false},
+  {"company": "Microsoft", "name": "", "email": "tamiwilbur@microsoft.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Microsoft", "name": "", "email": "moanonuevo@microsoft.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Microsoft", "name": "", "email": "v-tonnguyen@microsoft.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Microsoft", "name": "", "email": "v-coupeavy@microsoft.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Microsoft", "name": "", "email": "elizabeth.rutledge@microsoft.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Meta", "name": "", "email": "kvsona@meta.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Bloomberg", "name": "", "email": "bkoempel@bloomberg.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Coinbase", "name": "", "email": "victoria.mackey@coinbase.com", "note": "", "linkedin": "https://www.linkedin.com/in/victoriamackey10/", "inferred": true},
+  {"company": "Coinbase", "name": "", "email": "brittany.green@coinbase.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "The Trade Desk", "name": "", "email": "tracy.perlongo@thetradedesk.com", "note": "", "linkedin": "https://www.linkedin.com/in/tracy-perlongo-deschenes-65b2b1/", "inferred": true},
+  {"company": "LinkedIn", "name": "", "email": "jecook@linkedin.com", "note": "Lesbian In Tech - just connect and reach out to him", "linkedin": "https://www.linkedin.com/in/jeffscook/", "inferred": false},
+  {"company": "Expedia", "name": "", "email": "manrsingh@expediagroup.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Graditude", "name": "", "email": "steven.adelberg@graditudeconnects.org", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Autodesk", "name": "", "email": "jason.lu@autodesk.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "PIMCO", "name": "", "email": "annie.orlich@pimco.com", "note": "", "linkedin": "https://linkedin.com/in/annie-orlich", "inferred": false},
+  {"company": "LinkSquares", "name": "", "email": "barry@linksquares.com", "note": "", "linkedin": "https://www.linkedin.com/in/barrysylvia/", "inferred": false},
+  {"company": "VecFlow AI", "name": "", "email": "founders@vecflow.ai", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Datadog", "name": "", "email": "hayley.biason@datadoghq.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "AMD", "name": "", "email": "christy.jackson@amd.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Amazon", "name": "", "email": "tarturkt@amazon.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Dropbox", "name": "", "email": "jcarranza@dropbox.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Jane Street", "name": "Alyssa Placa", "email": "aplaca@recruiting.janestreet.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Goldman Sachs", "name": "", "email": "glenmar.molina@gs.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Goldman Sachs", "name": "", "email": "katie.dewald@gs.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Goldman Sachs", "name": "", "email": "gscampusengineering@ny.email.gs.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Goldman Sachs", "name": "", "email": "gscampusengineering@gs.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Two Sigma", "name": "Helen", "email": "helen.yip@twosigma.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Niantic", "name": "", "email": "kaleywilson@nianticlabs.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Bank of America", "name": "", "email": "camila.camargo@bofa.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Akamai", "name": "", "email": "jgath@akamai.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Google", "name": "Estelle D. Williams", "email": "estellew@google.com", "note": "", "linkedin": "https://www.linkedin.com/in/estelle-d-williams-she-her-637a9238/", "inferred": false},
+  {"company": "Google", "name": "Bryan Radziewski", "email": "radziewski@google.com", "note": "", "linkedin": "https://www.linkedin.com/in/bryanradziewski/", "inferred": true},
+  {"company": "Google", "name": "", "email": "defaria@google.com", "note": "", "linkedin": "https://www.linkedin.com/in/juliana-defaria/", "inferred": true},
+  {"company": "State Street", "name": "", "email": "elemire@statestreet.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Morgan Stanley", "name": "", "email": "itcolrec@morganstanley.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Duolingo", "name": "", "email": "micheller@duolingo.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "eBay", "name": "", "email": "valramirez@ebay.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "GoDaddy", "name": "", "email": "scampos@godaddy.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "UiPath", "name": "", "email": "stacey.goldman@uipath.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "BlackRock", "name": "", "email": "tamera.johnson@blackrock.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "BlackRock", "name": "", "email": "michael.herzberg@blackrock.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "BlackRock", "name": "", "email": "jackson.hambridge@blackrock.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Affirm", "name": "", "email": "amanda.ballesteros@affirm.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Tesla", "name": "", "email": "twesolowski@tesla.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "PayPal", "name": "", "email": "tikirby@paypal.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "PayPal", "name": "Kellyn Creese", "email": "kcreese@talent.paypal.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Verkada", "name": "", "email": "christine.higgins@verkada.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Asana", "name": "", "email": "andiesummers@asana.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Databricks", "name": "", "email": "katie.tenboer@databricks.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "HubSpot", "name": "", "email": "lgomez@hubspot.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "HubSpot", "name": "", "email": "cverdugo@hubspot.com", "note": "New grad", "linkedin": "", "inferred": true},
+  {"company": "Red Hat", "name": "", "email": "nsalazar@redhat.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "AppFolio", "name": "", "email": "noah.argao@appfolio.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Mercedes-Benz", "name": "", "email": "kimberly.birch@mercedes-benz.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Oracle", "name": "", "email": "casey.medina@oracle.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Snap", "name": "", "email": "lforghani@snapchat.com", "note": "", "linkedin": "", "inferred": true},
+  {"company": "Airbnb", "name": "Jessica Hernandez", "email": "jess.hernandez@airbnb.com", "note": "", "linkedin": "", "inferred": false},
+  {"company": "Appian", "name": "Madison Nordyke", "email": "madison.nordyke@appian.com", "note": "", "linkedin": "", "inferred": false}
+];
+
+/**
+ * Append the owner's recruiter list to Contacts (manual), skipping every address
+ * already on either contacts tab. With `dryRun` it writes nothing and only
+ * reports: which addresses already exist (tab and row), which would be added,
+ * and where a company already has a seed spelling that differs from ours — the
+ * seed spelling wins, so the new row groups with the employer it already has.
+ * `hold` lists addresses left out for the owner to decide — a person already on
+ * file under a different address, where appending would make them plannable twice.
+ */
+function importOwnerRecruiterSheet20260923(dryRun, hold) {
+  var held = {};
+  (hold || []).forEach(function (email) { held[String(email).toLowerCase()] = true; });
+  var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var manual = book.getSheetByName(TAB_CONTACTS_MANUAL);
+  if (!manual) throw new Error('Contacts (manual) is missing.');
+
+  var seenAt = {}, companyByKey = {};
+  [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (name) {
+    var sheet = book.getSheetByName(name);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, C_WIDTH).getValues().forEach(function (row, i) {
+      var email = outreachCell_(row, C_EMAIL).toLowerCase();
+      if (email) (seenAt[email] = seenAt[email] || []).push(
+        name + ':' + (i + 2) + ' ' + outreachCell_(row, C_COMPANY) + ' / ' + outreachCell_(row, C_NAME));
+      var company = outreachCell_(row, C_COMPANY);
+      if (company && !companyByKey[outreachNameKey_(company)]) companyByKey[outreachNameKey_(company)] = company;
+    });
+  });
+
+  var rows = [], added = [], existing = [], heldBack = [], respelled = [], newCompanies = {};
+  OWNER_RECRUITER_SHEET_20260923_.forEach(function (person) {
+    var email = person.email.toLowerCase();
+    if (seenAt[email]) { existing.push(email + '\t' + seenAt[email].join(' + ')); return; }
+    if (held[email]) { heldBack.push(email); return; }
+    var company = companyByKey[outreachNameKey_(person.company)] || person.company;
+    if (company !== person.company) respelled.push(person.company + ' -> ' + company);
+    if (!companyByKey[outreachNameKey_(person.company)]) newCompanies[company] = true;
+    var from = 'Owner recruiter sheet 17KnCR… gid 165100402 — imported 2026-09-23' +
+      (person.inferred ? '; company inferred from domain' : '') +
+      (person.note ? '; note: ' + person.note : '') +
+      (person.linkedin ? '; ' + person.linkedin : '');
+    var row = new Array(C_WIDTH).fill('');
+    row[C_COMPANY - 1] = company;
+    row[C_NAME - 1] = person.name;
+    row[C_EMAIL - 1] = email;
+    row[C_FROM - 1] = from;
+    rows.push(row);
+    added.push(company + '\t' + email + '\t' + person.name);
+    seenAt[email] = ['this import'];
+  });
+
+  if (!dryRun && rows.length) {
+    manual.getRange(manual.getLastRow() + 1, 1, rows.length, C_WIDTH).setValues(rows);
+  }
+  return {dryRun: !!dryRun, total: OWNER_RECRUITER_SHEET_20260923_.length,
+          existing: existing, held: heldBack, added: added, respelled: respelled,
+          companiesNotYetOnFile: Object.keys(newCompanies)};
+}
