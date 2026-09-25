@@ -37,15 +37,18 @@ Ten employers had no recruiter who could be verified and are not in the wave: Cy
 titled "AI Intern to the CEO"), Awardco, Avionyx, Bitplaza, Cartesian, Docugami, Fontaine
 Modification, RAVE Aerospace, Swarmaero and Pace. Baidu USA, PING and Smarty have one each.
 
-Geneva Trading was researched and its two recruiters were appended to `Contacts (manual)`, but
-its App row disappeared before scheduling, so it is not in the wave and not in the constants.
+Geneva Trading's App row was deleted mid-session (2026-09-24). The owner asked for it to be
+mailed anyway, so its application is pinned with `ownerConfirmed: true`, which skips the live-App
+check but not the Gmail rejection preflight. It is its own day,
+`TARGET_RECRUITER_CAMPAIGN_20261001_GAP_GENEVA`: two recruiters at 12:40 and 12:52 ET on 10-01,
+after the main 10-01 day ends at 12:30.
 
 ## Functions
 
 | Function | Does |
 |---|---|
-| `appendGapWaveContacts20260924(dryRun)` | Append `GAP_WAVE_CONTACTS_20260924_` (117 people; the 2026-09-24 run appended 119, Geneva's two included) to `Contacts (manual)` with title, focus (`university` / `technical`), the BounceBan verdict and provenance in `From`. Skips any address already on either contacts tab; `dryRun` only reports. |
-| `scheduleGapWave20260924(dayKeys)` | For each day in `GAP_WAVE_DAYS_20260924_` (or the listed keys), checks every pinned application in `GAP_WAVE_APPLICATIONS_20260924_` still has at least one live App row at its exact link (App can list one posting twice) and clear of a matching Gmail rejection, and then books the day as one direct recruiter campaign on the shared trigger `runTargetRecruiterSharedTick_`, with `exactContacts` and `includeEmails` so the day sends to exactly the chosen people. Any rejection or dead application aborts before anything is written. |
+| `appendGapWaveContacts20260924(dryRun)` | Append `GAP_WAVE_CONTACTS_20260924_` (119 people) to `Contacts (manual)` with title, focus (`university` / `technical`), the BounceBan verdict and provenance in `From`. Skips any address already on either contacts tab; `dryRun` only reports. |
+| `scheduleGapWave20260924(dayKeys)` | For each day in `GAP_WAVE_DAYS_20260924_` (or the listed keys), checks every pinned application in `GAP_WAVE_APPLICATIONS_20260924_` still has at least one live App row at its exact link (App can list one posting twice), unless the owner confirmed it without one (`ownerConfirmed`) and clear of a matching Gmail rejection, and then books the day as one direct recruiter campaign on the shared trigger `runTargetRecruiterSharedTick_`, with `exactContacts` and `includeEmails` so the day sends to exactly the chosen people. Any rejection or dead application aborts before anything is written. |
 | `cancelGapWave20260924Companies(companies, reason)` | Owner call-off: cancels every still-pending entry for the named employers (display names), leaves sent entries alone and refreshes `Email_target`. |
 
 `display` is the employer name the email uses. It differs from the App spelling only where the
@@ -54,6 +57,6 @@ App spelling would read badly in a letter (`GM financial` → `GM Financial`, `W
 ## State
 
 Campaign properties: `TARGET_RECRUITER_CAMPAIGN_20260925_GAP_RIPPLING`, `…_20260928_GAP`,
-`…_20260929_GAP`, `…_20260930_GAP`, `…_20261001_GAP`. They appear in `Email_target` and are
+`…_20260929_GAP`, `…_20260930_GAP`, `…_20261001_GAP`, `…_20261001_GAP_GENEVA`. They appear in `Email_target` and are
 counted by `diagnoseTargetMessagesForDay`. Each send still passes the delivery tick's own
 already-sent check and Gmail rejection preflight.

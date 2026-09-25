@@ -378,6 +378,26 @@ var GAP_WAVE_CONTACTS_20260924_ = [
     "linkedin": "https://www.linkedin.com/in/yeonheestanley"
   },
   {
+    "company": "Geneva Trading",
+    "name": "Blake Brownstein",
+    "email": "bbrownstein@genevatrading.com",
+    "title": "Talent Acquisition Manager",
+    "focus": "",
+    "verify": "BounceBan deliverable 99 2026-09-24",
+    "source": "people search",
+    "linkedin": "https://www.linkedin.com/in/blake-brownstein"
+  },
+  {
+    "company": "Geneva Trading",
+    "name": "Matthew Perry",
+    "email": "mperry@genevatrading.com",
+    "title": "Director of Talent Acquisition / Head of Talent Acquisition",
+    "focus": "",
+    "verify": "BounceBan deliverable 99 2026-09-24",
+    "source": "people search",
+    "linkedin": "https://www.linkedin.com/in/perry8"
+  },
+  {
     "company": "Genworth Financial",
     "name": "Natalie Augustine",
     "email": "natalie.augustine@genworth.com",
@@ -1365,6 +1385,17 @@ var GAP_WAVE_APPLICATIONS_20260924_ = {
     "role": "Full Stack Software Engineering Intern",
     "jobLink": "https://jobs.ashbyhq.com/gecko-robotics/01138338-ff3c-4982-8ba3-5401386bf082/application?jr_id=6aaaa08276707040fb081329"
   },
+  "Geneva Trading": {
+    "display": "Geneva Trading",
+    "contactCompany": "Geneva Trading",
+    "emails": [
+      "bbrownstein@genevatrading.com",
+      "mperry@genevatrading.com"
+    ],
+    "role": "Python Developer Intern",
+    "jobLink": "https://job-boards.greenhouse.io/genevatrading/jobs/5242196007?gh_src=vukgv78h7us&t=3253f722teu",
+    "ownerConfirmed": true
+  },
   "Genworth Financial": {
     "display": "Genworth Financial",
     "contactCompany": "Genworth Financial",
@@ -1851,6 +1882,14 @@ var GAP_WAVE_DAYS_20260924_ = [
       "Tive",
       "ZipRecruiter"
     ]
+  },
+  {
+    "key": "TARGET_RECRUITER_CAMPAIGN_20261001_GAP_GENEVA",
+    "startIso": "2026-10-01T12:40:00-04:00",
+    "spacingMinutes": 12,
+    "companies": [
+      "Geneva Trading"
+    ]
   }
 ];
 
@@ -1929,7 +1968,11 @@ function scheduleGapWave20260924(dayKeys) {
         return String(app.official || app.link || '') === spec.jobLink && outreachQualifies_(app.process);
       });
       // App can hold the same posting twice (two boards, one link); one live row is enough.
-      if (!live.length) throw new Error(company + ': no active application at the pinned link.');
+      // `ownerConfirmed` marks an employer the owner told us to mail although its App row is
+      // gone; the Gmail rejection preflight below still applies to it.
+      if (!live.length && !spec.ownerConfirmed) {
+        throw new Error(company + ': no active application at the pinned link.');
+      }
       var rejection = outreachGmailApiRejectedTarget_(
         {company: spec.display, role: spec.role, jobLink: spec.jobLink}, candidates);
       if (rejection.rejected) blocked.push(company + ' (' + rejection.why + ')');
