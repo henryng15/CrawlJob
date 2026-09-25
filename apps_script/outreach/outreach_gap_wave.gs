@@ -2035,3 +2035,51 @@ function cancelGapWave20260924Companies(companies, reason) {
     lock.releaseLock();
   }
 }
+
+/**
+ * Owner-supplied greeting name for one recipient: sets `name` on that address's still-pending
+ * entries in every gap-wave day, and on its Contacts (manual) row when the row has no name.
+ * A seed row is only reported, because the next ColdEmail export would overwrite it.
+ */
+function setGapWaveRecipientName20260924(email, name) {
+  var address = String(email || '').trim().toLowerCase();
+  var given = String(name || '').trim();
+  if (!address || !given) throw new Error('An email and a name are required.');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var entries = [];
+    GAP_WAVE_DAYS_20260924_.forEach(function (day) {
+      var text = props.getProperty(day.key);
+      if (!text) return;
+      var state = JSON.parse(text);
+      var changed = false;
+      state.entries.forEach(function (entry) {
+        if (String(entry.email || '').toLowerCase() !== address || entry.status !== 'pending') return;
+        entry.name = given;
+        changed = true;
+        entries.push(day.key);
+      });
+      if (changed) props.setProperty(day.key, JSON.stringify(state));
+    });
+
+    var book = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var rows = [];
+    [TAB_CONTACTS_SEED, TAB_CONTACTS_MANUAL].forEach(function (tab) {
+      var sheet = book.getSheetByName(tab);
+      if (!sheet || sheet.getLastRow() < 2) return;
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, C_WIDTH).getValues().forEach(function (row, i) {
+        if (outreachCell_(row, C_EMAIL).toLowerCase() !== address) return;
+        var updated = tab === TAB_CONTACTS_MANUAL && !outreachCell_(row, C_NAME);
+        if (updated) sheet.getRange(i + 2, C_NAME).setValue(given);
+        rows.push(tab + ':' + (i + 2) + (updated ? ' named' : ' left as is'));
+      });
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {email: address, name: given, pendingEntries: entries, contactRows: rows};
+  } finally {
+    lock.releaseLock();
+  }
+}
