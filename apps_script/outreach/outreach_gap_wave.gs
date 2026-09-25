@@ -2121,3 +2121,48 @@ function retimeGapWaveRecipient20260924(email, iso) {
     lock.releaseLock();
   }
 }
+
+/**
+ * Owner-requested pull-forward for any direct Target recruiter campaign: gives the listed
+ * still-pending addresses new times from `startIso`, `spacingMinutes` apart, in the order given.
+ * It refuses unless every address is pending in that campaign, so a count mismatch writes
+ * nothing; sent and cancelled entries are never touched, and the shared tick's already-sent and
+ * Gmail rejection checks still run at delivery. Ran 2026-09-25 to move 13 of the 09-26
+ * `TARGET_RECRUITER_CAMPAIGN_20260926_21_SWE` entries to that afternoon.
+ */
+function retimeTargetRecruiterEntries20260925(propertyKey, emails, startIso, spacingMinutes) {
+  var key = String(propertyKey || '');
+  if (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') !== 0) throw new Error('A Target recruiter campaign key is required.');
+  var list = (emails || []).map(function (email) { return String(email || '').trim().toLowerCase(); });
+  var startMs = new Date(startIso).getTime();
+  var spacing = Number(spacingMinutes || 6);
+  if (!list.length || !startMs) throw new Error('Emails and an ISO start time are required.');
+  if (startMs <= new Date().getTime()) throw new Error('The start time has already passed.');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var text = props.getProperty(key);
+    if (!text) throw new Error(key + ' is absent.');
+    var state = JSON.parse(text);
+    if (state.status !== 'scheduled') throw new Error(key + ' is ' + state.status + '.');
+    var byEmail = {};
+    state.entries.forEach(function (entry) {
+      if (entry.status === 'pending') byEmail[String(entry.email || '').toLowerCase()] = entry;
+    });
+    var missing = list.filter(function (email) { return !byEmail[email]; });
+    if (missing.length) throw new Error('Not pending in ' + key + ': ' + missing.join(', '));
+    var moved = list.map(function (email, index) {
+      var entry = byEmail[email];
+      entry.atMs = startMs + index * spacing * 60000;
+      return {company: entry.company, email: email,
+              at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+    });
+    props.setProperty(key, JSON.stringify(state));
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {key: key, moved: moved};
+  } finally {
+    lock.releaseLock();
+  }
+}
