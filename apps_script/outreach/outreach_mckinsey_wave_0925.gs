@@ -77,3 +77,49 @@ function runTargetReferralCampaignTick20260925McKinsey_() {
 function sendTargetReferralCampaign20260925McKinseyNow() {
   return runTargetReferralCampaignTick20260925McKinsey_();
 }
+
+/** Add the owner-approved Vibhav replacement after a duplicate is skipped. */
+function addTargetReferralCampaign20260925McKinseyReplacement() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260925_MCKINSEY';
+  var replacement = {name: 'Vibhav Bhangale', email: 'vibhav_bhangale@mckinsey.com',
+    title: 'Senior Software Engineer'};
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var state = JSON.parse(props.getProperty(propertyKey) || '');
+    if (state.status !== 'scheduled') throw new Error('McKinsey campaign is not scheduled.');
+    if ((state.entries || []).some(function (entry) { return entry.email === replacement.email; })) {
+      return {alreadyPresent: true};
+    }
+    if (GmailApp.search('from:me to:' + replacement.email, 0, 1).length) {
+      return {skipped: true, reason: 'already-sent'};
+    }
+    var latest = Math.max.apply(null, state.entries.map(function (entry) { return Number(entry.atMs) || 0; }));
+    state.entries.push({company: 'McKinsey', role: 'Software Engineer Intern - QuantumBlack, AI by McKinsey',
+      jobLink: state.entries[0].jobLink, name: replacement.name, email: replacement.email,
+      title: replacement.title, seniority: '', angle: '', bucket: '', template: 6,
+      atMs: Math.max(new Date().getTime() + 5 * 60000, latest + 5 * 60000), status: 'pending'});
+    props.setProperty(propertyKey, JSON.stringify(state));
+    refreshTargetQueueTabs_();
+    return {added: replacement.name, scheduledAt: Utilities.formatDate(
+      new Date(state.entries[state.entries.length - 1].atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+  } finally { lock.releaseLock(); }
+}
+
+/** Read-only delivery state for the five McKinsey entries, without addresses. */
+function diagnoseTargetReferralCampaign20260925McKinsey() {
+  var text = PropertiesService.getScriptProperties().getProperty(
+    'TARGET_REFERRAL_CAMPAIGN_20260925_MCKINSEY');
+  if (!text) return {present: false};
+  var state = JSON.parse(text);
+  return {
+    present: true,
+    status: state.status,
+    entries: (state.entries || []).map(function (entry) {
+      return {name: entry.name, title: entry.title, status: entry.status,
+        scheduledAt: entry.atMs ? Utilities.formatDate(new Date(entry.atMs),
+          'America/New_York', 'yyyy-MM-dd HH:mm z') : '', error: entry.error || ''};
+    })
+  };
+}
