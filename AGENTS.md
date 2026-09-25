@@ -161,6 +161,9 @@ automatic queue or trigger exists. Use the correct recruiter/referral template d
 there. For a pure Vietnamese manual referral, that policy requires the Vietnamese template and a
 definite singular `anh` or `chị`; if the title cannot be decided, return to the chat rather than
 drafting, queueing or sending it. Every final response must report the planned messages for the
-local day, including Target and hypothetical automatic work, and must warn the user when the total
-is greater than 55. For every email path, strip decorative name icons and render the selected
+local day, including Target and only automatic work whose delivery path is active. Do not add a
+paused, Draft-mode, or trigger-inactive automatic forecast to the daily total; show it separately
+as excluded if it is useful context. Automatic messages already accepted by Gmail still count as
+sent history. Warn the user when the reportable total is greater than 55. For every email path,
+strip decorative name icons and render the selected
 given name with only its first letter capitalized before writing it into a greeting.

@@ -704,7 +704,11 @@ function diagnoseReferralReplan() {
 /**
  * Read-only daily accounting for the normal automatic Email, Referral and
  * follow-up planners. It simulates newly planned work against the live rows but
- * never writes a queue row, draft, or message.
+ * never writes a queue row, draft, or message. `reportableAutomaticTotal` is the
+ * user-facing report total: future automatic work contributes only when that
+ * path is in Send mode and both normal automation handlers are installed.
+ * `projectedAutomaticTotal` retains the full counterfactual for scheduling
+ * guards, while inactive work is returned separately for disclosure.
  */
 function diagnoseAutomaticOutreachForDay(dayIso) {
   var requestedDay = String(dayIso || '').trim();
@@ -720,6 +724,32 @@ function diagnoseAutomaticOutreachForDay(dayIso) {
       value, 'America/New_York', 'yyyy-MM-dd') === requestedDay;
   };
   var now = new Date();
+  var properties = PropertiesService.getScriptProperties();
+  var modes = {
+    outreach: properties.getProperty(PROP_MODE) || MODE_SEND,
+    referral: properties.getProperty(PROP_REFERRAL_MODE) || MODE_SEND,
+    followUp: properties.getProperty(PROP_FOLLOWUP_MODE) || MODE_SEND
+  };
+  var triggerHandlers = {};
+  var triggerReadable = true;
+  try {
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      triggerHandlers[trigger.getHandlerFunction()] = true;
+    });
+  } catch (triggerError) {
+    triggerReadable = false;
+  }
+  // Both handlers are required: the cycle books work and the send tick delivers
+  // it. Treat an unreadable trigger list as inactive rather than claiming that
+  // a hypothetical queue will leave the mailbox.
+  var normalAutomationActive = triggerReadable
+    && !!triggerHandlers.runOutreachCycle
+    && !!triggerHandlers.runOutreachSendTick;
+  var coldActive = normalAutomationActive && modes.outreach === MODE_SEND;
+  var referralActive = normalAutomationActive && modes.outreach === MODE_SEND
+    && modes.referral === MODE_SEND;
+  var followUpActive = normalAutomationActive && modes.outreach === MODE_SEND
+    && modes.followUp === MODE_SEND && FOLLOWUP_DAILY_CAP > 0;
   var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
   var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
   var appSheet = tracker.getSheetByName(TAB_APP);
@@ -811,6 +841,31 @@ function diagnoseAutomaticOutreachForDay(dayIso) {
   var stillQueuedDrafted = coldQueued + coldDrafted + referralQueued + referralDrafted
     + followUpQueued + followUpDrafted;
   var hypothetical = coldNew + referralNew + followUpNew;
+  var projectedAutomaticTotal = alreadySent + stillQueuedDrafted + hypothetical;
+  var reportableFor = function (active, queued, drafted, newlyPlanned) {
+    return active ? queued + drafted + newlyPlanned : 0;
+  };
+  var coldReportable = reportableFor(coldActive, coldQueued, coldDrafted, coldNew);
+  var referralReportable = reportableFor(referralActive, referralQueued, referralDrafted,
+                                         referralNew);
+  var followUpReportable = reportableFor(followUpActive, followUpQueued, followUpDrafted,
+                                         followUpNew);
+  var reportableQueuedDrafted = reportableFor(coldActive, coldQueued, coldDrafted, 0)
+    + reportableFor(referralActive, referralQueued, referralDrafted, 0)
+    + reportableFor(followUpActive, followUpQueued, followUpDrafted, 0);
+  var reportableNewWork = coldActive ? coldNew : 0;
+  reportableNewWork += referralActive ? referralNew : 0;
+  reportableNewWork += followUpActive ? followUpNew : 0;
+  var excludedFor = function (active, queued, drafted, newlyPlanned) {
+    return {queued: active ? 0 : queued, drafted: active ? 0 : drafted,
+            newlyPlanned: active ? 0 : newlyPlanned,
+            total: active ? 0 : queued + drafted + newlyPlanned};
+  };
+  var excludedCold = excludedFor(coldActive, coldQueued, coldDrafted, coldNew);
+  var excludedReferral = excludedFor(referralActive, referralQueued, referralDrafted,
+                                     referralNew);
+  var excludedFollowUp = excludedFor(followUpActive, followUpQueued, followUpDrafted,
+                                     followUpNew);
   return {
     planDate: requestedDay,
     asOf: now.toISOString(),
@@ -819,11 +874,32 @@ function diagnoseAutomaticOutreachForDay(dayIso) {
                newlyPlanned: referralNew},
     followUp: {sent: followUpSent, queued: followUpQueued, drafted: followUpDrafted,
                newlyPlanned: followUpNew},
-    automaticTotal: alreadySent + stillQueuedDrafted + hypothetical,
+    // Preserve the legacy full projection for admission guards. The explicitly
+    // named report field below intentionally excludes inactive future work.
+    automaticTotal: projectedAutomaticTotal,
+    projectedAutomaticTotal: projectedAutomaticTotal,
+    // Sent history is actual mail and is never erased by a pause.
+    reportableAutomaticTotal: alreadySent + coldReportable + referralReportable + followUpReportable,
     alreadySent: alreadySent,
     stillQueuedDrafted: stillQueuedDrafted,
     hypotheticalNewWork: hypothetical,
-    assumption: 'Current App, contact and queue snapshot; future applications and replies are not forecast.'
+    reportableStillQueuedDrafted: reportableQueuedDrafted,
+    reportableHypotheticalNewWork: reportableNewWork,
+    activation: {
+      normalAutomationActive: normalAutomationActive,
+      triggerReadable: triggerReadable,
+      modes: modes,
+      cold: coldActive,
+      referral: referralActive,
+      followUp: followUpActive
+    },
+    excludedInactiveAutomatic: {
+      cold: excludedCold,
+      referral: excludedReferral,
+      followUp: excludedFollowUp,
+      total: excludedCold.total + excludedReferral.total + excludedFollowUp.total
+    },
+    assumption: 'Current App, contact and queue snapshot; future applications and replies are not forecast. Sent history is always counted; future automatic work is reportable only while its delivery path is active.'
   };
 }
 

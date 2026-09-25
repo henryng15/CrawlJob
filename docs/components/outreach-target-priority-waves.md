@@ -203,13 +203,15 @@ live applications. September 17 already carried the Lyft recruiter block at
 13:00-13:36 and the Wells Fargo referral block at 14:00-14:36, so the waves start
 at 15:00 and 16:00 and stay inside the sending window.
 
-The policy accounting for that day is **not** the mirror count alone.
-`diagnoseAutomaticOutreachForDay` simulates the paused planners and returns
-`cold.newlyPlanned: 20` for each weekday, because twenty is what the automatic
-path would schedule if it ran. Counting it, September 17 reaches 59 with the
-verified eight and 63 with all twelve, against the 55-message threshold — so the
-day needs an explicit acknowledgement before delivery, even though the automatic
-runtime is Paused and will send none of those twenty.
+The policy accounting for that day is **not** the mirror count alone. A
+user-facing report uses `diagnoseAutomaticOutreachForDay().reportableAutomaticTotal`,
+which excludes future automatic work when that path is paused, in Draft mode, or
+lacks the normal automation handlers. The direct-campaign admission guard retains
+the full `automaticTotal` / `projectedAutomaticTotal` counterfactual as a safety
+buffer while deciding whether to schedule a large Target wave. Thus an inactive
+automatic forecast is disclosed separately to the owner, never added to the daily
+report or its 55-message warning, but it can still prevent a new campaign from
+reserving capacity that automation might later consume.
 
 Later on 2026-09-15 the owner reported that Robinhood's Backend application had
 moved into process and asked for the booked wave to be written about the

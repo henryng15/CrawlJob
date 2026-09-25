@@ -99,8 +99,9 @@ status/preflight check must surface it to the owner here.
 ## Daily email accounting
 
 Use `America/New_York` calendar dates. At the end of every manual run, calculate the number of
-messages planned to leave the mailbox on that date. The calculation includes both Target and
-automatic work, even when the automatic runtime path is currently paused or not activated.
+messages planned to leave the mailbox on that date. The calculation includes Target and
+**reportable** automatic work. Do not add a paused or inactive automatic path's future queue,
+drafts, or planner forecast to the daily total.
 
 Count these sources:
 
@@ -112,14 +113,22 @@ Count these sources:
 - any additional messages explicitly included in the current command.
 
 For a given local date, count rows that are already `Sent` on that date plus rows in `Queued` or
-`Drafted` state scheduled for that date. Exclude `Cancelled` and `Failed` rows. Deduplicate a
+`Drafted` state scheduled for that date. Exclude `Cancelled` and `Failed` rows. A message already
+accepted by Gmail remains actual sent history even if its path is paused later. Deduplicate a
 message by its queue/campaign identity so a Target mirror and its underlying campaign cannot be
 counted twice. `Target` itself contains availability counts and checkboxes, not the complete
 scheduled-message list; use the two Target mirrors for scheduled Target work.
 
-The automatic portion is a planning assumption for this report: include what the automatic
-planner would send that day as if it were active, but do not execute it unless the user explicitly
-commands that action.
+An automatic path is active for reporting only when its mode is `Send` (or blank, which means
+`Send`) and both normal automatic handlers, `runOutreachCycle` and `runOutreachSendTick`, are
+installed. Follow-ups must also have a positive path cap. `Pause`, `Draft`, a missing handler, or
+an unreadable trigger list makes that path inactive. `diagnoseAutomaticOutreachForDay` returns the
+reportable number in `reportableAutomaticTotal`; `automaticTotal` (also exposed as
+`projectedAutomaticTotal`) is the full internal capacity projection and must never be used for the
+user-facing daily total.
+
+If inactive work would otherwise be relevant, label it separately as `Excluded paused/inactive
+automatic forecast`; do not use it for the total or the over-55 warning.
 
 ## Daily volume warning
 
@@ -149,6 +158,7 @@ Follow-up/other: <count>
 Total planned to send: <count>
 Already sent: <count>
 Still queued/drafted: <count>
+Excluded paused/inactive automatic forecast: <count, if any>
 Status: plan | drafted | sent | blocked pending confirmation
 ```
 
