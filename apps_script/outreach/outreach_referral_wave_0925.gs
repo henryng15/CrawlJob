@@ -79,13 +79,14 @@ var REFERRAL_WAVE_0925_ = [
  * seniority, angle and bucket; a researched person borrows the employer's angle and bucket from
  * its seed rows. Anyone already written to, or already on the Referral tab, is skipped and
  * reported rather than replaced, so the owner sees any employer that falls below five.
+ * `specs`, `startIso` and `spacingMinutes` let the TD Bank follow-on reuse it.
  */
-function referralWave0925Entries_(employees, used) {
+function referralWave0925Entries_(employees, used, specs, startIso, spacingMinutes) {
   var byEmail = {};
   employees.forEach(function (person) { byEmail[person.email.toLowerCase()] = person; });
-  var startMs = new Date(REFERRAL_WAVE_0925_START_).getTime();
+  var startMs = new Date(startIso).getTime();
   var entries = [], skipped = [];
-  REFERRAL_WAVE_0925_.forEach(function (spec) {
+  specs.forEach(function (spec) {
     var peers = outreachEmployeesFor_(employees, spec.company);
     var borrowed = peers.length ? peers[0] : {};
     var index = 0;
@@ -106,7 +107,7 @@ function referralWave0925Entries_(employees, used) {
         angle: seed ? (seed.angle || '') : (borrowed.angle || ''),
         bucket: seed ? (seed.bucket || '') : (borrowed.bucket || ''),
         template: index + 1,
-        atMs: startMs + entries.length * REFERRAL_WAVE_0925_SPACING_MINUTES_ * 60000,
+        atMs: startMs + entries.length * spacingMinutes * 60000,
         status: 'pending'
       });
       index++;
@@ -155,7 +156,8 @@ function scheduleReferralWave20260925(acknowledgeOver55) {
     outreachReadReferralRows_(referral).forEach(function (row) {
       if (row.email) used[String(row.email).toLowerCase()] = true;
     });
-    var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), used);
+    var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), used,
+      REFERRAL_WAVE_0925_, REFERRAL_WAVE_0925_START_, REFERRAL_WAVE_0925_SPACING_MINUTES_);
     if (!built.entries.length) return {scheduled: [], skipped: built.skipped};
 
     ScriptApp.getProjectTriggers().forEach(function (trigger) {
@@ -193,7 +195,8 @@ function runReferralWaveTick20260925_() {
 /** Read-only: every planned subject and time, and the first body per employer. Sends nothing. */
 function previewReferralWave20260925() {
   var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
-  var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), null);
+  var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), null,
+    REFERRAL_WAVE_0925_, REFERRAL_WAVE_0925_START_, REFERRAL_WAVE_0925_SPACING_MINUTES_);
   var shown = {};
   return built.entries.map(function (entry) {
     var mail = outreachReferralCompose_({
@@ -206,5 +209,117 @@ function previewReferralWave20260925() {
     return {company: entry.company, name: entry.name, email: entry.email,
             at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'HH:mm'),
             subject: mail.subject, plain: first ? mail.plain : undefined};
+  });
+}
+
+// ---- TD Bank follow-on (owner request 2026-09-25 00:2x ET) -------------------------------------
+// About ten early-career / new-grad software engineers at TD Bank US. TD is not in Employees
+// (seed); treg quickenrich returned only Canadian staff, so these came from Exa, current TD role in
+// the United States, joined 2023 or later, no intern / senior / lead titles. Each address follows
+// td.com's first.last pattern and returned BounceBan `deliverable` 99. Preet Shah and Travis Cook
+// also verified but were held back: a name that common can reach a different person at a bank
+// this size.
+var REFERRAL_WAVE_0925_TD_KEY_ = 'TARGET_REFERRAL_CAMPAIGN_20260925_TD_BANK';
+var REFERRAL_WAVE_0925_TD_HANDLER_ = 'runReferralWaveTickTdBank20260925_';
+var REFERRAL_WAVE_0925_TD_ = [
+  {company: 'TD Bank', role: '2027 Summer Internship Program - Global Technology & Solutions - Software Engineer (SWE)',
+   jobLink: 'https://td.wd3.myworkdayjobs.com/TD_Bank_Careers/job/Mount-Laurel-New-Jersey/XMLNAME-2027-Summer-Internship-Program---Global-Technology---Solutions---Software-Engineer--SWE-_R_1510796-1',
+   people: [
+     {name: 'Arman Gasparyan', email: 'arman.gasparyan@td.com', title: 'Software Engineer I', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Joseph Coiffman', email: 'joseph.coiffman@td.com', title: 'Software Engineer I', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Ananya Seth', email: 'ananya.seth@td.com', title: 'Junior API Developer', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Prayush Luitel', email: 'prayush.luitel@td.com', title: 'Software Engineer II', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Mimi Meyer', email: 'mimi.meyer@td.com', title: 'Software Engineer', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Henry Winczner', email: 'henry.winczner@td.com', title: 'Software Engineer', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Meredith Quintana', email: 'meredith.quintana@td.com', title: 'Software Engineer', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Molly Sproul', email: 'molly.sproul@td.com', title: 'Java Developer', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Nafisa Huda', email: 'nafisa.huda@td.com', title: 'Software Engineer - DevSecOps', source: 'treg Exa; BounceBan deliverable 99'},
+     {name: 'Melina Quezada', email: 'melina.quezada@td.com', title: 'Platform Engineer', source: 'treg Exa; BounceBan deliverable 99'}]}
+];
+
+/**
+ * Schedule the TD Bank asks from `startIso`, `spacingMinutes` apart, on their own trigger. The
+ * owner must acknowledge the day's over-55 total. Same preflight, skip rules and delivery tick as
+ * the main 09-25 wave.
+ */
+function scheduleTdBankReferralWave20260925(startIso, spacingMinutes, acknowledgeOver55) {
+  if (acknowledgeOver55 !== true) {
+    throw new Error('The day total exceeds 55; pass acknowledgeOver55 = true after the owner confirms.');
+  }
+  var spacing = Number(spacingMinutes || 20);
+  if (new Date().getTime() >= new Date(startIso).getTime()) throw new Error('The start time has passed.');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(REFERRAL_WAVE_0925_TD_KEY_);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, 'TD Bank referral')};
+      }
+    }
+    var spec = REFERRAL_WAVE_0925_TD_[0];
+    var rejection = outreachGmailApiRejectedTarget_({company: spec.company, role: spec.role, jobLink: spec.jobLink});
+    if (rejection.rejected) throw new Error('Gmail rejection preflight blocked TD Bank (' + rejection.why + ').');
+
+    var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) throw new Error('Referral tab is missing.');
+    var used = {};
+    outreachReadReferralRows_(referral).forEach(function (row) {
+      if (row.email) used[String(row.email).toLowerCase()] = true;
+    });
+    var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), used,
+      REFERRAL_WAVE_0925_TD_, startIso, spacing);
+    if (!built.entries.length) return {scheduled: [], skipped: built.skipped};
+
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === REFERRAL_WAVE_0925_TD_HANDLER_) ScriptApp.deleteTrigger(trigger);
+    });
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+      lastSentAtMs: 0, spacingMinutes: spacing, minGapMinutes: Math.max(5, spacing - 1),
+      entries: built.entries, skipped: built.skipped, volumeAcknowledged: true
+    };
+    props.setProperty(REFERRAL_WAVE_0925_TD_KEY_, JSON.stringify(state));
+    try { ScriptApp.newTrigger(REFERRAL_WAVE_0925_TD_HANDLER_).timeBased().everyMinutes(1).create(); }
+    catch (error) { props.deleteProperty(REFERRAL_WAVE_0925_TD_KEY_); throw error; }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      scheduled: built.entries.map(function (entry) {
+        return {name: entry.name, email: entry.email, template: entry.template,
+                at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }),
+      skipped: built.skipped, trigger: REFERRAL_WAVE_0925_TD_HANDLER_
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Send one due TD Bank referral entry. */
+function runReferralWaveTickTdBank20260925_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: REFERRAL_WAVE_0925_TD_KEY_, handler: REFERRAL_WAVE_0925_TD_HANDLER_
+  });
+}
+
+/** Read-only preview of the TD Bank asks from `startIso`; sends nothing. */
+function previewTdBankReferralWave20260925(startIso, spacingMinutes) {
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var built = referralWave0925Entries_(outreachReadEmployees_(contactsBook), null,
+    REFERRAL_WAVE_0925_TD_, startIso, Number(spacingMinutes || 20));
+  return built.entries.map(function (entry, index) {
+    var mail = outreachReferralCompose_({
+      personName: entry.name, personTitle: entry.title, seniority: entry.seniority,
+      company: entry.company, angle: entry.angle, bucket: entry.bucket,
+      role: entry.role, jobLink: entry.jobLink, template: ((entry.template - 1) % 10) + 1, today: new Date()
+    });
+    return {name: entry.name, email: entry.email,
+            at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'HH:mm'),
+            subject: mail.subject, plain: index === 0 ? mail.plain : undefined};
   });
 }
