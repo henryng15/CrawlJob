@@ -8,5 +8,7 @@
 | --- | --- |
 | `sendTargetRecruiterNowRipplingLinda0925()` | Idempotent owner-triggered entry point. Adds Linda to `Contacts (manual)` when absent, rechecks the exact active application, Gmail history and Advanced Gmail rejection preflight, then sends through the shared Target recruiter sender with the official resume/footer and refreshes Target mirrors. It installs a one-minute retry trigger only while the message is pending. |
 | `runTargetRecruiterCampaignTickNowRipplingLinda0925_()` | Internal retry handler for the one-recipient campaign; it delegates to the shared Target delivery path and removes its trigger after the entry is accepted, blocked or otherwise settled. |
+| `sendTargetRecruiterNowRipplingChristopher0925()` | Owner-requested immediate retry for the already-queued Rippling Backend recipient `ctung@rippling.com`; it makes the pending entry due now and delegates to the same lock-protected sender, without creating a second campaign. |
+| `runTargetRecruiterCampaignTickNowRipplingChristopher0925_()` | Internal retry handler for Christopher's existing gap-wave entry. |
 
 The campaign property is `TARGET_RECRUITER_CAMPAIGN_20260925_RIPPLING_LINDA`.

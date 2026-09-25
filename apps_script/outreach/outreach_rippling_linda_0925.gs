@@ -85,3 +85,36 @@ function runTargetRecruiterCampaignTickNowRipplingLinda0925_() {
     handler: 'runTargetRecruiterCampaignTickNowRipplingLinda0925_', keepTrigger: false
   });
 }
+
+/** Owner-requested immediate retry for the existing Rippling Backend campaign entry. */
+function sendTargetRecruiterNowRipplingChristopher0925() {
+  var key = 'TARGET_RECRUITER_CAMPAIGN_20260925_GAP_RIPPLING';
+  var text = PropertiesService.getScriptProperties().getProperty(key);
+  if (!text) throw new Error('The Rippling Backend campaign is missing.');
+  var state = JSON.parse(text);
+  var entries = state.entries || [];
+  if (entries.some(function (entry) { return entry.status === 'sent'; })) {
+    return {alreadySent: true, company: 'Rippling', email: 'ctung@rippling.com'};
+  }
+  var pending = entries.filter(function (entry) {
+    return entry.status === 'pending' && entry.email === 'ctung@rippling.com';
+  });
+  if (pending.length !== 1) throw new Error('Expected one pending Christopher Rippling entry.');
+  if (pending[0].atMs > new Date().getTime()) {
+    pending[0].atMs = new Date().getTime() - 1000;
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(state));
+    refreshTargetQueueTabs_();
+  }
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: key, handler: 'runTargetRecruiterCampaignTickNowRipplingChristopher0925_',
+    keepTrigger: false
+  });
+}
+
+/** Internal retry handler for the owner-requested immediate Backend send. */
+function runTargetRecruiterCampaignTickNowRipplingChristopher0925_() {
+  return runTargetRecruiterCampaignTickFor_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260925_GAP_RIPPLING',
+    handler: 'runTargetRecruiterCampaignTickNowRipplingChristopher0925_', keepTrigger: false
+  });
+}
