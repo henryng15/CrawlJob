@@ -99,6 +99,7 @@ looser one winning every hour — see the gotcha in
 - [outreach-diagnostics.md](outreach-diagnostics.md) — read-only probes against the live script
 - [outreach-offtarget-waves.md](outreach-offtarget-waves.md) — explicit off-Target manual recruiter campaigns
 - [outreach-gap-wave.md](outreach-gap-wave.md) — the 2026-09-24 cold-email gap wave: researched recruiters for recent applications with no cold email
+- [outreach-referral-wave-0925.md](outreach-referral-wave-0925.md) — the 2026-09-25 referral wave: five asks at each of six recent employers
 - [outreach-target-priority-waves.md](outreach-target-priority-waves.md) — approved Lyft, Anduril and Notion Target campaigns
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 - [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column

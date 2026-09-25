@@ -2083,3 +2083,41 @@ function setGapWaveRecipientName20260924(email, name) {
     lock.releaseLock();
   }
 }
+
+/**
+ * Owner-requested new send time for one recipient's still-pending gap-wave entries. The time is
+ * an ISO string with its offset and must be in the future; the entry keeps its place in the
+ * campaign, and the shared tick simply finds it due later.
+ */
+function retimeGapWaveRecipient20260924(email, iso) {
+  var address = String(email || '').trim().toLowerCase();
+  var atMs = new Date(iso).getTime();
+  if (!address || !atMs) throw new Error('An email and an ISO time are required.');
+  if (atMs <= new Date().getTime()) throw new Error('The new time has already passed.');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var moved = [];
+    GAP_WAVE_DAYS_20260924_.forEach(function (day) {
+      var text = props.getProperty(day.key);
+      if (!text) return;
+      var state = JSON.parse(text);
+      var changed = false;
+      state.entries.forEach(function (entry) {
+        if (String(entry.email || '').toLowerCase() !== address || entry.status !== 'pending') return;
+        entry.atMs = atMs;
+        changed = true;
+        moved.push(day.key);
+      });
+      if (changed) props.setProperty(day.key, JSON.stringify(state));
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {email: address,
+            at: Utilities.formatDate(new Date(atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+            moved: moved};
+  } finally {
+    lock.releaseLock();
+  }
+}
