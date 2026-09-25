@@ -47,4 +47,5 @@ out on their own campaign, `TARGET_REFERRAL_CAMPAIGN_20260925_TD_BANK`, and thei
 | `runReferralWaveTick20260925_()` | Minute-trigger delivery through the shared `runTargetReferralCampaignTickFor_`, which repeats the already-sent check and the rejection preflight before each send. |
 | `scheduleTdBankReferralWave20260925(startIso, spacingMinutes, acknowledgeOver55)` | The TD Bank follow-on: same over-55 gate, rejection preflight, skip rules and entry builder as the main wave, from `startIso`, `spacingMinutes` apart. |
 | `runReferralWaveTickTdBank20260925_()` / `previewTdBankReferralWave20260925(startIso, spacingMinutes)` | Its delivery tick and its read-only preview. |
+| `retimePendingReferralWaves20260925(targetIsos)` | Replaces the times of, and only of, still-`pending` asks in the main and TD Bank 09/25 waves. It preserves sent history, requires one strictly-increasing future timestamp per pending entry, holds the script lock, and refuses without writing if the pending count changed. |
 | `previewReferralWave20260925()` | Read-only: every subject and time, plus the first body per employer. Sends nothing. |

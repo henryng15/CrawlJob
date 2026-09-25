@@ -307,6 +307,65 @@ function runReferralWaveTickTdBank20260925_() {
   });
 }
 
+/**
+ * Move only the still-pending asks from the two 09/25 referral campaigns.
+ * Sent history stays untouched; a count mismatch aborts without writing so a
+ * minute-trigger delivery cannot silently drop or duplicate an ask.
+ */
+function retimePendingReferralWaves20260925(targetIsos) {
+  if (!Array.isArray(targetIsos) || !targetIsos.length) {
+    throw new Error('Provide one future ISO timestamp for every pending referral ask.');
+  }
+  var nowMs = new Date().getTime();
+  var targetTimes = targetIsos.map(function (value) {
+    var time = new Date(String(value || '')).getTime();
+    if (!isFinite(time) || time <= nowMs) throw new Error('Every new referral time must be in the future.');
+    return time;
+  });
+  targetTimes.forEach(function (time, index) {
+    if (index && time <= targetTimes[index - 1]) {
+      throw new Error('New referral times must be strictly increasing.');
+    }
+  });
+
+  var keys = [REFERRAL_WAVE_0925_KEY_, REFERRAL_WAVE_0925_TD_KEY_];
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var states = {};
+    var pending = [];
+    keys.forEach(function (key) {
+      var text = props.getProperty(key);
+      if (!text) throw new Error('Referral campaign is missing: ' + key);
+      var state = JSON.parse(text);
+      if (state.status !== 'scheduled') throw new Error('Referral campaign is not scheduled: ' + key);
+      states[key] = state;
+      (state.entries || []).forEach(function (entry) {
+        if (entry.status === 'pending') pending.push({key: key, entry: entry});
+      });
+    });
+    pending.sort(function (left, right) { return Number(left.entry.atMs) - Number(right.entry.atMs); });
+    if (pending.length !== targetTimes.length) {
+      throw new Error('Expected ' + pending.length + ' pending referral asks, received '
+        + targetTimes.length + ' replacement times. No entries were changed.');
+    }
+    pending.forEach(function (item, index) { item.entry.atMs = targetTimes[index]; });
+    keys.forEach(function (key) {
+      states[key].retimedAt = new Date().toISOString();
+      props.setProperty(key, JSON.stringify(states[key]));
+    });
+    refreshTargetQueueTabs_();
+    return {
+      moved: pending.length,
+      firstAt: Utilities.formatDate(new Date(targetTimes[0]), 'America/New_York', 'yyyy-MM-dd HH:mm z'),
+      lastAt: Utilities.formatDate(new Date(targetTimes[targetTimes.length - 1]), 'America/New_York', 'yyyy-MM-dd HH:mm z')
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Read-only preview of the TD Bank asks from `startIso`; sends nothing. */
 function previewTdBankReferralWave20260925(startIso, spacingMinutes) {
   var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
