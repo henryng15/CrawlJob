@@ -103,6 +103,7 @@ looser one winning every hour — see the gotcha in
 - [outreach-referral-wave-0925.md](outreach-referral-wave-0925.md) — the 2026-09-25 referral wave: five asks at each of six recent employers
 - [outreach-mckinsey-wave-0925.md](outreach-mckinsey-wave-0925.md) — the owner-approved five-person McKinsey QuantumBlack referral campaign
 - [outreach-gm-wave-0929.md](outreach-gm-wave-0929.md) — the owner-approved six-recruiter General Motors wave on Tuesday 2026-09-29
+- [outreach-spectrum-wave-0930.md](outreach-spectrum-wave-0930.md) — the owner-approved three-person Spectrum university-recruiting wave on Wednesday 2026-09-30
 - [outreach-target-priority-waves.md](outreach-target-priority-waves.md) — approved Lyft, Anduril and Notion Target campaigns
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 - [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
