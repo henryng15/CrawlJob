@@ -662,7 +662,7 @@ function outreachCancelQueueRows_(queue, queueRows, property, reason) {
  * scanRejectionEmails closes an application and cancels its queue in the same
  * call, so the two tabs agree whenever a refusal arrives by email. Nothing did
  * that when Process was set by hand — and by hand is the ordinary path, not the
- * exception: the applications went in from nguyen15@kenyon.edu, most refusals
+ * exception: older applications went in through a legacy mailbox, most refusals
  * are sent back there, and that mailbox is one this project cannot read.
  *
  * Belvedere Trading was marked Rejected on 24 August 2026 and three days later

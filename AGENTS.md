@@ -23,15 +23,14 @@
   The active bound script is `1V-jpeseWb9DyxqsqMSQqE3XyVot6xszE3LU_q17AHGzYZ6dPU6cp9xB8`, bound to
   `1ACSpKRLUh6Co7-YaeAWuNpL-mAJYVg81EgCgXKnD60o`. `kenyon` is retained only to inspect the
   retired original tracker. Do not push to it.
-- **The new bound tracker still needs a standard GCP project linked in Apps Script Project
-  Settings before `clasp run` works.** Until then the managed project drops `executionApi`
-  from the manifest and `clasp run` reports `NOT_FOUND`; simple triggers and the pushed source
-  are unaffected. Link `gmail-extractor-471605`, then restore the `MYSELF` execution API and
-  verify it with a no-op run.
+- **The active bound tracker is linked to standard GCP project `gmail-extractor-471605`.** Its
+  deployed manifest retains `executionApi.access: MYSELF`; a 2026-09-29 `clasp run report`
+  probe succeeded. If a future Apps Script setting change drops that field, restore `MYSELF`
+  and verify with the same no-op probe before relying on a trigger.
 - **The cross-domain GCP restriction applied only to the retired Kenyon tracker.** Its bound
   script could not use `gmail-extractor-471605` because the owner was in the Kenyon Cloud
-  Organization. The active tracker and sender are both owned by the personal workspace, so the
-  active tracker should use `gmail-extractor-471605` once it is linked manually.
+  Organization. The active tracker and sender are both owned by the personal workspace and use
+  `gmail-extractor-471605`.
 - **`executionApi.access` must be `MYSELF` on the bound script. `ANYONE` silently breaks
   `clasp run`.** With `ANYONE`, the kenyon.edu organisation policy drops the EXECUTION_API
   entry point and every call answers *"Script function not found. Please make sure script is

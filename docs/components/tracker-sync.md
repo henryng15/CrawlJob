@@ -8,10 +8,10 @@ pushes it. It is bound to tracker `1ACSpKRLUh6Co7-YaeAWuNpL-mAJYVg81EgCgXKnD60o`
 ## API execution
 
 The manifest requests Execution API `access: MYSELF`, so `clasp run` is limited to the owner.
-The new bound project must first be linked to standard GCP project `gmail-extractor-471605` in
-Apps Script Project Settings; Google's managed project otherwise omits that manifest setting.
-Keep calls to named administrative or diagnostic functions and do not expose new write-capable
-entry points casually.
+It is linked to standard GCP project `gmail-extractor-471605`; on 2026-09-29 a clean pull
+retained that manifest setting and a read-only `clasp run report` probe succeeded. Keep calls
+to named administrative or diagnostic functions and do not expose new write-capable entry points
+casually.
 
 ## Connections
 
