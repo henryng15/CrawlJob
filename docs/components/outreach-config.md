@@ -18,7 +18,7 @@ here. Nothing in this file touches a sheet or Gmail.
 |---|---|
 | `TRACKER_SHEET_ID` | The tracker spreadsheet. Despite the comment saying "Track App", it points at **Job and Update - SWE Intern**. |
 | `CONTACTS_SHEET_ID` | The contacts spreadsheet, owned by the sending account. |
-| `RESUME_FILE_ID` | The resume PDF in Drive. It must point to `OFFICIAL_RESUME_FILE_ID`, the stable Drive file that the Resume repository's GitHub workflow overwrites on every `main` push changing `official/henryng_swe.pdf`. |
+| `RESUME_FILE_ID` | The resume PDF in Drive. It must point to `OFFICIAL_RESUME_FILE_ID` (`1n6av-FTBA8JIRxeY0aQzpuRwm--Z2pq2` since the 2026-09-29 personal-workspace migration), the stable Drive file that the Resume repository's GitHub workflow overwrites on every `main` push changing `official/henryng_swe.pdf`. |
 | `FINGERPRINT_SALT` | Salts the contact fingerprint. Changing it re-opens every past contact. |
 | `OUTREACH_MODE`, `FOLLOWUP_MODE`, `REFERRAL_MODE` | `Draft` holds messages in Drafts; blank sends them. `REFERRAL_MODE = Pause` stops referral planning, drafting, sending and reply scanning only. For daily reporting, a path in `Pause` or `Draft` does not contribute future automatic queue/draft/planner work; accepted sent history still counts. |
 | `REFERRAL_REJECTED_VERIFY` | `debounce:invalid` — the only Verify verdict that blocks a referral recipient; blank and all other verdicts are accepted. |

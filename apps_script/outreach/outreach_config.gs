@@ -25,7 +25,9 @@ var PROP_SALT        = 'FINGERPRINT_SALT';   // salts the contact fingerprint
 // This is the stable Drive file that Resume's GitHub workflow overwrites after
 // each push of official/henryng_swe.pdf.  Its id never changes, which is what
 // makes automatic resume updates compatible with a sender property.
-var OFFICIAL_RESUME_FILE_ID = '1xTFdQdoVtLDwcXAnET1sWVfR8Bbw7HYy';
+// The personal-workspace copy replaced the Kenyon-owned file during the 2026-09-29
+// tracker migration. It is the file that the Resume repository now synchronises.
+var OFFICIAL_RESUME_FILE_ID = '1n6av-FTBA8JIRxeY0aQzpuRwm--Z2pq2';
 // Set to 'Draft' to force every row to a draft whatever its own Mode says. This
 // is the rollout switch: for the first weeks nothing should leave unattended,
 // and one property is easier to be sure about than a column of them.

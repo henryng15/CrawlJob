@@ -18,19 +18,20 @@
 
 ## Access notes
 
-- **clasp has two profiles, and each one runs the script its account owns.** `default` =
-  hoanng15.work pushes and pulls both script projects, and runs the **standalone sender**
-  (GCP project `gmail-extractor-471605`). `kenyon` = nguyen15@kenyon.edu, and it is the one
-  that deploys and `clasp run`s the **bound tracker** (GCP project `update-job-504720`,
-  number `816618883729`). Cross-domain deploy is refused, because the bound script is owned
-  by the Kenyon account.
-- **The two scripts cannot share one GCP project, and this is structural.** Setting the bound
-  script's GCP project to `gmail-extractor-471605` is refused with *"You cannot switch to a
-  Cloud Platform project outside the script owner's Cloud Organization"*: the bound script is
-  owned by a kenyon.edu account, so its GCP project has to live in the kenyon.edu Cloud
-  Organization, and a personal-Gmail project lives in no organization at all. Hence two
-  projects and two Desktop OAuth clients. Its consent screen is **Internal**, which is the one
-  advantage of being forced into the org — no verification warning and no 7-day token expiry.
+- **The active scripts are owned by `hoanng15.work@gmail.com`.** `default` pushes and pulls
+  the standalone sender and the bound tracker on the personal-workspace copy of the tracker.
+  The active bound script is `1V-jpeseWb9DyxqsqMSQqE3XyVot6xszE3LU_q17AHGzYZ6dPU6cp9xB8`, bound to
+  `1ACSpKRLUh6Co7-YaeAWuNpL-mAJYVg81EgCgXKnD60o`. `kenyon` is retained only to inspect the
+  retired original tracker. Do not push to it.
+- **The new bound tracker still needs a standard GCP project linked in Apps Script Project
+  Settings before `clasp run` works.** Until then the managed project drops `executionApi`
+  from the manifest and `clasp run` reports `NOT_FOUND`; simple triggers and the pushed source
+  are unaffected. Link `gmail-extractor-471605`, then restore the `MYSELF` execution API and
+  verify it with a no-op run.
+- **The cross-domain GCP restriction applied only to the retired Kenyon tracker.** Its bound
+  script could not use `gmail-extractor-471605` because the owner was in the Kenyon Cloud
+  Organization. The active tracker and sender are both owned by the personal workspace, so the
+  active tracker should use `gmail-extractor-471605` once it is linked manually.
 - **`executionApi.access` must be `MYSELF` on the bound script. `ANYONE` silently breaks
   `clasp run`.** With `ANYONE`, the kenyon.edu organisation policy drops the EXECUTION_API
   entry point and every call answers *"Script function not found. Please make sure script is

@@ -1,16 +1,17 @@
 # apps_script/sync_applied_to_app.gs — the tracker-bound script
 
-Bound to the spreadsheet. Owns the moment a job becomes an application, every tab's layout,
-and the hourly housekeeping. Script id `1WrD8HUZ...`; `clasp` profile `default` pushes it,
-`kenyon` deploys it.
+Bound to the personal-workspace tracker. Owns the moment a job becomes an application, every
+tab's layout, and the hourly housekeeping. Script id
+`1V-jpeseWb9DyxqsqMSQqE3XyVot6xszE3LU_q17AHGzYZ6dPU6cp9xB8`; `clasp` profile `default`
+pushes it. It is bound to tracker `1ACSpKRLUh6Co7-YaeAWuNpL-mAJYVg81EgCgXKnD60o`.
 
 ## API execution
 
-The bound project exposes its Execution API with `access: ANYONE`, so any signed-in Google
-account can invoke it. This is deliberately broader than the two editor accounts because Apps
-Script cannot allowlist two accounts from different domains at the executable level. It exists
-for `clasp run`; keep calls to named administrative or diagnostic functions and do not expose
-new write-capable entry points casually.
+The manifest requests Execution API `access: MYSELF`, so `clasp run` is limited to the owner.
+The new bound project must first be linked to standard GCP project `gmail-extractor-471605` in
+Apps Script Project Settings; Google's managed project otherwise omits that manifest setting.
+Keep calls to named administrative or diagnostic functions and do not expose new write-capable
+entry points casually.
 
 ## Connections
 
