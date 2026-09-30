@@ -112,6 +112,7 @@ looser one winning every hour — see the gotcha in
 - [outreach-earlycareer-topup-0929.md](outreach-earlycareer-topup-0929.md) — university/early-career recruiter top-up to three per company for Mastercard, Oracle, Atlassian, Figma and Dropbox, 09-29 to 10-01
 - [outreach-figma-earlycareer-followup-0930.md](outreach-figma-earlycareer-followup-0930.md) — one conditional follow-up to Figma early-career recruiter Shelley H., 09-30 10:40 ET
 - [outreach-earlycareer-wave-0930.md](outreach-earlycareer-wave-0930.md) — two early-career recruiters each at Accenture, Fidelity and Rivian, 09-30 to 10-02; Persona and Replit have none
+- [outreach-earlycareer-gap-sends-0929.md](outreach-earlycareer-gap-sends-0929.md) — the eight campus recruiters already on file but never emailed, 09-29 night to 10-01; Cloudflare and Shopify excluded
 - [outreach-datadog-campus-0928.md](outreach-datadog-campus-0928.md) — three Datadog campus recruiters for the SWE Intern application, 09-28 at 11:00 ET
 - [outreach-lyft-early-talent-0928.md](outreach-lyft-early-talent-0928.md) — Lyft early-talent recruiters Micaela Maciel (09-28) and Vivian Chen (09-30), 11:30 ET
 - [outreach-early-talent-fill-0928.md](outreach-early-talent-fill-0928.md) — Lyft +2 (Ina Charles, Kayli Keller) and Intel +2 (Jihad Broussard, Shannon Hough) early-talent emails, 09-28 to 09-30 at 11:45 ET
