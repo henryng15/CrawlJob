@@ -101,10 +101,29 @@ looser one winning every hour — see the gotcha in
 - [outreach-gap-wave.md](outreach-gap-wave.md) — the 2026-09-24 cold-email gap wave: researched recruiters for recent applications with no cold email
 - [outreach-rippling-linda-0925.md](outreach-rippling-linda-0925.md) — owner-requested Rippling Full Stack recruiter send to Linda
 - [outreach-referral-wave-0925.md](outreach-referral-wave-0925.md) — the 2026-09-25 referral wave: five asks at each of six recent employers
+- [outreach-referral-wave-0927-scale.md](outreach-referral-wave-0927-scale.md) — the 2026-09-27 Scale AI referral wave: 25 early-career and Vietnamese-name asks, 16:00–18:24 ET
+- [outreach-referral-wave-0928-shopify.md](outreach-referral-wave-0928-shopify.md) — the 2026-09-28 Shopify referral wave: 15 Vietnamese and early-career SWE asks, 16:32–17:56 ET
+- [outreach-referral-wave-0929-cloudflare.md](outreach-referral-wave-0929-cloudflare.md) — the 2026-09-29 Cloudflare referral wave: 12 Vietnamese and early-career SWE asks from 09:00 ET
+- [outreach-paypal-university-followup-1001.md](outreach-paypal-university-followup-1001.md) — one conditional follow-up to PayPal's three university recruiters, 10-01 09:30–09:54 ET, cancelled if PayPal answers
+- [outreach-university-followups-1001.md](outreach-university-followups-1001.md) — conditional follow-ups to Atlassian and Qualcomm university recruiters, 10-01 and 10-05
+- [outreach-scale-vercel-followups-0929.md](outreach-scale-vercel-followups-0929.md) — owner-requested Vercel immediate and Scale AI 09-30 threaded campus-recruiter follow-ups
+- [outreach-startup-recruiter-wave-0927.md](outreach-startup-recruiter-wave-0927.md) — the 2026-09-27 evening wave: one recruiter each at ten high-growth startups applied to since 09-01
+- [outreach-ramp-extension-0928.md](outreach-ramp-extension-0928.md) — the owner's Ramp CodeSignal extension request, resent to two Ramp talent contacts on 09-28 at 09:00 ET
+- [outreach-earlycareer-topup-0929.md](outreach-earlycareer-topup-0929.md) — university/early-career recruiter top-up to three per company for Mastercard, Oracle, Atlassian, Figma and Dropbox, 09-29 to 10-01
+- [outreach-figma-earlycareer-followup-0930.md](outreach-figma-earlycareer-followup-0930.md) — one conditional follow-up to Figma early-career recruiter Shelley H., 09-30 10:40 ET
+- [outreach-datadog-campus-0928.md](outreach-datadog-campus-0928.md) — three Datadog campus recruiters for the SWE Intern application, 09-28 at 11:00 ET
+- [outreach-lyft-early-talent-0928.md](outreach-lyft-early-talent-0928.md) — Lyft early-talent recruiters Micaela Maciel (09-28) and Vivian Chen (09-30), 11:30 ET
+- [outreach-early-talent-fill-0928.md](outreach-early-talent-fill-0928.md) — Lyft +2 (Ina Charles, Kayli Keller) and Intel +2 (Jihad Broussard, Shannon Hough) early-talent emails, 09-28 to 09-30 at 11:45 ET
+- [outreach-ziprecruiter-ta-0930.md](outreach-ziprecruiter-ta-0930.md) — three ZipRecruiter TA leads (no campus recruiters exist) for the SWE Intern application, 09-30 at 12:30 ET
+- [outreach-notion-university-0928.md](outreach-notion-university-0928.md) — resend to Notion university recruiter Shivani Patel (09-16 attempt failed) 09-28 12:00 ET, plus recruiters Maria Gorecki and Molly Epstein 10-01 13:00 ET
+- [outreach-together-recruiters-1002.md](outreach-together-recruiters-1002.md) — two Together AI senior technical recruiters (its only university recruiter was emailed 09-26), 10-02 at 10:00 ET
 - [outreach-mckinsey-wave-0925.md](outreach-mckinsey-wave-0925.md) — the owner-approved five-person McKinsey QuantumBlack referral campaign
 - [outreach-gm-wave-0929.md](outreach-gm-wave-0929.md) — the owner-approved six-recruiter General Motors wave on Tuesday 2026-09-29
 - [outreach-spectrum-wave-0930.md](outreach-spectrum-wave-0930.md) — the owner-approved three-person Spectrum university-recruiting wave on Wednesday 2026-09-30
 - [outreach-paypal-university-wave-0928.md](outreach-paypal-university-wave-0928.md) — the owner-approved three-person PayPal university-recruiting wave on Monday 2026-09-28
+- [outreach-earlycareer-wave-0927.md](outreach-earlycareer-wave-0927.md) — the owner-requested three-per-company university/early-career recruiter wave from 2026-09-27 through 2026-10-01
+- [outreach-unicorn-wave-0927.md](outreach-unicorn-wave-0927.md) — the 2026-09-27 private-unicorn startup recruiter supplement
+- [outreach-recruiter-gaps-0927.md](outreach-recruiter-gaps-0927.md) — the 2026-09-27 University/Early-Career recruiter gap supplement
 - [outreach-target-priority-waves.md](outreach-target-priority-waves.md) — approved Lyft, Anduril and Notion Target campaigns
 - [outreach-templates.md](outreach-templates.md) — all the wording: the ten cold and ten referral templates, generated from ColdEmail's Markdown. Replaces the former outreach-compose.md and outreach-referral-templates.md, whose generated copy no longer exists
 - [outreach-seed-load.md](outreach-seed-load.md) — replacing the two contact tabs, and the `Sent` column
