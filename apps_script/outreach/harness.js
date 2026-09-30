@@ -371,7 +371,11 @@ console.log('the contact list — two tabs, and why they are two');
     ['Campus Co', 'C Five', 'c5@campus.com', 'Campus Recruiter', '', '', '', ''],
     ['Talent Co', 'T Six', 't6@talent.com', 'Early Talent Partner', '', '', '', ''],
     ['Internal Co', 'I Seven', 'i7@internal.com', 'Internal Recruiter', '', '', '', ''],
-    ['Override Co', 'O Eight', 'o8@override.com', 'Campus Recruiter', 'technical', '', '', '']
+    ['Override Co', 'O Eight', 'o8@override.com', 'Campus Recruiter', 'technical', '', '', ''],
+    ['Emerging Co', 'E Nine', 'e9@emerging.com', 'Head of Emerging Talent', '', '', '', ''],
+    ['Plural Co', 'P Ten', 'p10@plural.com', 'Senior Manager, Early Careers Talent Acquisition', '', '', '', ''],
+    ['Grad Co', 'G Eleven', 'g11@grad.com', 'Software Engineer (new grad 2026)', '', '', '', ''],
+    ['Internal Two', 'I Twelve', 'i12@internaltwo.com', 'Talent Acquisition Partner', '', '', '', '']
   ];
   const contacts = S.outreachReadContacts_(book(seed, manual));
 
@@ -408,6 +412,18 @@ console.log('the contact list — two tabs, and why they are two');
   });
   run('an internal recruiter is not a campus recruiter', () => {
     assert.strictEqual(focusOf('i7@internal.com'), '');
+  });
+  run('emerging talent is the same team again — Dropbox names it that way', () => {
+    assert.strictEqual(focusOf('e9@emerging.com'), 'university');
+  });
+  run('the plural early careers counts, which a word-boundary test used to miss', () => {
+    assert.strictEqual(focusOf('p10@plural.com'), 'university');
+  });
+  run('a new grad engineer is read as early career', () => {
+    assert.strictEqual(focusOf('g11@grad.com'), 'university');
+  });
+  run('talent acquisition on its own is not a campus title', () => {
+    assert.strictEqual(focusOf('i12@internaltwo.com'), '');
   });
   run('a Focus that was typed in is never overwritten by the title', () => {
     assert.strictEqual(focusOf('o8@override.com'), 'technical');
@@ -3585,7 +3601,9 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     assert.strictEqual(S.outreachReferralAdmission_(blocked, TODAY).eligible, false);
   });
 
-  const sixPeople = () => ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  const sixPeople = () => ['a', 'b', 'c', 'd', 'e', 'f']
+    .map((letter) => person(letter.toUpperCase(), letter + '@stripe.com'));
+  const sevenPeople = () => ['a', 'b', 'c', 'd', 'e', 'f', 'g']
     .map((letter) => person(letter.toUpperCase(), letter + '@stripe.com'));
 
   run('Referral accepts every Verify verdict except debounce:invalid', () => {
@@ -3665,7 +3683,7 @@ console.log('the Email tab layout — where the three new columns sit, and how a
   run('a Priority group is paced inside two hours at ten to twenty minute gaps', () => {
     const now = new Date(2026, 7, 28, 10, 0, 0);
     const load = {}, slots = [];
-    for (let i = 0; i < S.REFERRAL_PER_COMPANY; i++) {
+    for (let i = 0; i < 6; i++) {
       const slot = S.outreachReferralSlot_('Priority Co', now, load, null, true, true);
       assert.ok(slot > now && slot <= new Date(now.getTime() + 120 * 60000), slot);
       slots.push(slot);
@@ -3677,29 +3695,22 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     }
   });
 
-  run('six people at one employer, and never a seventh', () => {
-    const plan = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY);
-    assert.strictEqual(plan.booked.length, S.REFERRAL_PER_COMPANY);
-    assert.strictEqual(plan.booked.length, 6);
+  run('a company can receive more than six referral asks', () => {
+    const plan = S.outreachReferralPlan_(summerJob, [], sevenPeople(), TODAY);
+    assert.strictEqual(plan.booked.length, 7);
+    assert.strictEqual(S.REFERRAL_PER_COMPANY, Infinity);
   });
 
-  // One a day, spread over six, which is a reversal back to what this once
-  // checked. Six on one day are all committed before anybody could have answered,
-  // so a reply cancels nothing; one a day leaves the second ask unwritten while
-  // the first is being read, which is what the reply gate needs to have something
-  // to stop. The breadth test below is the other half of the same argument.
-  run('a company is spread over six days rather than finished in one', () => {
+  run('an unlimited company wave can stay on one day', () => {
     const days = S.outreachReferralPlan_(summerJob, [], sixPeople(), TODAY)
       .booked.map((one) => one.scheduled.toDateString());
     assert.strictEqual(days.length, 6);
-    assert.strictEqual(new Set(days).size, 6, days.join(' | '));
+    assert.strictEqual(new Set(days).size, 1, days.join(' | '));
   });
 
-  // The change the per-company cap could not make on its own. Booking a company
-  // at a time put the first employers across the first several days and left the
-  // rest waiting behind all of them; booking a round at a time gives
-  // every employer its first ask before any employer gets its second.
-  run('every employer is asked once before any employer is asked twice', () => {
+  // Unlimited company capacity means a fresh wave can fill the available
+  // mailbox slots before the next employer is reached.
+  run('unlimited company capacity fills the available daily slots', () => {
     const companies = ['Stripe', 'Figma', 'Notion', 'Linear', 'Vercel'];
     const jobs = companies.map((name, i) =>
       jobRow(name, 'Software Engineer Intern, Summer 2027', GH + i));
@@ -3717,26 +3728,15 @@ console.log('the Email tab layout — where the three new columns sit, and how a
       ['a', 'b', 'c'].forEach((letter) => people.push(at(name, letter)));
     });
     const booked = S.outreachReferralPlan_(jobs, [], people, TODAY).booked;
-    assert.strictEqual(booked.length, companies.length * 3);
+    assert.strictEqual(booked.length, Math.min(companies.length * 3, S.REFERRAL_DAILY_CAP));
 
-    // The first round is one ask at each employer, and no employer twice.
+    // The mailbox-level referral cap is the only volume limit here.
     const firstDay = booked
       .filter((one) => one.scheduled.toDateString()
                     === booked[0].scheduled.toDateString())
       .map((one) => one.company);
-    assert.strictEqual(firstDay.length, companies.length, firstDay.join(','));
-    assert.strictEqual(new Set(firstDay).size, companies.length, firstDay.join(','));
-
-    // And nobody reaches their second ask before everybody has had their first.
-    const seen = {};
-    let secondAt = booked.length;
-    booked.forEach((one, i) => {
-      if (seen[one.company] && i < secondAt) secondAt = i;
-      seen[one.company] = true;
-    });
-    assert.ok(secondAt >= companies.length,
-              'a second ask at index ' + secondAt + ' with ' + companies.length
-              + ' employers waiting');
+    assert.strictEqual(firstDay.length, S.REFERRAL_DAILY_CAP, firstDay.join(','));
+    assert.ok(new Set(firstDay).size < companies.length);
   });
 
   // The other half of the reply gate. Reconcile closes the rows that exist; this
@@ -3783,16 +3783,17 @@ console.log('the Email tab layout — where the three new columns sit, and how a
     const people = [person('A', 'a@stripe.com'), person('B', 'b@stripe.com')];
     const existing = [refRow('Stripe', 'a@stripe.com', new Date(2026, 7, 20, 9), 'Cancelled')];
     const plan = S.outreachReferralPlan_(summerJob, existing, people, TODAY);
-    assert.strictEqual(plan.booked.length, 1);
-    assert.strictEqual(plan.booked[0].person.email, 'b@stripe.com');
+    assert.strictEqual(plan.booked.length, 2);
+    assert.strictEqual(plan.booked.map((one) => one.person.email).join(','),
+                       'a@stripe.com,b@stripe.com');
   });
 
-  run('a company already at six gets nothing more', () => {
+  run('a company already asked six people can receive another ask', () => {
     const people = [person('G', 'g@stripe.com')];
     const existing = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) =>
       refRow('Stripe', n + '@stripe.com', new Date(2026, 7, 20, 9), 'Sent'));
     assert.strictEqual(
-      S.outreachReferralPlan_(summerJob, existing, people, TODAY).booked.length, 0);
+      S.outreachReferralPlan_(summerJob, existing, people, TODAY).booked.length, 1);
   });
 
   run('no usable link, or no employees, means no rows', () => {
@@ -5717,14 +5718,12 @@ console.log('the Email tab layout — where the three new columns sit, and how a
 
   // A ticked employer is measured against its own, larger cap, so the audit does
   // not report the thing Priority is for as a fault.
-  run('a ticked employer is measured against the priority cap', () => {
+  run('a ticked employer has no per-company audit cap', () => {
     const ticked = [1, 2, 3].map((h) => R('A', 5 + h, { priority: true }));
     assert.strictEqual(S.outreachReferralAudit_(ticked)[0].over.length, 0);
-    const over = [];
-    for (let h = 0; h < S.REFERRAL_PRIORITY_COMPANY_CAP + 1; h++) {
-      over.push(R('A', 6 + h, { priority: true }));
-    }
-    assert.strictEqual(S.outreachReferralAudit_(over)[0].over.length, 1);
+    const large = Array.from({length: 100}, (_, h) =>
+      R('A', 6 + h, { priority: true }));
+    assert.strictEqual(S.outreachReferralAudit_(large)[0].over.length, 0);
   });
 
   run('cancelled rows and rows with no hour are not counted', () => {

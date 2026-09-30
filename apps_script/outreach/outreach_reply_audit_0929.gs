@@ -161,17 +161,13 @@ function diagnoseOutreachReplyAuditCompact(companies) {
 }
 
 /**
- * Emerging talent is the same team as early career; Dropbox and LinkedIn spell it that way.
- * CAMPUS_TITLE in outreach_contacts.gs does not carry it, so a hand-typed "Emerging Talent
- * Recruiter" row derives no `university` focus and loses the campus subject. That is a finding
- * about the sender, not about this audit, so the wider test lives here rather than there.
+ * The audit and the sender agree on what counts, so this reads CAMPUS_TITLE rather than keeping a
+ * second spelling of it. `early-career` appears as a Focus value in the Dropbox top-up while other
+ * waves write `university`; both name the same team.
  */
-var REPLY_AUDIT_CAMPUS_TITLE_ = /\bemerging[\s-]?talent\b|\bfuture[\s-]?talent\b|\bnew[\s-]?grad(uate)?s?\b/;
-
 function replyAuditIsCampusTitle_(title) {
   var text = String(title == null ? '' : title).toLowerCase().trim();
-  if (!text) return false;
-  return CAMPUS_TITLE.test(text) || REPLY_AUDIT_CAMPUS_TITLE_.test(text);
+  return !!text && CAMPUS_TITLE.test(text);
 }
 
 /**
@@ -196,7 +192,8 @@ function diagnoseEarlyCareerCoverageForCompanies(companies) {
   return names.map(function (company) {
     var tokens = outreachCompanyTokens_(company);
     var people = outreachContactsFor_(contacts, company).filter(function (person) {
-      return replyAuditIsCampusTitle_(person.role) || String(person.focus || '').toLowerCase() === 'university';
+      var focus = String(person.focus || '').toLowerCase();
+      return replyAuditIsCampusTitle_(person.role) || focus === 'university' || focus === 'early-career';
     });
     // Campaign entries carry their own title, and some recipients were appended by hand.
     campaignEntries.forEach(function (entry) {

@@ -44,6 +44,22 @@ Two tabs make that impossible rather than merely unlikely.
 Also defines the campus-title regex `CAMPUS_TITLE`: whole words, so `intern` must not match
 `internal` — a different job and a different address.
 
+Campus, university, early career and **emerging talent** are one group, by the owner's reading on
+2026-09-29, so the regex carries every spelling live contact data has shown: `campus`,
+`university`, `college`, `school`, `student`, `intern`, `graduate`, `grad`, plus
+`early|emerging|future` before `career(s)` or `talent`, plus `new grad`. Two of those were added
+that day after the reply audit found them missing: `emerging talent` — which is Dropbox's entire
+early-career team, and the title on Cisco's and Dell's coordinators — and the plural
+`early careers`, as in Atlassian's *Senior Manager, Early Careers Talent Acquisition*, which the
+old `early[\s-]?(career|talent)\b` could not match. `Talent Acquisition` alone still does not
+count; it is any recruiter's job title.
+
+The same regex is now the ordering test in `diagnoseTargetRecruiterContactDetails`
+([outreach-diagnostics.md](outreach-diagnostics.md)), which used its own narrower list. That test
+decides who a wave writes to first, so a campus recruiter it did not recognise was sorted behind
+the technical ones. Wording is not affected: the ten cold templates do not vary by recipient, so
+`Focus` is derived and stored but no longer reaches the words.
+
 ## Gotcha — two keys, two purposes
 
 `outreachNameKey_` and `outreachCompanyTokens_` disagree by design, and using the wrong one is a

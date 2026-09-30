@@ -504,6 +504,292 @@ function syncTargetAfterSend_(company, kind) {
   }
 }
 
+/** Public post-send hook for a manually sent Target recruiter email. */
+function syncManualTargetRecruiterSend(company) {
+  if (!String(company || '').trim()) throw new Error('A company is required.');
+  return syncTargetAfterSend_(company, 'recruiter');
+}
+
+/** Record owner-confirmed referral emails sent outside the direct campaign runner. */
+function recordManualTargetReferralSends(entries) {
+  if (!Array.isArray(entries) || !entries.length) {
+    throw new Error('At least one accepted referral entry is required.');
+  }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var companies = {};
+    var recorded = [];
+    entries.forEach(function (entry) {
+      var company = String(entry.company || '').trim();
+      var role = String(entry.role || '').trim();
+      var name = String(entry.name || '').trim();
+      var email = String(entry.email || '').trim().toLowerCase();
+      var jobLink = String(entry.jobLink || '').trim();
+      if (!company || !role || !name || !email || !jobLink) {
+        throw new Error('Referral history entry is missing company, role, name, email or jobLink.');
+      }
+      var atMs = Number(entry.atMs) || new Date().getTime();
+      var historyEntry = {
+        company: company, role: role, name: name, email: email,
+        title: String(entry.title || ''), seniority: String(entry.seniority || ''),
+        template: Number(entry.template || 1), atMs: atMs, jobLink: jobLink
+      };
+      appendTargetReferralHistory_(historyEntry, String(entry.messageId || ''));
+      companies[company] = true;
+      recorded.push({name: name, email: email, messageId: String(entry.messageId || '')});
+    });
+    var sync = {};
+    Object.keys(companies).forEach(function (company) {
+      sync[company] = syncTargetAfterSend_(company, 'refer');
+    });
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {recorded: recorded, companies: Object.keys(companies), sync: sync};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Owner-approved Lazard referral plus recruiter wave.
+ *
+ * This is an explicit manual campaign for four named referral recipients and
+ * three named early-career recruiters. It intentionally bypasses the normal
+ * seed selectors: the recipients came from the owner's current Lazard
+ * research, not from a generated seed export. Delivery still uses the same
+ * direct-campaign ticks, Gmail rejection preflight, official resume and
+ * Target mirrors as every other manual wave.
+ */
+var LAZARD_MANUAL_REFERRAL_20260922_ = {
+  propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260922_LAZARD_MANUAL',
+  handler: 'runLazardReferralCampaign0922_',
+  company: 'Lazard',
+  role: '2027 Software Engineer Summer Internship',
+  jobLink: 'https://jobright.ai/jobs/info/6aad6f082e757fcb5c8b85ad?utm_campaign=1079&utm_source=git',
+  startIso: '2026-09-22T09:00:00-04:00',
+  spacingMinutes: 8,
+  minGapMinutes: 7,
+  people: [
+    {name: 'Arjita Jaiswal', email: 'arjita.jaiswal@lazard.com', title: 'Software Engineer II - Full Stack'},
+    {name: 'Pavan Krishna Reddy Madireddy', email: 'pavan.madireddy@lazard.com', title: 'Software Engineer II'},
+    {name: 'Jiun-Ting Chen', email: 'jiun-ting.chen@lazard.com', title: 'Software Engineer'},
+    {name: 'Michael Per', email: 'michael.per@lazard.com', title: 'Data Science Software Engineer, Dynamic Portfolio Solutions'}
+  ]
+};
+
+var LAZARD_MANUAL_RECRUITER_20260929_ = {
+  propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260929_LAZARD_MANUAL',
+  company: 'Lazard',
+  role: '2027 Software Engineer Summer Internship',
+  jobLink: 'https://jobright.ai/jobs/info/6aad6f082e757fcb5c8b85ad?utm_campaign=1079&utm_source=git',
+  startIso: '2026-09-29T09:00:00-04:00',
+  spacingMinutes: 8,
+  minGapMinutes: 7,
+  people: [
+    {name: 'Danielle Dodgen', email: 'dodgend@lazard.com', title: 'Vice President, Head of Campus Recruiting - US Financial Advisory'},
+    {name: 'Katie Gilgen', email: 'gilgenk@lazard.com', title: 'Associate, Campus Recruiting'},
+    {name: 'Amy Simmonds', email: 'simmondsa@lazard.com', title: 'Early Careers Advisor'}
+  ]
+};
+
+function runLazardReferralCampaign0922_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: LAZARD_MANUAL_REFERRAL_20260922_.propertyKey,
+    handler: LAZARD_MANUAL_REFERRAL_20260922_.handler
+  });
+}
+
+/** Owner-requested follow-up Lazard referral wave for Friday 2026-09-25. */
+var LAZARD_MANUAL_REFERRAL_20260925_ = {
+  propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260925_LAZARD_CALEB',
+  handler: 'runLazardReferralCampaign0925_',
+  company: 'Lazard',
+  role: '2027 Software Engineer Summer Internship',
+  jobLink: 'https://jobright.ai/jobs/info/6aad6f082e757fcb5c8b85ad?utm_campaign=1079&utm_source=git',
+  startIso: '2026-09-25T09:45:00-04:00',
+  spacingMinutes: 8,
+  minGapMinutes: 7,
+  people: [
+    {name: 'Caleb Siegel', email: 'caleb.siegel@lazard.com', title: ''},
+    {name: 'Jiun-Ting Chen', email: 'jiun-ting.chen@lazard.com', title: 'Software Engineer'}
+  ]
+};
+
+function runLazardReferralCampaign0925_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: LAZARD_MANUAL_REFERRAL_20260925_.propertyKey,
+    handler: LAZARD_MANUAL_REFERRAL_20260925_.handler
+  });
+}
+
+/** Schedule only the still-uncontacted recipients in the requested Lazard wave. */
+function scheduleTargetReferralCampaign0925Lazard() {
+  var campaign = LAZARD_MANUAL_REFERRAL_20260925_;
+  var startMs = new Date(campaign.startIso).getTime();
+  if (new Date().getTime() >= startMs) throw new Error('The Lazard 2026-09-25 start time has passed.');
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(campaign.propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: existing};
+      }
+    }
+
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var applications = targetMirrorApplications_(tracker).filter(function (row) {
+      return outreachSameEmployer_(outreachCompanyTokens_(row.company), outreachCompanyTokens_(campaign.company))
+        && outreachNameKey_(row.role) === outreachNameKey_(campaign.role)
+        && row.process !== STAGE_REJECTED;
+    });
+    if (applications.length !== 1 || applications[0].link !== campaign.jobLink) {
+      throw new Error('The selected Lazard application or job link no longer matches the approved campaign.');
+    }
+
+    var rejection = outreachGmailApiRejectedTarget_({
+      company: campaign.company, role: campaign.role, jobLink: campaign.jobLink
+    });
+    if (rejection.rejected) {
+      throw new Error('Lazard campaign blocked by Gmail rejection preflight: ' + rejection.why);
+    }
+
+    var skipped = [];
+    var entries = [];
+    campaign.people.forEach(function (person) {
+      var email = person.email.toLowerCase();
+      if (GmailApp.search('from:me to:' + email, 0, 1).length) {
+        skipped.push({name: person.name, email: email, reason: 'already-sent'});
+        return;
+      }
+      entries.push({
+        company: campaign.company, role: campaign.role, jobLink: campaign.jobLink,
+        name: person.name, email: email, title: person.title,
+        template: entries.length + 1,
+        atMs: startMs + entries.length * campaign.spacingMinutes * 60000,
+        status: 'pending'
+      });
+    });
+
+    var state = {
+      status: entries.length ? 'scheduled' : 'complete',
+      timezone: 'America/New_York', createdAt: new Date().toISOString(),
+      lastSentAtMs: 0, spacingMinutes: campaign.spacingMinutes,
+      minGapMinutes: campaign.minGapMinutes, entries: entries, skipped: skipped
+    };
+    props.setProperty(campaign.propertyKey, JSON.stringify(state));
+    if (entries.length) {
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === campaign.handler) ScriptApp.deleteTrigger(trigger);
+      });
+      try {
+        ScriptApp.newTrigger(campaign.handler).timeBased().everyMinutes(1).create();
+      } catch (error) {
+        props.deleteProperty(campaign.propertyKey);
+        throw error;
+      }
+    }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      scheduled: entries.map(function (entry) {
+        return {name: entry.name, email: entry.email,
+          at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }),
+      skipped: skipped, trigger: entries.length ? campaign.handler : null
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Schedule the owner-approved Lazard campaigns after the over-55 acknowledgement. */
+function scheduleLazardManualOutreach() {
+  var referral = LAZARD_MANUAL_REFERRAL_20260922_;
+  var recruiter = LAZARD_MANUAL_RECRUITER_20260929_;
+  var now = new Date().getTime();
+  var referralStart = new Date(referral.startIso).getTime();
+  var recruiterStart = new Date(recruiter.startIso).getTime();
+  if (now >= referralStart || now >= recruiterStart) throw new Error('One Lazard campaign start time has passed.');
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var app = targetMirrorApplications_(tracker).filter(function (row) {
+      return outreachSameEmployer_(outreachCompanyTokens_(row.company), outreachCompanyTokens_(referral.company))
+        && outreachNameKey_(row.role) === outreachNameKey_(referral.role)
+        && row.process !== STAGE_REJECTED;
+    })[0];
+    if (!app || app.link !== referral.jobLink) {
+      throw new Error('The selected Lazard application or job link no longer matches the approved campaign.');
+    }
+    var rejection = outreachGmailApiRejectedTarget_({company: referral.company, role: referral.role,
+      jobLink: referral.jobLink});
+    if (rejection.rejected) throw new Error('Lazard campaign blocked by Gmail rejection preflight: ' + rejection.why);
+
+    var makeEntries = function (campaign, isReferral) {
+      var existingText = props.getProperty(campaign.propertyKey);
+      if (existingText) {
+        var existing = JSON.parse(existingText);
+        if (existing.status === 'scheduled' || existing.status === 'complete') return null;
+      }
+      campaign.people.forEach(function (person) {
+        if (GmailApp.search('from:me to:' + person.email, 0, 1).length) {
+          throw new Error('Lazard recipient already has an outbound thread: ' + person.email);
+        }
+      });
+      return campaign.people.map(function (person, index) {
+        return {
+          company: campaign.company, role: campaign.role, jobLink: campaign.jobLink,
+          name: person.name, email: person.email, title: person.title,
+          template: index + 1,
+          atMs: new Date(campaign.startIso).getTime() + index * campaign.spacingMinutes * 60000,
+          status: 'pending'
+        };
+      });
+    };
+
+    var referralEntries = makeEntries(referral, true);
+    if (referralEntries) {
+      props.setProperty(referral.propertyKey, JSON.stringify({
+        status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+        lastSentAtMs: 0, spacingMinutes: referral.spacingMinutes, minGapMinutes: referral.minGapMinutes,
+        requiresVolumeAck: false, volumeAcknowledgedAt: new Date().toISOString(), entries: referralEntries
+      }));
+      ScriptApp.getProjectTriggers().forEach(function (trigger) {
+        if (trigger.getHandlerFunction() === referral.handler) ScriptApp.deleteTrigger(trigger);
+      });
+      ScriptApp.newTrigger(referral.handler).timeBased().everyMinutes(1).create();
+    }
+
+    var recruiterEntries = makeEntries(recruiter, false);
+    if (recruiterEntries) {
+      props.setProperty(recruiter.propertyKey, JSON.stringify({
+        status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+        lastSentAtMs: 0, spacingMinutes: recruiter.spacingMinutes, minGapMinutes: recruiter.minGapMinutes,
+        entries: recruiterEntries
+      }));
+      if (!ScriptApp.getProjectTriggers().some(function (trigger) {
+        return trigger.getHandlerFunction() === 'runTargetRecruiterSharedTick_';
+      })) ScriptApp.newTrigger('runTargetRecruiterSharedTick_').timeBased().everyMinutes(1).create();
+    }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      referral: referralEntries ? {scheduled: referralEntries.length, firstAt: referral.startIso, lastAt: new Date(referralEntries[referralEntries.length - 1].atMs).toISOString()} : {alreadyScheduled: true},
+      recruiter: recruiterEntries ? {scheduled: recruiterEntries.length, firstAt: recruiter.startIso, lastAt: new Date(recruiterEntries[recruiterEntries.length - 1].atMs).toISOString()} : {alreadyScheduled: true}
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Every persisted direct recruiter/referral campaign participates in bounce reconciliation. */
 function targetDeliveryFailureCampaigns_() {
   return Object.keys(PropertiesService.getScriptProperties().getProperties())
@@ -1812,6 +2098,194 @@ function scheduleTargetReferralCampaign_(config) {
   }
 }
 
+/** Owner-requested Ramp referral wave for Sunday 2026-09-27. */
+function scheduleTargetReferralCampaign0927Ramp() {
+  var company = 'Ramp';
+  var role = 'Software Engineering Intern, Backend';
+  var jobLink = 'https://jobright.ai/jobs/info/6ab4719f7bd0813713317a30?utm_campaign=1079&utm_source=git';
+  var preflight = diagnoseTargetCompanyRejectionPreflight(company, role, jobLink);
+  if (preflight.blocked) return preflight;
+  return scheduleTargetReferralCampaign_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260927_RAMP',
+    handler: 'runTargetReferralCampaignTick0927Ramp_',
+    startIso: '2026-09-27T09:00:00-04:00',
+    spacingMinutes: 9,
+    minGapMinutes: 8,
+    // James Do has an approved masculine Vietnamese greeting. Hien Tran and
+    // Tam Nguyen remain on the English catalog because their title is unknown.
+    vietnameseOverridesByName: {
+      'James Do': {name: 'James', title: 'anh', variant: 1}
+    },
+    companies: [{company: company, maxContacts: 16, role: role, jobLink: jobLink}]
+  });
+}
+
+/** Delivery tick for the owner-requested Ramp referral wave. */
+function runTargetReferralCampaignTick0927Ramp_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260927_RAMP',
+    handler: 'runTargetReferralCampaignTick0927Ramp_'
+  });
+}
+
+/** Owner call-off on 2026-09-27: cancel every pending Ramp referral and its trigger. */
+function cancelTargetReferralCampaign0927Ramp() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260927_RAMP';
+  var handler = 'runTargetReferralCampaignTick0927Ramp_';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var deleted = 0;
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() !== handler) return;
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    });
+    var props = PropertiesService.getScriptProperties();
+    var stateText = props.getProperty(propertyKey);
+    if (!stateText) return {status: 'not-scheduled', cancelledPending: 0, deletedTriggers: deleted};
+    var state = JSON.parse(stateText);
+    var cancelled = 0;
+    var sent = 0;
+    (state.entries || []).forEach(function (entry) {
+      if (entry.status === 'sent') sent++;
+      if (entry.status !== 'pending') return;
+      entry.status = 'cancelled';
+      entry.cancelledAt = new Date().toISOString();
+      entry.error = 'Cancelled before sending: owner called off the Ramp wave.';
+      cancelled++;
+    });
+    if (cancelled) {
+      state.status = 'cancelled';
+      state.cancelledAt = new Date().toISOString();
+      props.setProperty(propertyKey, JSON.stringify(state));
+    }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {status: state.status, cancelledPending: cancelled, alreadySent: sent, deletedTriggers: deleted};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Owner call-off by employer: cancel every pending entry for the named companies across all
+ * Target recruiter and referral campaigns. Triggers are left alone because most campaigns share
+ * one tick. With dryRun, only reports what would be cancelled.
+ */
+function cancelTargetCampaignEntriesForCompanies(companies, reason, dryRun) {
+  var names = {};
+  (companies || []).forEach(function (company) { names[String(company).trim().toLowerCase()] = true; });
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var all = props.getProperties();
+    var result = [];
+    Object.keys(all).sort().forEach(function (key) {
+      if (!/^TARGET_(RECRUITER|REFERRAL)_CAMPAIGN_/.test(key)) return;
+      var state;
+      try { state = JSON.parse(all[key]); } catch (e) { return; }
+      var cancelled = [], notPending = [];
+      (state.entries || []).forEach(function (entry) {
+        if (!names[String(entry.company || '').trim().toLowerCase()]) return;
+        var label = entry.company + ' ' + (entry.email || entry.name) + ' ' +
+          Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm');
+        if (entry.status !== 'pending') { notPending.push(label + ' ' + entry.status); return; }
+        cancelled.push(label);
+        if (dryRun) return;
+        entry.status = 'cancelled';
+        entry.cancelledAt = new Date().toISOString();
+        entry.error = 'Cancelled by owner: ' + (reason || 'called off');
+      });
+      if (!cancelled.length && !notPending.length) return;
+      if (cancelled.length && !dryRun) {
+        if (!state.entries.some(function (entry) { return entry.status === 'pending'; })) {
+          state.status = 'complete';
+          state.completedAt = new Date().toISOString();
+        }
+        props.setProperty(key, JSON.stringify(state));
+      }
+      result.push({key: key, cancelled: cancelled, notPending: notPending});
+    });
+    if (!dryRun) {
+      try { refreshTargetQueueTabs_(); }
+      catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    }
+    return {dryRun: !!dryRun, campaigns: result};
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Three university/early-career recruiting contacts per company for the
+// 2026-09-27 cold-email wave. The Coinbase and DoorDash additions came from
+// Treg QuickEnrich discovery plus work-email lookup and BounceBan verification;
+// existing Stripe and DoorDash rows are retained when already on file.
+var TARGET_UNIVERSITY_RECRUITERS_20260927_ = [
+  {company: 'Coinbase', name: 'Andrew Chen', email: 'andrew.chen@coinbase.com',
+   role: 'Head of Emerging Talent Recruiting', focus: 'university', verify: 'BounceBan: deliverable; accept_all'},
+  {company: 'Coinbase', name: 'Rebhi Oweis', email: 'rebhi.oweis@coinbase.com',
+   role: 'Manager, Emerging Talent Recruiting', focus: 'university', verify: 'BounceBan: deliverable; accept_all'},
+  {company: 'Coinbase', name: 'Sandy Fernandez', email: 'sandy.fernandez@coinbase.com',
+   role: 'University Programs Specialist', focus: 'university', verify: 'BounceBan: deliverable; accept_all'},
+  {company: 'DoorDash', name: 'Enny Tran', email: 'enny.tran@doordash.com',
+   role: 'University Recruiting Program Coordinator', focus: 'university'},
+  {company: 'DoorDash', name: 'Jessica Woo', email: 'jessica.woo@doordash.com',
+   role: 'Lead Recruiter + Manager, University Recruiting', focus: 'university'},
+  {company: 'DoorDash', name: 'Christine Letrong', email: 'christine.letrong@doordash.com',
+   role: 'Sr University Recruiter', focus: 'university', verify: 'BounceBan: deliverable; accept_all'},
+  {company: 'Stripe', name: 'Emily Pfluger', email: 'emily@stripe.com',
+   role: 'University Recruiting & Programs', focus: 'university', verify: 'BounceBan: deliverable; accept_all'},
+  {company: 'Stripe', name: 'Allee Owens', email: 'alleeowens@stripe.com',
+   role: 'Recruiter', focus: 'university'},
+  {company: 'Stripe', name: 'Madison Finlay', email: 'madisonf@stripe.com',
+   role: 'University Recruiter', focus: 'university'}
+];
+
+/** Queue three university-recruiter cold emails for each requested company. */
+function scheduleTargetRecruiterCampaign0927University() {
+  var applications = [
+    {company: 'Coinbase', role: 'Software Engineer Intern',
+     jobLink: 'https://job-boards.greenhouse.io/embed/job_app?token=8168315&for=coinbase&utm_source=Simplify&gh_src=Simplify'},
+    {company: 'DoorDash', role: 'Software Engineer, Intern (Summer 2027) - US',
+     jobLink: 'https://job-boards.greenhouse.io/doordashusa/jobs/8171041'},
+    {company: 'Stripe', role: 'Software Engineer, Intern',
+     jobLink: 'https://stripe.com/jobs/search?gh_jid=8128745'}
+  ];
+  applications.forEach(function (application) {
+    var preflight = diagnoseTargetCompanyRejectionPreflight(
+      application.company, application.role, application.jobLink);
+    if (preflight.blocked) {
+      throw new Error('Cold-email wave blocked by rejection preflight for '
+        + application.company + ': ' + preflight.reason);
+    }
+  });
+
+  appendApprovedManualRecruiters_(
+    TARGET_UNIVERSITY_RECRUITERS_20260927_,
+    'Treg QuickEnrich + work-email lookup; BounceBan deliverability check — university recruiter wave 2026-09-27');
+
+  return scheduleTargetRecruiterCampaign_({
+    propertyKey: 'TARGET_RECRUITER_CAMPAIGN_20260927_UNIVERSITY',
+    handler: 'runTargetRecruiterSharedTick_',
+    label: 'Coinbase, DoorDash, Stripe university recruiters',
+    // Ramp referrals occupy 09:00–11:15 ET; this wave starts after them.
+    startIso: '2026-09-27T12:00:00-04:00',
+    spacingMinutes: 8,
+    minGapMinutes: 7,
+    reuseExistingTrigger: true,
+    exactContacts: TARGET_UNIVERSITY_RECRUITERS_20260927_.length,
+    includeEmails: TARGET_UNIVERSITY_RECRUITERS_20260927_.map(function (person) {
+      return person.email;
+    }),
+    companies: applications.map(function (application) {
+      return {company: application.company, maxContacts: 3,
+              role: application.role, jobLink: application.jobLink};
+    })
+  });
+}
+
 /** Send one due 09/09 Target referral entry and finalize its seed snapshot. */
 function runTargetReferralCampaignTick_() {
   return runTargetReferralCampaignTickFor_({
@@ -1895,6 +2369,211 @@ function runTargetReferralCampaignTick0911Lyft_() {
 /** Manually run the due Lyft slot when an owner asks for immediate delivery. */
 function sendDueTargetReferralCampaign0911Lyft() {
   return runTargetReferralCampaignTick0911Lyft_();
+}
+
+/** Send the owner-confirmed Chubb referral to Eric through the shared sender. */
+function sendTargetReferralNowChubbEric() {
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260923_CHUBB_ERIC';
+  var handler = 'runTargetReferralCampaignTickNowChubbEric_';
+  var props = PropertiesService.getScriptProperties();
+  var existingText = props.getProperty(propertyKey);
+  if (existingText) {
+    var existing = JSON.parse(existingText);
+    if ((existing.entries || []).some(function (entry) { return entry.status === 'sent'; })) {
+      return {alreadySent: true, company: 'Chubb', email: 'eric.agyemang@chubb.com'};
+    }
+    if ((existing.entries || []).some(function (entry) { return entry.status === 'pending'; })) {
+      return runTargetReferralCampaignTickFor_({propertyKey: propertyKey, handler: handler});
+    }
+    return {state: existing};
+  }
+
+  var entry = {
+    company: 'Chubb',
+    role: 'Intern, Technology - June 2027',
+    jobLink: 'https://jobright.ai/jobs/info/6aada9a7de327d3e210d3cc0?utm_campaign=1079&utm_source=git',
+    name: 'Eric Agyemang',
+    email: 'eric.agyemang@chubb.com',
+    title: '',
+    seniority: '',
+    template: 1,
+    customCopy: 'chubb-referral-20260923',
+    atMs: new Date().getTime(),
+    status: 'pending'
+  };
+  if (GmailApp.search('from:me to:' + entry.email, 0, 1).length) {
+    throw new Error('Eric Agyemang has already received an outbound email.');
+  }
+  var rejection = outreachGmailApiRejectedTarget_(entry);
+  if (rejection.rejected) {
+    return {blocked: true, company: entry.company, reason: rejection.why};
+  }
+  props.setProperty(propertyKey, JSON.stringify({
+    status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+    lastSentAtMs: 0, spacingMinutes: 1, minGapMinutes: 0, entries: [entry]
+  }));
+  try { refreshTargetQueueTabs_(); }
+  catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+  return runTargetReferralCampaignTickFor_({propertyKey: propertyKey, handler: handler});
+}
+
+/** Handler name reserved for the immediate Chubb referral sender. */
+function runTargetReferralCampaignTickNowChubbEric_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260923_CHUBB_ERIC',
+    handler: 'runTargetReferralCampaignTickNowChubbEric_'
+  });
+}
+
+/**
+ * Owner-requested ZipRecruiter referral wave for 2026-09-23. ZipRecruiter has no
+ * Employees (seed) rows, so the recipients were sourced by hand through treg
+ * (leadsforge search, email finder, MillionVerifier: every address `ok` on a
+ * domain that rejects an invented mailbox). Entry-level titles come first; Kevin
+ * Nguy (Software Engineer II) takes the fifteenth slot only when Y-Uyen La has no
+ * owner-approved Vietnamese title, because the pure-Vietnamese gate forbids a guess.
+ */
+var TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_ = [
+  {name: 'Forrest Cao', email: 'forrest@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Vincent Tieu', email: 'vincentt@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Jack Ngo', email: 'jack.ngo@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Oyintare Ebelo', email: 'oyintare.ebelo@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Allyson Wesman', email: 'allyson@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Milia Nguyen', email: 'milia.nguyen@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Violetta Dabros', email: 'violetta.dabros@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Valery Kalesnik', email: 'valery@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'David Braunstein', email: 'davidb@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Viktar Starynski', email: 'viktar.starynski@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Aramis Subee', email: 'aramiss@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Jeffrey Marzec', email: 'jeffreym@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Clement Lau', email: 'clau@ziprecruiter.com', title: 'Software Engineer'},
+  {name: 'Tayfun Turanligil', email: 'tayfunt@ziprecruiter.com', title: 'Software Engineer'}
+];
+
+/**
+ * Schedule the ZipRecruiter wave: fifteen asks, six minutes apart, from five
+ * minutes after setup. `yUyenTitle` is the owner's `anh`/`chị` for Y-Uyen La;
+ * blank sends Kevin Nguy instead. `acknowledgeOver55` must be true, because the
+ * day already exceeds the 55-message threshold and the policy requires the
+ * owner's explicit acknowledgement before anything is queued.
+ */
+function scheduleTargetReferralCampaign0923ZipRecruiter(yUyenTitle, acknowledgeOver55) {
+  if (acknowledgeOver55 !== true) {
+    throw new Error('The 2026-09-23 total exceeds 55; pass acknowledgeOver55 = true after the owner confirms.');
+  }
+  var title = String(yUyenTitle || '').trim();
+  if (title && title !== 'anh' && title !== 'chị') throw new Error('yUyenTitle must be anh, chị or blank.');
+  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER';
+  var handler = 'runTargetReferralCampaignTick0923ZipRecruiter_';
+  var role = 'Software Engineer - Intern';
+  var jobLink = 'https://job-boards.greenhouse.io/embed/job_app?for=ziprecruiter&token=8180455&jr_id=6ab426190e0ae54eeea46e6d';
+  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
+  contacts.push(title
+    ? {name: 'Y-Uyen La', email: 'yuyen@ziprecruiter.com', title: 'Software Engineer',
+       vietnamese: {name: 'Uyên', title: title, variant: 1}}
+    : {name: 'Kevin Nguy', email: 'kevin.nguy@ziprecruiter.com', title: 'Software Engineer II'});
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var existingText = props.getProperty(propertyKey);
+    if (existingText) {
+      var existing = JSON.parse(existingText);
+      if (existing.status === 'scheduled' || existing.status === 'complete') {
+        return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, 'ZipRecruiter')};
+      }
+    }
+    var rejection = outreachGmailApiRejectedTarget_({company: 'ZipRecruiter', role: role, jobLink: jobLink});
+    if (rejection.rejected) return {blocked: true, company: 'ZipRecruiter', reason: rejection.why};
+
+    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+    var referral = tracker.getSheetByName(TAB_REFERRAL);
+    if (!referral) throw new Error('Referral tab is missing.');
+    var used = {};
+    outreachReadReferralRows_(referral).forEach(function (row) {
+      if (row.email) used[String(row.email).toLowerCase()] = true;
+    });
+    var skipped = [];
+    var startMs = new Date().getTime() + 5 * 60000;
+    var entries = [];
+    contacts.forEach(function (contact) {
+      var email = contact.email.toLowerCase();
+      if (used[email] || GmailApp.search('from:me to:' + email, 0, 1).length) {
+        skipped.push({name: contact.name, email: email, reason: 'already-sent'});
+        return;
+      }
+      used[email] = true;
+      var entry = {
+        company: 'ZipRecruiter', role: role, jobLink: jobLink,
+        name: contact.name, email: email, title: contact.title, seniority: '',
+        angle: '', bucket: '', template: (entries.length % 10) + 1,
+        atMs: startMs + entries.length * 6 * 60000, status: 'pending'
+      };
+      if (contact.vietnamese) {
+        entry.copy = 'henry_vietnamese';
+        entry.vietnameseName = contact.vietnamese.name;
+        entry.vietnameseTitle = contact.vietnamese.title;
+        entry.vietnameseVariant = contact.vietnamese.variant;
+      }
+      entries.push(entry);
+    });
+    if (!entries.length) return {scheduled: [], skipped: skipped};
+
+    ScriptApp.getProjectTriggers().forEach(function (trigger) {
+      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
+    });
+    var state = {
+      status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
+      lastSentAtMs: 0, spacingMinutes: 6, minGapMinutes: 5, entries: entries, skipped: skipped,
+      volumeAcknowledged: true
+    };
+    props.setProperty(propertyKey, JSON.stringify(state));
+    try { ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create(); }
+    catch (error) { props.deleteProperty(propertyKey); throw error; }
+    try { refreshTargetQueueTabs_(); }
+    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
+    return {
+      scheduled: entries.map(function (entry) {
+        return {name: entry.name, email: entry.email, template: entry.copy || entry.template,
+                at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
+      }),
+      skipped: skipped, trigger: handler
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Send one due ZipRecruiter referral entry. */
+function runTargetReferralCampaignTick0923ZipRecruiter_() {
+  return runTargetReferralCampaignTickFor_({
+    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER',
+    handler: 'runTargetReferralCampaignTick0923ZipRecruiter_'
+  });
+}
+
+/** Read-only preview of the fifteen ZipRecruiter messages; sends nothing. */
+function previewTargetReferralCampaign0923ZipRecruiter(yUyenTitle) {
+  var title = String(yUyenTitle || '').trim();
+  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
+  contacts.push(title
+    ? {name: 'Y-Uyen La', vietnamese: {name: 'Uyên', title: title, variant: 1}}
+    : {name: 'Kevin Nguy'});
+  return contacts.map(function (contact, index) {
+    var mail = contact.vietnamese
+      ? outreachVietnameseReferralCompose_({
+          personName: contact.name, vietnameseName: contact.vietnamese.name,
+          vietnameseTitle: contact.vietnamese.title, vietnameseVariant: contact.vietnamese.variant,
+          company: 'ZipRecruiter', role: 'Software Engineer - Intern'
+        })
+      : outreachReferralCompose_({
+          personName: contact.name, company: 'ZipRecruiter', role: 'Software Engineer - Intern',
+          template: (index % 10) + 1, today: new Date()
+        });
+    return {name: contact.name, subject: mail.subject,
+            plain: index < 2 || contact.vietnamese ? mail.plain : undefined};
+  });
 }
 
 var TARGET_REFERRAL_0911_VIETNAMESE_OVERRIDES_ = {
@@ -2067,157 +2746,6 @@ function diagnoseTargetCompanyRejectionPreflight(company, role, jobLink) {
 }
 
 /** Read-only evidence for a single company/role Gmail rejection preflight decision. */
-/**
- * Owner-requested ZipRecruiter referral wave for 2026-09-23. ZipRecruiter has no
- * Employees (seed) rows, so the recipients were sourced by hand through treg
- * (leadsforge search, email finder, MillionVerifier: every address `ok` on a
- * domain that rejects an invented mailbox). Entry-level titles come first; Kevin
- * Nguy (Software Engineer II) takes the fifteenth slot only when Y-Uyen La has no
- * owner-approved Vietnamese title, because the pure-Vietnamese gate forbids a guess.
- */
-var TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_ = [
-  {name: 'Forrest Cao', email: 'forrest@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Vincent Tieu', email: 'vincentt@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Jack Ngo', email: 'jack.ngo@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Oyintare Ebelo', email: 'oyintare.ebelo@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Allyson Wesman', email: 'allyson@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Milia Nguyen', email: 'milia.nguyen@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Violetta Dabros', email: 'violetta.dabros@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Valery Kalesnik', email: 'valery@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'David Braunstein', email: 'davidb@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Viktar Starynski', email: 'viktar.starynski@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Aramis Subee', email: 'aramiss@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Jeffrey Marzec', email: 'jeffreym@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Clement Lau', email: 'clau@ziprecruiter.com', title: 'Software Engineer'},
-  {name: 'Tayfun Turanligil', email: 'tayfunt@ziprecruiter.com', title: 'Software Engineer'}
-];
-
-/**
- * Schedule the ZipRecruiter wave: fifteen asks, six minutes apart, from five
- * minutes after setup. `yUyenTitle` is the owner's `anh`/`chị` for Y-Uyen La;
- * blank sends Kevin Nguy instead. `acknowledgeOver55` must be true, because the
- * day already exceeds the 55-message threshold and the policy requires the
- * owner's explicit acknowledgement before anything is queued.
- */
-function scheduleTargetReferralCampaign0923ZipRecruiter(yUyenTitle, acknowledgeOver55) {
-  if (acknowledgeOver55 !== true) {
-    throw new Error('The 2026-09-23 total exceeds 55; pass acknowledgeOver55 = true after the owner confirms.');
-  }
-  var title = String(yUyenTitle || '').trim();
-  if (title && title !== 'anh' && title !== 'chị') throw new Error('yUyenTitle must be anh, chị or blank.');
-  var propertyKey = 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER';
-  var handler = 'runTargetReferralCampaignTick0923ZipRecruiter_';
-  var role = 'Software Engineer - Intern';
-  var jobLink = 'https://job-boards.greenhouse.io/embed/job_app?for=ziprecruiter&token=8180455&jr_id=6ab426190e0ae54eeea46e6d';
-  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
-  contacts.push(title
-    ? {name: 'Y-Uyen La', email: 'yuyen@ziprecruiter.com', title: 'Software Engineer',
-       vietnamese: {name: 'Uyên', title: title, variant: 1}}
-    : {name: 'Kevin Nguy', email: 'kevin.nguy@ziprecruiter.com', title: 'Software Engineer II'});
-
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) throw new Error('Another outreach run holds the lock.');
-  try {
-    var props = PropertiesService.getScriptProperties();
-    var existingText = props.getProperty(propertyKey);
-    if (existingText) {
-      var existing = JSON.parse(existingText);
-      if (existing.status === 'scheduled' || existing.status === 'complete') {
-        return {alreadyStarted: true, state: summarizeTargetCampaignState_(existing, 'ZipRecruiter')};
-      }
-    }
-    var rejection = outreachGmailApiRejectedTarget_({company: 'ZipRecruiter', role: role, jobLink: jobLink});
-    if (rejection.rejected) return {blocked: true, company: 'ZipRecruiter', reason: rejection.why};
-
-    var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
-    var referral = tracker.getSheetByName(TAB_REFERRAL);
-    if (!referral) throw new Error('Referral tab is missing.');
-    var used = {};
-    outreachReadReferralRows_(referral).forEach(function (row) {
-      if (row.email) used[String(row.email).toLowerCase()] = true;
-    });
-    var skipped = [];
-    var startMs = new Date().getTime() + 5 * 60000;
-    var entries = [];
-    contacts.forEach(function (contact) {
-      var email = contact.email.toLowerCase();
-      if (used[email] || GmailApp.search('from:me to:' + email, 0, 1).length) {
-        skipped.push({name: contact.name, email: email, reason: 'already-sent'});
-        return;
-      }
-      used[email] = true;
-      var entry = {
-        company: 'ZipRecruiter', role: role, jobLink: jobLink,
-        name: contact.name, email: email, title: contact.title, seniority: '',
-        angle: '', bucket: '', template: (entries.length % 10) + 1,
-        atMs: startMs + entries.length * 6 * 60000, status: 'pending'
-      };
-      if (contact.vietnamese) {
-        entry.copy = 'henry_vietnamese';
-        entry.vietnameseName = contact.vietnamese.name;
-        entry.vietnameseTitle = contact.vietnamese.title;
-        entry.vietnameseVariant = contact.vietnamese.variant;
-      }
-      entries.push(entry);
-    });
-    if (!entries.length) return {scheduled: [], skipped: skipped};
-
-    ScriptApp.getProjectTriggers().forEach(function (trigger) {
-      if (trigger.getHandlerFunction() === handler) ScriptApp.deleteTrigger(trigger);
-    });
-    var state = {
-      status: 'scheduled', timezone: 'America/New_York', createdAt: new Date().toISOString(),
-      lastSentAtMs: 0, spacingMinutes: 6, minGapMinutes: 5, entries: entries, skipped: skipped,
-      volumeAcknowledged: true
-    };
-    props.setProperty(propertyKey, JSON.stringify(state));
-    try { ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create(); }
-    catch (error) { props.deleteProperty(propertyKey); throw error; }
-    try { refreshTargetQueueTabs_(); }
-    catch (mirrorError) { Logger.log('Target mirror refresh failed: ' + mirrorError); }
-    return {
-      scheduled: entries.map(function (entry) {
-        return {name: entry.name, email: entry.email, template: entry.copy || entry.template,
-                at: Utilities.formatDate(new Date(entry.atMs), 'America/New_York', 'yyyy-MM-dd HH:mm z')};
-      }),
-      skipped: skipped, trigger: handler
-    };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-/** Send one due ZipRecruiter referral entry. */
-function runTargetReferralCampaignTick0923ZipRecruiter_() {
-  return runTargetReferralCampaignTickFor_({
-    propertyKey: 'TARGET_REFERRAL_CAMPAIGN_20260923_ZIPRECRUITER',
-    handler: 'runTargetReferralCampaignTick0923ZipRecruiter_'
-  });
-}
-
-/** Read-only preview of the fifteen ZipRecruiter messages; sends nothing. */
-function previewTargetReferralCampaign0923ZipRecruiter(yUyenTitle) {
-  var title = String(yUyenTitle || '').trim();
-  var contacts = TARGET_REFERRAL_0923_ZIPRECRUITER_CONTACTS_.slice();
-  contacts.push(title
-    ? {name: 'Y-Uyen La', vietnamese: {name: 'Uyên', title: title, variant: 1}}
-    : {name: 'Kevin Nguy'});
-  return contacts.map(function (contact, index) {
-    var mail = contact.vietnamese
-      ? outreachVietnameseReferralCompose_({
-          personName: contact.name, vietnameseName: contact.vietnamese.name,
-          vietnameseTitle: contact.vietnamese.title, vietnameseVariant: contact.vietnamese.variant,
-          company: 'ZipRecruiter', role: 'Software Engineer - Intern'
-        })
-      : outreachReferralCompose_({
-          personName: contact.name, company: 'ZipRecruiter', role: 'Software Engineer - Intern',
-          template: (index % 10) + 1, today: new Date()
-        });
-    return {name: contact.name, subject: mail.subject,
-            plain: index < 2 || contact.vietnamese ? mail.plain : undefined};
-  });
-}
-
 function diagnoseTargetCompanyRejectionEvidence(company, role, jobLink) {
   var entry = {
     company: String(company || '').trim(),
@@ -2520,6 +3048,53 @@ function diagnoseCompanyAvailability(company) {
     openJobs: openJobs,
     inTarget: !!targetCompanies[wantedTokens.join('\u0000')]
   };
+}
+
+/** Read-only recruiter details for owner-approved campaign selection. */
+function diagnoseTargetRecruiterContactDetails(companies) {
+  var requested = Array.isArray(companies) ? companies : [companies];
+  var names = requested.map(function (company) { return String(company || '').trim(); })
+    .filter(function (company) { return !!company; });
+  if (!names.length) throw new Error('At least one company is required.');
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var contacts = outreachReadContacts_(contactsBook);
+  var priority = function (person) {
+    var text = String((person.role || '') + ' ' + (person.focus || '')).toLowerCase();
+    // CAMPUS_TITLE, not a second spelling of the same idea: this ordering is what
+    // decides who a wave writes to first, and a campus recruiter filed under a
+    // name this test did not know went to the back of the queue.
+    if (CAMPUS_TITLE.test(text)) return 0;
+    if (/technical|software|engineering/.test(text)) return 1;
+    return 2;
+  };
+  return names.map(function (company) {
+    return {
+      company: company,
+      contacts: outreachContactsFor_(contacts, company).map(function (person) {
+        return {
+          name: person.name,
+          email: person.email,
+          role: person.role || '',
+          focus: person.focus || '',
+          verify: person.verify || '',
+          sent: !!person.sent
+        };
+      }).sort(function (left, right) {
+        return priority(left) - priority(right)
+          || String(left.name || left.email).localeCompare(String(right.name || right.email));
+      })
+    };
+  });
+}
+
+/** Flatten recruiter details so clasp exposes the exact rows without [Object]. */
+function reportTargetRecruiterContactDetails(companies) {
+  return diagnoseTargetRecruiterContactDetails(companies).map(function (group) {
+    return [group.company].concat(group.contacts.map(function (person) {
+      return [person.name, person.role, person.focus, person.verify,
+        person.sent ? 'sent' : 'unsent', person.email].join(' | ');
+    })).join(' :: ');
+  });
 }
 
 /** Read one normal Email company row and its immediate physical neighbors. */
@@ -2859,6 +3434,78 @@ function diagnoseTargetReferralCandidates(company, maxContacts) {
     });
 }
 
+/** Read-only exact recipient details for an owner-requested alternate-mailbox run. */
+function diagnoseTargetReferralContactDetails(company, maxContacts) {
+  var wanted = String(company || '').trim();
+  if (!wanted) throw new Error('A company name is required.');
+  var limit = Number(maxContacts || 10);
+  if (!(limit > 0)) throw new Error('maxContacts must be positive.');
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var referral = tracker.getSheetByName(TAB_REFERRAL);
+  if (!referral) throw new Error('Referral tab is missing.');
+  var used = {};
+  outreachReadReferralRows_(referral).forEach(function (row) {
+    if (row.email) used[row.email.toLowerCase()] = true;
+  });
+  return outreachEmployeesFor_(outreachReadEmployees_(contactsBook), wanted)
+    .filter(function (person) {
+      var email = String(person.email || '').toLowerCase();
+      return email && !used[email] && !GmailApp.search('from:me to:' + email, 0, 1).length;
+    })
+    .sort(function (left, right) {
+      return (left.name || left.email).localeCompare(right.name || right.email);
+    })
+    .slice(0, limit)
+    .map(function (person) {
+      var greeting = outreachGreetingInfo_(person.name);
+      return {
+        name: person.name,
+        email: person.email,
+        vietnameseStyle: greeting.vietnamese,
+        givenName: greeting.given,
+        suggestedTitle: greeting.gender === 'man' ? 'anh'
+          : (greeting.gender === 'woman' ? 'chị' : '')
+      };
+    });
+}
+
+/** Read-only count of explicit Target campaign entries planned for one local day. */
+function diagnoseTargetMessagesForDay(dayIso) {
+  var day = String(dayIso || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('dayIso must be yyyy-mm-dd.');
+  var totals = {
+    target: 0,
+    sent: 0,
+    queuedOrDrafted: 0,
+    referral: {total: 0, sent: 0, queuedOrDrafted: 0},
+    recruiter: {total: 0, sent: 0, queuedOrDrafted: 0}
+  };
+  var properties = PropertiesService.getScriptProperties().getProperties();
+  Object.keys(properties).forEach(function (key) {
+    var path = key.indexOf('TARGET_REFERRAL_CAMPAIGN_') === 0 ? 'referral'
+      : (key.indexOf('TARGET_RECRUITER_CAMPAIGN_') === 0 ? 'recruiter' : '');
+    if (!path) return;
+    var state;
+    try { state = JSON.parse(properties[key]); } catch (ignored) { return; }
+    (state.entries || []).forEach(function (entry) {
+      if (!entry.atMs || Utilities.formatDate(new Date(Number(entry.atMs)), 'America/New_York', 'yyyy-MM-dd') !== day) return;
+      var status = String(entry.status || '').toLowerCase();
+      if (status === 'failed' || status === 'cancelled' || status === 'skipped' || status === 'already-sent') return;
+      totals.target++;
+      totals[path].total++;
+      if (status === 'sent' || status === 'replied' || status === 'bounced') {
+        totals.sent++;
+        totals[path].sent++;
+      } else if (status === 'pending' || status === 'queued' || status === 'drafted') {
+        totals.queuedOrDrafted++;
+        totals[path].queuedOrDrafted++;
+      }
+    });
+  });
+  return {planDate: day, target: totals};
+}
+
 /** Send one due Target referral entry and finalize the seed snapshot. */
 function runTargetReferralCampaignTickFor_(config) {
   var propertyKey = config.propertyKey;
@@ -2875,6 +3522,9 @@ function runTargetReferralCampaignTickFor_(config) {
     if (!stateText) return {skipped: true, reason: 'state absent'};
     state = JSON.parse(stateText);
     if (state.status !== 'scheduled') return {skipped: true, status: state.status};
+    if (state.requiresVolumeAck) {
+      return {skipped: true, reason: 'awaiting explicit volume acknowledgement'};
+    }
     var now = new Date().getTime();
     due = state.entries.filter(function (entry) {
       return entry.status === 'pending' && entry.atMs <= now;
@@ -2913,7 +3563,9 @@ function runTargetReferralCampaignTickFor_(config) {
               pending: state.entries.filter(function (entry) { return entry.status === 'pending'; }).length};
     }
 
-    var mail = due.customCopy === 'lyft-referral-0911'
+    var mail = due.customCopy === 'chubb-referral-20260923'
+      ? outreachChubbReferralCompose_(due)
+      : due.customCopy === 'lyft-referral-0911'
       ? outreachLyftReferralCompose_(due)
       : due.copy === 'henry_vietnamese'
       ? outreachVietnameseReferralCompose_({
@@ -2922,7 +3574,7 @@ function runTargetReferralCampaignTickFor_(config) {
           company: due.company, role: due.role
         })
       : outreachReferralCompose_({
-          personName: due.name, personTitle: due.title, seniority: due.seniority,
+          personName: due.name, personTitle: due.title, seniority: due.seniority, greeting: due.greeting,
           company: due.company, angle: due.angle, bucket: due.bucket,
           role: due.role, jobLink: due.jobLink, template: due.template,
           today: new Date()
@@ -3073,6 +3725,35 @@ function outreachLyftReferralCompose_(entry) {
     + '<p>' + outreachEscape_(entry.thanks) + '</p>'
     + '<p>Best,<br>Henry</p>';
   return {subject: subject, plain: lines.join('\n'), html: html, inlineImages: {}};
+}
+
+/** Render the owner-approved Chubb referral with the shared footer and bolding. */
+function outreachChubbReferralCompose_(entry) {
+  var template = {
+    subject: 'Referral request - Chubb Intern, Technology - June 2027',
+    opening: 'I’m **Henry Nguyen**, currently studying **Mathematics and Computer Science at Kenyon College**. My cousin, **Khôi Thôi**, suggested that I reach out to you.',
+    sections: [
+      {
+        heading: 'Why I’m reaching out',
+        bullets: [],
+        body: 'I recently applied for the **[Role Name]** position at **[Company]**. After reading the job description, I felt that my background and experience could be a good fit.'
+      },
+      {
+        heading: 'A quick question',
+        bullets: [],
+        body: 'If you think my profile could be a fit and feel comfortable doing so, would you be open to **referring me for the role**? I completely understand if you’re unable to.'
+      }
+    ],
+    closing: [
+      'I’ve attached my **resume** for your reference.',
+      'Thank you so much for your time. I hope you have a great day.'
+    ],
+    signOff: 'Henry Nguyen'
+  };
+  var rendered = outreachRenderTemplate_(template, {
+    name: outreachFirstName_(entry.name), company: entry.company, role: entry.role
+  });
+  return rendered;
 }
 
 /**
@@ -3693,6 +4374,92 @@ function sendTargetRecruiterNowStripeAlexandria() {
     handler: 'runTargetRecruiterCampaignTickNowStripeAlexandria_', keepTrigger: true});
 }
 
+/**
+ * Owner-confirmed, immediate one-recipient Dropbox recruiter send. It resolves
+ * Lexy from the live contacts database and rechecks the exact official
+ * Software Engineering Intern application before using the shared Target
+ * sender, which repeats the Gmail rejection preflight at send time.
+ */
+function sendTargetRecruiterNowDropboxLexy() {
+  var key = 'TARGET_RECRUITER_CAMPAIGN_20260918_DROPBOX_LEXY';
+  var legacyKey = 'TARGET_RECRUITER_SENDNOW_20260918_DROPBOX_LEXY';
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty(key) && props.getProperty(legacyKey)) {
+    props.setProperty(key, props.getProperty(legacyKey));
+    props.deleteProperty(legacyKey);
+  }
+  var existing = props.getProperty(key);
+  if (existing) {
+    var existingState = JSON.parse(existing);
+    if ((existingState.entries || []).some(function (entry) { return entry.status === 'sent'; })) {
+      return {alreadySent: true, company: 'Dropbox', email: 'lexy@dropbox.com'};
+    }
+    return runTargetRecruiterCampaignTickFor_({propertyKey: key,
+      handler: 'runTargetRecruiterCampaignTickNowDropboxLexy_', keepTrigger: true});
+  }
+
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var email = 'lexy@dropbox.com';
+  var matches = outreachContactsFor_(outreachReadContacts_(contactsBook), 'Dropbox').filter(function (contact) {
+    return String(contact.email || '').toLowerCase() === email;
+  });
+  if (matches.length > 1) throw new Error('Expected at most one Dropbox recruiter record for ' + email + '; found ' + matches.length + '.');
+  var contact = matches.length === 1 ? matches[0] : {
+    company: 'Dropbox', name: 'Lexy', email: email, role: 'Recruiter'
+  };
+  if (!matches.length) {
+    appendApprovedManualRecruiters_([{
+      company: 'Dropbox', name: 'Lexy', email: email, role: 'Recruiter',
+      verify: 'owner-approved', source: 'Owner supplied 2026-09-18'
+    }], 'Owner supplied 2026-09-18');
+  }
+  var subject = 'SWE student who cut research to 1 minute';
+  var sentThreads = GmailApp.search('from:me to:' + email + ' subject:"' + subject + '"', 0, 1);
+  if (sentThreads.length) {
+    var sentMessages = sentThreads[0].getMessages();
+    var sentMessage = sentMessages[sentMessages.length - 1];
+    var sentEntry = {company: 'Dropbox', role: 'Software Engineering Intern (Summer 2027)',
+      jobLink: 'https://www.dropbox.jobs/en/jobs/apply/?id=8106224', name: contact.name,
+      email: email, title: contact.role || 'Recruiter', template: 8,
+      atMs: sentMessage.getDate().getTime(), status: 'sent',
+      completedAt: sentMessage.getDate().toISOString(), messageId: sentMessage.getId()};
+    props.setProperty(key, JSON.stringify({status: 'complete', timezone: 'America/New_York',
+      createdAt: sentMessage.getDate().toISOString(), lastSentAtMs: sentMessage.getDate().getTime(),
+      spacingMinutes: 1, minGapMinutes: 0, entries: [sentEntry],
+      repairNote: 'Reconciled an accepted Gmail send whose first execution timed out before persisting campaign state.'}));
+    syncTargetAfterSend_('Dropbox', 'recruiter');
+    return {alreadySent: true, reconciled: true, company: 'Dropbox', name: contact.name,
+      email: email, messageId: sentMessage.getId()};
+  }
+  var salt = outreachProperty_(PROP_SALT, true);
+  var spent = targetRecruiterSpentFingerprints_(tracker);
+  var summer = outreachFingerprint_(email, salt, SEASON_SUMMER);
+  var offcycle = outreachFingerprint_(email, salt, SEASON_OFFCYCLE);
+  if (contact.sent || spent[summer] || spent[offcycle] || GmailApp.search('from:me to:' + email, 0, 1).length) {
+    throw new Error('Lexy is already sent or committed; no duplicate email was created.');
+  }
+
+  var jobLink = 'https://www.dropbox.jobs/en/jobs/apply/?id=8106224';
+  var role = 'Software Engineering Intern (Summer 2027)';
+  var applications = targetMirrorApplications_(tracker).filter(function (app) {
+    return outreachSameEmployer_(outreachCompanyTokens_(app.company), outreachCompanyTokens_('Dropbox'))
+      && app.role === role && app.link === jobLink && outreachQualifies_(app.process);
+  });
+  if (applications.length !== 1) throw new Error('The exact active Dropbox Software Engineering Intern application is not available.');
+  var entry = {company: 'Dropbox', role: role, jobLink: jobLink, name: contact.name,
+    email: email, title: contact.role || 'Technical Recruiter', template: 8,
+    atMs: new Date().getTime() - 1000, status: 'pending'};
+  var rejection = outreachGmailApiRejectedTarget_(entry);
+  if (rejection.rejected) return {blocked: true, company: 'Dropbox', email: email, reason: rejection.why};
+  props.setProperty(key, JSON.stringify({status: 'scheduled', timezone: 'America/New_York',
+    createdAt: new Date().toISOString(), lastSentAtMs: 0, spacingMinutes: 1,
+    minGapMinutes: 0, entries: [entry]}));
+  refreshTargetQueueTabs_();
+  return runTargetRecruiterCampaignTickFor_({propertyKey: key,
+    handler: 'runTargetRecruiterCampaignTickNowDropboxLexy_', keepTrigger: true});
+}
+
 /** Cancel only the pending 09/10 Google Target recruiter sends. */
 function cancelTargetRecruiterCampaign0910Google() {
   var propertyKey = 'TARGET_RECRUITER_CAMPAIGN_20260910_GOOGLE';
@@ -3945,7 +4712,24 @@ function scheduleTargetRecruiterCampaign_(config) {
       included[String(email || '').toLowerCase()] = true;
     });
     var selected = config.companies.map(function (spec) {
-      var companyContacts = outreachContactsFor_(contacts, spec.company)
+      // Some seed exports use a well-known short employer name (for example
+      // HPE) while the application tracker keeps the legal display name.
+      // A campaign may provide contact-side aliases without changing the
+      // company name recorded in the outbound entry. Merge and de-duplicate
+      // those buckets because manual rows may use the long name while seed
+      // rows use the short name.
+      var contactCompanies = spec.contactCompanies || [spec.contactCompany || spec.company];
+      var companyContacts = [];
+      contactCompanies.forEach(function (contactCompany) {
+        companyContacts = companyContacts.concat(outreachContactsFor_(contacts, contactCompany));
+      });
+      var contactEmails = {};
+      companyContacts = companyContacts.filter(function (contact) {
+        var email = String(contact.email || '').toLowerCase();
+        if (!email || contactEmails[email]) return false;
+        contactEmails[email] = true;
+        return true;
+      })
         .filter(function (contact) {
           var email = String(contact.email || '').toLowerCase();
           if (Object.keys(included).length && !included[email]) return false;
@@ -4082,6 +4866,24 @@ function rescheduleTargetRecruiterCampaign_(propertyKey, startIso, expectedCompa
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Owner-approved move of the pending 09/22 Intel recruiter wave to 09/28. */
+function rescheduleTargetRecruiterCampaign0922IntelTo0928() {
+  return rescheduleTargetRecruiterCampaign_(
+    'TARGET_RECRUITER_CAMPAIGN_20260922_INTEL',
+    '2026-09-28T09:00:00-04:00',
+    'Intel'
+  );
+}
+
+/** Owner-approved restore of the pending 09/22 Intel recruiter wave. */
+function restoreTargetRecruiterCampaign0922Intel() {
+  return rescheduleTargetRecruiterCampaign_(
+    'TARGET_RECRUITER_CAMPAIGN_20260922_INTEL',
+    '2026-09-22T13:00:00-04:00',
+    'Intel'
+  );
 }
 
 /** Fingerprints already committed by the normal cold queue. */

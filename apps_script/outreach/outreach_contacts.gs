@@ -50,9 +50,19 @@ function outreachSameEmployer_(left, right) {
 
 // The words a campus recruiter's title actually uses, as whole words rather than
 // substrings: `intern` must not match `internal`, which is a different job and a
-// different email. Early career and early talent are two spellings of one team.
+// different email.
+//
+// Campus, university, early career and emerging talent are one team under
+// different company names, and the owner treats them as one group. The spellings
+// seen in live contact data so far: "Campus Recruiter", "University Recruiter",
+// "Early Career Technical Recruiter", "Senior Manager, Early Careers Talent
+// Acquisition" (plural, which an `early[\s-]?career\b` test misses), "Emerging
+// Talent Recruiter" and "Head of Emerging Talent" (Dropbox's whole early-career
+// team), "Future Talent", and "new grad" on an engineer who came through that
+// pipeline. Adding a name here is cheaper than discovering later that a company's
+// campus recruiter was filed as a generic one and written to last.
 var CAMPUS_TITLE =
-  /\b(campus|university|college|school|students?|interns?|internships?|graduates?|grads?)\b|\bearly[\s-]?(career|talent)\b/;
+  /\b(campus|university|college|school|students?|interns?|internships?|graduates?|grads?)\b|\b(early|emerging|future)[\s-]?(careers?|talent)\b|\bnew[\s-]?grad(uate)?s?\b/;
 
 /**
  * The focus a recruiter's own title implies, used only when Focus is empty.
