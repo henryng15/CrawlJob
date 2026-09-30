@@ -159,3 +159,100 @@ function diagnoseOutreachReplyAuditCompact(companies) {
             }).join(' ;; ')].join(' | ');
   }).join('\n');
 }
+
+/**
+ * Emerging talent is the same team as early career; Dropbox and LinkedIn spell it that way.
+ * CAMPUS_TITLE in outreach_contacts.gs does not carry it, so a hand-typed "Emerging Talent
+ * Recruiter" row derives no `university` focus and loses the campus subject. That is a finding
+ * about the sender, not about this audit, so the wider test lives here rather than there.
+ */
+var REPLY_AUDIT_CAMPUS_TITLE_ = /\bemerging[\s-]?talent\b|\bfuture[\s-]?talent\b|\bnew[\s-]?grad(uate)?s?\b/;
+
+function replyAuditIsCampusTitle_(title) {
+  var text = String(title == null ? '' : title).toLowerCase().trim();
+  if (!text) return false;
+  return CAMPUS_TITLE.test(text) || REPLY_AUDIT_CAMPUS_TITLE_.test(text);
+}
+
+/**
+ * Per company: which campus/early-career recruiters are on file, which of them Gmail shows an
+ * email to, which are still queued in a campaign, and which are on file but untouched. One Gmail
+ * search per company, so ten or so per call is comfortable. Sends nothing, writes nothing.
+ */
+function diagnoseEarlyCareerCoverageForCompanies(companies) {
+  var names = (Array.isArray(companies) ? companies : [companies])
+    .map(function (company) { return String(company || '').trim(); })
+    .filter(function (company) { return !!company; });
+  if (!names.length) throw new Error('At least one company is required.');
+  var contacts = outreachReadContacts_(SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true)));
+  var me = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  var campaignEntries = [];
+  var all = PropertiesService.getScriptProperties().getProperties();
+  Object.keys(all).forEach(function (key) {
+    if (!/CAMPAIGN_|FOLLOWUPS_/.test(key)) return;
+    try { campaignEntries = campaignEntries.concat(JSON.parse(all[key]).entries || []); }
+    catch (ignored) {}
+  });
+  return names.map(function (company) {
+    var tokens = outreachCompanyTokens_(company);
+    var people = outreachContactsFor_(contacts, company).filter(function (person) {
+      return replyAuditIsCampusTitle_(person.role) || String(person.focus || '').toLowerCase() === 'university';
+    });
+    // Campaign entries carry their own title, and some recipients were appended by hand.
+    campaignEntries.forEach(function (entry) {
+      if (!outreachSameEmployer_(tokens, outreachCompanyTokens_(entry.company))) return;
+      if (!replyAuditIsCampusTitle_(entry.title)) return;
+      var email = String(entry.email || '').toLowerCase();
+      if (!email || people.some(function (person) { return person.email === email; })) return;
+      people.push({company: entry.company, email: email, name: entry.name, role: entry.title, focus: 'university'});
+    });
+    var emailed = {};
+    if (people.length) {
+      var query = 'in:sent (' + people.map(function (person) { return 'to:' + person.email; }).join(' OR ') + ')';
+      GmailApp.search(query, 0, 100).forEach(function (thread) {
+        thread.getMessages().forEach(function (message) {
+          if (String(message.getFrom() || '').toLowerCase().indexOf(me) < 0) return;
+          var to = String(message.getTo() || '').toLowerCase();
+          people.forEach(function (person) {
+            if (to.indexOf(person.email) >= 0) {
+              var when = Utilities.formatDate(message.getDate(), 'America/New_York', 'yyyy-MM-dd');
+              if (!emailed[person.email] || when < emailed[person.email]) emailed[person.email] = when;
+            }
+          });
+        });
+      });
+    }
+    var pending = {};
+    campaignEntries.forEach(function (entry) {
+      if (!outreachSameEmployer_(tokens, outreachCompanyTokens_(entry.company))) return;
+      var status = String(entry.status || '').toLowerCase();
+      if (status !== 'pending' && status !== 'queued' && status !== 'drafted') return;
+      var email = String(entry.email || '').toLowerCase();
+      var known = people.filter(function (person) { return person.person === email; });
+      if (replyAuditIsCampusTitle_(entry.title) || people.some(function (person) { return person.email === email; })) {
+        pending[email] = (entry.name || email) + ' (' + (entry.title || 'title unknown') + ')';
+      }
+    });
+    var label = function (person) {
+      return (person.name || person.email) + ' [' + (person.role || 'no title') + ']';
+    };
+    return {
+      company: company,
+      campusContactsOnFile: people.length,
+      emailed: people.filter(function (person) { return !!emailed[person.email]; })
+        .map(function (person) { return label(person) + ' ' + emailed[person.email]; }),
+      pending: Object.keys(pending).map(function (email) { return pending[email]; }),
+      onFileNotEmailed: people.filter(function (person) { return !emailed[person.email]; }).map(label)
+    };
+  });
+}
+
+/** The coverage audit as one line per company, for the same `util.inspect` reason. */
+function diagnoseEarlyCareerCoverageCompact(companies) {
+  return diagnoseEarlyCareerCoverageForCompanies(companies).map(function (row) {
+    return [row.company, 'onFile ' + row.campusContactsOnFile,
+            'EMAILED: ' + (row.emailed.join(' ;; ') || 'none'),
+            'PENDING: ' + (row.pending.join(' ;; ') || 'none'),
+            'UNTOUCHED: ' + (row.onFileNotEmailed.join(' ;; ') || 'none')].join(' | ');
+  }).join('\n');
+}

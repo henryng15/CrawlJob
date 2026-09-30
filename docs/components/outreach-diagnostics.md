@@ -165,6 +165,8 @@ right now.*
 | `diagnoseOutreachSentCompaniesCompact()` | The same list as one newline-joined string. `util.inspect` stops an array at a hundred entries, and the list is past two hundred, so the raw call silently hides the tail. |
 | `diagnoseOutreachRepliesForCompanies(companies)` | Read-only, at most ten companies per call: messages sent to each employer's domains, first and last send date, and every inbound message from those domains split into **human** (a person, not a shared mailbox, not an auto-reply), **auto** (out-of-office and vacation bounce-backs, matched anywhere in the subject), **system** (no-reply and shared mailboxes: receipts, declines, event mail) and bounces. Reply state lives nowhere else: the queue tabs mark `Replied` only for rows the normal queue owns, and the Target campaigns keep no reply state at all. |
 | `diagnoseOutreachReplyAuditCompact(companies)` | The same audit flattened to one line per company, for the same `util.inspect` reason. |
+| `diagnoseEarlyCareerCoverageForCompanies(companies)` | Read-only, about ten companies per call: for each employer, the campus/early-career recruiters on file (by title, or by an explicit `university` focus), which of them Gmail shows a message to and when, which are still queued in a campaign, and which are on file but untouched. One Gmail search per company. It is what answers "which silent employer still has an unwritten campus recruiter", which the per-company waves each answer only for themselves. |
+| `diagnoseEarlyCareerCoverageCompact(companies)` | The same coverage audit flattened to one line per company. |
 
 ## Running them
 
