@@ -64,5 +64,6 @@ refuses it unless called with `acknowledgeOver55 = true`.
 
 ## State on 2026-09-29
 
-Pushed and previewed (`blocked: {}`), **not yet scheduled**: the scheduling call needs the owner's
-own run, because it both sends and crosses the 55 threshold on 09-30.
+Scheduled. The owner approved crossing the 55/day threshold, `scheduleEarlyCareerWave20260930(true)`
+returned totals 56 / 48 / 4 with `blocked: {}`, and each of the three campaigns reads back
+`scheduled` with both of its entries `pending` at the times in the table above.
