@@ -59,9 +59,11 @@ interrupted between. `_write` rewrites the range in one call.
 `_drop_dead_rows`, and only when `verify_links` is on.
 
 The sweep is the one step in the function that takes minutes: a request per unsettled row,
-around 1,350 of them, serialised within each host. A run that took two minutes in September
-takes nine or ten now, and the growth is in host latency rather than in row count — the sweep
-was over 1,344 rows on 10-03 and 1,359 on 10-04.
+around 1,350 of them, serialised within each host. **Seven to ten minutes is the normal cost,
+not a regression** — the median sync run sat between 7.0 and 10.2 minutes every day from
+2026-09-23 to 10-01, and again on 10-04. The ~2.3-minute runs on 10-02 and 10-03 were the
+exception, and they track how fast the hosts answer, not row count (1,344 rows on 10-03
+against 1,359 on 10-04).
 
 Across that gap the connection opened for the read at the top of the function goes idle long
 enough for Google's frontend to close it. httplib2 does not notice and does not reconnect: it
@@ -70,11 +72,17 @@ sends on the dead socket and raises `ssl.SSLEOFError`. Nothing retries it. httpl
 `EADDRNOTAVAIL`, and `googleapiclient`'s `num_retries` defaults to `0`, so `_retry_request`
 makes one attempt and re-raises.
 
-**This failed seven of the nine sync runs between 2026-10-01 and 2026-10-04** — three on 10-01,
-four on 10-04 — every one of them an identical `SSLEOFError` on the App-tab read, after the
-crawl had already finished. The sources and all 1,186 boards had answered; nine minutes of work
-was discarded at the last step. The two 09-29 failures are unrelated: HTTP 403 during the
-workspace migration.
+**This failed seven sync runs between 2026-10-01 and 10-04** — three on 10-01, four on 10-04 —
+every one of them an identical `SSLEOFError` on the App-tab read, after the crawl had already
+finished. The sources and all 1,186 boards had answered; nine minutes of work was discarded at
+the last step. The two 09-29 failures are unrelated: HTTP 403 during the workspace migration.
+
+**The exposure is not new, and the sweep getting slower is not what caused it** — runs of eight
+to ten minutes ran green through all of late September. Whether Google closes the idle
+connection on a given run is not deterministic, so this sat latent for weeks and then took four
+of thirteen runs in a day. **Only long runs die, though:** every failing run was 9.1 to 10.7
+minutes, and 10-02 and 10-03 — the two-minute days — did not fail once. That is also why
+`--skip-link-check` has never seen it.
 
 Reconnecting *after* the sweep rather than reading `App` *before* it is deliberate. The write and
 `_ensure_jobs_checkboxes` also sit after the gap, so moving only the App read earlier would hand
