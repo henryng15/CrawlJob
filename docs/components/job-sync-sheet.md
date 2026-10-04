@@ -47,11 +47,42 @@ interrupted between. `_write` rewrites the range in one call.
 
 | Function | Does |
 |---|---|
-| `_already_applied(app_rows)` | What the application tracker says has been sent, read two ways (strict and loose). |
+| `_already_applied(values_api, settings)` | What the application tracker says has been sent, read two ways (strict and loose). Reads the `App` tab on the reconnected client — see *The connection is rebuilt after the liveness sweep*. |
 | `_ticked`, `_noted` | Checkbox and note state on one row. |
 | `_mark_applied` | Tick the checkbox on a job already in the tracker, so what is left unticked is what is left to do. |
 | `_census` | Applied, Expired, and what remains — the postings still worth an application. |
 | `_last_stage(update_cell)` | The stage named by the bottom line of the `Update` column, or `""`. |
+
+## The connection is rebuilt after the liveness sweep
+
+`append_new_jobs` reconnects — `_service()` again, and a new `values_api` — immediately after
+`_drop_dead_rows`, and only when `verify_links` is on.
+
+The sweep is the one step in the function that takes minutes: a request per unsettled row,
+around 1,350 of them, serialised within each host. A run that took two minutes in September
+takes nine or ten now, and the growth is in host latency rather than in row count — the sweep
+was over 1,344 rows on 10-03 and 1,359 on 10-04.
+
+Across that gap the connection opened for the read at the top of the function goes idle long
+enough for Google's frontend to close it. httplib2 does not notice and does not reconnect: it
+sends on the dead socket and raises `ssl.SSLEOFError`. Nothing retries it. httplib2 0.32.0's
+`_conn_request` catches the error as a `socket.error` but only retries `ENETUNREACH` and
+`EADDRNOTAVAIL`, and `googleapiclient`'s `num_retries` defaults to `0`, so `_retry_request`
+makes one attempt and re-raises.
+
+**This failed seven of the nine sync runs between 2026-10-01 and 2026-10-04** — three on 10-01,
+four on 10-04 — every one of them an identical `SSLEOFError` on the App-tab read, after the
+crawl had already finished. The sources and all 1,186 boards had answered; nine minutes of work
+was discarded at the last step. The two 09-29 failures are unrelated: HTTP 403 during the
+workspace migration.
+
+Reconnecting *after* the sweep rather than reading `App` *before* it is deliberate. The write and
+`_ensure_jobs_checkboxes` also sit after the gap, so moving only the App read earlier would hand
+the stale socket to `_write` instead — the same failure in a worse place. One token fetch covers
+every call below.
+
+Retry counts were not raised instead. A retry would reissue the request on the same httplib2
+connection, whose `sock` is still set after a failed send, so it is not reliably a reconnect.
 
 ## Writing
 
