@@ -351,3 +351,34 @@ returning 200 and hiding it.
 
 The rest is a human's job: tick [the `Expired` column](spreadsheet.md#column-g--expired)
 for postings that closed in a way the machine cannot read.
+
+### The sweep is long enough to lose the Sheets connection
+
+This is the one step in a sync run that takes minutes — a request per unsettled row,
+around 1,350 of them, serialised within each host. A run that took two minutes in
+September takes nine or ten now, and the growth is in host latency, not in row count:
+the sweep covered 1,344 rows on 3 October and 1,359 on the 4th.
+
+That matters to code that has nothing to do with liveness. `append_new_jobs` opens its
+Sheets connection and reads the `Jobs` tab *before* the sweep, and reads the `App` tab
+*after* it. Across a nine-minute gap Google's frontend closes the idle connection, and
+httplib2 neither notices nor reconnects: it sends on the dead socket and raises
+`ssl.SSLEOFError`. Nothing retries it. httplib2's `_conn_request` catches the error but
+only retries `ENETUNREACH` and `EADDRNOTAVAIL`, and `googleapiclient`'s `num_retries`
+defaults to `0`.
+
+**This failed seven of the nine sync runs between 1 and 4 October 2026** — every one an
+identical `SSLEOFError` on the `App` read, after the crawl had already succeeded. The
+sources and all 1,186 boards had answered; nine minutes of finished work was thrown away
+at the last step. Because the gap merely straddles the idle timeout, it failed
+probabilistically — four of twelve runs on 4 October — rather than every time.
+
+So `append_new_jobs` **reconnects immediately after the sweep**, and only when the sweep
+ran at all (`--skip-link-check` leaves no gap to reconnect across). It is done after the
+sweep rather than by reading `App` before it because the write and the checkbox extent are
+also past the gap: moving only the `App` read earlier would have handed the stale socket
+to the write instead, which is the worse place to lose it.
+
+If the sweep keeps getting slower it will start approaching the workflow's 15-minute
+timeout, which the reconnect does nothing about. `WORKERS` and `PER_HOST_DELAY_SECONDS`
+in [`liveness.py`](../job_sync/liveness.py) are the dials for that.

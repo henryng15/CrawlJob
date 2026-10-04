@@ -763,6 +763,26 @@ def append_new_jobs(
     dead = 0
     if verify_links:
         data, dead = _drop_dead_rows(data)
+        # Reconnect, because the sweep above is the one step in this function that
+        # takes minutes: a request per unsettled row, around 1,350 of them, done one
+        # at a time within each host. By the time it returns, the connection opened
+        # for the read at the top has been idle long enough that Google's frontend
+        # has closed it, and httplib2 neither notices nor reconnects — it sends on
+        # the dead socket and raises SSLEOFError. Nothing retries it: httplib2
+        # re-raises anything that is not ENETUNREACH or EADDRNOTAVAIL, and
+        # googleapiclient's num_retries defaults to 0. So a network event nobody
+        # caused threw away the whole crawl at its last step, which is what failed
+        # seven of the nine runs from 2026-10-01 to 10-04, every one of them an
+        # SSLEOFError on the App-tab read below.
+        #
+        # Here rather than anywhere else for two reasons. It is after the gap, so
+        # every call below — the App read, the write, the checkbox extent — gets a
+        # fresh connection; moving the App read above the sweep instead would only
+        # hand the stale socket to the write, which is the worse place to lose it.
+        # And it is inside this branch because --skip-link-check leaves no gap to
+        # reconnect across. It costs one token fetch.
+        service = _service(settings)
+        values_api = service.spreadsheets().values()
     # After the dedupe rather than before: a row ticked here is protected from being
     # merged away from the next run onward, once the sheet has been read back.
     ticked_link, ticked_name = _mark_applied(data, *_already_applied(values_api, settings))
