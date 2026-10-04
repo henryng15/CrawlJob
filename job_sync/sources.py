@@ -4,10 +4,12 @@ import re
 import tomllib
 from dataclasses import dataclass
 from datetime import date, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from time import strptime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 from job_sync.roles import is_target_role
 
@@ -29,6 +31,10 @@ ROLE_SYNONYMS = {
     "interns": "intern",
     "development": "developer",
     "developers": "developer",
+}
+ROLE_ACRONYMS = {
+    "swe": ("software", "engineer"),
+    "sde": ("software", "engineer"),
 }
 # Legal-form words that are part of a registered name but not of a company's
 # identity. "Chicago Trading Company (CTC)" and "Chicago Trading Company" are one
@@ -82,13 +88,14 @@ MARKERS = re.compile(
 # never existed, so a row from either could never be retired automatically.
 BLOCKED_COMPANIES = ("tiktok", "bytedance")
 # Hosts that republish someone else's posting under an id of their own.
-AGGREGATOR_HOSTS = frozenset({"jobright.ai"})
+AGGREGATOR_HOSTS = frozenset({"jobright.ai", "startup.jobs", "adzuna.com"})
 
 
 @dataclass(frozen=True)
 class Source:
     name: str
     url: str
+    format: str = "markdown"
 
     @property
     def label(self) -> str:
@@ -199,17 +206,20 @@ class Job:
         return normalize_link(self.apply_link)
 
     @property
-    def identity_key(self) -> tuple[str, str]:
+    def identity_key(self) -> tuple[str, tuple[tuple[str, ...], tuple[str, ...]]]:
         """One row per company and role, whatever URL each tracker gave it. The
         same posting reaches this sheet under two links often enough — Lever's
         /apply suffix, a Jobright mirror of an employer's own board — that the
         link alone is not what makes two rows the same job."""
-        return (name_key(self.company), name_key(self.role))
+        return (company_identity(self.company), role_identity(self.role))
 
 
 def load_sources(path: Path) -> list[Source]:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return [Source(name=row["name"], url=row["url"]) for row in data.get("sources", [])]
+    return [
+        Source(name=row["name"], url=row["url"], format=row.get("format", "markdown"))
+        for row in data.get("sources", [])
+    ]
 
 
 def fetch_source(source: Source) -> str:
@@ -390,6 +400,57 @@ def parse_jobs(markdown: str, today: date) -> list[Job]:
     return parsed
 
 
+def _rss_date(value: str, today: date) -> str:
+    """Return the publication date from an RSS item without guessing a timezone."""
+    try:
+        return parsedate_to_datetime(value).date().isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return today.isoformat()
+
+
+def parse_rss_jobs(xml: str, today: date) -> list[Job]:
+    """Read a job RSS feed and keep only target roles.
+
+    Startup Jobs puts the employer in the title as ``<role> at <company>`` and
+    includes a canonical ``guid`` alongside a tracked link. The guid is preferred
+    so the feed's own tracking parameters cannot create a second row. Items whose
+    title has no employer delimiter are skipped: inventing a company would make
+    company/role deduplication less safe than losing one ambiguous item.
+    """
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return []
+    parsed: list[Job] = []
+    seen: set[str] = set()
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        role, separator, company = title.rpartition(" at ")
+        link = (item.findtext("guid") or item.findtext("link") or "").strip()
+        if not separator or not role.strip() or not company.strip() or not link:
+            continue
+        if not is_target_role(role):
+            continue
+        job = Job(
+            company=company.strip(),
+            role=role.strip(),
+            apply_link=link,
+            source="Startup Jobs",
+            date_posted=_rss_date(item.findtext("pubDate") or "", today),
+        )
+        if job.dedupe_key not in seen:
+            seen.add(job.dedupe_key)
+            parsed.append(job)
+    return parsed
+
+
+def parse_source(text: str, source: Source, today: date) -> list[Job]:
+    """Dispatch one configured source while keeping the Markdown API stable."""
+    if source.format.casefold() == "rss":
+        return parse_rss_jobs(text, today)
+    return parse_jobs(text, today)
+
+
 def dedupe_jobs(jobs: list[Job]) -> list[Job]:
     """Keep the first occurrence of an application URL across all sources."""
     seen: set[str] = set()
@@ -407,6 +468,37 @@ def company_tokens(company: str) -> frozenset[str]:
     Used only to ask whether two lists are talking about the same employer, never
     to delete anything, so it leans towards finding a match."""
     return frozenset(word for word in name_key(company).split() if word not in COMPANY_NOISE)
+
+
+def company_identity(company: str) -> str:
+    """A conservative company key for deduplication.
+
+    Legal-form words are ignored, but token containment is not: ``Acme`` and
+    ``Acme Robotics`` may be different employers, so only the same complete token
+    set is merged. This is intentionally stricter than ``same_employer``, which is
+    designed for contact matching rather than deleting rows.
+    """
+    return " ".join(sorted(company_tokens(company)))
+
+
+def role_identity(role: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """A cautious posting identity that tolerates title reordering and acronyms.
+
+    The intake remains part of the identity. Thus ``Summer 2027`` and ``Winter
+    2027`` stay separate, while ``Summer 2027 Internship - Software Engineer``
+    and ``Software Engineer Intern — Summer 2027`` converge. Extra descriptive
+    words remain in the core tuple, so ``Backend`` or ``Platform`` does not get
+    merged into a generic SWE role by accident.
+    """
+    words = name_key(role).split()
+    intake = tuple(sorted(word for word in words if word in ROLE_NOISE or YEAR.fullmatch(word)))
+    core: list[str] = []
+    for word in words:
+        if word in ROLE_NOISE or YEAR.fullmatch(word):
+            continue
+        expanded = ROLE_ACRONYMS.get(word, (word,))
+        core.extend(ROLE_SYNONYMS.get(part, part) for part in expanded)
+    return intake, tuple(sorted(core))
 
 
 def same_employer(left: frozenset[str], right: frozenset[str]) -> bool:

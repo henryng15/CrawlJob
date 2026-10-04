@@ -54,21 +54,23 @@ Dropped conditionally rather than outright: the embedded form `/embed/job_app?gh
 **no** id in the path, and dropping `gh_jid` there would merge every posting on that board into
 one row.
 
-## Layer 2 — by `(company, role)` (`role_key`)
+## Layer 2 — by conservative `(company, role)` identity (`company_identity`, `role_identity`)
 
 For postings whose links genuinely do differ — jobright mirroring a company's board, say.
 
-`name_key` lowercases and drops punctuation, but still leaves `engineer` different from
-`engineering`. `role_key` also settles the word endings two trackers write differently while
-describing one job:
+Company legal-form words are ignored only when the remaining complete token set is identical;
+`Acme` and `Acme Robotics` remain separate. Role identity also settles the word endings and
+common acronyms two sources write differently while describing one job:
 
 ```
 engineering, engineers  → engineer
 internship, internships, interns → intern
 development, developers → developer
+swe, sde → software engineer
 ```
 
-**Word order is kept, and so is the intake.** This is a deliberate choice:
+**Word order is ignored, while the intake and descriptive words stay.** This catches a
+reordered repost without merging a Backend/Platform specialization or two intakes:
 
 ```
 Notion — Software Engineer Intern (Summer 2027)

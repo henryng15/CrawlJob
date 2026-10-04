@@ -1,7 +1,10 @@
-# Two tabs, and who writes where
+# The tabs, and who writes where
 
 The spreadsheet is the interface to the whole system. Understanding who owns which column is
-most of understanding it.
+most of understanding it. `Jobs` and `App` are the tracker itself; `Alphabet_Order` is `App`
+read a second way; `Email` and `Referral` are the two outreach queues; `Season` and
+`Cycle Health` are reports the sender rewrites. A further tab of people lives in a different
+spreadsheet entirely, at the bottom of this page.
 
 ## Tab `Jobs` — still to be applied to
 
@@ -88,16 +91,27 @@ It only blocks the outbound direction. Once a row has reached `App`, ticking `Ex
 afterwards **does not** call it back — `App` is the source of truth. Clear the tick and the row
 travels normally again; there is no stuck state.
 
-### Column H onward — notes
+### Everything past `Expired` — notes
 
-Write anything here and the tool stops touching that row's checkboxes. It is the only way to
-say "the tool matched this wrong", because a bare untick is ticked again on the next run.
+Write anything in column H or beyond and the tool stops touching that row's checkboxes. It is the
+only way to say "the tool matched this wrong", because a bare untick is ticked again on the next
+run. Column H has since been given a specific job — the section below — but it is still one of
+these cells and still has this effect.
 
 > **Why notes have to start at H and not G.** A checkbox column reads back as `FALSE` on
 > *every* row it covers, not as an empty cell. If G counted as the place for notes, the tool
 > would see a note on the whole sheet and stop auto-ticking entirely. That is the bug that had
 > the first version ticking 0 rows while the workflow still reported green. A test pins it:
 > `test_the_expired_column_is_not_read_as_a_note`.
+
+> **The referral link used to live here, and no longer does.** Column H held a hand-pasted
+> application URL and rows waiting for one were painted yellow. The tab was wrong: `Jobs` holds
+> every posting the crawler found, and on the live sheet that was six hundred rows of which two
+> were at a company this project has engineers for. That work moved to the `App` tab's `Official`
+> column, where every row is an application actually made — see
+> [outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter). Nothing on
+> `Jobs` is painted or read by the referral path any more, and `H1` is the crawler's
+> `Last updated: …` caption as it always was.
 
 ### Do not delete rows from `Jobs`
 
@@ -120,9 +134,10 @@ deleting.
 | F | Process | dropdown: Applied / OA / Completed OA / Interview / Offer / Rejected |
 | G | Role | |
 | H | Note | |
-| I | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
-| J | **Recruiter** ☑ | the tool ticks it where that company has a recruiter in the contact list |
-| K | **Update** | stage history, one line per stage |
+| I | Official | filled in **by hand**: the employer's own posting, for when column C is an aggregator's link — see [outreach.md](outreach.md) |
+| J | **Alumni** ☑ | the tool ticks it where that company has an alumnus — see [alumni.md](alumni.md) |
+| K | **Recruiter** ☑ | the tool ticks it where that company has a recruiter in the contact list |
+| L | **Update** | stage history, one line per stage |
 
 `Property` is worked out as **the largest number present + 1**, not the row number — App may
 have had rows deleted out of the middle, and two rows sharing a number is worse than a gap.
@@ -132,22 +147,22 @@ because the coloured-chip `Process` dropdown is made through the Sheets interfac
 Script has no API for setting chip colours. Copying makes the new row identical to the old one,
 whatever way the dropdown happened to be created.
 
-### Columns I and J — `Alumni`, `Recruiter`
+### Columns J and K — `Alumni`, `Recruiter`
 
-Two checkboxes **the tool ticks**, not you. Column I turns on where the `Alumni` tab has
-someone working at that company; column J turns on where that company is in the recruiter list
+Two checkboxes **the tool ticks**, not you. Column J turns on where the `Alumni` tab has
+someone working at that company; column K turns on where that company is in the recruiter list
 shipped with the repo. Both are rewritten from scratch on every sync run, so a tick by hand is
 cleared on the next one — the place to write anything you want kept is column H, `Note`.
 Details in [alumni.md](alumni.md).
 
-> Column J answers *is there a contact anywhere*. **How many of them can actually be written
+> Column K answers *is there a contact anywhere*. **How many of them can actually be written
 > to** is a different question with a different answer, and it lives in the `Email` tab rather
 > than here — see [outreach.md](outreach.md). Nothing in the outreach system writes to `App`.
 
 
 
 These two columns are the **only** cells outside the Jobs tab that the tool writes. They are
-kept narrow (70px and 90px) because nothing else ever goes in them; column K is 300px wide so
+kept narrow (70px and 90px) because nothing else ever goes in them; column L is 300px wide so
 a few stacked lines of history fit.
 
 A row with no match shows an empty tick box, not an empty cell — that is what an unticked
@@ -155,9 +170,9 @@ checkbox normally looks like. Where the cell shows the word `FALSE`, the checkbo
 reached that row yet; the next sync run fixes it, see
 [alumni.md](alumni.md#when-the-cell-shows-the-word-false).
 
-### Column K — `Update`
+### Column L — `Update`
 
-Every time you change `Process` in column F, Apps Script appends one line to the K cell of
+Every time you change `Process` in column F, Apps Script appends one line to the L cell of
 **that same row**, naming the stage just moved to and today's date. Several lines live in one
 cell, separated by line breaks (Alt+Enter):
 
@@ -198,49 +213,100 @@ real.
 From the build onwards every stage change records itself, so `?` only shows up on the rows that
 came before it.
 
+## Tab `Alphabet_Order` — `App` filed by company
+
+`App` is in the order things were applied to, which answers *what have I been doing this week*.
+This tab is the same rows filed by employer, which answers *have I already applied here, and to
+what*. Two questions, one table, so the second is a view rather than a copy.
+
+**The whole tab is one formula, in `A1`.** Nothing else on it is written by anything — not by
+hand, not by Apps Script, not by `job_sync`:
+
+```
+=LET(d, IFERROR(SORT(FILTER(App!A2:L, App!B2:B<>""), 2, TRUE, 4, TRUE), ""),
+  IF(COUNTA(d)=0, App!A1:L1,
+    {App!A1:L1;
+     {CHOOSECOLS(d,1,2,3,4,5,6,7,8,9),
+      ARRAYFORMULA(IF(CHOOSECOLS(d,10)=TRUE,"✓","")),
+      ARRAYFORMULA(IF(CHOOSECOLS(d,11)=TRUE,"✓","")),
+      CHOOSECOLS(d,12)}}))
+```
+
+Sorted by `Company` and then by `Date Applied`, so a company applied to twice reads oldest
+first. The two checkbox columns are turned into `✓` and blank, because a column of `FALSE`
+down a table meant for reading is noise; every other column passes through untouched.
+
+> **The column numbers here have to be kept in step with `App` by hand.** They are the one
+> place in the system that names `App`'s layout by position rather than by header name — the
+> Python half finds `Alumni` and `Recruiter` by their headers, and the Apps Script half has
+> named constants. Inserting `Official` at column I is exactly what once broke it: the header
+> reference was widened to `A1:L1` and the `CHOOSECOLS` indices were not, so the array literal
+> was 12 columns wide on top and 11 underneath. **Add a column to `App` and edit this formula
+> in the same sitting.**
+
+> **Do not write into it, and do not let a script write into it.** Everything below `A1` is
+> that formula's spill range. Put a literal anywhere in it — even the value that is already
+> there — and Sheets collapses the whole tab to `#REF!`. `syncRoleEdit_` in the outreach
+> project used to set the `Role` cell here, back when this tab was a copy kept by hand; that
+> is why it no longer does. See [outreach.md](outreach.md#a-role-corrected-by-hand).
+
+> **If the tab looks empty, read `A1` rather than the tab.** An earlier version wrapped the
+> whole formula in `IFERROR(…, "")`, which turned every structural mistake into a blank tab
+> with nothing to say about itself. The form above only catches the one error worth catching —
+> `App` having no rows yet, which shows the header alone — and lets anything else surface as a
+> visible error.
+
 ## Tab `Email` — the outreach queue
 
-Run `setupOutreachQueue` in Apps Script to create this tab. At this stage it is only an empty,
-human-visible queue: it does **not** read the `App` tab, add an application, contact a recruiter,
-or connect to Gmail.
+`setupOutreachQueue` in the bound script creates the tab. It is **live**: `runOutreachCycle` in
+the sender project appends rows from `App`, drafts them, sends them and records what came back.
 
-The tab is intentionally separate from `App`. `App` remains the source of truth for an
-application; the queue will later record one controlled outreach attempt without putting a
-recruiter's name, email address, or drafted message into this spreadsheet.
+The tab is deliberately separate from `App`. `App` remains the source of truth for an application;
+the queue records one controlled outreach attempt without putting a recruiter's name, email address
+or drafted message into this spreadsheet.
 
-| Column | Meaning |
-|---|---|
-| Queue ID | stable ID for one outreach attempt |
-| App Property | the `Property` value of the related App row |
-| Company / Role / Date Applied | snapshots of the application when queued |
-| Recruiters | how many contacts exist at that company, refreshed hourly |
-| Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
-| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
-| Priority | tick to move this posting to the front of the queue; a checkbox, and the only column here a person writes to |
-| Status / Mode | queue lifecycle and `Draft` versus `Send`; both are dropdowns |
-| Contact Fingerprint | non-reversible fingerprint used to avoid contacting the same address twice |
-| Gmail Draft ID / Gmail Message ID / Sent At | audit references, populated only after Gmail work exists |
-| Result / Last Error / Version | delivery outcome, diagnostic, and concurrency guard |
+Twenty-three columns, in this order:
 
-All rows start empty. The future queue worker will be the only automation allowed to create or
-move them; until then this tab is safe to inspect and format manually.
+| # | Column | Meaning |
+|---|---|---|
+| A–C | Company / Role / Date Applied | snapshots of the application when queued |
+| D | Property | the `Property` value of the related `App` row |
+| E | Recruiters | how many contacts exist at that company, refreshed hourly |
+| F–G | Attempt / Template | which contact at that company this is, and which of the ten hooks it uses |
+| H–I | Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them — projected while `Queued`, fact once written |
+| J | Priority | tick to move this posting to the front of the queue; a checkbox, and one of the few columns here a person writes to |
+| K–L | Status / Mode | queue lifecycle and `Draft` versus `Send`; both dropdowns |
+| M–O | Follow Up / Follow Up Template / Follow Up Status | the day the one chasing reply is booked for, which of the twenty sentences it uses, and where it has got to |
+| P | Contact Fingerprint | non-reversible fingerprint, so the same address is never written to twice |
+| Q–S | Gmail Draft ID / Gmail Message ID / Sent At | audit references |
+| T–W | Result / Last Error / Queue ID / Version | delivery outcome, diagnostic, `P<property>-A<attempt>`, and the concurrency guard |
+
+`Queue ID` sits at the far right rather than first: it identifies a row for a machine, and the
+columns a person opens the tab to read belong on the left.
 
 `Priority` leads `Status` because the two read as one answer: whether this row was asked for, and
-where it has got to.
+where it has got to. The three `Follow Up` columns sit immediately after `Mode` for the same
+reason one column over: they are those questions asked one message later, and they only mean
+anything read next to the status of the email they are chasing.
 
-A tab built before the column existed opens it by itself. `outreachEnsurePriorityColumn_` is the
-first thing `runOutreachCycle` does, before anything reads the queue and outside the per-step
-isolation, so either the layout is right or the run stops without touching a row. It is the sender
-that migrates rather than a button somebody presses because the schema and the code have to change
-together: a tab on the old layout read by the new constants has `Status` where `Mode` should be, so
-no row matches any status, no row counts as having spent a contact, and the next enqueue writes a
-second cold email to people already written to. Deploying the sender is the whole migration, and
-there is no window in between.
+A tab built before those columns existed opens them by itself. `outreachEnsurePriorityColumn_` and
+`outreachEnsureFollowUpColumns_` are the first two things `runOutreachCycle` does, before anything
+reads the queue and outside the per-step isolation, so either the layout is right or the run stops
+without touching a row. They run in that order because the second is written against the layout
+the first produces, and a tab two migrations behind is walked forward twice in one firing.
 
-`setupOutreachQueue` cannot do this itself — it refuses to write `Priority` over a header that says
-`Status`, which is the guard doing its job. `migrateOutreachPriorityColumn` in the bound script is
-the manual equivalent, for a tab being brought up to the current layout by hand; both are
-idempotent and safe to run after the other.
+It is the sender that migrates rather than a button somebody presses because the schema and the
+code have to change together: a tab on an old layout read by the new constants has `Status` where
+`Mode` should be, or `Contact Fingerprint` where `Follow Up` should be, so no row matches any
+status, no row counts as having spent a contact, and the next enqueue writes a second cold email
+to people already written to. Deploying the sender is the whole migration, and there is no window
+in between.
+
+`setupOutreachQueue` cannot do this itself — it refuses to write a header over a different one,
+which is the guard doing its job. `migrateOutreachColumns` in the bound script is the manual
+equivalent, for a tab being brought up to the current layout by hand with the sender switched off;
+it walks both steps and is idempotent, and `migrateOutreachPriorityColumn` is kept as a name that
+calls it.
 
 One tick covers the job, not the row. Ticking any row lifts every row with the same company and
 the same role — the same two tests the one-posting-one-wave rule uses — so a tick on attempt 1 at
@@ -253,8 +319,9 @@ cannot raise the day's cap or the weekly cap on one company, and it cannot send 
 it decides who gets the slots that already existed. The new order shows up in `Scheduled At` on the
 next hourly run, which is where you check that a tick did what you expected.
 
-The design the worker will follow — what enters the queue, in what order, how many go out a
-day, and where the sender lives — is [outreach.md](outreach.md).
+What enters the queue, in what order, how many go out a day, and where the sender lives:
+[outreach.md](outreach.md), and [components/outreach-queue.md](components/outreach-queue.md) for
+the functions themselves.
 
 ### Filling in Role lets the tool tick more
 
@@ -263,6 +330,166 @@ the link agrees character for character. The last audit had 14 such rows out of 
 `Role` and the next sync run ticks a batch more.
 
 Run [`--audit-app`](operations.md#auditing-the-app-tab) to see exactly which rows.
+
+## Tab `Referral` — who has been asked
+
+`setupReferralQueue` in the bound script creates the tab. It is **live**: `planReferralAsks`,
+`draftReferralAsks`, `sendReferralAsks`, `scanReferralReplies` and `replanReferralAsks` are all
+steps of the hourly `runOutreachCycle`, and nothing here needs running by hand.
+
+The `Email` tab records one controlled email to a recruiter about an application you have already
+made. This one records one email to an engineer at that company, asking them to refer you. **Both
+paths start from `App`** — every row is an application deliberately made. The referral path used
+to read `Jobs` instead, which offered hundreds of postings nobody had chosen; having applied is a
+far stronger statement about which intake matters than a word in a job board's title.
+
+Two tabs and not more columns on one, because those are
+two questions a person asks separately — and mixed into one table neither could be scanned, since
+the recruiter rows outnumber the referral rows and both halves would carry the other's columns as
+blanks.
+
+| Column | Meaning |
+|---|---|
+| Company / Role | the application being asked about — one per company, chosen by the planner |
+| Person / Email / Title | which human this is; they lead because they are the row |
+| Tier | `peer` / `mid` / `senior` / `staff`, a dropdown, read off `Title` |
+| Template | which of that tier's ten messages this row uses |
+| Drafted At / Scheduled At | when it appears in `Drafts`, and the hour it leaves them. Both are filled when the row is booked, so a waiting row shows when it is due rather than nothing at all |
+| Priority | tick it and the whole ask jumps to the earliest free slots, ahead of everything queued |
+| Status / Mode | the same seven states the `Email` tab uses, and `Draft` versus `Send`; both dropdowns |
+| Cancel | tick it to call the **whole ask** off. Every row with the same Company and Role goes `Cancelled` too |
+| Job Link | the posting, moved out of third place: it is the longest value on the row and the one nobody reads by eye |
+| Gmail Draft ID | the draft waiting its hour. Deleting that draft in Gmail also calls the message off |
+| Sent At / Result / Last Error | when it went, the id of the message that went, and why it did not go |
+| Queue ID / Version | `R-` and the person's address, and the concurrency guard |
+
+Twenty columns, and the order is the argument. `Person`, `Email` and `Title` come first because
+they are what the tab is opened to read. `Tier` sits beside `Template` because the tier is what
+decides which template is worth using. Everything from `Status` rightwards is the same machinery
+the `Email` tab carries, in the same order and wearing the same status colours, so the two tabs
+read alike exactly where they do the same job — a second colour language for one more tab would
+only have to be learned twice.
+
+`Tier` is a dropdown rather than free text because a tier typed by hand drifts — `Senior`, `sr`,
+`Sr.` — and then no filter finds the seniors.
+
+`Priority` calls up an **ask**, not a row, for the same reason `Cancel` calls one off: lifting one
+of six people above the other five would send the same request twice over, days apart, to
+colleagues who can see each other's mail. Ticking it re-books the whole group into the earliest free
+slots — not merely first among whatever is already due at the same minute, or a row marked urgent on
+Monday and booked for Friday would still go on Friday.
+
+The tick itself only fills the boxes across the ask. The re-booking lands on the **next hourly
+sender run**, which is where you check that a tick did what you expected. The bound script used to
+reorder the tab on the keystroke instead, which meant a tick regrouped the rows by employer and
+redealt the tab's hours behind them — undoing the sender's interleaving until the next cycle undid
+that. Only the sender times this tab.
+
+`Cancel` calls off an **ask**, not a row. The planner picks one representative application per
+employer and asks up to six people about it, so six rows routinely carry the identical Company and
+Role — they are one decision, not six, and ticking any one of them cancels all of them and ticks
+their boxes so the tab shows plainly which rows went together. Rows already `Sent` are left out:
+that message has gone, and marking it cancelled would be the tab claiming something untrue about a
+mailbox it no longer controls.
+
+**To drop one person without dropping the ask**, set that row's `Status` to `Cancelled` by hand
+using the dropdown. The checkbox is the group switch; the dropdown is the single-row one.
+
+The cells are not merged, and that was a deliberate refusal. A merged Cancel cell is the obvious
+way to say "one ask, one checkbox", but merges do not survive the block read-and-write that
+`sortReferralCancelledToBottom` performs, so after a sort the merge would span the wrong rows and a
+tick would cancel people nobody meant to cancel. Group semantics give the same outcome with none of
+that.
+
+`Cancel` sits beside `Status` and `Mode` because those three are the only columns on this tab a
+person touches — a switch that calls off a message has to be next to the state it changes, and an
+audit reference further right would be read past. Ticking it does three things, and only the first
+happens on the keystroke: the row goes `Cancelled` and loses both its timestamps immediately, and
+then on the next hourly cycle the sender discards the Gmail draft it orphaned and hands the row's
+hour to whoever was behind it in the queue. Nothing is un-cancelled by unticking the box; the row
+is out of the line and the way back is a new row.
+
+`Gmail Draft ID` sits between `Cancel` and `Sent At` because that is where it happens in the row's
+life. An earlier layout had no column for it and let the draft's id ride in `Result` until the send
+replaced it with the sent message's id — two different kinds of Gmail id in one cell, tellable
+apart only by also reading `Status`, in the column whose whole job is to say how it went.
+
+Two of the twenty behave differently from their namesakes on the `Email` tab, and each
+difference is deliberate:
+
+- **`Queue ID` is `R-` and the address.** This path asks one person once and never again, so the id
+  is the identity of the row spelled out rather than a number drawn for it; a second row for
+  somebody who already has one is visibly a duplicate. It is the same rule `P12-A2` follows on the
+  `Email` tab.
+- **`Mode` is left blank** when a row is written, so the cell carries the tab's own default. A value
+  written at planning time would overrule a person who set that cell to `Draft`, which is the one
+  direction the mode rules never allow.
+
+### It holds the name and the address, and the `Email` tab does not
+
+That is the plain opposite of the rule a few sections up, and it is a **deliberate decision by the
+sheet's owner** rather than an oversight.
+
+The `Email` tab sends in bulk and unattended, so keeping a recruiter's name and address out of the
+tracker costs nothing and removes a class of accident a screen-share can cause. The `Referral` tab
+is read by a person before anybody is asked, and the question it exists to answer is *who at this
+company have I already asked* — a tab that answers that with a non-reversible fingerprint is a tab
+you have to open the contacts spreadsheet to use, which means row 14 stays anonymous exactly when
+you need to know who row 14 is.
+
+The rules the rows will be created under — which posting, which six people, which day, and why a
+person is asked once and never again — are in
+[outreach.md](outreach.md#the-referral--asking-an-engineer-instead-of-a-recruiter).
+
+## Tab `Season` — employers that look like they run two intakes
+
+Rewritten from `App` by `refreshSeasonTab` on every cycle, never by hand. It lists each employer's
+off-cycle and summer rows so a company running both can be seen at a glance. Rebuilt every firing
+rather than stamped once, for the same reason the `Recruiter` column is: a list of two-intake
+employers from three weeks ago is worse than none, because it looks current.
+
+## Tab `Cycle Health` — did the run finish?
+
+Written by `runOutreachCycle`, newest row first, trimmed to the last 240 runs.
+
+| Column | Meaning |
+|---|---|
+| Run ID | a UUID, so the closing write finds the row it opened |
+| Started At | stamped **before** the schema migration, which is the one fatal step |
+| Finished At | stamped after the last step |
+| Status | `running`, `ok` or `failed` |
+| Failed Steps | which of the eighteen steps threw |
+| Summary | what each step returned, truncated |
+
+**A row that says it started and never says it finished is the point of this tab.** A run that
+dies part way — a timeout, a step that throws outside the isolation — writes no summary and leaves
+nothing in any log a person reads. Before this tab existed, the referral path silently stopped
+being re-timed for weeks while its tests went on passing. If the top row is stuck on `running`,
+that is the symptom.
+
+## The contacts spreadsheet — tab `Employees (seed)`
+
+Not this file. The contacts spreadsheet is a second, separate spreadsheet **owned by the sending
+account**, so that no recruiter's or engineer's address ever lands in the tracker as a side effect
+of an export. It has three tabs: `Contacts (seed)`, `Contacts (manual)` and, for the referral path,
+`Employees (seed)`.
+
+`Employees (seed)` is written wholesale by `src/export_referrals.py` in ColdEmail and imported over
+the tab, so **nothing typed by hand belongs on it** — there is no manual sibling, and a name added
+here is erased by the next export.
+
+| Column | Meaning |
+|---|---|
+| Company | matched to an `App` row by the same company rule the recruiter path uses |
+| Person Name | the greeting |
+| Email | the address; also the key that says this person has been asked already |
+| Title | what decides the tier, ahead of `Seniority` |
+| Domain | what tells the employer's own careers site apart from an aggregator carrying the same posting |
+| Seniority | ColdEmail's own label, read **only** when the title settles nothing, and left empty rather than guessed |
+| LinkedIn | for a person checking a row by hand; nothing reads it |
+| Angle | one sentence about the company, shared by everyone there |
+| Bucket | the industry, which picks the two resume numbers |
+| Verify | where the address was confirmed |
 
 ## Why writing the sheet takes two calls
 

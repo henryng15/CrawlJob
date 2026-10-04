@@ -5,14 +5,21 @@ import pytest
 
 from job_sync.config import Settings
 from job_sync.sheet import (
-    APP_UPDATE,
+    APP_COMPANY_HEADER,
+    APP_FIELDS,
+    APP_LINK_HEADER,
+    APP_PROCESS_HEADER,
+    APP_ROLE_HEADER,
+    APP_UPDATE_HEADER,
     APPLIED,
     EXPIRED,
     HEADERS,
     PROCESS_STAGES,
     SOURCE,
     STAMP,
+    AppLayoutError,
     _census,
+    _column,
     _divided,
     _drop_blocked_rows,
     _drop_dead_rows,
@@ -20,6 +27,7 @@ from job_sync.sheet import (
     _drop_empty_rows,
     _drop_foreign_rows,
     _fill_source,
+    _jobs_checkbox_rule,
     _key,
     _last_stage,
     _layout,
@@ -30,7 +38,9 @@ from job_sync.sheet import (
     _stamp,
     _trimmed,
     _unstamped,
+    _whole_tab,
     _write,
+    app_columns,
 )
 from job_sync.sources import Job, dedupe_jobs, normalize_link, role_key, role_tokens
 
@@ -141,6 +151,22 @@ def test_one_row_survives_per_company_and_role() -> None:
         ("Acme", "2026-08-01"),
         ("Acme", "2026-08-03"),
         ("Beta", "2026-08-04"),
+    ]
+    assert removed == 1
+
+
+def test_dedup_ignores_only_a_company_legal_suffix_and_role_acronym() -> None:
+    rows = [
+        ["Acme LLC", "Software Engineer Intern", "https://jobs.example/a", "2026-08-01"],
+        ["Acme", "SWE Internship", "https://jobs.example/b", "2026-08-02"],
+        ["Acme Robotics", "SWE Internship", "https://jobs.example/c", "2026-08-03"],
+    ]
+
+    unique, removed = _drop_duplicate_identities(rows)
+
+    assert [(row[0], row[2]) for row in unique] == [
+        ("Acme LLC", "https://jobs.example/a"),
+        ("Acme Robotics", "https://jobs.example/c"),
     ]
     assert removed == 1
 
@@ -352,6 +378,19 @@ def test_a_row_appended_this_run_gets_an_empty_checkbox_cell() -> None:
         [HEADERS + ["Applied"], _row("Acme", "2026-08-02", "TRUE"), _row("Zeta", "2026-08-01")]
     )
     assert api.updates[1][2] == [["Applied"], ["TRUE"], [""]]
+
+
+def test_jobs_checkbox_rule_covers_every_row_the_sync_wrote() -> None:
+    """Jobs must not repeat the old fixed-row checkbox boundary."""
+    grid = _jobs_checkbox_rule(sheet_id=7, rows=811)["setDataValidation"]
+    assert grid["range"] == {
+        "sheetId": 7,
+        "startRowIndex": 1,
+        "endRowIndex": 812,
+        "startColumnIndex": APPLIED,
+        "endColumnIndex": EXPIRED + 1,
+    }
+    assert grid["rule"] == {"condition": {"type": "BOOLEAN"}, "showCustomUi": True}
 
 
 def test_the_tail_of_a_shortened_sheet_is_cleared_before_the_write() -> None:
@@ -821,25 +860,42 @@ def test_a_checkbox_that_reached_the_source_column_does_not_look_like_a_source()
 
 
 def test_the_update_column_sits_one_past_the_recruiter_checkbox() -> None:
-    """These three constants describe the same three columns from two files, and
-    they drifted once already. Alumni and recruiter used to be background colours
-    on the row rather than columns of their own; turning them into checkboxes moved
-    Update from J to K, and APP_UPDATE stayed at J. audit_app then read the
-    Recruiter checkbox as the stage history and reported every staged row UNLOGGED.
+    """These three columns are described from two files, and they drifted once
+    already. Alumni and recruiter used to be background colours on the row rather
+    than columns of their own; turning them into checkboxes moved Update from J to
+    K, and the Python constant stayed at J. audit_app then read the Recruiter
+    checkbox as the stage history and reported every staged row UNLOGGED.
 
-    Whatever gets inserted next, this is the relationship that has to hold."""
-    from job_sync.highlight import APP_ALUMNI, APP_RECRUITER
+    Whatever gets inserted next, this is the relationship that has to hold — and it
+    is now asserted as a relationship rather than as three numbers, because the
+    numbers are exactly what the Official migration changes. Pinning them here
+    would mean the .gs and this file had to land in the same commit, which they
+    cannot: the Python ships on the next cron run and the .gs only when somebody
+    pastes it. A test that fails for the whole width of that window is a test that
+    gets deleted.
 
-    assert APP_RECRUITER == APP_ALUMNI + 1
-    assert APP_UPDATE == APP_RECRUITER + 1
-    # Apps Script counts columns from one, so its constants read one higher.
+    The Python half no longer holds a number to compare against at all — it reads
+    row 1 — so what is checked is that the Apps Script still writes these three
+    headers, still in this order, still side by side, under the names the Python
+    looks them up by."""
+    from job_sync.highlight import APP_HEADERS
+
     script = Path("apps_script/sync_applied_to_app.gs").read_text(encoding="utf-8")
-    for name, index in (
-        ("ALUMNI_COL", APP_ALUMNI),
-        ("RECRUITER_COL", APP_RECRUITER),
-        ("UPDATE_COL", APP_UPDATE),
+    columns = {}
+    for name in ("ALUMNI_COL", "RECRUITER_COL", "UPDATE_COL"):
+        found = re.search(rf"\b{name} = (\d+)\b", script)
+        assert found, name
+        columns[name] = int(found.group(1))
+    assert columns["RECRUITER_COL"] == columns["ALUMNI_COL"] + 1
+    assert columns["UPDATE_COL"] == columns["RECRUITER_COL"] + 1
+    # The names, not the numbers, are what the Python matches on now, so the script
+    # writing a different word into any of these three is the breakage to catch.
+    for name, header in (
+        ("ALUMNI_COL", APP_HEADERS[0]),
+        ("RECRUITER_COL", APP_HEADERS[1]),
+        ("UPDATE_COL", APP_UPDATE_HEADER),
     ):
-        assert re.search(rf"\b{name} = {index + 1}\b", script), name
+        assert re.search(rf"getRange\(1, {name}\)\.setValue\('{header}'\)", script), header
 
 
 def test_a_jobright_repost_under_a_new_link_does_not_return_as_work() -> None:
@@ -978,3 +1034,121 @@ def test_a_note_protects_a_row_from_the_liveness_check_as_well(monkeypatch) -> N
 
     live, dropped = _drop_dead_rows([noted])
     assert (dropped, live) == (0, [noted])
+
+
+APP_BEFORE = [
+    "Property",
+    "Company",
+    "Application Link",
+    "Date Applied",
+    "Location (State)",
+    "Process",
+    "Role",
+    "Note",
+    "Alumni",
+    "Recruiter",
+    "Update",
+]
+# What the Apps Script migration leaves behind: Official at position 9, holding a
+# URL pasted by hand, with Alumni, Recruiter and Update each one to the right.
+APP_AFTER = APP_BEFORE[:8] + ["Official"] + APP_BEFORE[8:]
+
+
+def test_every_app_column_this_tool_reads_survives_the_official_insert() -> None:
+    """The columns audit_app and the applied check work from, before and after,
+    with no release in between. Only Update actually moves — but it moves out of
+    the old A:K read, which is what made the last insert report every staged row
+    UNLOGGED, and the point of reading row 1 is that nobody has to work out which
+    of these move and which do not."""
+    wanted = (
+        APP_COMPANY_HEADER,
+        APP_LINK_HEADER,
+        APP_PROCESS_HEADER,
+        APP_ROLE_HEADER,
+        APP_UPDATE_HEADER,
+    )
+    assert app_columns(APP_BEFORE, *wanted) == (1, 2, 5, 6, 10)
+    assert app_columns(APP_AFTER, *wanted) == (1, 2, 5, 6, 11), "Update is column L now"
+
+
+def test_the_columns_come_back_in_the_order_they_were_asked_for() -> None:
+    """They are unpacked positionally at every call site, so the order is the whole
+    contract. Returning them in sheet order would silently swap Company and Link."""
+    assert app_columns(APP_BEFORE, "Role", "Company") == (6, 1)
+
+
+def test_the_required_fields_are_all_found_on_both_layouts() -> None:
+    """APP_FIELDS names the columns and finds them from the same tuple, so a MISSING
+    finding can never be reported against a column read from somewhere else."""
+    assert app_columns(APP_BEFORE, *APP_FIELDS) == (0, 1, 2, 3, 5, 6)
+    assert app_columns(APP_AFTER, *APP_FIELDS) == (0, 1, 2, 3, 5, 6)
+
+
+def test_official_is_not_something_a_row_can_be_missing() -> None:
+    """It is pasted by hand days after the row is written. Requiring it would report
+    every fresh application as MISSING, which is how a real finding gets ignored."""
+    assert "Official" not in APP_FIELDS
+
+
+def test_a_header_that_is_not_there_is_named_rather_than_guessed_at() -> None:
+    """There is always a column at that index and it always holds something, so a
+    fallback would look like it worked. Every missing name is collected first, so a
+    tab nobody has set up says so once instead of one header per run."""
+    with pytest.raises(AppLayoutError) as refused:
+        app_columns(["Property", "Company"], "Company", "Alumni", "Recruiter")
+    named = str(refused.value).partition(";")[0]
+    assert "'Alumni'" in named and "'Recruiter'" in named
+    assert "'Company'" not in named
+
+
+def test_an_empty_tab_is_a_refusal_that_says_so() -> None:
+    """Row 1 of nothing is not row 1 of the old layout."""
+    with pytest.raises(AppLayoutError) as refused:
+        app_columns([], "Company")
+    assert "(nothing)" in str(refused.value)
+
+
+@pytest.mark.parametrize("spelling", ["Company", " Company ", "company", "COMPANY\t", "\nCompany"])
+def test_case_and_surrounding_space_do_not_make_it_a_different_column(spelling: str) -> None:
+    """A header retyped by hand is the same column to everyone looking at the sheet.
+    Refusing over it would make the refusal look like noise."""
+    assert app_columns([spelling], "Company") == (0,)
+
+
+@pytest.mark.parametrize(
+    "other", ["Company Notes", "Companies", "Compan", "Old Company", "Com pany"]
+)
+def test_a_longer_header_is_never_taken_for_the_one_it_starts_with(other: str) -> None:
+    """Matching on the whole reduced string, not a prefix. "Alumni Notes" beside the
+    Alumni checkbox is the likeliest next edit to this tab, and a prefix match would
+    write booleans down it — the hardcoded-index corruption from the other side."""
+    with pytest.raises(AppLayoutError):
+        app_columns([other], "Company")
+
+
+def test_the_first_of_two_identical_headers_wins() -> None:
+    """A duplicate is a mistake in the sheet, and the leftmost is the one the Apps
+    Script writes to and reads back."""
+    assert app_columns(["Company", "Role", "Company"], "Company") == (0,)
+
+
+def test_every_read_of_the_app_tab_asks_for_the_whole_tab() -> None:
+    """A1 with no column letters. A width is a second claim about the layout beside
+    the one row 1 makes: App!A:K was the full span until Official was inserted, and
+    a header outside the range cannot be told apart from one that was never written
+    — so a range one column short turns into a refusal for a reason that is untrue."""
+    assert _whole_tab("App") == "'App'"
+    assert "!" not in _whole_tab("App")
+    assert _whole_tab("Job and Update") == "'Job and Update'"
+
+
+@pytest.mark.parametrize(
+    ("index", "letters"),
+    [(0, "A"), (8, "I"), (9, "J"), (10, "K"), (25, "Z"), (26, "AA"), (27, "AB")],
+)
+def test_a_column_past_z_still_names_itself(index: int, letters: str) -> None:
+    """The index handed to this is read out of row 1 now rather than counted out by
+    hand, so nothing bounds it at 26 any more. One letter returned "[" past Z — a
+    range the API rejects, complaining about a bracket instead of about the column
+    that moved."""
+    assert _column(index) == letters

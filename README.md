@@ -1,7 +1,8 @@
 # Internship Sheet Sync
 
-Reads the public GitHub internship trackers **and the ATS job boards the companies
-themselves run** (Greenhouse, Lever, Ashby), keeps the SWE roles that are relevant, merges
+Reads the public GitHub internship trackers, the ATS job boards the companies
+themselves run (Greenhouse, Lever, Ashby, SmartRecruiters, Personio, Recruitee), and
+optional public job feeds, keeps the SWE roles that are relevant, merges
 the duplicate copies of one posting, then appends them to the `Jobs` tab of a Google Sheet.
 Tick one checkbox and the row moves itself to the `App` tab; the other way round, a job
 already applied to is ticked for you.
@@ -22,7 +23,7 @@ flowchart LR
     T["5 public trackers<br/>(Markdown on GitHub)"]
     B["~19,900 ATS board slugs<br/>Greenhouse · Lever · Ashby"]
     D["discover_boards<br/>weekly · filters out a shortlist"]
-    P["job_sync<br/>GitHub Actions · 9 runs a day"]
+    P["job_sync<br/>GitHub Actions · 17 runs a day<br/>clock lives at cron-job.org"]
     J[("Jobs tab<br/>still to apply to")]
     S["Apps Script<br/>onEdit · immediate"]
     A[("App tab<br/>applied — source of truth")]
@@ -68,16 +69,20 @@ Needs a Google service account that has been shared into the spreadsheet. Detail
 ```
 job_sync/          Python package
   main.py          CLI, the run-time window, prints the results
-  sources.py       fetch + parse the trackers, normalize links, canonicalise role names
+  config.py        the five settings, read from the environment
+  sources.py       fetch + parse trackers/RSS, normalize links, canonicalise role names
   boards.py        asks the Greenhouse / Lever / Ashby job boards
+  feeds.py         optional SmartRecruiters / Personio / Recruitee / Adzuna / USAJOBS feeds
   roles.py         the regexes that decide which roles are kept
   places.py        reads the location, decides whether a job is in the US
   sheet.py         reads/writes the Google Sheet, merges duplicates, ticks Applied, audits
   liveness.py      asks each board whether its posting is still open
   highlight.py     ticks the two Alumni/Recruiter columns on App, paints rows yellow on Alumni
   data/            the list of companies with recruiters + the ATS board shortlist
-apps_script/       runs on Google's side, pasted into the Apps Script editor
-scripts/           run by hand: rebuild the files in data/
+apps_script/       runs on Google's side, pushed with clasp
+  outreach/        the second, standalone project: every email that goes out
+scripts/           run by hand: rebuild data/, set up the cron-job.org clock
+docs/components/   one document per source file — read before changing one
 sources.toml       the list of trackers
 tests/             pytest
 ```

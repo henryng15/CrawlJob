@@ -14,3 +14,6 @@ README.md
 **/.clasp.json
 .clasp.json.example
 **/.clasp.json.example
+# clasp pull materialises Apps Script files as .js; the source of truth here is .gs.
+*.js
+**/*.js

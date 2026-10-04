@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 
 from job_sync.boards import harvest, load_boards
 from job_sync.config import load_settings
+from job_sync.feeds import harvest_feeds
 from job_sync.highlight import highlight
 from job_sync.sheet import append_new_jobs, audit_app
-from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_jobs
+from job_sync.sources import dedupe_jobs, fetch_source, load_sources, parse_source
 
 NEW_YORK = ZoneInfo("America/New_York")
 # The working day as a window, not a list of slots. The seventeen run times live in
@@ -100,12 +101,19 @@ def main() -> None:
         try:
             parsed = [
                 replace(job, source=source.label)
-                for job in parse_jobs(fetch_source(source), now.date())
+                for job in parse_source(fetch_source(source), source, now.date())
             ]
             print(f"{source.name}: {len(parsed)} matching roles")
             jobs.extend(parsed)
         except Exception as error:  # noqa: BLE001 - a tracker must not block the others.
             failures.append(f"{source.name}: {error}")
+    extra = harvest_feeds()
+    jobs.extend(extra.jobs)
+    failures.extend(extra.failures)
+    if extra.jobs:
+        print(f"Additional feeds: {len(extra.jobs)} matching roles")
+    if extra.skipped:
+        print(f"Additional feeds: skipped {extra.skipped} optional feeds without credentials")
     if not jobs:
         raise RuntimeError("No jobs parsed. " + "; ".join(failures))
 

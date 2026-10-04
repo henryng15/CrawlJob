@@ -135,9 +135,10 @@ write.
 Check before trusting it:
 
 ```bash
-uv run pytest -q                  # 194 tests
+uv run pytest -q                            # the Python half
 uv run ruff check .
-node apps_script/harness.js       # 56 assertions for the Apps Script half
+node apps_script/harness.js                 # 387 assertions, bound script
+node apps_script/outreach/harness.js        # 570 assertions, sender
 ```
 
 ## 4. GitHub Actions
@@ -149,34 +150,48 @@ Add the secrets at **Settings → Secrets and variables → Actions**:
 - `GOOGLE_SHEET_TAB` — only if the tab is not named `Jobs`
 - `GOOGLE_SHEET_APP_TAB` — only if the tab is not named `App`
 
-The workflow at [`.github/workflows/sync.yml`](../.github/workflows/sync.yml) runs every 90
-minutes from 09:00 to 18:00 `America/New_York`: 9:00, 10:30, 12:00, 13:30, 15:00, 16:30 and
-18:00, 19:30 and 21:00 — nine runs a day, and every one of them asks the ATS boards.
+[`.github/workflows/sync.yml`](../.github/workflows/sync.yml) runs every 45 minutes from 09:00
+to 21:00 `America/New_York` — seventeen runs a day, every one of them asking the ATS boards. A
+run takes about two minutes.
 
-GitHub cron only accepts UTC, and New York moves between EST and EDT twice a year. So the
-schedule is written as two crons, `0 13,16,19,22` and `30 14,17,20`, which are those seven
-ET times while EDT is in force, and `--scheduled` refuses only a run arriving outside the
-08:00–22:59 ET working window. The window is wider than the schedule at each end,
-which is what carries it through the November change: the same crons land an hour early once
-EST starts, and all nine runs still pass. A run takes about four minutes.
+**The clock is not GitHub's.** `sync.yml` has no `schedule:` block. GitHub delivered its cron
+firings a median 25 minutes late over 21–27 August 2026 — p90 74, worst 106 — which a 45-minute
+cadence cannot absorb. Four jobs at **cron-job.org**, created by
+`scripts/setup_cron_job_org.sh`, fire the workflow through the dispatch API instead; a dispatch
+starts within a second. That script needs a cron-job.org API key and a GitHub token with
+`workflow` scope.
 
-To run it by hand use **Run workflow**; there is no `--scheduled` then, so it ignores the
-time window and crawls straight away.
+Because the clock is external, the schedule is stated in `America/New_York` and nothing needs
+shifting by hand when EST starts. `--scheduled` is no longer passed, so the ET window lives in
+the cron schedule rather than in the Python.
+
+To run it by hand use **Run workflow**; it always crawls.
 
 ## 5. Apps Script
 
-The two files in [`apps_script/`](../apps_script/) run on Google's side, not on Python's.
-Open the spreadsheet → **Extensions → Apps Script**, paste each file in, Save.
+The three files in [`apps_script/`](../apps_script/) run on Google's side, not on Python's.
+Push them with `clasp` — never paste, because a pasted file is a version nobody can identify
+afterwards. See [`apps_script/README.md`](../apps_script/README.md).
 
 | File | Function to run | What it does |
 |---|---|---|
-| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | builds the `Applied` (F) and `Expired` (G) checkboxes on the Jobs tab |
-| | `setupAppColumns` | builds `Alumni` (I), `Recruiter` (J) and `Update` (K) on the App tab |
-| `setup_process_dropdown.gs` | `setupProcessDropdown` | builds the coloured `Process` dropdown on the App tab |
+| `sync_applied_to_app.gs` | `setupJobsCheckboxes` | the `Applied` (F) and `Expired` (G) checkboxes on `Jobs` |
+| | `setupAppColumns` | `Official` (I), `Alumni` (J), `Recruiter` (K), `Update` (L) on `App` |
+| | `installAppOfficialTrigger` | the hourly housekeeping sweep |
+| `setup_process_dropdown.gs` | `setupProcessDropdown` | the coloured `Process` dropdown on `App` |
+| `external_application_api.gs` | `configureExternalApplicationApi` | the Web App endpoint for the Chrome extension |
 
-Running each setup function once is enough; `onEdit` is a simple trigger, so Google calls it
-itself and no trigger has to be installed by hand. The first time, Google asks for
-permission: Review permissions → pick the account → Advanced → Go to (project) → Allow.
+The sender is a **separate** standalone project — see
+[`apps_script/outreach/README.md`](../apps_script/outreach/README.md).
+
+Running each setup function once is enough. `onEdit` is a **simple** trigger — Google calls it
+itself and nothing has to be installed. `runHourlyHousekeeping` is an **installed** clock
+trigger, which is what `installAppOfficialTrigger` puts in place; it exists because an edit
+trigger is not guaranteed, and a paste, a fill-down or an undo fires nothing at all. It sinks
+called-off `Referral` rows and nothing else — the `App` worklist moved to the sender's hourly
+cycle on 2026-08-30, so stopping this trigger no longer stops `App` being reordered. The first
+time, Google asks for permission: Review permissions → pick the account → Advanced → Go to
+(project) → Allow.
 
 > **Careful with `setupProcessDropdown`.** It overwrites the data validation of the whole of
 > `F2:F500` on the App tab. If your current dropdown was made through the Sheets UI (the
@@ -187,9 +202,9 @@ permission: Review permissions → pick the account → Advanced → Go to (proj
 
 Free, all of it.
 
-- **GitHub Actions** — a public repo has no minute limit. A private repo has the free tier's
-  2000 minutes a month, and the current schedule uses roughly 1,350. See the budget table
-  in [operations.md](operations.md) for where that goes.
+- **GitHub Actions** — a public repo has no minute limit. `sync.yml` names a 3,000-minute
+  month; the current schedule uses roughly 1,760. See the budget table in
+  [operations.md](operations.md).
 - **Apps Script** — a 90-minute-a-day runtime quota on an ordinary account; each tick costs
   about a second.
 - **Google Sheets API** — a limit of 60 requests a minute a user, and each sync uses about a

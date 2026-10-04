@@ -95,6 +95,11 @@ function outreachParseApp_(row, index) {
     company: outreachCell_(row, APP_COMPANY),
     role: outreachCell_(row, APP_ROLE),
     process: outreachCell_(row, APP_PROCESS),
+    // Carried for outreach_rejections.gs, which reads the host and the
+    // requisition number out of them — the two things that name an application
+    // when the company cell is misspelled or the sender is a bare ATS tenant.
+    link: outreachCell_(row, APP_LINK),
+    official: outreachCell_(row, APP_OFFICIAL),
     dateApplied: dateApplied
   };
 }
@@ -119,8 +124,20 @@ function outreachParseQueue_(row, index) {
     id: outreachCell_(row, Q_ID),
     status: outreachCell_(row, Q_STATUS),
     mode: outreachCell_(row, Q_MODE),
+    // The three follow-up cells, read as one fact the way Drafted At and
+    // Scheduled At are: the day the nudge is booked for, which of the twenty it
+    // will use, and whether it has gone. A blank status is the important value
+    // here — it means nothing has decided about this row yet, which is what makes
+    // the planner idempotent without keeping a list of what it has already seen.
+    followUpAt: outreachDate_(row[Q_FOLLOWUP_AT - 1]),
+    followUpTemplate: Number(outreachCell_(row, Q_FOLLOWUP_TEMPLATE)) || 0,
+    followUpStatus: outreachCell_(row, Q_FOLLOWUP_STATUS),
     fingerprint: outreachCell_(row, Q_FINGERPRINT),
     draftId: outreachCell_(row, Q_DRAFT_ID),
+    // Parsed rather than read out of a second range the way scanOutreachReplies
+    // does it. A follow-up is a reply on the thread this id names, so the id is
+    // part of what a row *is* now, not an audit reference fetched when needed.
+    messageId: outreachCell_(row, Q_MESSAGE_ID),
     sentAt: outreachDate_(row[Q_SENT_AT - 1]),
     priority: outreachTicked_(row[Q_PRIORITY - 1]),
     // The raw cell as well as the reading of it. Both are ticked; only the text
@@ -128,6 +145,11 @@ function outreachParseQueue_(row, index) {
     // rewrite the same cell on every firing.
     priorityText: outreachCell_(row, Q_PRIORITY)
   };
+}
+
+/** Whether a normal Email row has an explicit off-Target direct-send time. */
+function outreachOffTargetEmailQueueRow_(row) {
+  return /^OFFTARGET-EMAIL-(NIGHT|EARLY|WEEKEND)-/.test(String(row && row.id || ''));
 }
 
 /**
@@ -145,7 +167,7 @@ function outreachParseQueue_(row, index) {
  * Applied → Completed OA is not that: it is the same application, further along,
  * and the wave carries on from where it was rather than starting over.
  */
-function outreachAttemptsWanted_(app, existing, available, headroom, today) {
+function outreachAttemptsWanted_(app, existing, available, total, headroom, today) {
   if (!outreachQualifies_(app.process)) return { count: 0, from: 1, why: 'process is ' + app.process };
   if (!app.company || !app.role) return { count: 0, from: 1, why: 'company or role is blank' };
   if (!app.dateApplied) return { count: 0, from: 1, why: 'no Date Applied to order by' };
@@ -154,35 +176,37 @@ function outreachAttemptsWanted_(app, existing, available, headroom, today) {
   }
 
   // Cancelled and Failed spend nothing: nothing went out.
-  var spent = existing.filter(function (r) {
+  var used = existing.filter(function (r) {
     return r.status !== STATUS_CANCELLED && r.status !== STATUS_FAILED;
   }).length;
 
   // A finished wave needs silence before the next one opens. Mid-wave — which is
   // where a company with only two contacts sits until a third is typed in — the
   // gate does not apply, because those emails were always meant to go together.
-  if (spent && spent % WAVE_SIZE === 0) {
+  if (used && used % WAVE_SIZE === 0) {
     if (existing.some(function (r) { return r.status === STATUS_REPLIED; })) {
-      return { count: 0, from: spent + 1, why: 'someone replied; no further wave' };
+      return { count: 0, from: used + 1, why: 'someone replied; no further wave' };
     }
     var lastSent = null;
     existing.forEach(function (r) {
       if (r.sentAt && (!lastSent || r.sentAt.getTime() > lastSent.getTime())) lastSent = r.sentAt;
     });
-    if (!lastSent) return { count: 0, from: spent + 1, why: 'the current wave has not gone out yet' };
+    if (!lastSent) return { count: 0, from: used + 1, why: 'the current wave has not gone out yet' };
     if (outreachDaysBetween_(lastSent, today) < WAVE_GAP_DAYS) {
-      return { count: 0, from: spent + 1, why: 'waiting out the ' + WAVE_GAP_DAYS + '-day gap' };
+      return { count: 0, from: used + 1, why: 'waiting out the ' + WAVE_GAP_DAYS + '-day gap' };
     }
   }
 
-  var room = Math.min(WAVE_SIZE - (spent % WAVE_SIZE), available, headroom);
+  var room = Math.min(WAVE_SIZE - (used % WAVE_SIZE), available, headroom);
   if (room <= 0) {
     var why = available <= 0
-      ? (spent ? 'everyone at that company has been written to' : 'no usable contact there')
+      ? (total ? 'everyone there is written to, or inside the '
+                 + SEASON_RECONTACT_DAYS + '-day gap since their other intake'
+               : 'no usable contact there')
       : 'company is at its weekly cap';
-    return { count: 0, from: spent + 1, why: why };
+    return { count: 0, from: used + 1, why: why };
   }
-  return { count: room, from: spent + 1, why: '' };
+  return { count: room, from: used + 1, why: '' };
 }
 
 /**
@@ -207,36 +231,143 @@ function outreachCompanySendsThisWeek_(queueRows, company, today) {
 }
 
 /**
- * The first contact at this company nobody has written to yet.
+ * Whether this person can be written to about this intake, today.
+ *
+ * Two rules, and they are different in kind. Within one intake the fingerprint is
+ * final: written to is written to, forever. Across intakes the block is a clock —
+ * Winter and Summer are two occasions to write about, and the only thing that
+ * makes the second one land is that enough has happened in between.
+ *
+ * An unsent row in the other bucket blocks outright rather than being measured.
+ * There is no date to measure from: a row still Queued has a send date that moves
+ * every time the queue does, and treating "not yet sent" as "sent long ago" would
+ * schedule both intakes' emails into the same week.
+ *
+ * One predicate, used both to count what is free and to pick from it. Counting
+ * with a looser rule than picking is how outreachAttemptsWanted_ ends up promising
+ * three emails that outreachPickContact_ can only fill two of.
+ */
+function outreachContactAvailable_(contact, spent, salt, season, today) {
+  // The Sent tick on the contacts tab comes first and is unconditional. It
+  // outlives the queue: `spent` is built from the Email tab, so emptying that tab
+  // makes every fingerprint look unspent, and this is what still says no.
+  if (contact.sent) return false;
+  if (spent[outreachFingerprint_(contact.email, salt, season)]) return false;
+  var other = spent[outreachFingerprint_(contact.email, salt, outreachOtherSeason_(season))];
+  if (!other) return true;
+  if (other.final) return false;
+  if (!other.sentAt) return false;
+  return outreachDaysBetween_(other.sentAt, today) >= SEASON_RECONTACT_DAYS;
+}
+
+/**
+ * The first contact at this company who may be written to about this intake.
  *
  * Fingerprints are checked across the whole queue, not just this application:
  * the same person reached through two different applications is still the same
  * person receiving a second cold email.
  */
-function outreachPickContact_(companyContacts, usedFingerprints, salt) {
+function outreachPickContact_(companyContacts, spent, salt, season, today) {
   for (var i = 0; i < companyContacts.length; i++) {
-    var print = outreachFingerprint_(companyContacts[i].email, salt);
-    if (!usedFingerprints[print]) return { contact: companyContacts[i], fingerprint: print };
+    if (!outreachContactAvailable_(companyContacts[i], spent, salt, season, today)) continue;
+    return {
+      contact: companyContacts[i],
+      fingerprint: outreachFingerprint_(companyContacts[i].email, salt, season)
+    };
   }
   return null;
 }
 
 /**
+ * The employers on the Target tab, as company-token lists.
+ *
+ * Target is maintained by the bound tracker script; the sender owns the decision
+ * about who may be written to. Read here so that a name added to Target by hand
+ * becomes a hard exclusion on the next cold cycle.
+ *
+ * Returns null when the tab cannot be read, and the planner treats that as a
+ * reason to send nothing rather than as permission to send to everybody.
+ *
+ * NOTE: the referral path grew its own reader of this tab in work that is not
+ * committed yet. When that lands, these two must be collapsed into one -- two
+ * readers of one tab is how the two paths end up disagreeing about which
+ * companies are hand-written, and the referral tab spent months with two
+ * schedulers for exactly that kind of reason.
+ */
+var COLD_TARGET_BLOCK_COLS = [1, 9, 17, 25];
+var COLD_TARGET_READ_WIDTH = 31;
+
+function outreachColdTargetCompanies_(tracker) {
+  var target = tracker.getSheetByName('Target');
+  if (!target) return null;
+  var last = target.getLastRow();
+  if (last < 2) return {};
+  var values;
+  try {
+    values = target.getRange(2, 1, last - 1, COLD_TARGET_READ_WIDTH).getValues();
+  } catch (error) {
+    Logger.log('Target could not be read; cold planning is held: '
+      + String(error.message || error));
+    return null;
+  }
+  var companies = {};
+  values.forEach(function (row) {
+    COLD_TARGET_BLOCK_COLS.forEach(function (column) {
+      var name = outreachCell_(row, column);
+      if (!name) return;
+      var tokens = outreachCompanyTokens_(name);
+      if (tokens.length) companies[tokens.join('\u0000')] = tokens;
+    });
+  });
+  return companies;
+}
+
+function outreachCompanyOnTarget_(company, targetCompanies) {
+  if (!targetCompanies) return false;
+  var tokens = outreachCompanyTokens_(company);
+  if (!tokens.length) return false;
+  return Object.keys(targetCompanies).some(function (key) {
+    return outreachSameEmployer_(tokens, targetCompanies[key]);
+  });
+}
+
+/**
  * Build the rows to append. Pure: hand it data, get back rows and reasons.
  */
-function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
+function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt, targetCompanies) {
   var byProperty = {};
-  var usedFingerprints = {};
+  // Fingerprint to what is known about it: whether anything has actually gone, and
+  // when. A boolean was enough while a person could only ever be written to once;
+  // the across-intake rule needs a date, and the only date the queue holds for a
+  // person is on the row that reached them.
+  var spent = {};
   queueRows.forEach(function (r) {
     (byProperty[r.property] = byProperty[r.property] || []).push(r);
-    if (r.fingerprint && STATUS_SPENDS_CONTACT.indexOf(r.status) !== -1) {
-      usedFingerprints[r.fingerprint] = true;
+    if (!r.fingerprint || STATUS_SPENDS_CONTACT.indexOf(r.status) === -1) return;
+    // Two endings are about the person, not about the posting, and no gap undoes
+    // either. A bounce says the address is dead, and it will be just as dead for
+    // the other intake. A reply says they have been reached — there is a human to
+    // talk to now, and a cold email about the next opening talks past them. Both
+    // close the person in every bucket, which is what the address being "spent for
+    // good" has always meant.
+    var final = r.status === STATUS_BOUNCED || r.status === STATUS_REPLIED;
+    var known = spent[r.fingerprint];
+    if (!known) { spent[r.fingerprint] = { sentAt: r.sentAt || null, final: final }; return; }
+    if (final) known.final = true;
+    // The latest send wins. Two rows sharing a fingerprint should not happen, but
+    // the older of the two is the wrong one to measure a gap from if it does.
+    if (r.sentAt && (!known.sentAt || r.sentAt.getTime() > known.sentAt.getTime())) {
+      known.sentAt = r.sentAt;
     }
   });
 
   var planned = [];
   var skipped = [];
   var pretendSent = queueRows.slice();
+  // Existing rows keep the template the tab already promised. New rows take the
+  // least-used of the ten, so several people at one employer do not all read the
+  // same message.
+  var templateLoad = outreachColdTemplateLoad_(queueRows);
 
   // One posting gets one wave, however many times it was applied to.
   //
@@ -258,12 +389,19 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
     waves.push({
       property: row.property,
       tokens: outreachCompanyTokens_(row.company),
-      role: outreachRoleTokens_(row.role)
+      role: outreachRoleTokens_(row.role),
+      season: outreachSeason_(row.role)
     });
   });
-  var waveOwner = function (tokens, role, property) {
+  // Two intakes are never one posting, however alike they read — and they read
+  // very alike. "Software Engineer Intern - Winter 2027" against the same title
+  // ending in Summer differs by one word in six, which is 0.67 overlap and sails
+  // past ROLE_MATCH: without this line the Summer application is skipped as a
+  // duplicate of the Winter one, which is the opposite of what it is.
+  var waveOwner = function (tokens, role, season, property) {
     for (var i = 0; i < waves.length; i++) {
       if (waves[i].property === property) continue;
+      if (waves[i].season !== season) continue;
       if (!outreachSameEmployer_(tokens, waves[i].tokens)) continue;
       if (outreachSameRole_(role, waves[i].role)) return waves[i].property;
     }
@@ -273,27 +411,48 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
   outreachRankApplications_(appRows).forEach(function (app) {
     var existing = byProperty[app.property] || [];
     var companyContacts = outreachContactsFor_(contacts, app.company);
+    var season = outreachSeason_(app.role);
     var free = companyContacts.filter(function (c) {
-      return !usedFingerprints[outreachFingerprint_(c.email, salt)];
+      return outreachContactAvailable_(c, spent, salt, season, today);
     });
     // pretendSent grows as this loop plans: two applications to one employer in a
     // single run must share the allowance, not each be told it is free.
     var headroom = COMPANY_WEEKLY_CAP
       - outreachCompanySendsThisWeek_(pretendSent, app.company, today);
 
+    // Target companies are written to by hand, on both paths. The referral path
+    // has excluded them since it was built (outreachReferralAdmission_ answers
+    // 'target-company'); this is the cold path catching up.
+    //
+    // `null` means the tab could not be read, and that holds planning rather than
+    // opening it: the referral path already treats an unreadable Target as
+    // 'target-unavailable' and books nothing, and a cold path that guessed the
+    // other way would email a company the moment the tab was renamed.
+    if (!targetCompanies) {
+      skipped.push({ property: app.property, company: app.company,
+                     why: 'the Target tab could not be read' });
+      return;
+    }
+    if (outreachCompanyOnTarget_(app.company, targetCompanies)) {
+      skipped.push({ property: app.property, company: app.company,
+                     why: 'a Target company, written to by hand' });
+      return;
+    }
+
     var tokens = outreachCompanyTokens_(app.company);
     var role = outreachRoleTokens_(app.role);
-    var owner = waveOwner(tokens, role, app.property);
+    var owner = waveOwner(tokens, role, season, app.property);
     if (owner) {
       skipped.push({
         property: app.property,
         company: app.company,
-        why: 'the same posting is already being written about on P' + owner
+        why: 'the same ' + season + ' posting is already being written about on P' + owner
       });
       return;
     }
 
-    var want = outreachAttemptsWanted_(app, existing, free.length, headroom, today);
+    var want = outreachAttemptsWanted_(
+      app, existing, free.length, companyContacts.length, headroom, today);
 
     if (!want.count) {
       skipped.push({ property: app.property, company: app.company, why: want.why });
@@ -304,13 +463,17 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
     var bucket = outreachBucketFor_(companyContacts);
     for (var n = 0; n < want.count; n++) {
       var attempt = want.from + n;
-      var pick = outreachPickContact_(companyContacts, usedFingerprints, salt);
+      var pick = outreachPickContact_(companyContacts, spent, salt, season, today);
       if (!pick) break;
-      usedFingerprints[pick.fingerprint] = true;
+      // Nothing has gone to this person yet, so the other intake stays blocked
+      // until it does. A row planned in this run must not read as an old send.
+      spent[pick.fingerprint] = { sentAt: null, final: false };
       pretendSent.push({ company: app.company, status: STATUS_QUEUED, sentAt: null });
       if (n === 0) {
-        waves.push({ property: app.property, tokens: tokens, role: role });
+        waves.push({ property: app.property, tokens: tokens, role: role, season: season });
       }
+      var template = outreachColdTemplateFor_(templateLoad);
+      templateLoad[template] = (templateLoad[template] || 0) + 1;
       planned.push({
         id: 'P' + app.property + '-A' + attempt,
         recruiters: companyContacts.length,
@@ -322,7 +485,7 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
         attempt: attempt,
         // Decided here rather than at send time, so the tab says which of the ten
         // is coming before it goes rather than after.
-        template: outreachVariantFor_(attempt, pick.contact.focus, bucket),
+        template: template,
         eligibleAt: outreachEligibleDay_(app.dateApplied, attempt),
         fingerprint: pick.fingerprint,
         contact: pick.contact,
@@ -335,6 +498,269 @@ function outreachPlanEnqueue_(appRows, queueRows, contacts, today, salt) {
   });
 
   return { planned: planned, skipped: skipped };
+}
+
+/**
+ * The employers that look like they run two intakes.
+ *
+ * "Potentially" is doing real work in that description. Nothing here reads a
+ * careers page; it reads what the tracker was told, under the rule that a role
+ * naming Winter or Spring is off-cycle and every other role is Summer. So an
+ * employer shows up here the moment one application says Winter — even with no
+ * Summer row yet — because the Summer row is the one that does not have to say
+ * anything to qualify, and it will arrive.
+ *
+ * Which is the point of the tab: the contact list is the scarce thing, and it is
+ * worth knowing that a company will want a second wave *before* its five weekly
+ * emails have been spent on the first.
+ *
+ * Employers with nothing off-cycle are left out. Under this rule they are the
+ * whole rest of the sheet, and a report listing everything reports nothing.
+ */
+function outreachSeasonReport_(appRows, contacts) {
+  var byCompany = {};
+  var order = [];
+  appRows.forEach(function (app) {
+    if (!app.company) return;
+    var tokens = outreachCompanyTokens_(app.company);
+    if (!tokens.length) return;
+    var key = tokens.join(' ');
+    if (!byCompany[key]) {
+      byCompany[key] = { company: app.company, offcycle: [], summer: [] };
+      order.push(key);
+    }
+    var group = byCompany[key];
+    // The name kept is the longest one seen. Two rows write one employer as
+    // "Amex" and "American Express"; the tab is read by a person, and the short
+    // one is the one that needs looking up.
+    if (app.company.length > group.company.length) group.company = app.company;
+    (outreachSeason_(app.role) === SEASON_OFFCYCLE ? group.offcycle : group.summer)
+      .push(app);
+  });
+
+  var rows = [];
+  order.forEach(function (key) {
+    var group = byCompany[key];
+    if (!group.offcycle.length) return;
+    // Nobody to write to, nothing to plan. The tab exists to say where a second
+    // wave is coming before the contact budget is spent on the first, and an
+    // employer with no contacts has no budget to spend and no wave to expect —
+    // it is a row that can only ever be read and then skipped over.
+    var recruiters = outreachRecruiterCount_(contacts, group.company);
+    if (!recruiters) return;
+    var both = group.summer.length > 0;
+    rows.push([
+      group.company,
+      group.offcycle.length,
+      group.summer.length,
+      both ? 'Both intakes applied to' : 'Off-cycle only — a Summer row is still to come',
+      outreachSeasonProperties_(group.offcycle),
+      outreachSeasonProperties_(group.summer),
+      recruiters,
+      // The roles as written, because the rule reads them literally and this is
+      // the column that shows it misreading one. A title that lost its "Winter"
+      // in the paste lands under Summer, and the only place that is visible is
+      // next to the off-cycle row it should have joined.
+      group.offcycle.concat(group.summer).map(function (a) {
+        return a.role || '(blank)';
+      }).join(' | ')
+    ]);
+  });
+  // Most applications first: the employer with six rows across two intakes is the
+  // one whose contact budget is about to be a problem.
+  return rows.sort(function (a, b) {
+    return (b[1] + b[2]) - (a[1] + a[2]) || String(a[0]).localeCompare(String(b[0]));
+  });
+}
+
+function outreachSeasonProperties_(apps) {
+  return apps.map(function (a) { return 'P' + a.property; }).join(', ');
+}
+
+var SEASON_HEADERS = ['Company', 'Off-cycle', 'Summer', 'Reading', 'Off-cycle rows',
+                      'Summer rows', 'Recruiters', 'Roles as written'];
+var SEASON_WIDTHS  = [200, 80, 80, 260, 150, 150, 90, 460];
+
+/**
+ * Rewrite the Season tab from App.
+ *
+ * Cleared and rewritten whole rather than reconciled row by row. It holds no
+ * state anybody else reads — no fingerprint, no status, nothing the sender
+ * consults — so the cheapest correct thing is to throw it away and say it again.
+ *
+ * Public and without the trailing underscore, so it can be run from the editor's
+ * Run menu on its own; the hourly cycle calls it as its last step.
+ */
+function refreshSeasonTab() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var app = tracker.getSheetByName(TAB_APP);
+  if (!app) throw new Error('No ' + TAB_APP + ' tab.');
+
+  var sheet = tracker.getSheetByName(TAB_SEASON) || tracker.insertSheet(TAB_SEASON);
+  var appLast = app.getLastRow();
+  var appRows = appLast < 2 ? []
+    : app.getRange(2, 1, appLast - 1, APP_RECRUITERS).getValues().map(outreachParseApp_);
+  var rows = outreachSeasonReport_(appRows, outreachReadContacts_(contactsBook));
+
+  sheet.clear();
+  sheet.getRange(1, 1, 1, SEASON_HEADERS.length)
+       .setValues([SEASON_HEADERS])
+       .setFontWeight('bold')
+       .setBackground('#D9EAD3')
+       .setHorizontalAlignment('center');
+  sheet.setFrozenRows(1);
+  SEASON_WIDTHS.forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
+  if (rows.length) sheet.getRange(2, 1, rows.length, SEASON_HEADERS.length).setValues(rows);
+
+  Logger.log('Season: ' + rows.length + ' employer(s) with an off-cycle intake.');
+  return rows.length;
+}
+
+/**
+ * Re-fingerprint the off-cycle rows that were written before intakes existed.
+ *
+ * Summer needed no migration — it hashes to what it always did. Off-cycle rows do,
+ * and the failure without this is quiet rather than loud: a Winter row already sent
+ * carries the unscoped hash, which is the hash the *Summer* bucket now uses. So the
+ * queue reads that row as "this person has heard about Summer", the off-cycle
+ * bucket looks untouched, and 25 days later the same recruiter is written to about
+ * Winter a second time. One extra email rather than a flood, but it is the one
+ * thing this whole change exists to prevent.
+ *
+ * Run once, by hand, after the new code is pushed and before the next cycle. It is
+ * idempotent: a row already carrying its scoped fingerprint no longer resolves
+ * under the legacy hash and is left alone.
+ *
+ * The address never lands in the sheet. The old fingerprint is matched back to a
+ * contact in the contacts book, the new one is computed from that address, and only
+ * the hash is written — the same one-way path the queue has always had.
+ */
+function backfillSeasonFingerprints() {
+  var tracker = SpreadsheetApp.openById(outreachProperty_(PROP_TRACKER_ID, true));
+  var contactsBook = SpreadsheetApp.openById(outreachProperty_(PROP_CONTACTS_ID, true));
+  var salt = outreachProperty_(PROP_SALT, true);
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  var last = queue.getLastRow();
+  if (last < 2) return 0;
+  var contacts = outreachReadContacts_(contactsBook);
+  var rows = queue.getRange(2, 1, last - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
+
+  var moved = 0;
+  var missing = [];
+  rows.forEach(function (row) {
+    if (!row.fingerprint) return;
+    if (outreachSeason_(row.role) !== SEASON_OFFCYCLE) return;
+    var companyContacts = outreachContactsFor_(contacts, row.company);
+    var contact = outreachContactByFingerprint_(companyContacts, row.fingerprint, salt);
+    if (!contact) {
+      // The person has left the contact list. Without an address there is nothing
+      // to recompute from, and inventing a hash is worse than leaving a stale one.
+      missing.push(row.rowNumber);
+      return;
+    }
+    var print = outreachFingerprint_(contact.email, salt, SEASON_OFFCYCLE);
+    // Idempotent: a row migrated by an earlier run already holds this value.
+    if (print === row.fingerprint) return;
+    var update = {};
+    update[Q_FINGERPRINT] = print;
+    outreachWriteRow_(queue, row.rowNumber, update);
+    moved++;
+  });
+
+  Logger.log('Re-fingerprinted ' + moved + ' off-cycle row(s); left '
+           + missing.length + ' that no longer resolve to a contact.');
+  return moved;
+}
+
+/**
+ * Whether an edit landed on a Role cell in App.
+ *
+ * The crawlers are the reason this exists. A posting whose title carries its
+ * intake reaches the sheet with that word dropped often enough that correcting one
+ * by hand is routine, and the correction changes which intake the application is
+ * for — which changes whether its recruiters may be written to again. Typed and
+ * then left to be noticed an hour later, it reads as nothing having happened.
+ */
+function outreachEditTouchesRole_(tabName, range) {
+  if (tabName !== TAB_APP) return false;
+  if (range.getColumn() > APP_ROLE || range.getLastColumn() < APP_ROLE) return false;
+  return range.getLastRow() >= 2;
+}
+
+/**
+ * What a corrected Role means for that application's queue rows.
+ *
+ * Two different things, and the difference is what has already left the building.
+ *
+ * The Role text is copied onto every row, settled or not, because the tab is read
+ * by a person and a queue row disagreeing with `App` about what the job is called
+ * is a tab that cannot be trusted on the one column it exists to explain.
+ *
+ * The fingerprint moves bucket only on a row that has not gone out. A `Sent` row
+ * records who was written to and which intake it was spent on; that is history,
+ * and rewriting it would hand back a person who has already had their email. A
+ * `Queued` row has spent nothing yet, so leaving it in the wrong bucket is the
+ * actively dangerous half: the row would go out about Winter while still holding
+ * Summer's hash, the off-cycle bucket would read as free, and the next enqueue
+ * would write to the same person about Winter a second time.
+ */
+function outreachRolePlan_(queueRows, property, role, contacts, salt) {
+  var season = outreachSeason_(role);
+  var planned = [];
+  queueRows.forEach(function (row) {
+    if (row.property !== property) return;
+    var updates = {};
+    if (row.role !== role) updates[Q_ROLE] = role;
+
+    var open = row.status === STATUS_QUEUED || row.status === STATUS_DRAFTED;
+    if (open && row.fingerprint) {
+      var contact = outreachContactByFingerprint_(
+        outreachContactsFor_(contacts, row.company), row.fingerprint, salt);
+      if (contact) {
+        var print = outreachFingerprint_(contact.email, salt, season);
+        if (print !== row.fingerprint) updates[Q_FINGERPRINT] = print;
+      }
+    }
+    if (Object.keys(updates).length) {
+      planned.push({ rowNumber: row.rowNumber, updates: updates });
+    }
+  });
+  return planned;
+}
+
+/**
+ * Carry a corrected Role out to the queue rows that repeat it.
+ *
+ * Deliberately does not enqueue. Everything here rearranges what is already
+ * written; opening a wave is the hourly cycle's job, and an edit trigger that
+ * could start one would mean a keystroke in a cell was the thing that decided an
+ * email goes out. The unlocked recruiter is picked up at the next firing, within
+ * the hour.
+ */
+function syncRoleEdit_(tracker, contactsBook, property, role, salt) {
+  var done = { queue: 0 };
+
+  // Alphabet_Order is deliberately not written to. It stopped being a hand-kept
+  // copy of App and became a single array formula in its A1 that reads App live,
+  // so the corrected Role is already there by the time this runs. Writing the
+  // cell anyway would put a literal inside that formula's spill range, and Sheets
+  // answers that by collapsing the whole tab to #REF! — a Role correction would
+  // blank the tab it was meant to keep in step.
+
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (queue && queue.getLastRow() >= 2) {
+    var queueRows = queue.getRange(2, 1, queue.getLastRow() - 1, Q_WIDTH)
+                         .getValues().map(outreachParseQueue_);
+    outreachRolePlan_(queueRows, property, role, outreachReadContacts_(contactsBook), salt)
+      .forEach(function (item) {
+        outreachWriteRow_(queue, item.rowNumber, item.updates);
+        done.queue++;
+      });
+  }
+  return done;
 }
 
 function outreachQueueRowValues_(item) {
@@ -386,7 +812,9 @@ function enqueueOutreach() {
       : queue.getRange(2, 1, queueLast - 1, Q_WIDTH).getValues().map(outreachParseQueue_);
 
     var contacts = outreachReadContacts_(contactsBook);
-    var plan = outreachPlanEnqueue_(appRows, queueRows, contacts, new Date(), salt);
+    var targetCompanies = outreachColdTargetCompanies_(tracker);
+    var plan = outreachPlanEnqueue_(appRows, queueRows, contacts, new Date(), salt,
+                                    targetCompanies);
 
     // Appending only. Nothing here edits a row that already exists, so a run
     // that dies halfway leaves a shorter table rather than a corrupted one.
@@ -427,6 +855,20 @@ function enqueueAndProject() {
  * recognise is a tab that must not be shifted blind, because every row under it
  * would end up beneath the wrong name.
  */
+/**
+ * The header row, never wider than the sheet actually is.
+ *
+ * getRange past the last column throws, and both migrations below have to read
+ * the header of a tab built before the columns they are adding existed — which is
+ * precisely a tab narrower than Q_WIDTH. Reading blind was survivable while the
+ * Email tab sat inside the twenty-six columns a new sheet is born with; the third
+ * follow-up column is the one that could push a trimmed tab over.
+ */
+function outreachHeaderRow_(queue) {
+  var width = Math.min(Q_WIDTH, queue.getMaxColumns());
+  return queue.getRange(1, 1, 1, width).getValues()[0];
+}
+
 function outreachPriorityColumnAction_(headerRow) {
   var at = String((headerRow || [])[Q_PRIORITY - 1] || '').trim();
   if (at === 'Priority') return 'ready';
@@ -460,9 +902,7 @@ function outreachEnsurePriorityColumn_(tracker) {
   var queue = tracker.getSheetByName(TAB_QUEUE);
   if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
 
-  if (outreachPriorityColumnAction_(queue.getRange(1, 1, 1, Q_WIDTH).getValues()[0]) === 'ready') {
-    return false;
-  }
+  if (outreachPriorityColumnAction_(outreachHeaderRow_(queue)) === 'ready') return false;
 
   queue.insertColumnBefore(Q_PRIORITY);
   queue.getRange(1, Q_PRIORITY)
@@ -473,6 +913,75 @@ function outreachEnsurePriorityColumn_(tracker) {
   queue.setColumnWidth(Q_PRIORITY, 75);
   outreachDressQueueRows_(queue);
   Logger.log('Inserted the Priority column at ' + Q_PRIORITY + '.');
+  return true;
+}
+
+// What the three new headers say, left to right, in the order they are inserted.
+var FOLLOWUP_HEADERS = ['Follow Up', 'Follow Up Template', 'Follow Up Status'];
+
+/**
+ * What the Email tab's header says about where the follow-up columns are.
+ *
+ * The same shape as outreachPriorityColumnAction_, and separate from the sheet
+ * work for the same reason: the decision that can go badly wrong — shifting a tab
+ * somebody has rearranged — is a pure function with tests rather than something
+ * only a live spreadsheet can prove.
+ *
+ * 'ready' means column 13 already says Follow Up. 'insert' means the tab predates
+ * these three and column 13 is still Contact Fingerprint. Anything else throws,
+ * because a header this does not recognise is a tab whose rows must not be moved
+ * under names nobody has checked.
+ */
+function outreachFollowUpColumnsAction_(headerRow) {
+  var at = String((headerRow || [])[Q_FOLLOWUP_AT - 1] || '').trim();
+  if (at === FOLLOWUP_HEADERS[0]) return 'ready';
+  if (at === 'Contact Fingerprint') return 'insert';
+  throw new Error(
+    'Email column ' + Q_FOLLOWUP_AT + ' is ' + JSON.stringify(at) + ', expected '
+    + '"' + FOLLOWUP_HEADERS[0] + '" or "Contact Fingerprint". This tab is not a '
+    + 'layout the sender knows how to migrate, and it will not shift rows under a '
+    + 'header it cannot read.'
+  );
+}
+
+/**
+ * Open the three follow-up columns on a tab built before they existed.
+ *
+ * Runs inside the sender rather than as a button somebody remembers to press, for
+ * exactly the reason outreachEnsurePriorityColumn_ above it does. The constants
+ * moved eight headers to the right: a sheet on the old layout read by the new code
+ * has Contact Fingerprint where Follow Up should be and Gmail Draft ID where the
+ * template number goes, so no row matches any status, no row counts as having
+ * spent a contact, and the next enqueue writes a second cold email to people
+ * already written to. There is no version of that worth leaving a gap for.
+ *
+ * As the second thing runOutreachCycle does, and outside the per-step isolation,
+ * there is no gap: either both layouts are right before anything reads the queue,
+ * or the run stops without reading it.
+ *
+ * Three separate insertColumnBefore calls at the same index rather than
+ * insertColumnsBefore(index, 3), so each one is the operation whose behaviour is
+ * already known here — values, validation and colour rules to the right travel
+ * with their columns — repeated. Inserting at Q_FOLLOWUP_AT three times leaves the
+ * three new columns in the order the headers are then written across them.
+ */
+function outreachEnsureFollowUpColumns_(tracker) {
+  var queue = tracker.getSheetByName(TAB_QUEUE);
+  if (!queue) throw new Error('No ' + TAB_QUEUE + ' tab.');
+
+  if (outreachFollowUpColumnsAction_(outreachHeaderRow_(queue)) === 'ready') return false;
+
+  for (var i = 0; i < FOLLOWUP_HEADERS.length; i++) queue.insertColumnBefore(Q_FOLLOWUP_AT);
+  queue.getRange(1, Q_FOLLOWUP_AT, 1, FOLLOWUP_HEADERS.length)
+       .setValues([FOLLOWUP_HEADERS])
+       .setFontWeight('bold')
+       .setBackground('#D9EAD3')
+       .setHorizontalAlignment('center');
+  [130, 95, 120].forEach(function (width, index) {
+    queue.setColumnWidth(Q_FOLLOWUP_AT + index, width);
+  });
+  outreachDressQueueRows_(queue);
+  Logger.log('Inserted the three follow-up columns at ' + Q_FOLLOWUP_AT + '.');
   return true;
 }
 
@@ -552,7 +1061,7 @@ function outreachDressQueueRows_(queue) {
          // allowInvalid stays on: a cell somebody typed into is not worth failing
          // a run over, and outreachTicked_ reads those spellings anyway.
          .requireCheckbox().setAllowInvalid(true).build());
-  [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT].forEach(function (column) {
+  [Q_DRAFTED_AT, Q_SCHEDULED, Q_SENT_AT, Q_FOLLOWUP_AT].forEach(function (column) {
     queue.getRange(2, column, rows, 1).setNumberFormat(QUEUE_TIMESTAMP_FORMAT);
   });
   // Date Applied belongs on that list even though it is not a timestamp. A cell
@@ -580,8 +1089,15 @@ function outreachDressQueueRows_(queue) {
   queue.getRange(2, Q_MODE, rows, 1)
        .setDataValidation(SpreadsheetApp.newDataValidation()
          .requireValueInList(QUEUE_MODES, true).setAllowInvalid(false).build());
+  // allowInvalid false, the same as Status and for the same reason: every word in
+  // this column is written by this project, so a value the dropdown does not know
+  // is a bug worth being shown rather than a spelling worth tolerating.
+  queue.getRange(2, Q_FOLLOWUP_STATUS, rows, 1)
+       .setDataValidation(SpreadsheetApp.newDataValidation()
+         .requireValueInList(QUEUE_FOLLOWUP_STATUSES, true).setAllowInvalid(false).build());
   outreachColourQueueColumn_(queue, Q_STATUS, QUEUE_STATUS_COLOURS, rows);
   outreachColourQueueColumn_(queue, Q_MODE, QUEUE_MODE_COLOURS, rows);
+  outreachColourQueueColumn_(queue, Q_FOLLOWUP_STATUS, QUEUE_FOLLOWUP_COLOURS, rows);
 }
 
 /**
@@ -684,13 +1200,20 @@ function refileOutreachQueue() {
 
   var removed = outreachRepairQueueLayout_(queue);
   var closed = cancelStaleOutreachRows();
+  // Planned but never sent, which is the same line this whole function draws.
+  // Booking a day writes three cells and touches nothing outside the tab, so it
+  // belongs to the rearranging half; sendFollowUpReplies is the other half and is
+  // as deliberately absent here as sendPreparedDrafts is.
+  var followUp = planFollowUpReplies();
   var projected = refreshOutreachSchedule();
   var moved = outreachSortQueueByTime_(queue);
 
   Logger.log('Deleted ' + removed + ' empty row(s); called off ' + closed
-           + ' row(s) whose application had already closed; reprojected '
-           + projected + '; moved ' + moved + ' row(s) into place.');
-  return { removed: removed, closed: closed, projected: projected, moved: moved };
+           + ' row(s) whose application had already closed; booked '
+           + followUp.booked + ' follow-up(s) and stopped ' + followUp.stopped
+           + '; reprojected ' + projected + '; moved ' + moved + ' row(s) into place.');
+  return { removed: removed, closed: closed, followUp: followUp,
+           projected: projected, moved: moved };
 }
 
 function repairOutreachQueueLayout() {
@@ -723,7 +1246,8 @@ function outreachPriorityGroups_(queueRows) {
     if (!row.priority) return;
     groups.push({
       tokens: outreachCompanyTokens_(row.company),
-      role: outreachRoleTokens_(row.role)
+      role: outreachRoleTokens_(row.role),
+      season: outreachSeason_(row.role)
     });
   });
   return groups;
@@ -743,15 +1267,22 @@ function outreachPrioritised_(row, groups) {
   if (row.priority) return true;
   var tokens = outreachCompanyTokens_(row.company);
   var role = outreachRoleTokens_(row.role);
+  var season = outreachSeason_(row.role);
   for (var i = 0; i < groups.length; i++) {
-    if (outreachSameEmployer_(tokens, groups[i].tokens)
+    // The intake test rides along with the role test for the same reason it does
+    // at enqueue: chasing Winter at an employer is not asking for their Summer
+    // opening to be moved up, and the two titles are alike enough that without
+    // this the tick would take both.
+    if (groups[i].season === season
+        && outreachSameEmployer_(tokens, groups[i].tokens)
         && outreachSameRole_(role, groups[i].role)) return true;
   }
   return false;
 }
 
 /**
- * The order rows are worked in: asked for first, then oldest application.
+ * The order rows are worked in: asked for first, then employers taking turns,
+ * oldest application leading.
  *
  * A tick reorders and does nothing else. It does not make a row eligible before
  * its two-day wait, does not raise the day's cap, and does not lift the weekly cap
@@ -759,6 +1290,25 @@ function outreachPrioritised_(row, groups) {
  * flag that could also grant slots would be a way to send forty emails on a Friday
  * by ticking forty boxes, which is the failure this whole cap table exists to
  * prevent.
+ *
+ * Two lines, ticked first, and the ticked one is served whole before the other is
+ * looked at. A tick that only lifted a row above the rows applied for on the same
+ * day would mean "slightly sooner"; ahead of everything unticked is what it means.
+ *
+ * Each line is then interleaved so employers take turns. Sorting by Date Applied
+ * alone kept a company's rows adjacent — a wave of three shares one application
+ * and therefore one date — so three near-identical notes went into one office back
+ * to back while other employers waited a day. COMPANY_WEEKLY_CAP bounds a week and
+ * had nothing to say about an afternoon. The referral path reached the same
+ * arrangement from the other direction and outreachInterleaveByCompany_ is shared
+ * between them.
+ *
+ * This orders and does not schedule, so the wave is not broken up: the same three
+ * rows are still queued together and still spend the same three attempts. What
+ * changes is which hours they land on, and — where a day fills — which day.
+ *
+ * Already-sent rows never reach here. Both callers hand over rows that are still
+ * Queued: the projection filters on status, and the sender on what is due.
  *
  * Decorated before sorting rather than tokenising inside the comparator: a
  * comparator runs O(n log n) times and would re-tokenise the same company name on
@@ -769,14 +1319,17 @@ function outreachPrioritised_(row, groups) {
  */
 function outreachOrderForSending_(rows, all) {
   var groups = outreachPriorityGroups_(all);
-  return rows.map(function (row) {
-    return { row: row, first: outreachPrioritised_(row, groups) ? 0 : 1 };
-  }).sort(function (a, b) {
-    if (a.first !== b.first) return a.first - b.first;
-    var left = a.row.dateApplied ? a.row.dateApplied.getTime() : Infinity;
-    var right = b.row.dateApplied ? b.row.dateApplied.getTime() : Infinity;
-    return left === right ? a.row.rowNumber - b.row.rowNumber : left - right;
-  }).map(function (entry) { return entry.row; });
+  var byAge = function (a, b) {
+    var left = a.dateApplied ? a.dateApplied.getTime() : Infinity;
+    var right = b.dateApplied ? b.dateApplied.getTime() : Infinity;
+    return left === right ? a.rowNumber - b.rowNumber : left - right;
+  };
+  var ticked = [], plain = [];
+  rows.forEach(function (row) {
+    (outreachPrioritised_(row, groups) ? ticked : plain).push(row);
+  });
+  return outreachInterleaveByCompany_(ticked.sort(byAge))
+    .concat(outreachInterleaveByCompany_(plain.sort(byAge)));
 }
 
 /**
@@ -785,14 +1338,24 @@ function outreachOrderForSending_(rows, all) {
  * The day's cap is spread across the firings left in the window rather than
  * being burned at 09:00, and it is recomputed each time, so a firing that was
  * missed is absorbed by the ones after it instead of being lost.
+ *
+ * Two limits now, not one. DAILY_CAP is what this path may send; the budget in
+ * outreach_budget.gs is what the account may send across all three paths, and it
+ * protects actual queued higher-priority work before this one is served. Without
+ * that reservation the priority order would be decided by which trigger fired
+ * first, and this one has been firing hourly for weeks; an empty higher path does
+ * not strand its unused allowance.
  */
-function outreachDueNow_(queueRows, now) {
+function outreachDueNow_(queueRows, now, referralRows) {
   var cap = outreachDailyCap_(now);
   if (!cap) return [];
   var hour = now.getHours();
-  // DRAFT_HOUR_LAST, not SEND_HOUR_LAST: what this picks is written now and goes
-  // an hour later, so the last firing of the day has nothing left to pick for.
-  if (hour < SEND_HOUR_FIRST || hour > DRAFT_HOUR_LAST) return [];
+  // Both bounds are the drafting ones, not the sending ones: what this picks is
+  // written now and goes an hour later. So the day opens an hour before the first
+  // send, which is the point of 08:00 — it is what makes 09:00 a sending hour
+  // rather than the hour the first message is still being written in — and closes
+  // an hour before the last, because 17:00 has nothing left to pick for.
+  if (hour < DRAFT_HOUR_FIRST || hour > DRAFT_HOUR_LAST) return [];
 
   // A draft counts against the day as much as a send does. It has no Sent At, so
   // without the second half of this the cap never fills while Mode is Draft, and
@@ -805,11 +1368,20 @@ function outreachDueNow_(queueRows, now) {
   var remaining = cap - spentToday;
   if (remaining <= 0) return [];
 
+  // And never past what the whole mailbox has left for the day, which is a
+  // different question from what this path's own cap allows. See
+  // outreach_budget.gs; referralRows is optional because this is also called
+  // from places that have no reason to have read the Referral tab, and an
+  // unknown path counts as having spent nothing rather than as unlimited.
+  remaining = Math.min(remaining,
+    outreachBudgetRoom_(queueRows, referralRows, now, 'cold'));
+  if (remaining <= 0) return [];
+
   var firingsLeft = DRAFT_HOUR_LAST - hour + 1;
   var slots = Math.min(remaining, Math.ceil(remaining / firingsLeft));
 
   var due = queueRows.filter(function (r) {
-    return r.status === STATUS_QUEUED && r.eligibleAt
+    return r.status === STATUS_QUEUED && !outreachOffTargetEmailQueueRow_(r) && r.eligibleAt
         && outreachMidnight_(r.eligibleAt).getTime() <= outreachMidnight_(now).getTime();
   });
   // Anything ticked by hand first, then oldest application, exactly as at enqueue
@@ -840,7 +1412,9 @@ function outreachProjectSchedule_(queueRows, from) {
   // row shows is the date it lands on rather than the date it would have landed on
   // before anybody asked for anything.
   var pending = outreachOrderForSending_(
-    queueRows.filter(function (r) { return r.status === STATUS_QUEUED; }), queueRows
+    queueRows.filter(function (r) {
+      return r.status === STATUS_QUEUED && !outreachOffTargetEmailQueueRow_(r);
+    }), queueRows
   );
 
   var out = [];
@@ -853,7 +1427,7 @@ function outreachProjectSchedule_(queueRows, from) {
     // projection does — it is step 6 against step 7 of the same round — so a row
     // still Queued at this point missed its chance for this hour and the earliest
     // it can be written is the next one.
-    var firstHour = today_ ? from.getHours() + 1 : SEND_HOUR_FIRST;
+    var firstHour = today_ ? from.getHours() + 1 : DRAFT_HOUR_FIRST;
     var room = outreachDailyCap_(day) - (today_ ? sentToday : 0);
     // Past the last drafting hour there is no room left today whatever the cap
     // says, and these rows belong to tomorrow.
@@ -943,6 +1517,9 @@ function outreachWriteProjection_(queue) {
   // or sent keeps the two times it really happened at, which is both the honest
   // record and the only timestamp a draft has to be counted by.
   queue.getRange(2, Q_DRAFTED_AT, rows.length, 2).setValues(rows.map(function (row) {
+    if (outreachOffTargetEmailQueueRow_(row)) {
+      return [row.draftedAt || '', row.scheduledAt || ''];
+    }
     var slot = projected[row.rowNumber];
     if (slot) return [slot.draftAt, slot.sendAt];
     return [row.draftedAt || '', row.scheduledAt || ''];
@@ -1068,6 +1645,26 @@ function outreachSortQueueByTime_(queue) {
  * A range rather than a cell, because paste and fill-down hand over a block. The
  * test is overlap, not equality: a paste across the whole row includes Priority.
  */
+/**
+ * Whether an edit is one the Referral tab has to answer at once.
+ *
+ * Two columns, and both change what the tab says is happening next. `Cancel` calls
+ * off an ask and frees its hours; `Priority` lifts the per-employer cap so a whole
+ * group can go in one day. Left to the hourly cycle, both read as nothing having
+ * happened — which is the thing outreachEditTouchesPriority_ was written to stop
+ * on the Email tab, and this tab was simply never given the same treatment.
+ *
+ * A range rather than a cell, because paste, fill-down and undo hand over a block,
+ * and a paste across the whole row includes both columns. Overlap, not equality.
+ */
+function outreachEditTouchesReferral_(tabName, range) {
+  if (tabName !== TAB_REFERRAL) return false;
+  var first = range.getColumn(), last = range.getLastColumn();
+  var covers = function (column) { return first <= column && last >= column; };
+  if (!covers(R_CANCEL) && !covers(R_PRIORITY)) return false;
+  return range.getLastRow() >= 2;
+}
+
 function outreachEditTouchesPriority_(tabName, range) {
   if (tabName !== TAB_QUEUE) return false;
   if (range.getColumn() > Q_PRIORITY || range.getLastColumn() < Q_PRIORITY) return false;

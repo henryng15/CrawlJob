@@ -3,10 +3,12 @@
   "name": "Quick Add Application",
   "version": "1.0.0",
   "description": "Add an external job application to the App tab.",
-  "permissions": ["activeTab", "storage", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": [
     "https://script.google.com/*",
-    "https://script.googleusercontent.com/*"
+    "https://script.googleusercontent.com/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_title": "Add application"

@@ -1,0 +1,16 @@
+# Company-scoped public career feeds. These ATSes do not publish one global
+# directory, so identifiers must be maintained here when a target company is
+# discovered. An empty list is intentional: it keeps the optional adapters quiet
+# until a board has been verified.
+
+[smartrecruiters]
+# Values are the identifier in https://careers.smartrecruiters.com/<identifier>
+companies = []
+
+[personio]
+# Values are the subdomain in https://<subdomain>.jobs.personio.de
+companies = []
+
+[recruitee]
+# Values are the subdomain in https://<subdomain>.recruitee.com
+companies = []

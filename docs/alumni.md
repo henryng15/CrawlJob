@@ -80,7 +80,7 @@ yellow. A test pins that down.
 
 ## Those two columns belong to the tool, not to you
 
-Every sync writes **both answers** into columns I and J — TRUE on a matching row, FALSE on
+Every sync writes **both answers** into columns J and K — TRUE on a matching row, FALSE on
 one that does not match. Tick a box by hand and the next run clears it.
 
 It has to work that way for the mark to stay true: an alumnus changing employer, or an
@@ -89,7 +89,7 @@ only accumulates marks until they are wrong without saying when. The place for s
 you want kept is column **H `Note`**.
 
 These two columns are the **only** cells outside the Jobs tab that the tool writes.
-Columns A–H and column K of `App` are never touched.
+Columns A–I and column L of `App` are never touched.
 
 One exception stands guard: where the source is **missing**, that column is left as it
 stands rather than written. No `Alumni` tab does not mean "nobody works anywhere" —
@@ -127,11 +127,13 @@ somewhere else.
 
 ### Nothing is written before the columns are built
 
-And one more latch in front of all of it: **I1 and J1 have to read exactly `Alumni` and
-`Recruiter`** before the tool writes. The sync runs on cron nine times a day while you
-run `setupAppColumns` by hand — if a sync arrives before you have, column J is still where
-the `Update` history used to live, and writing FALSE over it wipes the lot. On a wrong
-header the tool prints a line of warning and leaves both columns alone.
+And one more latch in front of all of it: the two headers **have to read exactly `Alumni` and
+`Recruiter`** before the tool writes. It finds them by name rather than by letter, which is why
+inserting `Official` at column I moved them from I/J to J/K without the tool noticing. The sync
+runs on cron nine times a day while you run `setupAppColumns` by hand — if a sync arrives before
+you have, that pair of columns is still where the `Update` history used to live, and writing
+FALSE over it wipes the lot. On a wrong header the tool prints a line of warning and leaves both
+columns alone.
 
 ## The tool clears only its own yellow
 
@@ -143,16 +145,16 @@ that exact colour is cleared.
 - Remove a company from `App` and the matching alumni row loses its yellow by itself.
 - A row already the right colour is not written again.
 
-The same mechanism handles the old paint in the `App` tab: the row-wide yellow and the
-column-I red now match the empty set, so all they can still do is lift the colour they
-once laid down. The clean-up has to happen: column I today is the `Alumni` checkbox, and a
-checkbox on a red background reads as a warning nobody wrote.
+The same mechanism handles the old paint in the `App` tab: the row-wide yellow and the red
+that sat one column to the left of today's checkboxes now match the empty set, so all they
+can still do is lift the colour they once laid down. The clean-up has to happen: that column
+carries a checkbox now, and a checkbox on a red background reads as a warning nobody wrote.
 
 One exception worth knowing: a row once painted yellow had all of A–H turned yellow, so a
 cell you had painted by hand on that row was covered over long before. The clean-up
 returns it to white, not to the colour it used to be.
 
-## Recruiter (column J)
+## Recruiter (column K)
 
 The source is the `ColdEmail` project, file `web/db/seed_recruiters.csv` — 2269 verified
 contacts. But this repo **carries nobody's name or email**: only the company list is
@@ -180,7 +182,7 @@ than the school directory.
 ## Cost
 
 Nine more API calls per sync: read `Alumni`, read `App`, read backgrounds in three places
-(column A of `Alumni`, columns A and I of `App`), read the two checkbox columns, read the
+(column A of `Alumni`, columns A and J of `App`), read the two checkbox columns, read the
 rule over those two columns, then one `batchUpdate` and one `update` — the last two dropped
 entirely when nothing has changed. The recruiter list is read from disk and costs no call. Consecutive rows are folded
 into one request, so 100 matches scattered about still cost a handful of requests rather

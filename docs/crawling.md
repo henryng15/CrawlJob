@@ -2,9 +2,9 @@
 
 ## Sources
 
-[`sources.toml`](../sources.toml) lists the public trackers, each one a raw
-Markdown file on GitHub. Adding a `[[sources]]` block is the whole job — no code
-change needed.
+[`sources.toml`](../sources.toml) lists the public trackers and RSS feeds. Adding a
+`[[sources]]` block is the whole job — `format = "rss"` selects the RSS parser;
+Markdown remains the default.
 
 | Tracker | Notes |
 |---|---|
@@ -13,11 +13,12 @@ change needed.
 | speedyapply — 2027 SWE College Jobs | |
 | zshah101 — 2027 / Fall 2026 Tech Internships | |
 | Jobright — 2026 Software Engineer Internship | no separate Apply column; the link sits inside the Job Title cell and is a `jobright.ai` redirect, not the company's own board URL |
+| Startup Jobs — Engineering RSS | global engineering RSS; the employer is parsed from the title and the canonical `guid` is preferred over the tracked link |
 
 This is a baseline list; there is no reliable way to claim it covers *every*
 tracker repo on GitHub.
 
-One broken tracker does not kill the whole sync run: errors are caught per source,
+One broken tracker/feed does not kill the whole sync run: errors are caught per source,
 printed as `WARNING`, and the remaining sources still run. Only when **no source at
 all** parses out a job does that run fail.
 
@@ -33,6 +34,13 @@ use to receive applications, over public JSON endpoints that need no key.
 | Greenhouse | `boards-api.greenhouse.io/v1/boards/{slug}/jobs` | `first_published` |
 | Lever | `api.lever.co/v0/postings/{slug}?mode=json` | `createdAt` (epoch ms) |
 | Ashby | `api.ashbyhq.com/posting-api/job-board/{slug}` | `publishedAt` |
+| SmartRecruiters | `api.smartrecruiters.com/v1/companies/{id}/postings` | `releasedDate` |
+| Personio | `{company}.jobs.personio.de/xml?language=en` | sync date; feed has no reliable publication timestamp |
+| Recruitee | `{company}.recruitee.com/api/offers` | `created_at` when supplied |
+
+Optional company-scoped feeds are listed in `job_sync/data/public_feeds.toml`. Adzuna and
+USAJOBS are opt-in credentialed feeds; Startup Jobs runs without credentials. Feed failures
+are isolated, so they cannot erase jobs from the core sources.
 
 The boards are read **before** the trackers, and that order means something:
 `dedupe_jobs` keeps the first copy of each link it meets, so whichever side comes
@@ -94,44 +102,43 @@ Slugs come from four lists of **names**, not from scraping anybody's pages:
 
 ### Why it is split into two tiers
 
-A sync run cannot ask 19,899 boards nine times a day — that is half a month of
+A sync run cannot ask 19,913 boards seventeen times a day — that is half a month of
 Actions minutes spent on companies that have never taken an intern. So:
 
 | | frequency | scope | keep criterion |
 |---|---|---|---|
-| `discover_boards.py` | weekly, its own workflow | all 19,899 | boards **advertising an internship in any field** |
-| `boards.py` | **every scheduled run**, every 90 minutes from 09:00 to 21:00 ET | the 903 boards in the shortlist | roles matching `roles.py` |
+| `discover_boards.py` | weekly, its own workflow | all 19,913 | boards **advertising an internship in any field** |
+| `boards.py` | **every run**, every 45 minutes from 09:00 to 21:00 ET | the 1,019 boards in the shortlist | roles matching `roles.py` |
 
-First measurement (2026-08-19): 9,062 boards still alive, **902** hiring interns,
-of which **312 roles matched** the SWE filter. Asking all 903 boards takes
-**36 seconds**.
+Last rebuild (2026-08-23): 19,913 probed, 9,858 answered, **1,019** hiring interns,
+of which 185 carried **303 roles matching** the SWE filter.
 
 The first tier's criterion is "does this company take interns at all" rather than
 "does it have an SWE intern today" — a company that has already run an intern
 programme is a company that could post an SWE intern next week.
 
 The trade-off: a new posting at a company that **already** takes interns is caught
-within ninety minutes; a company opening a programme for the first time, within a
-week. Said out loud here instead of hidden inside a number.
+within forty-five minutes; a company opening a programme for the first time, within
+a week. Said out loud here instead of hidden inside a number.
 
 Why every run rather than a chosen two of them: the cost is not Actions minutes —
-36 seconds nearly vanishes into GitHub rounding a run that already takes 4.1
-minutes up to the whole minute. The cost is **903 requests against somebody else's
-API**, every run. But gating them would have made the tighter schedule a gesture:
+asking the shortlist nearly vanishes into GitHub rounding the run up to the whole
+minute. The cost is **1,019 requests against somebody else's API**, every run. But
+gating them would have made the tighter schedule a gesture:
 the trackers are five Markdown files a volunteer edits once or twice a day, so a
 run reading only those turns up what the run before already had. The boards are the
 half that changes hourly, and the only half that reports the date a posting went
 up.
 
-What that traffic comes to: 903 boards × 9 runs = **8,127 requests a day**, split
-greenhouse 467 / ashby 251 / lever 185 — 0.049 requests a second averaged against
-Greenhouse, the busiest of the three hosts. Nine runs ninety minutes apart hold the
-worst-case lag at ninety minutes across a twelve-hour day, where a
-morning-and-afternoon pair held it at about six hours.
+What that traffic comes to: 1,019 boards × 17 runs = **17,323 requests a day**, split
+greenhouse 563 / ashby 268 / lever 188 — 0.22 requests a second averaged against
+Greenhouse, the busiest of the three hosts, and 0.40 across all three. Seventeen runs
+forty-five minutes apart hold the worst-case lag at forty-five minutes across a
+twelve-hour day, where a morning-and-afternoon pair held it at about six hours.
 
-There is no hour list to edit any more: every scheduled run asks the boards, and
-`--no-boards` is how you skip them for a single run. Need one now, press **Run
-workflow**: a manual run skips the window check and always crawls.
+There is no hour list to edit: every run asks the boards, and `--no-boards` is how you
+skip them for a single run. Need one now, press **Run workflow**: a manual run always
+crawls.
 
 The shortlist lives in `job_sync/data/ats_boards.json` and travels with the wheel
 through `package-data`. A missing file means the feature is off, and the sync still

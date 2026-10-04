@@ -1,5 +1,6 @@
-# Each URL is a public raw Markdown tracker. Add another [[sources]] block to
-# extend the pipeline; no code change is needed.
+# Each URL is a public tracker/feed. Markdown is the default; set format = "rss"
+# for an RSS feed. Add another [[sources]] block to extend the pipeline; no code
+# change is needed.
 [[sources]]
 name = "Simplify / Pitt CSC — Summer 2027"
 url = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md"
@@ -22,3 +23,8 @@ url = "https://raw.githubusercontent.com/zshah101/Automated-List-Of-Summer-2027-
 [[sources]]
 name = "Jobright — 2026 Software Engineer Internship"
 url = "https://raw.githubusercontent.com/jobright-ai/2026-Software-Engineer-Internship/master/README.md"
+
+[[sources]]
+name = "Startup Jobs — Engineering RSS"
+url = "https://startup.jobs/feeds/jobs?role=engineering"
+format = "rss"

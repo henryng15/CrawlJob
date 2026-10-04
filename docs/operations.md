@@ -18,15 +18,16 @@ Ticked Applied on 3 rows matching a tracked link and 9 matching a tracked compan
 | Line | Worth a look when |
 |---|---|
 | `N of M deduped roles` | `M` drops sharply → a tracker changed format, check for `WARNING` |
-| `Appended` | 0 is normal; new jobs do not appear every ninety minutes |
+| `Appended` | 0 is normal; new jobs do not appear every forty-five minutes |
 | `Dropped … reports as gone` | a sudden jump → a board may be returning 404 across the board |
 | `Merged` | a sudden jump after a change to the matching rules → check nothing was merged that should not have been |
 | `Ticked by company and role: …` | **read every one** — this is the loosest layer |
 | `still to apply to` | the number worth reading daily |
 
-Every scheduled run does the work. `Outside the 08:00–22:59 ET working window; nothing to
-do.` should never appear on a scheduled run: the cron fires seven times inside the window,
-and that message means the cron and the window have drifted apart.
+Every run does the work. `Outside the 08:00–22:59 ET working window; nothing to do.` should
+never appear at all: the workflow no longer passes `--scheduled`, and the window now lives in
+the cron-job.org schedule rather than in the Python. Seeing that line means somebody passed the
+flag by hand.
 
 ## Auditing the App tab
 
@@ -119,15 +120,15 @@ The Apps Script half cannot run under pytest. The way to check it is to stub
 ## The second workflow: rebuilding the ATS board shortlist
 
 [`.github/workflows/boards.yml`](../.github/workflows/boards.yml) runs at **06:00 UTC on
-Sunday**, or on demand through **Run workflow**. It asks all ~15,900 boards in one pass,
+Sunday**, or on demand through **Run workflow**. It asks all 19,913 boards in one pass,
 keeps the ones currently advertising an internship, and commits
 `job_sync/data/ats_boards.json` back into the repo — committing only when the file has
 actually changed.
 
-It is separate from the sync workflow because it is a different kind of job: ~20,000
-requests and about half an hour, against 903 requests and a measured **36 seconds** on the
-daily run. Folding it into the sync would make all nine runs a day pay that price to learn
-something that only changes weekly.
+It is separate from the sync workflow because it is a different kind of job: ~20,000 requests
+and about half an hour, against 1,019 requests and a few seconds on each sync run. Folding it
+into the sync would make all seventeen runs a day pay that price to learn something that only
+changes weekly.
 
 06:00 UTC is 01:00–02:00 ET, well clear of the sync's 08:00–22:59 ET window, so the two
 never compete for the same API.
@@ -139,14 +140,14 @@ long enough to burn a day of quota.
 
 ### Reading its log
 
-The first sweep, 19 August 2026:
+The rebuild of 23 August 2026:
 
 ```
-  probed                       19899
-  answered with a job           9062   board still alive
-  advertising any internship     902   <- written to daily
-  with a matching SWE intern     177
-  matching roles right now       312
+  probed                       19913
+  answered with a job           9858   board still alive
+  advertising any internship    1019   <- written to daily
+  with a matching SWE intern     185
+  matching roles right now       303
 ```
 
 The third number is the one to watch. A sharp drop means something is wrong with the
@@ -166,44 +167,45 @@ uv run python scripts/discover_boards.py
 
 ## GitHub Actions budget
 
-The free tier for a private repo is **2,000 minutes/month**. Actions bills per **minute,
-rounded up**, for each job — so a 131-second run and a 238-second run cost the same whole
-minute at the end.
+Actions bills per **minute, rounded up**, for each job — so a 131-second run and a 178-second
+run cost the same three minutes at the end.
 
-Measured from real scheduled runs:
+Measured from real runs: **median 130s across the 60 runs to 27 August 2026**, billed 3.
 
 | | per day | min/run | min/month |
 |---|---|---|---|
-| sync, every run does the work | 9 | 4.1, billed 5 | 1,350 |
-| `boards.yml` rebuilding the shortlist | weekly | ~40 | 172 |
-| manual **Run workflow** dispatches | varies | 5 | ~100 |
-| | | **total** | **~1,620** |
+| sync, every run does the work | 17 | 2.2, billed 3 | ~1,530 |
+| `boards.yml` rebuilding the shortlist | weekly | ~40 | ~172 |
+| manual **Run workflow** dispatches | varies | 3 | ~60 |
+| | | **total** | **~1,760** |
 
-That leaves roughly **380 minutes** spare.
+Against the 3,000 minutes `sync.yml` names, that leaves roughly **1,240 spare**. Check the real
+figure under **Settings → Billing and plans → Usage this month** — the numbers here are derived,
+not read off the invoice.
 
-Nine runs cost about 540 minutes a month more than the five that came before them, which is
-less than the run count suggests. The old schedule fired a cron ten times a day and threw
-five of those away with an ET filter, at a billed minute each — 150 minutes a month spent
-on nothing. Naming the nine run times in the cron itself means every firing does work.
+The day ends at 21:00 rather than 18:00 because of what the shorter day cost. Databricks published
+a Software Engineering Intern role at 19:40 ET, an hour and a half after the last run, and it went
+unseen until 09:00 the next morning. The evening runs are what that bought.
 
-The day ends at 21:00 rather than 18:00 because of what the shorter day cost. Databricks
-published a Software Engineering Intern role at 19:40 ET, an hour and a half after the last
-run, and it went unseen until 09:00 the next morning. The two evening runs are what that
-bought — and at ~380 minutes of headroom, they are close to the limit of what the free tier
-will carry.
+**The clock is not GitHub's.** `sync.yml` has no `schedule:`. GitHub delivered its cron firings a
+median 25 minutes late over 21–27 August 2026 — p90 74, worst 106 — which a 45-minute cadence
+cannot absorb, since the delay is over half the interval and runs bunch up behind each other. It
+dropped almost nothing (52 of 54); it was simply always late. Four cron-job.org jobs, created by
+`scripts/setup_cron_job_org.sh`, now fire the workflow through the dispatch API, and a dispatch
+starts at once — one measured on 27 August was accepted at 15:50:11Z and running by 15:50:12Z.
 
-Two settings in `sync.yml` exist to keep that budget from being wrong by a lot:
+Two settings in `sync.yml` keep that budget from being wrong by a lot:
 
-- `timeout-minutes: 15`. A run takes four minutes. The default ceiling is six hours, so a
-  single hung run would eat 18% of the month before Actions gave up on it.
-- `concurrency: sheet-write` with `cancel-in-progress: false`. Two runs must never write the
-  sheet at once, and a manual run fired during a scheduled one would do exactly that.
-  Queueing rather than cancelling, because a cancelled run could stop halfway through a
-  rewrite. Queued time is not billed.
+- `timeout-minutes: 15`. A run takes about two minutes. The default ceiling is six hours, so a
+  single hung run would eat 12% of the month before Actions gave up on it.
+- `concurrency: sheet-write` with `cancel-in-progress: false`. Two runs must never write the sheet
+  at once, and a manual run fired during a scheduled one would do exactly that. Queueing rather
+  than cancelling, because a cancelled run could stop halfway through a rewrite. Queued time is
+  not billed.
 
-What actually limits the run count is not the quota but politeness to the three APIs: 903
-requests × 9 runs = 8,127 requests a day, which is 0.049 requests a second against
-Greenhouse, the busiest of the three.
+What actually limits the run count is not the quota but politeness to the three APIs: 1,019
+requests × 17 runs = 17,323 requests a day, which is 0.22 requests a second against Greenhouse,
+the busiest of the three, and 0.40 across all of them.
 
 > The `/actions/runs/{id}/timing` API reports `billable.UBUNTU.total_ms = 0` even for a
 > 237-second run, so **do not trust it**. The numbers above are derived from

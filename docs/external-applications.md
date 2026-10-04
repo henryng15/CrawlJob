@@ -12,11 +12,10 @@ any server other than your Google Apps Script project.
 
 ## Install once
 
-1. In the target spreadsheet, open **Extensions → Apps Script**. Add a new script file
-   named `external_application_api` and paste in
-   [`apps_script/external_application_api.gs`](../apps_script/external_application_api.gs).
-   It must be in the **same Apps Script project** as `sync_applied_to_app.gs`, because it
-   reuses the tab layout and duplicate-link check.
+1. Push [`apps_script/`](../apps_script/) with `clasp` — the whole folder, so
+   `external_application_api.gs` lands in the **same Apps Script project** as
+   `sync_applied_to_app.gs`, which it needs because it reuses the tab layout and the
+   duplicate-link check. Do not paste it in by hand.
 2. Save, choose `configureExternalApplicationApi` in the function dropdown, and click
    **Run**. Approve Google's permission prompt. In **Execution log**, copy the extension
    key printed after `Chrome extension key (keep private):`; store it somewhere private for
@@ -69,7 +68,8 @@ not change.
 | `API is not configured` | Run `configureExternalApplicationApi` once in the spreadsheet-bound script. |
 | `Invalid extension key` | Re-copy the key, or use the new one after rotating it. |
 | `No tab named "App"` | Rename the application tab to `App`, matching the existing workflow. |
-| Popup says it could not add the row | Check that Settings contains the deployed `/exec` URL, not `/dev`; then open the Apps Script deployment and confirm it is still active. |
+| Popup says `Google returned an HTML page` or shows `Unexpected token '<'` | The request reached a Google HTML page instead of the JSON endpoint. The extension automatically retries the verified deployment and updates a stale saved URL when Google returns 404. If the error remains, reload the unpacked extension and check that the deployment is active, ends in `/exec`, runs as **Me**, and allows **Anyone** access. |
+| Popup says it could not add the row for another reason | Check that Settings contains the active deployed `/exec` URL, not `/dev`, and that the Apps Script deployment is still active. |
 | `already in App` | This is intentional duplicate protection. It checks the application link and Company + Role. Use a more specific role name if two genuinely distinct applications would otherwise have the same names. |
 
 ## Updating the extension
