@@ -362,12 +362,24 @@ for postings that closed in a way the machine cannot read.
 ### The sweep is long enough to lose the Sheets connection
 
 This is the one step in a sync run that takes minutes — a request per unsettled row,
-around 1,350 of them, serialised within each host. **Seven to ten minutes is the normal
-cost, not a regression:** the median sync run sat between 7.0 and 10.2 minutes every day
-from 23 September to 1 October 2026, and again on the 4th. Two-minute runs do happen — 2
-and 3 October were both around 2.3 — but they are the exception, and they track how fast
-the hosts answer rather than how many rows there are (1,344 rows on the 3rd against 1,359
-on the 4th).
+around 1,350 of them, serialised within each host.
+
+> **Corrected 2026-10-18.** This section used to say that seven to ten minutes was the
+> normal cost rather than a regression, and that run length tracked how fast the hosts
+> answered rather than how many rows there were — reasoning from total row count, which
+> barely moved (1,344 on 3 October against 1,359 on the 4th). Total row count is the wrong
+> variable. Because each host is probed one link at a time, a run is as long as its
+> **largest single host bucket**, and that is what had been growing. Measured against the
+> live `Jobs` tab on 2026-10-17: 1,044 swept links over 204 hosts, of which **507 were
+> `jobright.ai`** and the next host down held 56. At a median 0.46s per `check` plus the
+> 0.4s pacing, that one bucket is 7.3 minutes; the runner-up is 0.6. Daily median run time
+> rose monotonically from 192s on 13 September to 736s on 17 October, which is the shape of
+> a bucket filling up, not of hosts getting slower. Seven to ten minutes was a regression
+> after all, and treating it as normal is what let it reach twelve and spend the month's
+> 3,000 Actions minutes on 17 October with two weeks still to go.
+>
+> Still unexplained: 2 and 3 October ran at about 2.3 minutes and still dropped 32 dead
+> rows. Whatever made those two days cheap was not a smaller sheet.
 
 That matters to code that has nothing to do with liveness. `append_new_jobs` opens its
 Sheets connection and reads the `Jobs` tab *before* the sweep, and reads the `App` tab
@@ -400,3 +412,23 @@ to the write instead, which is the worse place to lose it.
 If the sweep keeps getting slower it will start approaching the workflow's 15-minute
 timeout, which the reconnect does nothing about. `WORKERS` and `PER_HOST_DELAY_SECONDS`
 in [`liveness.py`](../job_sync/liveness.py) are the dials for that.
+
+### The sweep now runs twice a day
+
+It did get slower, and the answer for now was to ask less often rather than to change how
+it asks. `sync.yml` passes `--skip-link-check` on every run but the two whose ET hour is
+`10` or `16`, which under the 45-minute cadence means the 10:30 and 16:30 slots — the two
+hours holding exactly one firing each, with 29 minutes of slack for a late dispatch. The
+`link_check` workflow input forces a sweep on any run in between.
+
+Nothing in `liveness.py` or `sheet.py` changed, so a run that does sweep reaches exactly
+the verdicts it always did. What the gate trades away is removal latency: a posting the
+board has taken down can sit in the sheet for up to six hours, which is what
+[the `Expired` column](spreadsheet.md#column-g--expired) is for.
+
+This is a schedule fix, not a fix to the sweep. The Jobright bucket keeps filling at
+roughly nineteen links a day — about +16s per run per day — so a swept run reaches the
+15-minute ceiling around mid-November 2026. The timeout is left at 15 on purpose, as the
+alarm for that. The real fix when it rings is to give a large bucket some concurrency
+instead of probing it one link at a time, leaning on the second confirmation pass, which
+already re-asks every apparent death on its own and would catch a shell served under load.

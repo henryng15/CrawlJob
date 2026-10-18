@@ -86,7 +86,7 @@ old rows were written by a parser that was wrong and cannot be corrected in plac
 
 | Flag | |
 |---|---|
-| `--skip-link-check` | ask no board at all; runs fast, and drops no row for a dead link |
+| `--skip-link-check` | ask no board at all; runs fast, and drops no row for a dead link. **The workflow passes this on fifteen of the seventeen daily runs** — only the 10:30 and 16:30 ET slots sweep. Use the `link_check` input to force a sweep on a run in between |
 | `--since 2026-09-01` | change the posting-date cutoff |
 | `--sources path.toml` | use a different list of trackers |
 | `--no-boards` | read only the Markdown trackers and skip the ATS boards for this run |
