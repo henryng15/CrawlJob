@@ -90,7 +90,7 @@ old rows were written by a parser that was wrong and cannot be corrected in plac
 | `--since 2026-09-01` | change the posting-date cutoff |
 | `--sources path.toml` | use a different list of trackers |
 | `--no-boards` | read only the Markdown trackers and skip the ATS boards for this run |
-| `--scheduled` | exit immediately outside the 08:00–22:59 ET window; the workflow adds it on scheduled runs |
+| `--scheduled` | exit immediately outside the 08:00–22:59 ET window. **The workflow no longer passes it** — the window moved to the cron-job.org schedule, so this only bites someone who passes it by hand |
 
 ## What to look at when it breaks
 
