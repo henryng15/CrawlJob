@@ -35,9 +35,27 @@ BROWSER_UA = (
 # workatastartup answers 406 to Accept: */*, so the browser's own string is sent.
 BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 TIMEOUT_SECONDS = 20
-# Distinct hosts probed at once. Links on one host are never probed in parallel.
+# Queues probed at once, across all hosts.
 WORKERS = 12
 PER_HOST_DELAY_SECONDS = 0.4
+# A host is dealt into more than one queue once it holds more links than this, and
+# into no more than PER_HOST_WORKERS of them. One host at a time was the original
+# rule and it still holds for every host under the threshold — which, on
+# 2026-10-17, was every host but one.
+#
+# It had to give because the sweep is only ever as long as its deepest queue, and
+# jobright.ai had quietly become 507 of the 1,044 links here while the next host
+# down held 56. Serial, that one host was 8.8 minutes of a 10.4-minute run.
+#
+# 6 and 100 are measured, not guessed. Probing all 507 at six workers, each still
+# pacing its own queue at PER_HOST_DELAY_SECONDS, took 94s against 527s serial and
+# returned **507 alive, nothing dead, nothing unknown** — no sign of the generic
+# shell that made this serial in the first place. A 60-link sample at 2, 4 and 8
+# workers was likewise clean. The shell was seen at 16 unpaced workers, so the
+# headroom between 6 paced and 16 unpaced is real but untested; raise these with a
+# fresh measurement rather than on the strength of this one.
+PER_HOST_WORKERS = 6
+PER_HOST_DEPTH = 100
 DEAD_CODES = frozenset({404, 410})
 # HEAD is cheap but not universally implemented; these mean "ask again with GET".
 RETRY_WITH_GET = frozenset({403, 405, 501})
@@ -129,15 +147,40 @@ def _sweep(urls: list[str]) -> dict[str, bool | None]:
     return verdicts
 
 
+def _queues(by_host: dict[str, list[str]]) -> list[list[str]]:
+    """The work the pool is handed: one queue per host, except that a host holding
+    more than PER_HOST_DEPTH links is dealt into several.
+
+    Dealt round-robin rather than sliced into blocks so that every queue on a host
+    is within one link of the others. A block split would leave one short queue
+    finishing early and buy nothing, since the sweep waits for the deepest.
+
+    Deepest queue first, because the pool is only WORKERS wide: a long queue that
+    happened to be handed out last would extend the whole sweep by its own length,
+    which is the same mistake as not splitting it at all.
+    """
+    queues: list[list[str]] = []
+    for urls in by_host.values():
+        parts = min(PER_HOST_WORKERS, max(1, -(-len(urls) // PER_HOST_DEPTH)))
+        queues.extend(urls[offset::parts] for offset in range(parts))
+    queues.sort(key=len, reverse=True)
+    return queues
+
+
 def dead_links(urls: list[str]) -> set[str]:
     """Only links a host positively reported as gone, and only after saying so
     twice.
 
     Hammered with 16 parallel requests, Jobright served its generic shell for 41
     of 83 live postings — every one of which came back alive when asked again on
-    its own. So hosts are swept in parallel with each other but one link at a
-    time within a host, and anything that still looks dead is asked once more
-    before a row is deleted over it.
+    its own. So a host's links are paced 0.4s apart within each queue, a host gets
+    more than one queue only once it is big enough to set the pace of the whole
+    sweep (see PER_HOST_WORKERS), and anything that still looks dead is asked once
+    more, alone, before a row is deleted over it.
+
+    That last pass is what makes the splitting safe as well as merely faster: a
+    shell served under load is a `False` that the confirmation re-asks on a quiet
+    connection, and a link that comes back alive there is never deleted.
     """
     # A cell holding something other than a link — a note, a stray "." — is not a
     # posting any host can be asked about, so it is never reported dead.
@@ -150,7 +193,7 @@ def dead_links(urls: list[str]) -> set[str]:
 
     verdicts: dict[str, bool | None] = {}
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        for part in pool.map(_sweep, by_host.values()):
+        for part in pool.map(_sweep, _queues(by_host)):
             verdicts.update(part)
 
     confirmed = set()

@@ -11,10 +11,6 @@ on:
         description: "Report what is wrong with the App tab, and sync nothing"
         type: boolean
         default: false
-      link_check:
-        description: "Run the liveness sweep on this run even outside its two daily slots"
-        type: boolean
-        default: false
 
 # There is no schedule here on purpose. GitHub delivered its cron firings a median
 # 25 minutes late over 21-27 August 2026 — p90 74, worst 106 — which a 45-minute
@@ -53,13 +49,14 @@ jobs:
     # 2026, p90 251s, worst 369s. The default ceiling is six hours, so one hung run
     # would eat 12% of the month's 3,000 minutes before Actions gave up on it.
     #
-    # Left at 15 deliberately now that two runs a day sweep links and the rest do
-    # not. An unswept run is back to about two minutes; a swept one was 10m26s on
-    # 2026-10-17 and grows with the jobright bucket at roughly 16s a day, so it
-    # reaches this ceiling around mid-November 2026 and starts failing. That is the
-    # intended alarm rather than an oversight: raising the ceiling would hide a
-    # sweep that has outgrown being serial, and the fix at that point is to stop
-    # probing one host one link at a time, not to wait longer for it.
+    # Still 15 after the sweep was parallelised per host. A run is back to about
+    # four minutes — a 122s crawl and sheet write plus a 94s sweep, measured
+    # 2026-10-18 — so this is roughly a factor of four of headroom, and it is left
+    # where it is rather than tightened because the ceiling exists to catch a hung
+    # host, not to police the normal run. The sweep is now bounded by the depth of
+    # a queue rather than by the size of a host, so the growth that took the run
+    # from 3 minutes to 10 over a month no longer compounds the same way: the
+    # jobright bucket has to pass 600 links before its queues deepen at all.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -71,45 +68,17 @@ jobs:
       # that needed it: every run now arrives either from the external scheduler,
       # which only fires inside the window, or from a person asking for one.
       #
-      # --skip-link-check on fifteen of the seventeen runs, because the liveness
-      # sweep is the only step here that grew without anyone changing it. It costs
-      # one request per unsettled row, and those requests are deliberately serial
-      # within a host, so the run is as long as its largest host bucket. On
-      # 2026-10-17 that bucket was jobright.ai with 507 of the 1,044 swept links:
-      # at a measured 0.46s per check plus the 0.4s pacing, 7.3 minutes of the
-      # 10m26s run, against 0.6 minutes for the next host down. Every jobright
-      # posting the crawl adds is another 0.86s on all seventeen runs, which is
-      # what walked a 3-minute run in mid-September up to 10 by mid-October and
-      # spent the month's 3,000 Actions minutes on the 17th.
-      #
-      # 10:30 and 16:30 ET are the two slots that sweep. They are picked because
-      # the 45-minute cadence puts exactly one firing in each of those hours — 09,
-      # 12, 15 and 18 hold two — so the gate gives two sweeps a day rather than
-      # four, and a mid-hour slot leaves 29 minutes of slack for a late dispatch.
-      #
-      # Nothing in job_sync changed. --skip-link-check is main.py's own flag and
-      # a swept run reaches exactly the verdicts it always did; what the gate
-      # trades away is removal latency. A posting the board has taken down can now
-      # sit in the sheet for up to six hours, which is what the Expired checkbox
-      # is for. Pass link_check to force a sweep on a run in between.
-      - name: Sync the sheet
-        run: |
-          set -euo pipefail
-          hour=$(TZ=America/New_York date +%H)
-          sweep="--skip-link-check"
-          if [ "${{ inputs.link_check }}" = "true" ]; then
-            sweep=""
-            echo "Liveness sweep: on, asked for by hand."
-          else
-            case "$hour" in
-              10|16) sweep="" ;;
-            esac
-            echo "ET hour ${hour}; liveness sweep: $([ -z "$sweep" ] && echo on || echo off)."
-          fi
-          internship-sync \
-            $sweep \
-            ${{ inputs.rebuild && '--rebuild' || '' }} \
-            ${{ inputs.audit_app && '--audit-app' || '' }}
+      # Every run sweeps links again, as it always did. It briefly did not: between
+      # 2026-10-18 and 10-19 this step passed --skip-link-check on fifteen of the
+      # seventeen runs, because a serial sweep of jobright.ai's 507 links had taken
+      # the run to 10m26s and spent the month's 3,000 Actions minutes on the 17th.
+      # That gate is gone because the sweep itself was fixed: liveness.py now deals
+      # a host that big across six paced queues, measured at 94s against 527s, so
+      # the saving no longer has to come out of how often the sheet is checked.
+      - run: >-
+          internship-sync
+          ${{ inputs.rebuild && '--rebuild' || '' }}
+          ${{ inputs.audit_app && '--audit-app' || '' }}
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}

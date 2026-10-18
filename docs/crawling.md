@@ -336,9 +336,11 @@ Three layers of protection against deleting the wrong thing:
   **kept**.
 - **Ask a second time.** Hit with 16 parallel requests, Jobright once returned the
   generic shell for 41 of 83 live postings — all of which came back alive when asked
-  on their own. So hosts are scanned in parallel with each other but sequentially
-  within a host, and any row that still looks dead is asked once more before it is
-  deleted.
+  on their own. So requests on one host are paced 0.4s apart, a host gets more than
+  one queue only once it is big enough to set the pace of the whole sweep, and any
+  row that still looks dead is asked once more, alone, before it is deleted. That
+  second ask is what makes the splitting safe: a shell served under load costs one
+  extra request, not a live posting.
 - **A cell that is not a link is not asked.** A note or a stray full stop is not a
   posting at all.
 
@@ -371,8 +373,8 @@ around 1,350 of them, serialised within each host.
 > variable. Because each host is probed one link at a time, a run is as long as its
 > **largest single host bucket**, and that is what had been growing. Measured against the
 > live `Jobs` tab on 2026-10-17: 1,044 swept links over 204 hosts, of which **507 were
-> `jobright.ai`** and the next host down held 56. At a median 0.46s per `check` plus the
-> 0.4s pacing, that one bucket is 7.3 minutes; the runner-up is 0.6. Daily median run time
+> `jobright.ai`** and the next host down held 56. At a measured 1.04s a link including the
+> 0.4s pacing, that one bucket is 8.8 minutes; the runner-up is 1.0. Daily median run time
 > rose monotonically from 192s on 13 September to 736s on 17 October, which is the shape of
 > a bucket filling up, not of hosts getting slower. Seven to ten minutes was a regression
 > after all, and treating it as normal is what let it reach twelve and spend the month's
@@ -410,25 +412,42 @@ also past the gap: moving only the `App` read earlier would have handed the stal
 to the write instead, which is the worse place to lose it.
 
 If the sweep keeps getting slower it will start approaching the workflow's 15-minute
-timeout, which the reconnect does nothing about. `WORKERS` and `PER_HOST_DELAY_SECONDS`
-in [`liveness.py`](../job_sync/liveness.py) are the dials for that.
+timeout, which the reconnect does nothing about. `WORKERS`, `PER_HOST_WORKERS`,
+`PER_HOST_DEPTH` and `PER_HOST_DELAY_SECONDS` in
+[`liveness.py`](../job_sync/liveness.py) are the dials for that — and the section below
+is what happened when it did.
 
-### The sweep now runs twice a day
+### One oversized host was the whole cost, and splitting it fixed the run
 
-It did get slower, and the answer for now was to ask less often rather than to change how
-it asks. `sync.yml` passes `--skip-link-check` on every run but the two whose ET hour is
-`10` or `16`, which under the 45-minute cadence means the 10:30 and 16:30 slots — the two
-hours holding exactly one firing each, with 29 minutes of slack for a late dispatch. The
-`link_check` workflow input forces a sweep on any run in between.
+The sweep is as long as its **deepest queue**, which for a long time was the same thing as
+its biggest host. Measured against the live `Jobs` tab on 2026-10-17: 1,044 links over 204
+hosts, of which **507 were `jobright.ai`** and the next host down held 56. One queue of 507
+at 1.04s a link is 8.8 of a 10m26s run. Every Jobright link the crawl added — about nineteen
+a day — was another 1.04s on all seventeen daily runs, which is what walked a 3-minute run
+in mid-September to 10 by mid-October and spent the month's 3,000 Actions minutes on the 17th.
 
-Nothing in `liveness.py` or `sheet.py` changed, so a run that does sweep reaches exactly
-the verdicts it always did. What the gate trades away is removal latency: a posting the
-board has taken down can sit in the sheet for up to six hours, which is what
-[the `Expired` column](spreadsheet.md#column-g--expired) is for.
+`_queues` deals a host over `PER_HOST_DEPTH = 100` links round-robin into up to
+`PER_HOST_WORKERS = 6` queues, longest handed out first, each still pacing itself 0.4s apart.
+A host under the threshold stays a single queue, which on that day was every host but one.
 
-This is a schedule fix, not a fix to the sweep. The Jobright bucket keeps filling at
-roughly nineteen links a day — about +16s per run per day — so a swept run reaches the
-15-minute ceiling around mid-November 2026. The timeout is left at 15 on purpose, as the
-alarm for that. The real fix when it rings is to give a large bucket some concurrency
-instead of probing it one link at a time, leaning on the second confirmation pass, which
-already re-asks every apparent death on its own and would catch a shell served under load.
+Measured over the whole 507-link bucket at six queues:
+
+```
+serial          527s      six paced queues   94s
+false deaths      0       false deaths        0      unknown  0
+```
+
+All 507 came back alive, with no sign of the generic shell — and a 60-link sample at 2, 4 and
+8 workers was clean as well. A run is back to about four minutes: a 122s crawl and sheet write
+plus a 94s sweep. **Every run sweeps again**, so nothing is traded away in freshness.
+
+Two things to keep in mind before touching the dials. The shell was originally seen at *16
+unpaced* requests, and six paced queues is a long way short of that, but the gap is untested —
+move these with a fresh measurement, not on the strength of this one. And the growth is now
+bounded differently: Jobright has to pass 600 links before its queues deepen at all, where
+before every single link added time to every run.
+
+> **A gate lived here for a day.** Between 18 and 19 October 2026, `sync.yml` passed
+> `--skip-link-check` on fifteen of the seventeen runs so that only the 10:30 and 16:30 ET
+> slots swept. It was a stopgap while October's Actions minutes were already spent, and it
+> bought the time back out of freshness. It is gone: the sweep was fixed instead.

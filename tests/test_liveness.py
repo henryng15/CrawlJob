@@ -173,3 +173,52 @@ def test_a_reply_carrying_no_http_status_is_unknown(monkeypatch) -> None:
 
     monkeypatch.setattr(liveness.urllib.request, "urlopen", lambda *a, **k: Statusless())
     assert check("https://job-boards.greenhouse.io/acme/jobs/1") is None
+
+
+def _host_queues(count: int) -> list[list[str]]:
+    urls = [f"https://jobright.ai/jobs/info/{number}" for number in range(count)]
+    return liveness._queues({"jobright.ai": urls})
+
+
+def test_a_small_host_is_still_probed_one_link_at_a_time() -> None:
+    """The original rule, and the one that holds for all but a handful of hosts.
+    On 2026-10-17 every host here but jobright.ai was under the threshold."""
+    assert len(_host_queues(liveness.PER_HOST_DEPTH)) == 1
+    assert len(_host_queues(1)) == 1
+
+
+def test_a_host_past_the_threshold_is_dealt_into_queues() -> None:
+    assert len(_host_queues(liveness.PER_HOST_DEPTH + 1)) == 2
+    assert len(_host_queues(507)) == liveness.PER_HOST_WORKERS
+
+
+def test_the_split_is_capped_however_big_the_host_gets() -> None:
+    """Otherwise a host that doubled would double the requests in flight, which is
+    the load that made Jobright serve its generic shell."""
+    assert len(_host_queues(100_000)) == liveness.PER_HOST_WORKERS
+
+
+def test_queues_on_one_host_are_within_a_link_of_each_other() -> None:
+    """Dealt round-robin, not sliced: the sweep waits for the deepest queue, so a
+    block split that left one queue short would buy nothing."""
+    lengths = [len(queue) for queue in _host_queues(507)]
+    assert max(lengths) - min(lengths) <= 1
+    assert sum(lengths) == 507
+
+
+def test_no_link_is_probed_twice_and_none_is_dropped() -> None:
+    queues = _host_queues(507)
+    flat = [url for queue in queues for url in queue]
+    assert len(flat) == len(set(flat)) == 507
+
+
+def test_the_deepest_queue_is_handed_out_first() -> None:
+    """The pool is WORKERS wide. A long queue scheduled last would extend the whole
+    sweep by its own length, which is the mistake splitting it was meant to fix."""
+    by_host = {
+        "small.example": ["https://small.example/1"],
+        "jobright.ai": [f"https://jobright.ai/jobs/info/{n}" for n in range(507)],
+        "medium.example": [f"https://medium.example/{n}" for n in range(56)],
+    }
+    lengths = [len(queue) for queue in liveness._queues(by_host)]
+    assert lengths == sorted(lengths, reverse=True)

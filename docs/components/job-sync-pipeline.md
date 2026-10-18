@@ -13,12 +13,11 @@ The entry point and the three filters that decide whether a posting belongs in t
   seventeen times a day. `sync.yml` has no `schedule:` of its own on purpose: GitHub delivered its
   cron firings a median 25 minutes late (p90 74, worst 106) over 21–27 August 2026, which a
   45-minute cadence cannot absorb. A dispatch starts at once.
-- **Sweeps links twice a day, not seventeen times.** `sync.yml` passes
-  `--skip-link-check` on every run except the two whose ET hour is `10` or `16`, so the
-  liveness probe happens at the 10:30 and 16:30 slots and nowhere else. Those two hours
-  are the gate because the 45-minute cadence puts exactly one firing in each of them —
-  09, 12, 15 and 18 hold two apiece — and a mid-hour slot leaves 29 minutes of slack for
-  a late dispatch. The `link_check` input forces a sweep on any run in between.
+- **Sweeps links on every run**, as it always did. For one day — 18 to 19 October 2026 —
+  it did not: `sync.yml` passed `--skip-link-check` on fifteen of the seventeen runs
+  while a serial sweep of one oversized host was taking the run to 10m26s. That gate was
+  removed once `liveness.py` was fixed to split a large host across queues; see
+  *What the sweep costs* below.
 
 ## `main.py`
 
@@ -30,10 +29,10 @@ The entry point and the three filters that decide whether a posting belongs in t
 **Flags:** `--skip-link-check` (no liveness probe), `--no-boards` (Markdown trackers only),
 `--rebuild` (discard existing rows), `--audit-app` (report `App` problems and sync nothing).
 
-`--skip-link-check` is the one the workflow now passes on fifteen of the seventeen daily
-runs, for the cost reason in `liveness.py` below. It is a supported path rather than a
-corner: `sheet.append_new_jobs` reconnects to Sheets **inside** the `verify_links` branch
-precisely because skipping the sweep leaves no idle gap to reconnect across.
+`--skip-link-check` is a supported path rather than a corner, and worth knowing about
+even though the workflow does not pass it: `sheet.append_new_jobs` reconnects to Sheets
+**inside** the `verify_links` branch precisely because skipping the sweep leaves no idle
+gap to reconnect across. It is the flag to reach for when a sync is wanted in a hurry.
 
 `--scheduled` (exit outside the window) is still in the CLI but **the workflow no longer passes
 it** — the window moved to the cron-job.org schedule, so `in_working_window` is now dead code on
@@ -78,27 +77,41 @@ Recruitee identifiers live in `data/public_feeds.toml`.
 | `workday_api(url)` | The CXS endpoint behind a Workday page — the page itself renders in JS and always looks alive. |
 | `_fetch(url)` | One HTTP request. |
 | `check(url)` | `True` if the posting is there, `False` if the host says it is gone, `None` if unknown. |
-| `_sweep(urls)` | Check many at once. |
+| `_sweep(urls)` | One queue, start to finish, paced `PER_HOST_DELAY_SECONDS` apart. |
+| `_queues(by_host)` | The work handed to the pool: one queue per host, but a host over `PER_HOST_DEPTH` dealt round-robin into up to `PER_HOST_WORKERS`. Deepest first, because the pool is only `WORKERS` wide. |
 | `dead_links(urls)` | Only links a host **positively** reported gone. `None` never removes a row. |
 
 The three-state return is the whole design: a network failure must not delete a live posting.
 
-**What the sweep costs, and why it is gated.** `dead_links` groups links by host and probes
-the hosts in parallel (`WORKERS = 12`) but each host's links strictly one at a time, with
-`PER_HOST_DELAY_SECONDS = 0.4` between them — the pacing that stopped Jobright serving its
-generic shell for 41 of 83 live postings. So a run is as long as its **largest single host
-bucket**, not as long as the average.
+**What the sweep costs.** `dead_links` hands the pool one queue per host, paced
+`PER_HOST_DELAY_SECONDS = 0.4` apart within a queue, so **a run is as long as its deepest
+queue** — not as long as the average, and not as long as the total.
 
-Measured on 2026-10-17 against the live `Jobs` tab: 1,044 swept links across 204 hosts, of
-which **507 were `jobright.ai`** and the next host down, `job-boards.greenhouse.io`, held 56.
-At a median 0.46s per `check` plus the 0.4s pacing, that one bucket is 7.3 minutes against
-0.6 for the runner-up. It is the whole reason the run went from a 192s median in mid-September
-to 736s a month later: the crawl adds roughly nineteen Jobright links a day, each one +0.86s
-on *every* run. Seventeen such runs a day spent the month's 3,000 Actions minutes on the 17th,
-with two weeks of October left.
+That is why one host could set the price of the whole thing. Measured on 2026-10-17 against
+the live `Jobs` tab: 1,044 swept links across 204 hosts, of which **507 were `jobright.ai`**
+while the next host down, `job-boards.greenhouse.io`, held 56. One queue of 507 at 1.04s a
+link is 8.8 minutes; the runner-up is 0.6. That single bucket is the whole reason the run
+went from a 192s median in mid-September to 736s a month later — the crawl adds roughly
+nineteen Jobright links a day, each one +1.04s on *every* run — and seventeen such runs a day
+spent the month's 3,000 Actions minutes on the 17th with two weeks of October left.
 
-Gating the sweep to two runs a day is a schedule fix, not a fix to this module — the bucket
-keeps growing, and a swept run reaches `sync.yml`'s 15-minute ceiling around mid-November 2026.
-The fix at that point is inside `dead_links`: probe a large bucket with some concurrency rather
-than one link at a time, and lean on the second confirmation pass, which already re-asks every
-apparent death on its own and would catch a shell served under load.
+`_queues` is the fix. A host over `PER_HOST_DEPTH = 100` links is dealt round-robin into up
+to `PER_HOST_WORKERS = 6` queues, deepest queue handed out first; a host under the threshold
+is one queue, exactly as before. Jobright's 507 became six queues of 85 and the sweep went
+from 527s to **94s measured**, with all 507 returning alive — no dead, no unknown, no sign of
+the generic shell. A 60-link sample at 2, 4 and 8 workers was clean too.
+
+| | serial | six paced queues |
+|---|---|---|
+| jobright.ai, 507 links | 527s | **94s** |
+| false deaths | 0 | **0** |
+
+The splitting is safe because of the pass that was already there: an apparent death is
+re-asked alone on a quiet connection before any row is deleted, so a shell served under load
+costs a second request rather than a live posting.
+
+**The dials, and what it would take to move them.** 6 and 100 are measured on one day against
+one host. The shell was originally seen at *16 unpaced* workers, so there is real headroom
+between that and six paced — but it is untested, and raising these wants a fresh measurement
+rather than this one. Growth is also bounded differently now: Jobright has to pass 600 links
+before its queues deepen at all, where before every single link added time.
